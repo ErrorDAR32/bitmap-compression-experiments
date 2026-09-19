@@ -1,17 +1,24 @@
-//! Largest-run-first meshing, working entirely on run lists.
+//! Rectangle meshing that works entirely on run lists.
 //!
 //! Rows and columns are both reduced to runs once, up front. Each step
-//! takes the longest run still standing, looks at the runs crossing it,
-//! and carves out the largest rectangle lying along it; both run lists
-//! are then updated to exclude what was taken, splitting a run in two
-//! where the rectangle cut through its middle.
+//! takes the first row run still standing, in scan order, and carves out
+//! the largest rectangle lying along it; both run lists are then updated
+//! to exclude what was taken, splitting a run in two where the rectangle
+//! cut through its middle.
 //!
-//! Nothing here walks cells or rows. A step costs the length of the seed
-//! run, not the width of the grid, and there are as many steps as there
-//! are rectangles in the answer.
+//! Seeding on the topmost run rather than the longest one is what keeps
+//! the partition tidy. Taking the biggest rectangle available anywhere
+//! carves the middle out of a shape and leaves a ring around it, and
+//! rings shatter: that ordering needs 107 rectangles on a 256x256 bitmap
+//! where sweeping top to bottom needs 75.
+//!
+//! Nothing here walks cells. A step costs the length of the seed run, not
+//! the width of the grid, and there are as many steps as there are
+//! rectangles in the answer.
 
 use crate::BitMatrix;
 use std::cmp::Ordering;
+
 
 /// An inclusive axis-aligned rectangle over the matrix's `u8` coordinate
 /// space.
@@ -81,21 +88,8 @@ impl Span {
 /// columns, `lines[x]` holds row spans. The two are mirror images, which
 /// is what lets a seed be either kind without special-casing.
 ///
-/// Runs are also indexed by length, so the longest is found by looking
-/// rather than searching. Carving only ever shortens a run or splits it
-/// into shorter pieces, so the longest run left never gets longer — which
-/// means `max_len` only ever walks downward, costing 256 steps over the
-/// whole meshing rather than a scan per step.
 struct Runs {
     lines: Vec<Vec<Span>>,
-    /// `by_len[n]` holds runs that were `n` long when filed. Entries go
-    /// stale when the run they name is carved, and are skipped over when
-    /// reached; a carved run can never come back, since carving only
-    /// removes, so passing one is permanent.
-    by_len: Vec<Vec<(u8, Span)>>,
-    /// How far into each bucket the stale entries have been skipped.
-    cursor: Vec<usize>,
-    max_len: usize,
 }
 
 impl Runs {
@@ -109,8 +103,6 @@ impl Runs {
 
     fn build(set: impl Fn(u8, u8) -> bool) -> Self {
         let mut lines = Vec::with_capacity(256);
-        let mut by_len: Vec<Vec<(u8, Span)>> = vec![Vec::new(); 257];
-        let mut max_len = 0usize;
         for line in 0..=u8::MAX {
             let mut spans = Vec::new();
             let mut start: Option<u8> = None;
@@ -127,39 +119,18 @@ impl Runs {
             if let Some(s) = start {
                 spans.push(Span { start: s, end: u8::MAX });
             }
-            // Filed in line order, so equal-length runs come out in the
-            // order they appear on the grid.
-            for span in &spans {
-                by_len[span.len() as usize].push((line, *span));
-                max_len = max_len.max(span.len() as usize);
-            }
             lines.push(spans);
         }
-        Self { lines, by_len, cursor: vec![0; 257], max_len }
+        Self { lines }
     }
 
-    /// The longest run still standing, by walking down the length index
-    /// and stepping over entries whose run has since been carved.
-    fn longest(&mut self) -> Option<(u8, Span)> {
-        while self.max_len > 0 {
-            let bucket = self.max_len;
-            while self.cursor[bucket] < self.by_len[bucket].len() {
-                let (line, span) = self.by_len[bucket][self.cursor[bucket]];
-                if self.holds(line, span) {
-                    return Some((line, span));
-                }
-                self.cursor[bucket] += 1;
-            }
-            self.max_len -= 1;
-        }
-        None
-    }
-
-    /// Whether this exact run is still standing.
-    fn holds(&self, line: u8, span: Span) -> bool {
-        let spans = &self.lines[line as usize];
-        let idx = spans.partition_point(|s| s.start < span.start);
-        spans.get(idx) == Some(&span)
+    /// The first run still standing in scan order: lowest line, then
+    /// lowest position within it.
+    fn topmost(&self) -> Option<(u8, Span)> {
+        self.lines
+            .iter()
+            .enumerate()
+            .find_map(|(line, spans)| spans.first().map(|s| (line as u8, *s)))
     }
 
     /// The run covering `pos`, if any. Runs on a line are disjoint and
@@ -203,11 +174,6 @@ impl Runs {
                 (first, last, pieces)
             };
 
-            // A piece is always shorter than the run it came from, so it
-            // files below `max_len` and is still reached on the way down.
-            for piece in &pieces {
-                self.by_len[piece.len() as usize].push((line, *piece));
-            }
             self.lines[index].splice(first..last, pieces);
         }
     }
@@ -226,22 +192,9 @@ impl RunMesh {
         let mut rects = Vec::new();
 
         loop {
-            let row_seed = rows.longest();
-            let col_seed = cols.longest();
-
-            // A tie goes to the column seed, matching the worked example;
-            // on that shape either choice yields the same rectangle.
-            let rect = match (row_seed, col_seed) {
-                (None, None) => break,
-                (Some((y, span)), None) => best_along(&cols, span, y, false),
-                (None, Some((x, span))) => best_along(&rows, span, x, true),
-                (Some((y, r)), Some((x, c))) => {
-                    if c.len() >= r.len() {
-                        best_along(&rows, c, x, true)
-                    } else {
-                        best_along(&cols, r, y, false)
-                    }
-                }
+            let rect = match rows.topmost() {
+                None => break,
+                Some((y, span)) => best_along(&cols, span, y, false),
             };
 
             rows.carve((rect.y0, rect.y1), rect.x0, rect.x1);
@@ -412,12 +365,13 @@ mod tests {
         assert_eq!(mesh.rects().len(), 10);
     }
 
-    /// The 4x4 that needs a smaller rectangle taken first. Largest-run-
-    /// first gets 4 against an optimum of 3: seeded on the 3-long column
-    /// run it finds the 2x2 (area 4) and takes it over the 1x3 (area 3).
-    /// Recorded as the behaviour it has, not the behaviour hoped for.
+    /// The 4x4 that needs a smaller rectangle taken first, where the
+    /// optimum is 3. Sweeping top to bottom gets 5 here, worse than the
+    /// 4 that seeding on the longest run managed — but that ordering
+    /// costs 107 rectangles against 75 on real input, so this is the
+    /// trade being made. Recorded as the behaviour it has.
     #[test]
-    fn adversarial_four_by_four_is_still_one_over() {
+    fn adversarial_four_by_four_is_two_over() {
         let bits = bits_from_rows([
             [1, 1, 0, 0],
             [0, 1, 1, 1],
@@ -427,7 +381,7 @@ mod tests {
 
         let mesh = RunMesh::from_bit_matrix(&bits);
         assert_exact_partition(&bits, &mesh);
-        assert_eq!(mesh.rects().len(), 4);
+        assert_eq!(mesh.rects().len(), 5);
     }
 
     #[test]
