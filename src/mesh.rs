@@ -118,6 +118,25 @@ impl RectMesh {
     }
 }
 
+/// A rearrangement that clears the way for a new rectangle: the indices
+/// that go, and the replacements that take their place.
+struct Swap {
+    removed: Vec<usize>,
+    added: Vec<Rect>,
+}
+
+/// Every cell of `old` must end up under `replacement` or `ideal`.
+fn covers_old(old: Rect, replacement: Rect, ideal: Rect) -> bool {
+    for y in old.y0..=old.y1 {
+        for x in old.x0..=old.x1 {
+            if !replacement.contains(x, y) && !ideal.contains(x, y) {
+                return false;
+            }
+        }
+    }
+    true
+}
+
 /// A top-to-bottom meshing pass.
 struct Mesher<'a> {
     source: &'a BitMatrix,
@@ -231,92 +250,108 @@ impl<'a> Mesher<'a> {
         self.recurse_around(row, col_lo, col_hi, fallback);
     }
 
-    /// Tries to make room for `ideal` by replacing one rectangle in its way
-    /// with a runner-up that rectangle recorded when it was chosen.
+    /// Tries to make room for `ideal` by having every rectangle in its way
+    /// step aside to one of the runners-up it recorded when it was chosen.
     ///
-    /// A replacement is only allowed when it strands nothing: every cell
-    /// the old rectangle held must be picked up by either the replacement
-    /// or `ideal`. It is taken when it costs no more rectangles than it
-    /// saves — the replacement may reach over neighbours, and any it
-    /// swallows whole disappear, which is where the saving comes from.
-    fn try_swap(&mut self, overlapping: &[usize], ideal: Rect, alternatives: &[Rect]) -> bool {
-        // Only a single obstruction can be negotiated away. With two, moving
-        // one aside still leaves `ideal` overlapping the other, and nothing
-        // here clips that second one back.
-        if overlapping.len() != 1 {
+    /// The plan is worked out in full before anything is touched, so the
+    /// rearrangement either applies whole or not at all.
+    fn try_swap(&mut self, obstructions: &[usize], ideal: Rect, alternatives: &[Rect]) -> bool {
+        let Some(swap) = self.plan_swap(obstructions, ideal) else {
             return false;
+        };
+
+        let mut doomed = swap.removed;
+        doomed.sort_unstable_by(|a, b| b.cmp(a));
+        for j in doomed {
+            let gone = self.rects[j];
+            self.claimed.unset_rect(gone.x0 as i64, gone.y0 as i64, gone.x1 as i64, gone.y1 as i64);
+            self.rects.remove(j);
+            self.alternatives.remove(j);
         }
-
-        for &i in overlapping {
-            let old = self.rects[i];
-            for &replacement in self.alternatives[i].clone().iter() {
-                if replacement.overlaps(&ideal) || !self.swap_covers_old(old, replacement, ideal) {
-                    continue;
-                }
-                let Some(absorbed) = self.absorbed_by(replacement, i) else {
-                    continue;
-                };
-
-                // One rectangle leaves for every one swallowed, and `ideal`
-                // arrives, so this pays off once anything is swallowed.
-                if absorbed.is_empty() {
-                    continue;
-                }
-
-                let mut doomed = absorbed;
-                doomed.push(i);
-                doomed.sort_unstable_by(|a, b| b.cmp(a));
-                for j in doomed {
-                    let gone = self.rects[j];
-                    self.claimed.unset_rect(
-                        gone.x0 as i64,
-                        gone.y0 as i64,
-                        gone.x1 as i64,
-                        gone.y1 as i64,
-                    );
-                    self.rects.remove(j);
-                    self.alternatives.remove(j);
-                }
-
-                self.commit_with(replacement, Vec::new());
-                self.commit_with(ideal, alternatives.to_vec());
-                return true;
-            }
+        for replacement in swap.added {
+            self.commit_with(replacement, Vec::new());
         }
-        false
-    }
-
-    /// Every cell of `old` must end up under `replacement` or `ideal`.
-    fn swap_covers_old(&self, old: Rect, replacement: Rect, ideal: Rect) -> bool {
-        for y in old.y0..=old.y1 {
-            for x in old.x0..=old.x1 {
-                if !replacement.contains(x, y) && !ideal.contains(x, y) {
-                    return false;
-                }
-            }
-        }
+        self.commit_with(ideal, alternatives.to_vec());
         true
     }
 
-    /// Which rectangles `replacement` would consume, or `None` if it would
-    /// only partly cover one — a partial bite would have to clip it, which
-    /// is the very fragmentation this is trying to avoid.
-    fn absorbed_by(&self, replacement: Rect, skip: usize) -> Option<Vec<usize>> {
-        let mut absorbed = Vec::new();
-        for (j, other) in self.rects.iter().enumerate() {
-            if j == skip || !other.overlaps(&replacement) {
+    /// Finds a replacement for each rectangle in `ideal`'s way, such that
+    /// afterwards nothing overlaps and no cell is stranded:
+    ///
+    /// - a replacement may not touch `ideal`, another replacement, or any
+    ///   rectangle that survives;
+    /// - every cell of the rectangle it replaces must end up under either
+    ///   the replacement or `ideal`;
+    /// - a replacement may reach over neighbours, but only ones it swallows
+    ///   whole — biting into one would need a clip, which is the
+    ///   fragmentation this exists to avoid.
+    ///
+    /// Swallowed neighbours are what make the trade worth taking, so the
+    /// plan is only worth applying if more rectangles leave than arrive.
+    fn plan_swap(&self, obstructions: &[usize], ideal: Rect) -> Option<Swap> {
+        let mut removed: Vec<usize> = Vec::new();
+        let mut added: Vec<Rect> = Vec::new();
+
+        for &i in obstructions {
+            if removed.contains(&i) {
+                // An earlier replacement already swallowed this one whole.
                 continue;
             }
-            let swallowed = other.x0 >= replacement.x0
+
+            let old = self.rects[i];
+            let mut stepped_aside = false;
+            for &replacement in &self.alternatives[i] {
+                if replacement.overlaps(&ideal)
+                    || added.iter().any(|a| replacement.overlaps(a))
+                    || !covers_old(old, replacement, ideal)
+                {
+                    continue;
+                }
+                let Some(swallowed) = self.swallowed_by(replacement, i, &removed) else {
+                    continue;
+                };
+
+                removed.push(i);
+                removed.extend(swallowed);
+                added.push(replacement);
+                stepped_aside = true;
+                break;
+            }
+
+            if !stepped_aside {
+                return None;
+            }
+        }
+
+        if removed.len() < added.len() + 1 {
+            return None;
+        }
+        Some(Swap { removed, added })
+    }
+
+    /// Rectangles `replacement` would consume whole, or `None` if it would
+    /// bite into one.
+    fn swallowed_by(
+        &self,
+        replacement: Rect,
+        skip: usize,
+        already_gone: &[usize],
+    ) -> Option<Vec<usize>> {
+        let mut swallowed = Vec::new();
+        for (j, other) in self.rects.iter().enumerate() {
+            if j == skip || already_gone.contains(&j) || !other.overlaps(&replacement) {
+                continue;
+            }
+            let whole = other.x0 >= replacement.x0
                 && other.x1 <= replacement.x1
                 && other.y0 >= replacement.y0
                 && other.y1 <= replacement.y1;
-            if !swallowed {
+            if !whole {
                 return None;
             }
-            absorbed.push(j);
+            swallowed.push(j);
         }
-        Some(absorbed)
+        Some(swallowed)
     }
 
     fn clip_all(&mut self, overlapping: &[usize], row: u8) {

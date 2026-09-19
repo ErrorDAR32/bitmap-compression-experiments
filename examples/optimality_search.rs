@@ -133,7 +133,7 @@ fn main() {
         let mut memo = HashMap::new();
         let mut stats = Stats::new();
         let all = if n * n == 64 { u64::MAX } else { (1u64 << (n * n)) - 1 };
-        for _ in 0..20_000 {
+        for _ in 0..6_000 {
             let cells = next() & all;
             let opt = optimal_count(cells, n, &mut memo);
             stats.record(cells, opt, greedy_count(cells, n));
