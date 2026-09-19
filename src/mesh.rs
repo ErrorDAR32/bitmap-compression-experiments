@@ -68,7 +68,10 @@ impl Rect {
 /// Built by scanning rows top to bottom. At each row, for the columns not
 /// yet accounted for, it computes the best rectangle achievable *ignoring
 /// any already-committed rectangles* (ignoring claims lets it "see" a
-/// rectangle a still-growing earlier commitment is blocking). If that
+/// rectangle a still-growing earlier commitment is blocking), considering
+/// only candidates that would cover at least one not-yet-claimed cell — a
+/// candidate already fully covered is a subdivision of existing
+/// rectangles, not a new area. If that
 /// ideal candidate doesn't overlap anything yet claimed, it's committed
 /// outright. If it does, and it's at least as large as the biggest
 /// rectangle it would have to shrink, the blocking rectangle(s) are
@@ -119,7 +122,13 @@ fn process_range(
         return;
     }
 
-    let Some(ideal) = largest_rect_from_row(|x, y| source.get(x, y), row, col_lo, col_hi) else {
+    let Some(ideal) = largest_rect_from_row(
+        |x, y| source.get(x, y),
+        |x, y| !claimed.get(x, y),
+        row,
+        col_lo,
+        col_hi,
+    ) else {
         return;
     };
 
@@ -163,9 +172,13 @@ fn process_range(
         return;
     }
 
-    let Some(fallback) =
-        largest_rect_from_row(|x, y| source.get(x, y) && !claimed.get(x, y), row, col_lo, col_hi)
-    else {
+    let Some(fallback) = largest_rect_from_row(
+        |x, y| source.get(x, y) && !claimed.get(x, y),
+        |_, _| true,
+        row,
+        col_lo,
+        col_hi,
+    ) else {
         return;
     };
 
@@ -200,26 +213,39 @@ fn recurse_around(
 /// consecutive rows starting at `row` satisfy `is_set`. Standard
 /// largest-rectangle-in-histogram technique (monotonic stack), just
 /// rooted at a single row instead of accumulated across many.
+///
+/// Only rectangles covering at least one cell satisfying `is_gain` are
+/// considered, so a caller can rule out candidates that would merely
+/// subdivide cells some existing rectangle already covers.
 fn largest_rect_from_row(
     is_set: impl Fn(u8, u8) -> bool,
+    is_gain: impl Fn(u8, u8) -> bool,
     row: u8,
     col_lo: u8,
     col_hi: u8,
 ) -> Option<Rect> {
     let width = col_hi as usize - col_lo as usize + 1;
     let mut heights = vec![0u16; width];
-    for (i, height) in heights.iter_mut().enumerate() {
+    // Per column, how far below `row` the first `is_gain` cell sits, so a
+    // candidate of height h gains something iff some column it spans has
+    // a value below h. u16::MAX means the column offers nothing new.
+    let mut first_gain = vec![u16::MAX; width];
+
+    for i in 0..width {
         let x = col_lo + i as u8;
         let mut h: u16 = 0;
         let mut y = row;
         while is_set(x, y) {
+            if first_gain[i] == u16::MAX && is_gain(x, y) {
+                first_gain[i] = h;
+            }
             h += 1;
             if y == u8::MAX {
                 break;
             }
             y += 1;
         }
-        *height = h;
+        heights[i] = h;
     }
 
     let mut best: Option<Rect> = None;
@@ -240,7 +266,8 @@ fn largest_rect_from_row(
                 x1: col_lo + (i - 1) as u8,
                 y1: row + (sh - 1) as u8,
             };
-            if best.as_ref().is_none_or(|b| candidate.better_than(b)) {
+            let gains_something = first_gain[s..i].iter().any(|&g| g < sh);
+            if gains_something && best.as_ref().is_none_or(|b| candidate.better_than(b)) {
                 best = Some(candidate);
             }
             start = s;
@@ -347,6 +374,29 @@ mod tests {
         let mesh = RectMesh::from_bit_matrix(&bits);
         assert_round_trip(&bits, &mesh);
         assert_no_overlaps(&mesh);
+    }
+
+    /// A rectangle already fully covered is not a candidate at all, so it
+    /// cannot mask a smaller one that does add coverage. Here row 4's
+    /// biggest ignore-claims rectangle is rows 4-7 of the 4x6 block (24
+    /// cells), but every cell of it is already covered by that block, so
+    /// the real pick is the 2x4 spanning cols 5-6, which is big enough
+    /// (8 >= 5) to clip col 5's strip back to its first row.
+    #[test]
+    fn fully_covered_candidate_cannot_mask_a_smaller_real_one() {
+        let mut bits = BitMatrix::new();
+        bits.set_rect(0, 2, 3, 7);
+        bits.set_rect(5, 3, 5, 7);
+        bits.set_rect(6, 4, 6, 7);
+
+        let mesh = RectMesh::from_bit_matrix(&bits);
+        assert_round_trip(&bits, &mesh);
+        assert_no_overlaps(&mesh);
+
+        assert_eq!(mesh.rects().len(), 3);
+        assert!(mesh.rects().contains(&Rect { x0: 0, y0: 2, x1: 3, y1: 7 }));
+        assert!(mesh.rects().contains(&Rect { x0: 5, y0: 4, x1: 6, y1: 7 }));
+        assert!(mesh.rects().contains(&Rect { x0: 5, y0: 3, x1: 5, y1: 3 }));
     }
 
     /// The worked 8x8 example: a top-to-bottom scan that clips a couple of
