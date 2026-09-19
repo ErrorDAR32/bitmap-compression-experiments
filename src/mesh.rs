@@ -78,8 +78,17 @@ impl Rect {
 /// clipped back to end just above the current row and the ideal candidate
 /// takes over the freed cells; otherwise the clip isn't worth it and the
 /// best rectangle using only the genuinely unclaimed cells is committed
-/// instead. This is a naive greedy heuristic, not a minimum-rectangle
-/// solver (true minimum rectangle partition is NP-hard).
+/// instead.
+///
+/// This is a naive greedy heuristic, not a minimum-rectangle solver. It
+/// favours large, square-ish rectangles rather than few of them, and it
+/// cannot reach an optimum that requires taking a *smaller* rectangle
+/// first, so it uses more rectangles than necessary on roughly a tenth
+/// of all 4x4 bitmaps (see `examples/optimality_search.rs`). A true
+/// minimum partition into disjoint rectangles is not out of reach — it
+/// is polynomial, via maximum matching over the chords joining reflex
+/// vertices — it is just a different algorithm than this one. (Minimum
+/// *cover* by rectangles allowed to overlap is the NP-hard variant.)
 pub struct RectMesh {
     rects: Vec<Rect>,
 }
@@ -139,10 +148,11 @@ fn process_range(
         .map(|(i, _)| i)
         .collect();
 
-    let should_commit_ideal = match overlapping.iter().map(|&i| rects[i].area()).max() {
-        None => true,
-        Some(max_existing) => ideal.area() >= max_existing,
-    };
+    // Weigh the new rectangle against everything it would disturb, not
+    // just the biggest piece: clipping several rectangles to gain one no
+    // larger than their total only shatters them for nothing.
+    let disturbed_area: u32 = overlapping.iter().map(|&i| rects[i].area()).sum();
+    let should_commit_ideal = overlapping.is_empty() || ideal.area() >= disturbed_area;
 
     if should_commit_ideal {
         let mut to_remove = Vec::new();
