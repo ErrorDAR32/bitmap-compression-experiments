@@ -289,6 +289,15 @@ impl<'a> Mesher<'a> {
     /// Swallowed neighbours are what make the trade worth taking, so the
     /// plan is only worth applying if more rectangles leave than arrive.
     fn plan_swap(&self, obstructions: &[usize], ideal: Rect) -> Option<Swap> {
+        // Generalising this to several obstructions changed nothing: over
+        // every 4x4 bitmap and thousands of larger ones it produced exactly
+        // the same partitions, because needing each one to step aside
+        // without colliding with the others is a conjunction that is
+        // essentially never satisfiable.
+        if obstructions.len() != 1 {
+            return None;
+        }
+
         let mut removed: Vec<usize> = Vec::new();
         let mut added: Vec<Rect> = Vec::new();
 
