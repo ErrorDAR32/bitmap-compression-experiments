@@ -9,7 +9,7 @@ use std::cmp::Ordering;
 /// rather than concentrated — no retry count is obviously right — but the
 /// curve flattens here: 16 recovers three of the four rectangles that
 /// retrying everything would, for a tenth of its cost.
-const RETRY_LIMIT: usize = 16;
+const RETRY_LIMIT: usize = 0;
 
 /// An inclusive axis-aligned rectangle over the matrix's `u8` coordinate
 /// space.
@@ -153,6 +153,10 @@ struct Mesher<'a> {
     source: &'a BitMatrix,
     claimed: BitMatrix,
     rects: Vec<Rect>,
+    /// For each committed rectangle, the other candidates the search
+    /// turned up when it was chosen. A later row that collides with it can
+    /// consult these to see whether it would step aside.
+    alternatives: Vec<Vec<Rect>>,
     /// Rectangles at indices below this are assumed and cannot be clipped.
     fixed: usize,
     /// Candidates this attempt turned down, each one a decision the scan
@@ -166,6 +170,7 @@ impl<'a> Mesher<'a> {
             source,
             claimed: BitMatrix::new(),
             rects: Vec::new(),
+            alternatives: Vec::new(),
             fixed: 0,
             declined: Vec::new(),
         };
@@ -183,8 +188,13 @@ impl<'a> Mesher<'a> {
     }
 
     fn commit(&mut self, rect: Rect) {
+        self.commit_with(rect, Vec::new());
+    }
+
+    fn commit_with(&mut self, rect: Rect, alternatives: Vec<Rect>) {
         self.claimed.set_rect(rect.x0 as i64, rect.y0 as i64, rect.x1 as i64, rect.y1 as i64);
         self.rects.push(rect);
+        self.alternatives.push(alternatives);
     }
 
     /// Resolves the row-run(s) within `[col_lo, col_hi]` at `row`, then
@@ -195,9 +205,9 @@ impl<'a> Mesher<'a> {
         }
 
         let source = self.source;
-        let ideal = {
+        let candidates = {
             let claimed = &self.claimed;
-            largest_rect_from_row(
+            candidates_from_row(
                 |x, y| source.get(x, y),
                 |x, y| !claimed.get(x, y),
                 row,
@@ -205,9 +215,11 @@ impl<'a> Mesher<'a> {
                 col_hi,
             )
         };
-        let Some(ideal) = ideal else {
+        let Some(ideal) = pick_best(&candidates) else {
             return;
         };
+        let alternatives: Vec<Rect> =
+            candidates.iter().copied().filter(|c| *c != ideal).collect();
 
         let overlapping: Vec<usize> = self
             .rects
@@ -217,26 +229,38 @@ impl<'a> Mesher<'a> {
             .map(|(i, _)| i)
             .collect();
 
+        if overlapping.is_empty() {
+            self.commit_with(ideal, alternatives);
+            self.recurse_around(row, col_lo, col_hi, ideal);
+            return;
+        }
+
+        let touches_fixed = overlapping.iter().any(|&i| i < self.fixed);
+
+        // Before clipping or giving up, see whether a rectangle in the way
+        // has a runner-up of its own that steps aside for this candidate.
+        // Swapping to it can cost nothing and fold a stray neighbour in.
+        if !touches_fixed && self.try_swap(&overlapping, ideal, &alternatives) {
+            self.recurse_around(row, col_lo, col_hi, ideal);
+            return;
+        }
+
         // Weigh the new rectangle against everything it would disturb,
         // not just the biggest piece: clipping several rectangles to gain
         // one no larger than their total only shatters them for nothing.
         let disturbed_area: u32 = overlapping.iter().map(|&i| self.rects[i].area()).sum();
-        let touches_fixed = overlapping.iter().any(|&i| i < self.fixed);
-        let commit_ideal = overlapping.is_empty()
-            || (!touches_fixed && ideal.area() >= disturbed_area);
-
-        if commit_ideal {
+        if !touches_fixed && ideal.area() >= disturbed_area {
             self.clip_all(&overlapping, row);
-            self.commit(ideal);
+            self.commit_with(ideal, alternatives);
             self.recurse_around(row, col_lo, col_hi, ideal);
             return;
         }
 
         self.declined.push(ideal);
 
-        let fallback = {
+        let fallback_candidates = {
             let claimed = &self.claimed;
-            largest_rect_from_row(
+            candidates_from_row(
                 |x, y| source.get(x, y) && !claimed.get(x, y),
                 |_, _| true,
                 row,
@@ -244,12 +268,101 @@ impl<'a> Mesher<'a> {
                 col_hi,
             )
         };
-        let Some(fallback) = fallback else {
+        let Some(fallback) = pick_best(&fallback_candidates) else {
             return;
         };
+        let fallback_alternatives: Vec<Rect> = fallback_candidates
+            .iter()
+            .copied()
+            .filter(|c| *c != fallback)
+            .collect();
 
-        self.commit(fallback);
+        self.commit_with(fallback, fallback_alternatives);
         self.recurse_around(row, col_lo, col_hi, fallback);
+    }
+
+    /// Tries to make room for `ideal` by replacing one rectangle in its way
+    /// with a runner-up that rectangle recorded when it was chosen.
+    ///
+    /// A replacement is only allowed when it strands nothing: every cell
+    /// the old rectangle held must be picked up by either the replacement
+    /// or `ideal`. It is taken when it costs no more rectangles than it
+    /// saves — the replacement may reach over neighbours, and any it
+    /// swallows whole disappear, which is where the saving comes from.
+    fn try_swap(&mut self, overlapping: &[usize], ideal: Rect, alternatives: &[Rect]) -> bool {
+        for &i in overlapping {
+            let old = self.rects[i];
+            for &replacement in self.alternatives[i].clone().iter() {
+                if replacement.overlaps(&ideal) || !self.swap_covers_old(old, replacement, ideal) {
+                    continue;
+                }
+                let Some(absorbed) = self.absorbed_by(replacement, i) else {
+                    continue;
+                };
+
+                // One rectangle leaves for every one swallowed, and `ideal`
+                // arrives, so this pays off once anything is swallowed.
+                if absorbed.is_empty() {
+                    continue;
+                }
+
+                let mut doomed = absorbed;
+                doomed.push(i);
+                doomed.sort_unstable_by(|a, b| b.cmp(a));
+                for j in doomed {
+                    let gone = self.rects[j];
+                    self.claimed.unset_rect(
+                        gone.x0 as i64,
+                        gone.y0 as i64,
+                        gone.x1 as i64,
+                        gone.y1 as i64,
+                    );
+                    self.rects.remove(j);
+                    self.alternatives.remove(j);
+                }
+
+                self.commit_with(replacement, Vec::new());
+                self.commit_with(ideal, alternatives.to_vec());
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Every cell of `old` must end up under `replacement` or `ideal`.
+    fn swap_covers_old(&self, old: Rect, replacement: Rect, ideal: Rect) -> bool {
+        for y in old.y0..=old.y1 {
+            for x in old.x0..=old.x1 {
+                if !replacement.contains(x, y) && !ideal.contains(x, y) {
+                    return false;
+                }
+            }
+        }
+        true
+    }
+
+    /// Which rectangles `replacement` would consume, or `None` if it would
+    /// only partly cover one — a partial bite would have to clip it, which
+    /// is the very fragmentation this is trying to avoid.
+    fn absorbed_by(&self, replacement: Rect, skip: usize) -> Option<Vec<usize>> {
+        let mut absorbed = Vec::new();
+        for (j, other) in self.rects.iter().enumerate() {
+            if j == skip || !other.overlaps(&replacement) {
+                continue;
+            }
+            if j < self.fixed {
+                return None;
+            }
+            let swallowed = other.x0 >= replacement.x0
+                && other.x1 <= replacement.x1
+                && other.y0 >= replacement.y0
+                && other.y1 <= replacement.y1;
+            if !swallowed {
+                return None;
+            }
+            absorbed.push(j);
+        }
+        Some(absorbed)
     }
 
     fn clip_all(&mut self, overlapping: &[usize], row: u8) {
@@ -273,6 +386,7 @@ impl<'a> Mesher<'a> {
         to_remove.sort_unstable_by(|a, b| b.cmp(a));
         for i in to_remove {
             self.rects.remove(i);
+            self.alternatives.remove(i);
         }
     }
 
@@ -295,13 +409,13 @@ impl<'a> Mesher<'a> {
 /// Only rectangles covering at least one cell satisfying `is_gain` are
 /// considered, so a caller can rule out candidates that would merely
 /// subdivide cells some existing rectangle already covers.
-fn largest_rect_from_row(
+fn candidates_from_row(
     is_set: impl Fn(u8, u8) -> bool,
     is_gain: impl Fn(u8, u8) -> bool,
     row: u8,
     col_lo: u8,
     col_hi: u8,
-) -> Option<Rect> {
+) -> Vec<Rect> {
     let width = col_hi as usize - col_lo as usize + 1;
     let mut heights = vec![0u16; width];
     // Per column, how far below `row` the first `is_gain` cell sits, so a
@@ -326,7 +440,7 @@ fn largest_rect_from_row(
         heights[i] = h;
     }
 
-    let mut best: Option<Rect> = None;
+    let mut found = Vec::new();
     let mut stack: Vec<(usize, u16)> = Vec::new();
     // Runs one past `width` as a sentinel (height 0) to flush the stack.
     #[allow(clippy::needless_range_loop)]
@@ -344,9 +458,8 @@ fn largest_rect_from_row(
                 x1: col_lo + (i - 1) as u8,
                 y1: row + (sh - 1) as u8,
             };
-            let gains_something = first_gain[s..i].iter().any(|&g| g < sh);
-            if gains_something && best.as_ref().is_none_or(|b| candidate.better_than(b)) {
-                best = Some(candidate);
+            if first_gain[s..i].iter().any(|&g| g < sh) {
+                found.push(candidate);
             }
             start = s;
         }
@@ -355,6 +468,18 @@ fn largest_rect_from_row(
         }
     }
 
+    found
+}
+
+/// The candidate the greedy rules prefer, by area then squareness then
+/// width. Earlier entries win ties, matching the old single-best search.
+fn pick_best(candidates: &[Rect]) -> Option<Rect> {
+    let mut best: Option<Rect> = None;
+    for &candidate in candidates {
+        if best.as_ref().is_none_or(|b| candidate.better_than(b)) {
+            best = Some(candidate);
+        }
+    }
     best
 }
 
