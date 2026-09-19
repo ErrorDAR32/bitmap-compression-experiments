@@ -290,6 +290,13 @@ impl<'a> Mesher<'a> {
     /// saves — the replacement may reach over neighbours, and any it
     /// swallows whole disappear, which is where the saving comes from.
     fn try_swap(&mut self, overlapping: &[usize], ideal: Rect, alternatives: &[Rect]) -> bool {
+        // Only a single obstruction can be negotiated away. With two, moving
+        // one aside still leaves `ideal` overlapping the other, and nothing
+        // here clips that second one back.
+        if overlapping.len() != 1 {
+            return false;
+        }
+
         for &i in overlapping {
             let old = self.rects[i];
             for &replacement in self.alternatives[i].clone().iter() {
@@ -612,6 +619,37 @@ mod tests {
         assert!(mesh.rects().contains(&Rect { x0: 0, y0: 2, x1: 3, y1: 7 }));
         assert!(mesh.rects().contains(&Rect { x0: 5, y0: 4, x1: 6, y1: 7 }));
         assert!(mesh.rects().contains(&Rect { x0: 5, y0: 3, x1: 5, y1: 3 }));
+    }
+
+    /// Hand-picked shapes only exercise the paths someone thought of. A
+    /// swap that resolved one obstruction while a second still overlapped
+    /// the new rectangle passed every test above and still produced an
+    /// invalid partition, so cover the space randomly as well.
+    #[test]
+    fn random_small_bitmaps_stay_exact_partitions() {
+        let mut seed = 0x243F6A8885A308D3u64;
+        let mut next = || {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed
+        };
+
+        for n in [3usize, 4, 5, 6] {
+            for _ in 0..150 {
+                let mut bits = BitMatrix::new();
+                let cells = next();
+                for idx in 0..(n * n) {
+                    if cells & (1u64 << idx) != 0 {
+                        bits.set((idx % n) as u8, (idx / n) as u8);
+                    }
+                }
+
+                let mesh = RectMesh::from_bit_matrix(&bits);
+                assert_round_trip(&bits, &mesh);
+                assert_no_overlaps(&mesh);
+            }
+        }
     }
 
     /// Found by exhaustive search as a worst case for the plain scan,
