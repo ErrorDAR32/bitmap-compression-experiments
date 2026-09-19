@@ -4,13 +4,6 @@
 use crate::BitMatrix;
 use std::cmp::Ordering;
 
-/// How many turned-down candidates to re-run the mesh around. Each costs
-/// a full extra pass. On realistic 256x256 input the gain is diffuse
-/// rather than concentrated — no retry count is obviously right — but the
-/// curve flattens here: 16 recovers three of the four rectangles that
-/// retrying everything would, for a tenth of its cost.
-const RETRY_LIMIT: usize = 0;
-
 /// An inclusive axis-aligned rectangle over the matrix's `u8` coordinate
 /// space.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -87,12 +80,17 @@ impl Rect {
 /// best rectangle using only the genuinely unclaimed cells is committed
 /// instead.
 ///
-/// This is a greedy heuristic, not a minimum-rectangle solver. Retrying
-/// around declined candidates recovers many of the optima that need a
-/// smaller rectangle taken first, but not all of them: it still uses
-/// more rectangles than necessary on about 8% of all 4x4 bitmaps, and
-/// on 4% of blob-shaped 8x8 ones, where it is never off by more than a
-/// single rectangle (see `examples/optimality_search.rs`). It is also
+/// Before either of those, though, a collision is negotiated: the search
+/// keeps the runners-up it found for each rectangle, and a rectangle in
+/// the way may step aside to one of its own alternatives when doing so
+/// strands no cells and swallows a neighbour whole. That recovers some of
+/// the optima needing a *smaller* rectangle to be taken first, which plain
+/// greedy can never choose.
+///
+/// It is still a greedy heuristic, not a minimum-rectangle solver: it uses
+/// more rectangles than necessary on about 9% of all 4x4 bitmaps and 18%
+/// of dense random 5x5 ones (see `examples/optimality_search.rs`). It is
+/// also
 /// orientation-sensitive, since the scan runs top to bottom and
 /// equal-area ties prefer the wider rectangle, so the same shape can
 /// mesh better or worse depending on how it is turned. A true
@@ -106,29 +104,7 @@ pub struct RectMesh {
 
 impl RectMesh {
     pub fn from_bit_matrix(source: &BitMatrix) -> Self {
-        let mut best = Mesher::run(source, None);
-
-        // Every declined candidate is a decision the scan had to make
-        // without knowing what came below it. Re-running with one assumed
-        // lets the rows above settle around that shape instead of against
-        // it. Retrying all of them costs two orders of magnitude more than
-        // the scan for a few rectangles, and the ones that pay off are the
-        // late, low ones — a candidate declined near the bottom has the
-        // most rows above it left to rearrange — so the list is walked
-        // from the end.
-        let mut worth_retrying = best.declined.clone();
-        worth_retrying.dedup();
-        worth_retrying.reverse();
-        worth_retrying.truncate(RETRY_LIMIT);
-
-        for candidate in worth_retrying {
-            let attempt = Mesher::run(source, Some(candidate));
-            if attempt.rects.len() < best.rects.len() {
-                best = attempt;
-            }
-        }
-
-        Self { rects: best.rects }
+        Self { rects: Mesher::run(source).rects }
     }
 
     /// Answers the same question as `BitMatrix::get`, by checking which
@@ -142,13 +118,7 @@ impl RectMesh {
     }
 }
 
-/// One top-to-bottom meshing attempt.
-///
-/// An attempt may be given a rectangle to `assume`: it starts already
-/// committed and is held fixed, so the rows above it settle around it
-/// rather than clipping it away. Without that protection the assumption
-/// is pointless — an earlier row's candidate reaching down into it would
-/// simply take those cells back, reproducing the original result.
+/// A top-to-bottom meshing pass.
 struct Mesher<'a> {
     source: &'a BitMatrix,
     claimed: BitMatrix,
@@ -157,38 +127,22 @@ struct Mesher<'a> {
     /// turned up when it was chosen. A later row that collides with it can
     /// consult these to see whether it would step aside.
     alternatives: Vec<Vec<Rect>>,
-    /// Rectangles at indices below this are assumed and cannot be clipped.
-    fixed: usize,
-    /// Candidates this attempt turned down, each one a decision the scan
-    /// had to make before seeing what lay below it.
-    declined: Vec<Rect>,
 }
 
 impl<'a> Mesher<'a> {
-    fn run(source: &'a BitMatrix, assume: Option<Rect>) -> Self {
+    fn run(source: &'a BitMatrix) -> Self {
         let mut mesher = Mesher {
             source,
             claimed: BitMatrix::new(),
             rects: Vec::new(),
             alternatives: Vec::new(),
-            fixed: 0,
-            declined: Vec::new(),
         };
-
-        if let Some(rect) = assume {
-            mesher.commit(rect);
-            mesher.fixed = 1;
-        }
 
         for row in 0..=u8::MAX {
             mesher.process_range(row, 0, u8::MAX);
         }
 
         mesher
-    }
-
-    fn commit(&mut self, rect: Rect) {
-        self.commit_with(rect, Vec::new());
     }
 
     fn commit_with(&mut self, rect: Rect, alternatives: Vec<Rect>) {
@@ -235,12 +189,10 @@ impl<'a> Mesher<'a> {
             return;
         }
 
-        let touches_fixed = overlapping.iter().any(|&i| i < self.fixed);
-
         // Before clipping or giving up, see whether a rectangle in the way
         // has a runner-up of its own that steps aside for this candidate.
         // Swapping to it can cost nothing and fold a stray neighbour in.
-        if !touches_fixed && self.try_swap(&overlapping, ideal, &alternatives) {
+        if self.try_swap(&overlapping, ideal, &alternatives) {
             self.recurse_around(row, col_lo, col_hi, ideal);
             return;
         }
@@ -249,14 +201,12 @@ impl<'a> Mesher<'a> {
         // not just the biggest piece: clipping several rectangles to gain
         // one no larger than their total only shatters them for nothing.
         let disturbed_area: u32 = overlapping.iter().map(|&i| self.rects[i].area()).sum();
-        if !touches_fixed && ideal.area() >= disturbed_area {
+        if ideal.area() >= disturbed_area {
             self.clip_all(&overlapping, row);
             self.commit_with(ideal, alternatives);
             self.recurse_around(row, col_lo, col_hi, ideal);
             return;
         }
-
-        self.declined.push(ideal);
 
         let fallback_candidates = {
             let claimed = &self.claimed;
@@ -356,9 +306,6 @@ impl<'a> Mesher<'a> {
         for (j, other) in self.rects.iter().enumerate() {
             if j == skip || !other.overlaps(&replacement) {
                 continue;
-            }
-            if j < self.fixed {
-                return None;
             }
             let swallowed = other.x0 >= replacement.x0
                 && other.x1 <= replacement.x1
