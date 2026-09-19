@@ -1,7 +1,7 @@
 //! Greedy rectangle meshing: partitions the set bits of a [`BitMatrix`]
 //! into a small number of non-overlapping rectangles.
 
-use crate::{BitMatrix, WIDTH};
+use crate::BitMatrix;
 use std::cmp::Ordering;
 
 /// An inclusive axis-aligned rectangle over the matrix's `u8` coordinate
@@ -29,6 +29,10 @@ impl Rect {
 
     pub fn contains(&self, x: u8, y: u8) -> bool {
         x >= self.x0 && x <= self.x1 && y >= self.y0 && y <= self.y1
+    }
+
+    fn overlaps(&self, other: &Rect) -> bool {
+        self.x0 <= other.x1 && other.x0 <= self.x1 && self.y0 <= other.y1 && other.y0 <= self.y1
     }
 
     /// Greedy pick order: bigger area wins; a tie goes to the squarer
@@ -59,25 +63,31 @@ impl Rect {
 }
 
 /// A [`BitMatrix`] compressed into a list of non-overlapping rectangles
-/// that exactly cover its set bits, built by repeatedly carving out the
-/// largest remaining all-set rectangle.
+/// that exactly cover its set bits.
 ///
-/// This is a naive greedy heuristic, not a minimum-rectangle-count
-/// solver (that problem is NP-hard) — each of its O(rects) passes over
-/// the grid is itself only O(width * height), so pathological inputs
-/// that force many tiny rectangles (e.g. a checkerboard) are slow.
+/// Built by scanning rows top to bottom. At each row, for the columns not
+/// yet accounted for, it computes the best rectangle achievable *ignoring
+/// any already-committed rectangles* (ignoring claims lets it "see" a
+/// rectangle a still-growing earlier commitment is blocking). If that
+/// ideal candidate doesn't overlap anything yet claimed, it's committed
+/// outright. If it does, and it's at least as large as the biggest
+/// rectangle it would have to shrink, the blocking rectangle(s) are
+/// clipped back to end just above the current row and the ideal candidate
+/// takes over the freed cells; otherwise the clip isn't worth it and the
+/// best rectangle using only the genuinely unclaimed cells is committed
+/// instead. This is a naive greedy heuristic, not a minimum-rectangle
+/// solver (true minimum rectangle partition is NP-hard).
 pub struct RectMesh {
     rects: Vec<Rect>,
 }
 
 impl RectMesh {
     pub fn from_bit_matrix(source: &BitMatrix) -> Self {
-        let mut covered = BitMatrix::new();
-        let mut rects = Vec::new();
+        let mut claimed = BitMatrix::new();
+        let mut rects: Vec<Rect> = Vec::new();
 
-        while let Some(rect) = largest_uncovered_rect(source, &covered) {
-            covered.set_rect(rect.x0 as i64, rect.y0 as i64, rect.x1 as i64, rect.y1 as i64);
-            rects.push(rect);
+        for row in 0..=u8::MAX {
+            process_range(source, &mut claimed, &mut rects, row, 0, u8::MAX);
         }
 
         Self { rects }
@@ -94,50 +104,149 @@ impl RectMesh {
     }
 }
 
-/// Finds the largest rectangle of cells that are set in `source` and not
-/// yet set in `covered`, using the row-by-row histogram technique (a
-/// monotonic stack computing the largest rectangle in each row's
-/// histogram of consecutive-uncovered-set-cell run heights).
-fn largest_uncovered_rect(source: &BitMatrix, covered: &BitMatrix) -> Option<Rect> {
-    let mut heights = [0u16; WIDTH];
-    let mut best: Option<Rect> = None;
+/// Resolves the row-run(s) within `[col_lo, col_hi]` at `row`, committing
+/// or clipping rectangles as described on [`RectMesh`], then recurses into
+/// whatever column ranges are left on either side of what it just decided.
+fn process_range(
+    source: &BitMatrix,
+    claimed: &mut BitMatrix,
+    rects: &mut Vec<Rect>,
+    row: u8,
+    col_lo: u8,
+    col_hi: u8,
+) {
+    if col_lo > col_hi {
+        return;
+    }
 
-    for y in 0..=u8::MAX {
-        for x in 0..=u8::MAX {
-            let xi = x as usize;
-            if source.get(x, y) && !covered.get(x, y) {
-                heights[xi] += 1;
+    let Some(ideal) = largest_rect_from_row(|x, y| source.get(x, y), row, col_lo, col_hi) else {
+        return;
+    };
+
+    let overlapping: Vec<usize> = rects
+        .iter()
+        .enumerate()
+        .filter(|(_, r)| r.overlaps(&ideal))
+        .map(|(i, _)| i)
+        .collect();
+
+    let should_commit_ideal = match overlapping.iter().map(|&i| rects[i].area()).max() {
+        None => true,
+        Some(max_existing) => ideal.area() >= max_existing,
+    };
+
+    if should_commit_ideal {
+        let mut to_remove = Vec::new();
+        for &i in &overlapping {
+            let old = rects[i];
+            claimed.unset_rect(old.x0 as i64, old.y0 as i64, old.x1 as i64, old.y1 as i64);
+            if row > old.y0 {
+                rects[i].y1 = row - 1;
+                let clipped = rects[i];
+                claimed.set_rect(
+                    clipped.x0 as i64,
+                    clipped.y0 as i64,
+                    clipped.x1 as i64,
+                    clipped.y1 as i64,
+                );
             } else {
-                heights[xi] = 0;
+                to_remove.push(i);
             }
         }
+        to_remove.sort_unstable_by(|a, b| b.cmp(a));
+        for i in to_remove {
+            rects.remove(i);
+        }
 
-        let mut stack: Vec<(usize, u16)> = Vec::new();
-        // Runs one past WIDTH as a sentinel (height 0) to flush the stack,
-        // so this can't be an `iter().enumerate()` over `heights`.
-        #[allow(clippy::needless_range_loop)]
-        for x in 0..=WIDTH {
-            let h = if x < WIDTH { heights[x] } else { 0 };
-            let mut start = x;
-            while let Some(&(s, sh)) = stack.last() {
-                if sh <= h {
-                    break;
-                }
-                stack.pop();
-                let candidate = Rect {
-                    x0: s as u8,
-                    y0: (y as u16 + 1 - sh) as u8,
-                    x1: (x - 1) as u8,
-                    y1: y,
-                };
-                if best.as_ref().is_none_or(|b| candidate.better_than(b)) {
-                    best = Some(candidate);
-                }
-                start = s;
+        commit(claimed, rects, ideal);
+        recurse_around(source, claimed, rects, row, col_lo, col_hi, ideal);
+        return;
+    }
+
+    let Some(fallback) =
+        largest_rect_from_row(|x, y| source.get(x, y) && !claimed.get(x, y), row, col_lo, col_hi)
+    else {
+        return;
+    };
+
+    commit(claimed, rects, fallback);
+    recurse_around(source, claimed, rects, row, col_lo, col_hi, fallback);
+}
+
+fn commit(claimed: &mut BitMatrix, rects: &mut Vec<Rect>, rect: Rect) {
+    claimed.set_rect(rect.x0 as i64, rect.y0 as i64, rect.x1 as i64, rect.y1 as i64);
+    rects.push(rect);
+}
+
+fn recurse_around(
+    source: &BitMatrix,
+    claimed: &mut BitMatrix,
+    rects: &mut Vec<Rect>,
+    row: u8,
+    col_lo: u8,
+    col_hi: u8,
+    committed: Rect,
+) {
+    if committed.x0 > col_lo {
+        process_range(source, claimed, rects, row, col_lo, committed.x0 - 1);
+    }
+    if committed.x1 < col_hi {
+        process_range(source, claimed, rects, row, committed.x1 + 1, col_hi);
+    }
+}
+
+/// Finds the largest rectangle whose top edge is `row`, within
+/// `[col_lo, col_hi]`, where a column's available height is however many
+/// consecutive rows starting at `row` satisfy `is_set`. Standard
+/// largest-rectangle-in-histogram technique (monotonic stack), just
+/// rooted at a single row instead of accumulated across many.
+fn largest_rect_from_row(
+    is_set: impl Fn(u8, u8) -> bool,
+    row: u8,
+    col_lo: u8,
+    col_hi: u8,
+) -> Option<Rect> {
+    let width = col_hi as usize - col_lo as usize + 1;
+    let mut heights = vec![0u16; width];
+    for (i, height) in heights.iter_mut().enumerate() {
+        let x = col_lo + i as u8;
+        let mut h: u16 = 0;
+        let mut y = row;
+        while is_set(x, y) {
+            h += 1;
+            if y == u8::MAX {
+                break;
             }
-            if h > 0 {
-                stack.push((start, h));
+            y += 1;
+        }
+        *height = h;
+    }
+
+    let mut best: Option<Rect> = None;
+    let mut stack: Vec<(usize, u16)> = Vec::new();
+    // Runs one past `width` as a sentinel (height 0) to flush the stack.
+    #[allow(clippy::needless_range_loop)]
+    for i in 0..=width {
+        let h = if i < width { heights[i] } else { 0 };
+        let mut start = i;
+        while let Some(&(s, sh)) = stack.last() {
+            if sh <= h {
+                break;
             }
+            stack.pop();
+            let candidate = Rect {
+                x0: col_lo + s as u8,
+                y0: row,
+                x1: col_lo + (i - 1) as u8,
+                y1: row + (sh - 1) as u8,
+            };
+            if best.as_ref().is_none_or(|b| candidate.better_than(b)) {
+                best = Some(candidate);
+            }
+            start = s;
+        }
+        if h > 0 {
+            stack.push((start, h));
         }
     }
 
@@ -151,11 +260,16 @@ mod tests {
     fn assert_round_trip(bits: &BitMatrix, mesh: &RectMesh) {
         for y in 0..=u8::MAX {
             for x in 0..=u8::MAX {
-                assert_eq!(
-                    bits.get(x, y),
-                    mesh.get(x, y),
-                    "mismatch at ({x}, {y})"
-                );
+                assert_eq!(bits.get(x, y), mesh.get(x, y), "mismatch at ({x}, {y})");
+            }
+        }
+    }
+
+    fn assert_no_overlaps(mesh: &RectMesh) {
+        for a in 0..mesh.rects().len() {
+            for b in (a + 1)..mesh.rects().len() {
+                let (ra, rb) = (mesh.rects()[a], mesh.rects()[b]);
+                assert!(!ra.overlaps(&rb), "rects {a} and {b} overlap: {ra:?} {rb:?}");
             }
         }
     }
@@ -222,19 +336,6 @@ mod tests {
         assert_round_trip(&bits, &mesh);
     }
 
-    fn assert_no_overlaps(mesh: &RectMesh) {
-        for a in 0..mesh.rects().len() {
-            for b in (a + 1)..mesh.rects().len() {
-                let (ra, rb) = (mesh.rects()[a], mesh.rects()[b]);
-                let overlaps = ra.x0 <= rb.x1
-                    && rb.x0 <= ra.x1
-                    && ra.y0 <= rb.y1
-                    && rb.y0 <= ra.y1;
-                assert!(!overlaps, "rects {a} and {b} overlap: {ra:?} {rb:?}");
-            }
-        }
-    }
-
     #[test]
     fn disjoint_regions_and_circle_round_trip_with_no_overlap() {
         let mut bits = BitMatrix::new();
@@ -248,10 +349,53 @@ mod tests {
         assert_no_overlaps(&mesh);
     }
 
+    /// The worked 8x8 example: a top-to-bottom scan that clips a couple of
+    /// earlier picks to make room for squarer combined rectangles found on
+    /// later rows, but only when the new pick is at least as big as the
+    /// largest rectangle it would have to shrink.
+    #[test]
+    fn worked_example_matches_expected_partition() {
+        let mut bits = BitMatrix::new();
+        bits.set_rect(0, 0, 3, 0);
+        bits.set_rect(5, 0, 7, 0);
+        bits.set(0, 1);
+        bits.set(3, 1);
+        bits.set_rect(5, 1, 7, 1);
+        bits.set_rect(0, 2, 3, 2);
+        bits.set_rect(5, 2, 7, 2);
+        bits.set(3, 3);
+        bits.set(7, 3);
+        bits.set_rect(3, 4, 4, 4);
+        bits.set(7, 4);
+        bits.set_rect(3, 5, 7, 5);
+        bits.set_rect(0, 6, 7, 6);
+        bits.set_rect(0, 7, 1, 7);
+        bits.set_rect(3, 7, 7, 7);
+
+        let mesh = RectMesh::from_bit_matrix(&bits);
+        assert_round_trip(&bits, &mesh);
+        assert_no_overlaps(&mesh);
+
+        let expected = [
+            Rect { x0: 3, y0: 0, x1: 3, y1: 3 }, // area 1, clipped to make room for area 7/A
+            Rect { x0: 0, y0: 0, x1: 2, y1: 0 }, // area 2
+            Rect { x0: 5, y0: 0, x1: 7, y1: 2 }, // area 3
+            Rect { x0: 0, y0: 1, x1: 0, y1: 2 }, // area 4
+            Rect { x0: 1, y0: 2, x1: 2, y1: 2 }, // area 5
+            Rect { x0: 7, y0: 3, x1: 7, y1: 4 }, // area 6, clipped into B
+            Rect { x0: 3, y0: 4, x1: 4, y1: 4 }, // area 7, clipped into A
+            Rect { x0: 3, y0: 5, x1: 7, y1: 7 }, // area 9
+            Rect { x0: 0, y0: 6, x1: 1, y1: 7 }, // area C
+            Rect { x0: 2, y0: 6, x1: 2, y1: 6 }, // area D
+        ];
+        assert_eq!(mesh.rects().len(), expected.len());
+        for rect in expected {
+            assert!(mesh.rects().contains(&rect), "missing expected rect {rect:?}");
+        }
+    }
+
     /// The worst case for this greedy algorithm: no two set cells share
-    /// an edge, so every rectangle is 1x1 and each of the O(rects) passes
-    /// still scans the whole grid. Confirms correctness holds even here;
-    /// not run by default since it takes on the order of ten seconds.
+    /// an edge, so every rectangle is 1x1.
     #[test]
     #[ignore]
     fn checkerboard_stress_test() {
