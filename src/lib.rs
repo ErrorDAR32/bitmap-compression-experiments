@@ -1,5 +1,8 @@
 //! A fixed-size 256x256 bit matrix backed by packed `u64` words.
 
+mod mesh;
+pub use mesh::{Rect, RectMesh};
+
 pub const WIDTH: usize = 256;
 pub const HEIGHT: usize = 256;
 const BITS_PER_WORD: usize = 64;
