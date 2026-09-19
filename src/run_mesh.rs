@@ -153,7 +153,7 @@ impl Runs {
             let bucket = self.max_len;
             while self.cursor[bucket] < self.by_len[bucket].len() {
                 let (line, span) = self.by_len[bucket][self.cursor[bucket]];
-                if self.lines[line as usize].contains(&span) {
+                if self.holds(line, span) {
                     return Some((line, span));
                 }
                 self.cursor[bucket] += 1;
@@ -163,45 +163,60 @@ impl Runs {
         None
     }
 
-    fn span_at(&self, line: u8, pos: u8) -> Option<Span> {
-        self.lines[line as usize]
-            .iter()
-            .copied()
-            .find(|s| pos >= s.start && pos <= s.end)
+    /// Whether this exact run is still standing.
+    fn holds(&self, line: u8, span: Span) -> bool {
+        let spans = &self.lines[line as usize];
+        let idx = spans.partition_point(|s| s.start < span.start);
+        spans.get(idx) == Some(&span)
     }
 
-    /// Removes `[lo, hi]` from every line in `lines`, splitting any span
-    /// the range cuts through.
+    /// The run covering `pos`, if any. Runs on a line are disjoint and
+    /// kept in ascending order, so the last one starting at or before
+    /// `pos` is the only one that can hold it.
+    fn span_at(&self, line: u8, pos: u8) -> Option<Span> {
+        let spans = &self.lines[line as usize];
+        let idx = spans.partition_point(|s| s.start <= pos);
+        let span = *spans.get(idx.checked_sub(1)?)?;
+        (pos <= span.end).then_some(span)
+    }
+
+    /// Removes `[lo, hi]` from every line in `lines`.
+    ///
+    /// Because runs on a line are sorted and disjoint, the ones the range
+    /// touches form a contiguous stretch found by two binary searches.
+    /// Everything strictly inside it is swallowed whole; only the first
+    /// can keep a piece on the left and only the last a piece on the
+    /// right. Untouched runs are never rewritten, so their index entries
+    /// stay valid.
     fn carve(&mut self, lines: (u8, u8), lo: u8, hi: u8) {
         for line in lines.0..=lines.1 {
-            let spans = &mut self.lines[line as usize];
-            let mut next = Vec::with_capacity(spans.len() + 1);
-            let mut fresh: Vec<Span> = Vec::new();
-            for span in spans.iter() {
-                if hi < span.start || lo > span.end {
-                    // Untouched, so its existing index entry still holds.
-                    next.push(*span);
+            let index = line as usize;
+            let (first, last, pieces) = {
+                let spans = &self.lines[index];
+                let first = spans.partition_point(|s| s.end < lo);
+                let last = spans.partition_point(|s| s.start <= hi);
+                if first >= last {
                     continue;
                 }
-                if lo > span.start {
-                    let piece = Span { start: span.start, end: lo - 1 };
-                    next.push(piece);
-                    fresh.push(piece);
+
+                let mut pieces: Vec<Span> = Vec::new();
+                let head = spans[first];
+                if lo > head.start {
+                    pieces.push(Span { start: head.start, end: lo - 1 });
                 }
-                if hi < span.end {
-                    let piece = Span { start: hi + 1, end: span.end };
-                    next.push(piece);
-                    fresh.push(piece);
+                let tail = spans[last - 1];
+                if hi < tail.end {
+                    pieces.push(Span { start: hi + 1, end: tail.end });
                 }
-            }
-            *spans = next;
+                (first, last, pieces)
+            };
 
             // A piece is always shorter than the run it came from, so it
-            // files below `max_len` and will still be reached on the way
-            // down.
-            for piece in fresh {
-                self.by_len[piece.len() as usize].push((line, piece));
+            // files below `max_len` and is still reached on the way down.
+            for piece in &pieces {
+                self.by_len[piece.len() as usize].push((line, *piece));
             }
+            self.lines[index].splice(first..last, pieces);
         }
     }
 }
@@ -263,20 +278,30 @@ impl RunMesh {
 /// in a histogram whose entries are the crossing runs, of which there are
 /// as many as the seed is long rather than one per column of the grid.
 fn best_along(crossing: &Runs, seed: Span, line: u8, seed_is_column: bool) -> Rect {
-    let mut best: Option<Rect> = None;
+    // Gather the crossing runs once, in seed order. Every position of the
+    // seed has exactly one: a cell still standing belongs to a run in both
+    // orientations, so a seed of length k crosses exactly k runs and none
+    // of them can be filtered away. Looking them up here rather than
+    // inside the search below turns k*k lookups into k.
+    let mut crossings: Vec<Span> = Vec::with_capacity(seed.len() as usize);
+    for pos in seed.start..=seed.end {
+        match crossing.span_at(pos, line) {
+            Some(span) => crossings.push(span),
+            None => break,
+        }
+    }
 
-    for from in seed.start..=seed.end {
-        let (mut lo, mut hi) = (0u8, u8::MAX);
-        for to in from..=seed.end {
-            let Some(span) = crossing.span_at(to, line) else {
-                break;
-            };
+    let mut best: Option<Rect> = None;
+    for (i, first) in crossings.iter().enumerate() {
+        let (mut lo, mut hi) = (first.start, first.end);
+        for (j, span) in crossings.iter().enumerate().skip(i) {
             lo = lo.max(span.start);
             hi = hi.min(span.end);
             if lo > hi {
                 break;
             }
 
+            let (from, to) = (seed.start + i as u8, seed.start + j as u8);
             let rect = if seed_is_column {
                 Rect { x0: lo, y0: from, x1: hi, y1: to }
             } else {
