@@ -1,7 +1,7 @@
 //! Exact minimum partition for the worked 8x8 example, to compare
 //! against what the greedy mesher produces for it.
 
-use bitmatrix::{BitMatrix, RectMesh};
+use bitmatrix::{BitMatrix, RunMesh};
 use std::collections::HashMap;
 
 const N: usize = 8;
@@ -66,7 +66,7 @@ fn main() {
         }
     }
 
-    let greedy = RectMesh::from_bit_matrix(&bits);
+    let greedy = RunMesh::from_bit_matrix(&bits);
     let mut memo = HashMap::new();
     let optimal = optimal_count(mask, &mut memo);
 

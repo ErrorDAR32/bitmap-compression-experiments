@@ -6,7 +6,7 @@
 //! covers it, since any rectangle covering it whose corner lay earlier
 //! would have to overlap an already-placed one.
 
-use bitmatrix::{BitMatrix, RectMesh};
+use bitmatrix::{BitMatrix, RunMesh};
 use std::collections::HashMap;
 
 fn optimal_count(remaining: u64, n: usize, memo: &mut HashMap<u64, u8>) -> u8 {
@@ -53,7 +53,7 @@ fn greedy_count(cells: u64, n: usize) -> usize {
             bits.set((idx % n) as u8, (idx / n) as u8);
         }
     }
-    RectMesh::from_bit_matrix(&bits).rects().len()
+    RunMesh::from_bit_matrix(&bits).rects().len()
 }
 
 fn render(cells: u64, n: usize) -> String {

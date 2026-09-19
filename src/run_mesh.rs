@@ -10,8 +10,69 @@
 //! run, not the width of the grid, and there are as many steps as there
 //! are rectangles in the answer.
 
-use crate::{BitMatrix, Rect};
+use crate::BitMatrix;
+use std::cmp::Ordering;
 
+/// An inclusive axis-aligned rectangle over the matrix's `u8` coordinate
+/// space.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Rect {
+    pub x0: u8,
+    pub y0: u8,
+    pub x1: u8,
+    pub y1: u8,
+}
+
+impl Rect {
+    /// A rectangle can span all 256 positions, which does not fit in a
+    /// `u8`, so extents are computed one size up.
+    pub fn width(&self) -> u16 {
+        self.x1 as u16 - self.x0 as u16 + 1
+    }
+
+    pub fn height(&self) -> u16 {
+        self.y1 as u16 - self.y0 as u16 + 1
+    }
+
+    pub fn area(&self) -> u32 {
+        self.width() as u32 * self.height() as u32
+    }
+
+    pub fn contains(&self, x: u8, y: u8) -> bool {
+        x >= self.x0 && x <= self.x1 && y >= self.y0 && y <= self.y1
+    }
+
+    pub fn overlaps(&self, other: &Rect) -> bool {
+        self.x0 <= other.x1 && other.x0 <= self.x1 && self.y0 <= other.y1 && other.y0 <= self.y1
+    }
+
+    /// Pick order: bigger area wins; a tie goes to the squarer rectangle
+    /// (closer width:height ratio, compared by cross multiplication to
+    /// stay in integer math); a further tie (the same rectangle rotated,
+    /// e.g. 1x3 vs 3x1) goes to the wider one.
+    fn better_than(&self, other: &Rect) -> bool {
+        if self.area() != other.area() {
+            return self.area() > other.area();
+        }
+
+        let (min_self, max_self) = (
+            self.width().min(self.height()) as u32,
+            self.width().max(self.height()) as u32,
+        );
+        let (min_other, max_other) = (
+            other.width().min(other.height()) as u32,
+            other.width().max(other.height()) as u32,
+        );
+        match (min_self * max_other).cmp(&(min_other * max_self)) {
+            Ordering::Greater => true,
+            Ordering::Less => false,
+            Ordering::Equal => self.width() > other.width(),
+        }
+    }
+}
+
+/// One run, as the inclusive positions it covers. Storing the end rather
+/// than a length keeps a run spanning all 256 positions representable.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Span {
     start: u8,
@@ -19,7 +80,6 @@ struct Span {
 }
 
 impl Span {
-    /// A run can span all 256 positions, which does not fit in a `u8`.
     fn len(&self) -> u16 {
         self.end as u16 - self.start as u16 + 1
     }
@@ -64,6 +124,9 @@ impl Runs {
         Self { lines }
     }
 
+    /// Scans every run, so a step costs O(runs remaining). Fine while the
+    /// run count stays in the hundreds; a shape that fragments into
+    /// thousands of single cells would want a heap here instead.
     fn longest(&self) -> Option<(u8, Span)> {
         let mut best: Option<(u8, Span)> = None;
         for (line, spans) in self.lines.iter().enumerate() {
@@ -157,7 +220,7 @@ impl RunMesh {
 
 /// The largest rectangle lying along a seed run.
 ///
-/// The seed spans positions `seed.start..=seed.end()` on line `line`. Each
+/// The seed spans positions `seed.start..=seed.end` on line `line`. Each
 /// of those positions has a crossing run, and a rectangle is a contiguous
 /// stretch of them intersected together — so this is the largest rectangle
 /// in a histogram whose entries are the crossing runs, of which there are
@@ -182,27 +245,13 @@ fn best_along(crossing: &Runs, seed: Span, line: u8, seed_is_column: bool) -> Re
             } else {
                 Rect { x0: from, y0: lo, x1: to, y1: hi }
             };
-            if best.is_none_or(|b| better(&rect, &b)) {
+            if best.is_none_or(|b| rect.better_than(&b)) {
                 best = Some(rect);
             }
         }
     }
 
     best.expect("a seed run always yields at least itself")
-}
-
-/// Bigger area wins; a tie goes to the squarer rectangle, then the wider.
-fn better(a: &Rect, b: &Rect) -> bool {
-    if a.area() != b.area() {
-        return a.area() > b.area();
-    }
-    let (amin, amax) = (a.width().min(a.height()) as u32, a.width().max(a.height()) as u32);
-    let (bmin, bmax) = (b.width().min(b.height()) as u32, b.width().max(b.height()) as u32);
-    match (amin * bmax).cmp(&(bmin * amax)) {
-        std::cmp::Ordering::Greater => true,
-        std::cmp::Ordering::Less => false,
-        std::cmp::Ordering::Equal => a.width() > b.width(),
-    }
 }
 
 #[cfg(test)]
@@ -221,6 +270,8 @@ mod tests {
         bits
     }
 
+    /// The invariant that matters: the rectangles cover exactly the set
+    /// bits, and never each other.
     fn assert_exact_partition(bits: &BitMatrix, mesh: &RunMesh) {
         for y in 0..=u8::MAX {
             for x in 0..=u8::MAX {
@@ -230,8 +281,7 @@ mod tests {
         for a in 0..mesh.rects().len() {
             for b in (a + 1)..mesh.rects().len() {
                 let (ra, rb) = (mesh.rects()[a], mesh.rects()[b]);
-                let overlaps = ra.x0 <= rb.x1 && rb.x0 <= ra.x1 && ra.y0 <= rb.y1 && rb.y0 <= ra.y1;
-                assert!(!overlaps, "rects {a} and {b} overlap: {ra:?} {rb:?}");
+                assert!(!ra.overlaps(&rb), "rects {a} and {b} overlap: {ra:?} {rb:?}");
             }
         }
     }
@@ -245,6 +295,45 @@ mod tests {
         full.set_rect(0, 0, 255, 255);
         let mesh = RunMesh::from_bit_matrix(&full);
         assert_eq!(mesh.rects(), &[Rect { x0: 0, y0: 0, x1: 255, y1: 255 }]);
+    }
+
+    #[test]
+    fn single_rectangle_comes_back_whole() {
+        let mut bits = BitMatrix::new();
+        bits.set_rect(10, 20, 40, 30);
+        let mesh = RunMesh::from_bit_matrix(&bits);
+        assert_eq!(mesh.rects(), &[Rect { x0: 10, y0: 20, x1: 40, y1: 30 }]);
+    }
+
+    #[test]
+    fn area_tie_between_rotations_prefers_wider() {
+        // An "L": a 3-wide top row and a 3-tall left column sharing corner
+        // (0,0), each area 3 with nothing bigger available.
+        let mut bits = BitMatrix::new();
+        bits.set(0, 0);
+        bits.set(1, 0);
+        bits.set(2, 0);
+        bits.set(0, 1);
+        bits.set(0, 2);
+
+        let mesh = RunMesh::from_bit_matrix(&bits);
+        assert_exact_partition(&bits, &mesh);
+        assert_eq!(mesh.rects().len(), 2);
+        assert!(mesh.rects().contains(&Rect { x0: 0, y0: 0, x1: 2, y1: 0 }));
+    }
+
+    #[test]
+    fn area_tie_prefers_squarer_over_wider() {
+        // A 6x1 row and a 2x3 block both have area 6; the squarer block
+        // should win even though the row is wider.
+        let mut bits = BitMatrix::new();
+        bits.set_rect(0, 0, 5, 0);
+        bits.set_rect(0, 1, 1, 2);
+
+        let mesh = RunMesh::from_bit_matrix(&bits);
+        assert_exact_partition(&bits, &mesh);
+        assert_eq!(mesh.rects().len(), 2);
+        assert!(mesh.rects().contains(&Rect { x0: 0, y0: 0, x1: 1, y1: 2 }));
     }
 
     /// The worked 8x8 example. Ten rectangles is the proven optimum for
@@ -269,10 +358,8 @@ mod tests {
 
     /// The 4x4 that needs a smaller rectangle taken first. Largest-run-
     /// first gets 4 against an optimum of 3: seeded on the 3-long column
-    /// run it finds the 2x2 (area 4) and takes it over the 1x3 (area 3),
-    /// which is the same "prefer the bigger rectangle" mistake the
-    /// row-scanning mesher made here before swapping was added. Recorded
-    /// as the behaviour it has, not the behaviour hoped for.
+    /// run it finds the 2x2 (area 4) and takes it over the 1x3 (area 3).
+    /// Recorded as the behaviour it has, not the behaviour hoped for.
     #[test]
     fn adversarial_four_by_four_is_still_one_over() {
         let bits = bits_from_rows([
@@ -285,6 +372,18 @@ mod tests {
         let mesh = RunMesh::from_bit_matrix(&bits);
         assert_exact_partition(&bits, &mesh);
         assert_eq!(mesh.rects().len(), 4);
+    }
+
+    #[test]
+    fn rects_and_circles_with_holes_punched_out() {
+        let mut bits = BitMatrix::new();
+        bits.set_rect(10, 10, 40, 30);
+        bits.set_circle(180, 180, 25);
+        bits.unset_rect(20, 15, 30, 25);
+        bits.unset_circle(180, 180, 8);
+
+        let mesh = RunMesh::from_bit_matrix(&bits);
+        assert_exact_partition(&bits, &mesh);
     }
 
     #[test]
@@ -310,5 +409,25 @@ mod tests {
                 assert_exact_partition(&bits, &mesh);
             }
         }
+    }
+
+    /// The worst case: no two set cells touch, so every run is one cell
+    /// long and nothing ever merges. Also where scanning every run to find
+    /// the longest turns quadratic.
+    #[test]
+    #[ignore]
+    fn checkerboard_stress_test() {
+        let mut bits = BitMatrix::new();
+        for y in 0..=u8::MAX {
+            for x in 0..=u8::MAX {
+                if (x as u16 + y as u16).is_multiple_of(2) {
+                    bits.set(x, y);
+                }
+            }
+        }
+
+        let mesh = RunMesh::from_bit_matrix(&bits);
+        assert_eq!(mesh.rects().len(), 32768);
+        assert_exact_partition(&bits, &mesh);
     }
 }
