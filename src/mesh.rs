@@ -284,6 +284,18 @@ fn largest_rect_from_row(
 mod tests {
     use super::*;
 
+    fn bits_from_rows<const N: usize>(rows: [[u8; N]; N]) -> BitMatrix {
+        let mut bits = BitMatrix::new();
+        for (y, row) in rows.iter().enumerate() {
+            for (x, &cell) in row.iter().enumerate() {
+                if cell == 1 {
+                    bits.set(x as u8, y as u8);
+                }
+            }
+        }
+        bits
+    }
+
     fn assert_round_trip(bits: &BitMatrix, mesh: &RectMesh) {
         for y in 0..=u8::MAX {
             for x in 0..=u8::MAX {
@@ -405,22 +417,16 @@ mod tests {
     /// largest rectangle it would have to shrink.
     #[test]
     fn worked_example_matches_expected_partition() {
-        let mut bits = BitMatrix::new();
-        bits.set_rect(0, 0, 3, 0);
-        bits.set_rect(5, 0, 7, 0);
-        bits.set(0, 1);
-        bits.set(3, 1);
-        bits.set_rect(5, 1, 7, 1);
-        bits.set_rect(0, 2, 3, 2);
-        bits.set_rect(5, 2, 7, 2);
-        bits.set(3, 3);
-        bits.set(7, 3);
-        bits.set_rect(3, 4, 4, 4);
-        bits.set(7, 4);
-        bits.set_rect(3, 5, 7, 5);
-        bits.set_rect(0, 6, 7, 6);
-        bits.set_rect(0, 7, 1, 7);
-        bits.set_rect(3, 7, 7, 7);
+        let bits = bits_from_rows([
+            [1, 1, 1, 1, 0, 1, 1, 1],
+            [1, 0, 0, 1, 0, 1, 1, 1],
+            [1, 1, 1, 1, 0, 1, 1, 1],
+            [0, 0, 0, 1, 0, 0, 0, 1],
+            [0, 0, 0, 1, 1, 0, 0, 1],
+            [0, 0, 0, 1, 1, 1, 1, 1],
+            [1, 1, 1, 1, 1, 1, 1, 1],
+            [1, 1, 0, 1, 1, 1, 1, 1],
+        ]);
 
         let mesh = RectMesh::from_bit_matrix(&bits);
         assert_round_trip(&bits, &mesh);
