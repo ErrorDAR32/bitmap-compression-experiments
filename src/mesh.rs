@@ -73,8 +73,8 @@ impl Rect {
 /// candidate already fully covered is a subdivision of existing
 /// rectangles, not a new area. If that
 /// ideal candidate doesn't overlap anything yet claimed, it's committed
-/// outright. If it does, and it's at least as large as the biggest
-/// rectangle it would have to shrink, the blocking rectangle(s) are
+/// outright. If it does, and it's at least as large as the *combined*
+/// area of every rectangle it would have to shrink, those rectangles are
 /// clipped back to end just above the current row and the ideal candidate
 /// takes over the freed cells; otherwise the clip isn't worth it and the
 /// best rectangle using only the genuinely unclaimed cells is committed
@@ -84,7 +84,12 @@ impl Rect {
 /// favours large, square-ish rectangles rather than few of them, and it
 /// cannot reach an optimum that requires taking a *smaller* rectangle
 /// first, so it uses more rectangles than necessary on roughly a tenth
-/// of all 4x4 bitmaps (see `examples/optimality_search.rs`). A true
+/// of all 4x4 bitmaps (see `examples/optimality_search.rs`). It is also
+/// orientation-sensitive: the scan runs top to bottom and equal-area
+/// ties prefer the wider rectangle, so the same shape can mesh better or
+/// worse depending on how it is turned — feeding the search a shape's
+/// eight symmetries and keeping the best drops that tenth to a fortieth,
+/// which measures how much the row-major bias costs. A true
 /// minimum partition into disjoint rectangles is not out of reach — it
 /// is polynomial, via maximum matching over the chords joining reflex
 /// vertices — it is just a different algorithm than this one. (Minimum
@@ -94,27 +99,15 @@ pub struct RectMesh {
 }
 
 impl RectMesh {
-    /// Meshes the shape in all eight orientations of the square and keeps
-    /// whichever needs the fewest rectangles. The scan runs top to bottom
-    /// and ties prefer the wider rectangle, so turning the shape can
-    /// produce a genuinely better partition — it roughly halves how often
-    /// the result is suboptimal, twice over. Orientations are tried with
-    /// the untransformed one first and only replaced on a strict
-    /// improvement, so a tie always keeps the untransformed result.
     pub fn from_bit_matrix(source: &BitMatrix) -> Self {
-        let mut best: Option<Vec<Rect>> = None;
+        let mut claimed = BitMatrix::new();
+        let mut rects: Vec<Rect> = Vec::new();
 
-        for sym in 0..8u8 {
-            let rects: Vec<Rect> = mesh_once(&reorient(source, sym))
-                .into_iter()
-                .map(|r| unmap_rect(sym, r))
-                .collect();
-            if best.as_ref().is_none_or(|b| rects.len() < b.len()) {
-                best = Some(rects);
-            }
+        for row in 0..=u8::MAX {
+            process_range(source, &mut claimed, &mut rects, row, 0, u8::MAX);
         }
 
-        Self { rects: best.unwrap_or_default() }
+        Self { rects }
     }
 
     /// Answers the same question as `BitMatrix::get`, by checking which
@@ -126,69 +119,6 @@ impl RectMesh {
     pub fn rects(&self) -> &[Rect] {
         &self.rects
     }
-}
-
-/// Maps a point under one of the eight symmetries of the square grid:
-/// identity, three rotations, both diagonal flips, and both axis flips.
-fn map_point(sym: u8, x: u8, y: u8) -> (u8, u8) {
-    const M: u8 = u8::MAX;
-    match sym {
-        0 => (x, y),
-        1 => (M - y, x),
-        2 => (M - x, M - y),
-        3 => (y, M - x),
-        4 => (y, x),
-        5 => (M - y, M - x),
-        6 => (M - x, y),
-        _ => (x, M - y),
-    }
-}
-
-/// Every symmetry is its own inverse except the two quarter turns, which
-/// invert into each other.
-fn inverse(sym: u8) -> u8 {
-    match sym {
-        1 => 3,
-        3 => 1,
-        other => other,
-    }
-}
-
-fn reorient(source: &BitMatrix, sym: u8) -> BitMatrix {
-    let mut out = BitMatrix::new();
-    for y in 0..=u8::MAX {
-        for x in 0..=u8::MAX {
-            if source.get(x, y) {
-                let (nx, ny) = map_point(sym, x, y);
-                out.set(nx, ny);
-            }
-        }
-    }
-    out
-}
-
-/// These symmetries take axis-aligned rectangles to axis-aligned
-/// rectangles, so mapping two opposite corners back and renormalizing
-/// recovers the rectangle in the original orientation.
-fn unmap_rect(sym: u8, rect: Rect) -> Rect {
-    let back = inverse(sym);
-    let (ax, ay) = map_point(back, rect.x0, rect.y0);
-    let (bx, by) = map_point(back, rect.x1, rect.y1);
-    Rect {
-        x0: ax.min(bx),
-        y0: ay.min(by),
-        x1: ax.max(bx),
-        y1: ay.max(by),
-    }
-}
-
-fn mesh_once(source: &BitMatrix) -> Vec<Rect> {
-    let mut claimed = BitMatrix::new();
-    let mut rects: Vec<Rect> = Vec::new();
-    for row in 0..=u8::MAX {
-        process_range(source, &mut claimed, &mut rects, row, 0, u8::MAX);
-    }
-    rects
 }
 
 /// Resolves the row-run(s) within `[col_lo, col_hi]` at `row`, committing
