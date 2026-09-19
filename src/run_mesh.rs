@@ -38,14 +38,6 @@ impl Rect {
         self.width() as u32 * self.height() as u32
     }
 
-    pub fn contains(&self, x: u8, y: u8) -> bool {
-        x >= self.x0 && x <= self.x1 && y >= self.y0 && y <= self.y1
-    }
-
-    pub fn overlaps(&self, other: &Rect) -> bool {
-        self.x0 <= other.x1 && other.x0 <= self.x1 && self.y0 <= other.y1 && other.y0 <= self.y1
-    }
-
     /// Pick order: bigger area wins; a tie goes to the squarer rectangle
     /// (closer width:height ratio, compared by cross multiplication to
     /// stay in integer math); a further tie (the same rectangle rotated,
@@ -260,11 +252,6 @@ impl RunMesh {
         Self { rects }
     }
 
-    /// Answers the same question as `BitMatrix::get`.
-    pub fn get(&self, x: u8, y: u8) -> bool {
-        self.rects.iter().any(|r| r.contains(x, y))
-    }
-
     pub fn rects(&self) -> &[Rect] {
         &self.rects
     }
@@ -335,10 +322,9 @@ mod tests {
     /// The invariant that matters: the rectangles cover exactly the set
     /// bits, and never each other.
     ///
-    /// Painting them into a matrix and comparing is linear in the grid,
-    /// where asking `mesh.get` per cell would scan every rectangle every
-    /// time. Overlap then falls out of arithmetic rather than comparing
-    /// every pair: if the areas sum to more than the cells painted, two
+    /// Painting them into a matrix and comparing is linear in the grid.
+    /// Overlap then falls out of arithmetic rather than comparing every
+    /// pair: if the areas sum to more than the cells painted, two
     /// rectangles covered the same cell.
     fn assert_exact_partition(bits: &BitMatrix, mesh: &RunMesh) {
         let mut painted = BitMatrix::new();
