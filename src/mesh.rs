@@ -100,14 +100,21 @@ pub struct RectMesh {
 
 impl RectMesh {
     pub fn from_bit_matrix(source: &BitMatrix) -> Self {
-        let mut claimed = BitMatrix::new();
-        let mut rects: Vec<Rect> = Vec::new();
+        let mut best = Mesher::run(source, None);
 
-        for row in 0..=u8::MAX {
-            process_range(source, &mut claimed, &mut rects, row, 0, u8::MAX);
+        // Every declined candidate is a decision the scan had to make
+        // without knowing what came below it. Re-run the whole mesh with
+        // each one pinned in place, which lets the rows above it settle
+        // around the shape instead of against it, and keep whichever
+        // attempt needs the fewest rectangles.
+        for candidate in best.declined.clone() {
+            let attempt = Mesher::run(source, Some(candidate));
+            if attempt.rects.len() < best.rects.len() {
+                best = attempt;
+            }
         }
 
-        Self { rects }
+        Self { rects: best.rects }
     }
 
     /// Answers the same question as `BitMatrix::get`, by checking which
@@ -121,53 +128,125 @@ impl RectMesh {
     }
 }
 
-/// Resolves the row-run(s) within `[col_lo, col_hi]` at `row`, committing
-/// or clipping rectangles as described on [`RectMesh`], then recurses into
-/// whatever column ranges are left on either side of what it just decided.
-fn process_range(
-    source: &BitMatrix,
-    claimed: &mut BitMatrix,
-    rects: &mut Vec<Rect>,
-    row: u8,
-    col_lo: u8,
-    col_hi: u8,
-) {
-    if col_lo > col_hi {
-        return;
+/// One top-to-bottom meshing attempt.
+///
+/// An attempt may be given a rectangle to `assume`: it starts already
+/// committed and is held fixed, so the rows above it settle around it
+/// rather than clipping it away. Without that protection the assumption
+/// is pointless — an earlier row's candidate reaching down into it would
+/// simply take those cells back, reproducing the original result.
+struct Mesher<'a> {
+    source: &'a BitMatrix,
+    claimed: BitMatrix,
+    rects: Vec<Rect>,
+    /// Rectangles at indices below this are assumed and cannot be clipped.
+    fixed: usize,
+    /// Candidates this attempt turned down, each one a decision the scan
+    /// had to make before seeing what lay below it.
+    declined: Vec<Rect>,
+}
+
+impl<'a> Mesher<'a> {
+    fn run(source: &'a BitMatrix, assume: Option<Rect>) -> Self {
+        let mut mesher = Mesher {
+            source,
+            claimed: BitMatrix::new(),
+            rects: Vec::new(),
+            fixed: 0,
+            declined: Vec::new(),
+        };
+
+        if let Some(rect) = assume {
+            mesher.commit(rect);
+            mesher.fixed = 1;
+        }
+
+        for row in 0..=u8::MAX {
+            mesher.process_range(row, 0, u8::MAX);
+        }
+
+        mesher
     }
 
-    let Some(ideal) = largest_rect_from_row(
-        |x, y| source.get(x, y),
-        |x, y| !claimed.get(x, y),
-        row,
-        col_lo,
-        col_hi,
-    ) else {
-        return;
-    };
+    fn commit(&mut self, rect: Rect) {
+        self.claimed.set_rect(rect.x0 as i64, rect.y0 as i64, rect.x1 as i64, rect.y1 as i64);
+        self.rects.push(rect);
+    }
 
-    let overlapping: Vec<usize> = rects
-        .iter()
-        .enumerate()
-        .filter(|(_, r)| r.overlaps(&ideal))
-        .map(|(i, _)| i)
-        .collect();
+    /// Resolves the row-run(s) within `[col_lo, col_hi]` at `row`, then
+    /// recurses into whatever column ranges are left on either side.
+    fn process_range(&mut self, row: u8, col_lo: u8, col_hi: u8) {
+        if col_lo > col_hi {
+            return;
+        }
 
-    // Weigh the new rectangle against everything it would disturb, not
-    // just the biggest piece: clipping several rectangles to gain one no
-    // larger than their total only shatters them for nothing.
-    let disturbed_area: u32 = overlapping.iter().map(|&i| rects[i].area()).sum();
-    let should_commit_ideal = overlapping.is_empty() || ideal.area() >= disturbed_area;
+        let source = self.source;
+        let ideal = {
+            let claimed = &self.claimed;
+            largest_rect_from_row(
+                |x, y| source.get(x, y),
+                |x, y| !claimed.get(x, y),
+                row,
+                col_lo,
+                col_hi,
+            )
+        };
+        let Some(ideal) = ideal else {
+            return;
+        };
 
-    if should_commit_ideal {
+        let overlapping: Vec<usize> = self
+            .rects
+            .iter()
+            .enumerate()
+            .filter(|(_, r)| r.overlaps(&ideal))
+            .map(|(i, _)| i)
+            .collect();
+
+        // Weigh the new rectangle against everything it would disturb,
+        // not just the biggest piece: clipping several rectangles to gain
+        // one no larger than their total only shatters them for nothing.
+        let disturbed_area: u32 = overlapping.iter().map(|&i| self.rects[i].area()).sum();
+        let touches_fixed = overlapping.iter().any(|&i| i < self.fixed);
+        let commit_ideal = overlapping.is_empty()
+            || (!touches_fixed && ideal.area() >= disturbed_area);
+
+        if commit_ideal {
+            self.clip_all(&overlapping, row);
+            self.commit(ideal);
+            self.recurse_around(row, col_lo, col_hi, ideal);
+            return;
+        }
+
+        self.declined.push(ideal);
+
+        let fallback = {
+            let claimed = &self.claimed;
+            largest_rect_from_row(
+                |x, y| source.get(x, y) && !claimed.get(x, y),
+                |_, _| true,
+                row,
+                col_lo,
+                col_hi,
+            )
+        };
+        let Some(fallback) = fallback else {
+            return;
+        };
+
+        self.commit(fallback);
+        self.recurse_around(row, col_lo, col_hi, fallback);
+    }
+
+    fn clip_all(&mut self, overlapping: &[usize], row: u8) {
         let mut to_remove = Vec::new();
-        for &i in &overlapping {
-            let old = rects[i];
-            claimed.unset_rect(old.x0 as i64, old.y0 as i64, old.x1 as i64, old.y1 as i64);
+        for &i in overlapping {
+            let old = self.rects[i];
+            self.claimed.unset_rect(old.x0 as i64, old.y0 as i64, old.x1 as i64, old.y1 as i64);
             if row > old.y0 {
-                rects[i].y1 = row - 1;
-                let clipped = rects[i];
-                claimed.set_rect(
+                self.rects[i].y1 = row - 1;
+                let clipped = self.rects[i];
+                self.claimed.set_rect(
                     clipped.x0 as i64,
                     clipped.y0 as i64,
                     clipped.x1 as i64,
@@ -179,47 +258,17 @@ fn process_range(
         }
         to_remove.sort_unstable_by(|a, b| b.cmp(a));
         for i in to_remove {
-            rects.remove(i);
+            self.rects.remove(i);
         }
-
-        commit(claimed, rects, ideal);
-        recurse_around(source, claimed, rects, row, col_lo, col_hi, ideal);
-        return;
     }
 
-    let Some(fallback) = largest_rect_from_row(
-        |x, y| source.get(x, y) && !claimed.get(x, y),
-        |_, _| true,
-        row,
-        col_lo,
-        col_hi,
-    ) else {
-        return;
-    };
-
-    commit(claimed, rects, fallback);
-    recurse_around(source, claimed, rects, row, col_lo, col_hi, fallback);
-}
-
-fn commit(claimed: &mut BitMatrix, rects: &mut Vec<Rect>, rect: Rect) {
-    claimed.set_rect(rect.x0 as i64, rect.y0 as i64, rect.x1 as i64, rect.y1 as i64);
-    rects.push(rect);
-}
-
-fn recurse_around(
-    source: &BitMatrix,
-    claimed: &mut BitMatrix,
-    rects: &mut Vec<Rect>,
-    row: u8,
-    col_lo: u8,
-    col_hi: u8,
-    committed: Rect,
-) {
-    if committed.x0 > col_lo {
-        process_range(source, claimed, rects, row, col_lo, committed.x0 - 1);
-    }
-    if committed.x1 < col_hi {
-        process_range(source, claimed, rects, row, committed.x1 + 1, col_hi);
+    fn recurse_around(&mut self, row: u8, col_lo: u8, col_hi: u8, committed: Rect) {
+        if committed.x0 > col_lo {
+            self.process_range(row, col_lo, committed.x0 - 1);
+        }
+        if committed.x1 < col_hi {
+            self.process_range(row, committed.x1 + 1, col_hi);
+        }
     }
 }
 
@@ -424,6 +473,31 @@ mod tests {
         assert!(mesh.rects().contains(&Rect { x0: 0, y0: 2, x1: 3, y1: 7 }));
         assert!(mesh.rects().contains(&Rect { x0: 5, y0: 4, x1: 6, y1: 7 }));
         assert!(mesh.rects().contains(&Rect { x0: 5, y0: 3, x1: 5, y1: 3 }));
+    }
+
+    /// Found by exhaustive search as a worst case for the plain scan,
+    /// which produced 5 rectangles where 3 suffice. Reaching 3 means
+    /// declining the area-3 vertical bar at row 0 in favour of the area-2
+    /// horizontal pair — a strictly smaller rectangle — which greedy will
+    /// never do on its own. It gets there by re-running with row 2's
+    /// turned-down 3x1 assumed, which blocks the bar from growing.
+    #[test]
+    fn adversarial_case_needs_a_smaller_first_rectangle() {
+        let bits = bits_from_rows([
+            [1, 1, 0, 0],
+            [0, 1, 1, 1],
+            [1, 1, 1, 0],
+            [0, 0, 0, 0],
+        ]);
+
+        let mesh = RectMesh::from_bit_matrix(&bits);
+        assert_round_trip(&bits, &mesh);
+        assert_no_overlaps(&mesh);
+
+        assert_eq!(mesh.rects().len(), 3);
+        assert!(mesh.rects().contains(&Rect { x0: 0, y0: 0, x1: 1, y1: 0 }));
+        assert!(mesh.rects().contains(&Rect { x0: 1, y0: 1, x1: 3, y1: 1 }));
+        assert!(mesh.rects().contains(&Rect { x0: 0, y0: 2, x1: 2, y1: 2 }));
     }
 
     /// The worked 8x8 example: a top-to-bottom scan that clips a couple of
