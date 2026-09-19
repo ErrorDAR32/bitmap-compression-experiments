@@ -8,6 +8,7 @@ pub const HEIGHT: usize = 256;
 const BITS_PER_WORD: usize = 64;
 const WORDS: usize = (WIDTH * HEIGHT) / BITS_PER_WORD;
 
+#[derive(Clone)]
 pub struct BitMatrix {
     words: Box<[u64; WORDS]>,
 }
