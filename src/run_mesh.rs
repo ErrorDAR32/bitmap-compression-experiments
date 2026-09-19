@@ -334,18 +334,26 @@ mod tests {
 
     /// The invariant that matters: the rectangles cover exactly the set
     /// bits, and never each other.
+    ///
+    /// Painting them into a matrix and comparing is linear in the grid,
+    /// where asking `mesh.get` per cell would scan every rectangle every
+    /// time. Overlap then falls out of arithmetic rather than comparing
+    /// every pair: if the areas sum to more than the cells painted, two
+    /// rectangles covered the same cell.
     fn assert_exact_partition(bits: &BitMatrix, mesh: &RunMesh) {
+        let mut painted = BitMatrix::new();
+        for r in mesh.rects() {
+            painted.set_rect(r.x0 as i64, r.y0 as i64, r.x1 as i64, r.y1 as i64);
+        }
+
         for y in 0..=u8::MAX {
             for x in 0..=u8::MAX {
-                assert_eq!(bits.get(x, y), mesh.get(x, y), "mismatch at ({x}, {y})");
+                assert_eq!(bits.get(x, y), painted.get(x, y), "mismatch at ({x}, {y})");
             }
         }
-        for a in 0..mesh.rects().len() {
-            for b in (a + 1)..mesh.rects().len() {
-                let (ra, rb) = (mesh.rects()[a], mesh.rects()[b]);
-                assert!(!ra.overlaps(&rb), "rects {a} and {b} overlap: {ra:?} {rb:?}");
-            }
-        }
+
+        let total: u32 = mesh.rects().iter().map(|r| r.area()).sum();
+        assert_eq!(total, painted.count_set(), "rectangles overlap");
     }
 
     #[test]
@@ -474,11 +482,9 @@ mod tests {
     }
 
     /// The worst case: no two set cells touch, so every run is one cell
-    /// long and nothing ever merges. Also where scanning every run to find
-    /// the longest turns quadratic.
+    /// long and nothing ever merges.
     #[test]
-    #[ignore]
-    fn checkerboard_stress_test() {
+    fn checkerboard_worst_case() {
         let mut bits = BitMatrix::new();
         for y in 0..=u8::MAX {
             for x in 0..=u8::MAX {
