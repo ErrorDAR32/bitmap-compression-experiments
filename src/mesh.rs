@@ -4,6 +4,13 @@
 use crate::BitMatrix;
 use std::cmp::Ordering;
 
+/// How many turned-down candidates to re-run the mesh around. Each costs
+/// a full extra pass. On realistic 256x256 input the gain is diffuse
+/// rather than concentrated — no retry count is obviously right — but the
+/// curve flattens here: 16 recovers three of the four rectangles that
+/// retrying everything would, for a tenth of its cost.
+const RETRY_LIMIT: usize = 16;
+
 /// An inclusive axis-aligned rectangle over the matrix's `u8` coordinate
 /// space.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -102,11 +109,19 @@ impl RectMesh {
         let mut best = Mesher::run(source, None);
 
         // Every declined candidate is a decision the scan had to make
-        // without knowing what came below it. Re-run the whole mesh with
-        // each one pinned in place, which lets the rows above it settle
-        // around the shape instead of against it, and keep whichever
-        // attempt needs the fewest rectangles.
-        for candidate in best.declined.clone() {
+        // without knowing what came below it. Re-running with one assumed
+        // lets the rows above settle around that shape instead of against
+        // it. Retrying all of them costs two orders of magnitude more than
+        // the scan for a few rectangles, and the ones that pay off are the
+        // late, low ones — a candidate declined near the bottom has the
+        // most rows above it left to rearrange — so the list is walked
+        // from the end.
+        let mut worth_retrying = best.declined.clone();
+        worth_retrying.dedup();
+        worth_retrying.reverse();
+        worth_retrying.truncate(RETRY_LIMIT);
+
+        for candidate in worth_retrying {
             let attempt = Mesher::run(source, Some(candidate));
             if attempt.rects.len() < best.rects.len() {
                 best = attempt;
