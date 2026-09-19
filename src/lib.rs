@@ -1,7 +1,9 @@
 //! A fixed-size 256x256 bit matrix backed by packed `u64` words.
 
 mod mesh;
+mod run_mesh;
 pub use mesh::{Rect, RectMesh};
+pub use run_mesh::RunMesh;
 
 pub const WIDTH: usize = 256;
 pub const HEIGHT: usize = 256;

@@ -1,7 +1,7 @@
 //! Times the mesher on full 256x256 bitmaps built the way the real ones
 //! are: unions of rectangles and circles with a few holes punched out.
 
-use bitmatrix::{BitMatrix, RectMesh};
+use bitmatrix::{BitMatrix, RectMesh, RunMesh};
 use std::time::{Duration, Instant};
 
 fn main() {
@@ -18,6 +18,8 @@ fn main() {
     let mut worst = Duration::ZERO;
     let mut total_rects = 0usize;
     let mut total_set = 0u64;
+    let (mut run_total, mut run_worst) = (Duration::ZERO, Duration::ZERO);
+    let mut run_rects = 0usize;
 
     println!("{:>4}  {:>8}  {:>7}  {:>10}  {:>9}", "n", "set", "rects", "time", "vs raw");
     for i in 0..SAMPLES {
@@ -46,6 +48,18 @@ fn main() {
         let mesh = RectMesh::from_bit_matrix(&bits);
         let elapsed = start.elapsed();
 
+        let start_run = Instant::now();
+        let run = RunMesh::from_bit_matrix(&bits);
+        let run_elapsed = start_run.elapsed();
+        run_total += run_elapsed;
+        run_worst = run_worst.max(run_elapsed);
+        run_rects += run.rects().len();
+        for y in 0..=u8::MAX {
+            for x in 0..=u8::MAX {
+                assert_eq!(bits.get(x, y), run.get(x, y), "run mesh wrong at ({x},{y})");
+            }
+        }
+
         total += elapsed;
         worst = worst.max(elapsed);
         total_rects += mesh.rects().len();
@@ -62,10 +76,16 @@ fn main() {
     }
 
     println!(
-        "\naverage {:.1?} per bitmap, worst {:.1?}, {} rects avg over {} set cells avg",
+        "\nrow-scan mesher: average {:.1?}, worst {:.1?}, {} rects avg over {} set cells avg",
         total / SAMPLES as u32,
         worst,
         total_rects / SAMPLES,
         total_set / SAMPLES as u64
+    );
+    println!(
+        "run mesher:      average {:.1?}, worst {:.1?}, {} rects avg",
+        run_total / SAMPLES as u32,
+        run_worst,
+        run_rects / SAMPLES
     );
 }
