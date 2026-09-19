@@ -16,34 +16,24 @@ impl BitMatrix {
         }
     }
 
-    fn bit_index(x: usize, y: usize) -> usize {
-        y * WIDTH + x
+    fn bit_index(x: u8, y: u8) -> usize {
+        y as usize * WIDTH + x as usize
     }
 
-    fn in_bounds(x: usize, y: usize) -> bool {
-        x < WIDTH && y < HEIGHT
-    }
-
-    pub fn get(&self, x: usize, y: usize) -> bool {
-        if !Self::in_bounds(x, y) {
-            return false;
-        }
+    /// `x` and `y` are `u8`, so every value from 0 to 255 is a valid
+    /// coordinate in this 256x256 matrix and out-of-bounds access is
+    /// impossible to express, not just checked at runtime.
+    pub fn get(&self, x: u8, y: u8) -> bool {
         let idx = Self::bit_index(x, y);
         (self.words[idx / BITS_PER_WORD] >> (idx % BITS_PER_WORD)) & 1 == 1
     }
 
-    pub fn set(&mut self, x: usize, y: usize) {
-        if !Self::in_bounds(x, y) {
-            return;
-        }
+    pub fn set(&mut self, x: u8, y: u8) {
         let idx = Self::bit_index(x, y);
         self.words[idx / BITS_PER_WORD] |= 1u64 << (idx % BITS_PER_WORD);
     }
 
-    pub fn unset(&mut self, x: usize, y: usize) {
-        if !Self::in_bounds(x, y) {
-            return;
-        }
+    pub fn unset(&mut self, x: u8, y: u8) {
         let idx = Self::bit_index(x, y);
         self.words[idx / BITS_PER_WORD] &= !(1u64 << (idx % BITS_PER_WORD));
     }
@@ -75,14 +65,14 @@ impl BitMatrix {
         y0: i64,
         x1: i64,
         y1: i64,
-        op: impl Fn(&mut Self, usize, usize),
+        op: impl Fn(&mut Self, u8, u8),
     ) {
         let (lo_x, hi_x) = order(x0, x1);
         let (lo_y, hi_y) = order(y0, y1);
-        let lo_x = clamp(lo_x, 0, WIDTH as i64 - 1) as usize;
-        let hi_x = clamp(hi_x, 0, WIDTH as i64 - 1) as usize;
-        let lo_y = clamp(lo_y, 0, HEIGHT as i64 - 1) as usize;
-        let hi_y = clamp(hi_y, 0, HEIGHT as i64 - 1) as usize;
+        let lo_x = clamp(lo_x, 0, WIDTH as i64 - 1) as u8;
+        let hi_x = clamp(hi_x, 0, WIDTH as i64 - 1) as u8;
+        let lo_y = clamp(lo_y, 0, HEIGHT as i64 - 1) as u8;
+        let hi_y = clamp(hi_y, 0, HEIGHT as i64 - 1) as u8;
 
         for y in lo_y..=hi_y {
             for x in lo_x..=hi_x {
@@ -107,23 +97,23 @@ impl BitMatrix {
         cx: i64,
         cy: i64,
         radius: i64,
-        op: impl Fn(&mut Self, usize, usize),
+        op: impl Fn(&mut Self, u8, u8),
     ) {
         if radius < 0 {
             return;
         }
         let r2 = radius * radius;
-        let lo_x = clamp(cx - radius, 0, WIDTH as i64 - 1);
-        let hi_x = clamp(cx + radius, 0, WIDTH as i64 - 1);
-        let lo_y = clamp(cy - radius, 0, HEIGHT as i64 - 1);
-        let hi_y = clamp(cy + radius, 0, HEIGHT as i64 - 1);
+        let lo_x = clamp(cx - radius, 0, WIDTH as i64 - 1) as u8;
+        let hi_x = clamp(cx + radius, 0, WIDTH as i64 - 1) as u8;
+        let lo_y = clamp(cy - radius, 0, HEIGHT as i64 - 1) as u8;
+        let hi_y = clamp(cy + radius, 0, HEIGHT as i64 - 1) as u8;
 
         for y in lo_y..=hi_y {
-            let dy = y - cy;
+            let dy = y as i64 - cy;
             for x in lo_x..=hi_x {
-                let dx = x - cx;
+                let dx = x as i64 - cx;
                 if dx * dx + dy * dy <= r2 {
-                    op(self, x as usize, y as usize);
+                    op(self, x, y);
                 }
             }
         }
@@ -173,14 +163,6 @@ mod tests {
         m.unset(10, 20);
         assert!(!m.get(10, 20));
         assert_eq!(m.count_set(), 0);
-    }
-
-    #[test]
-    fn out_of_bounds_is_ignored() {
-        let mut m = BitMatrix::new();
-        m.set(1000, 1000);
-        assert_eq!(m.count_set(), 0);
-        assert!(!m.get(1000, 1000));
     }
 
     #[test]

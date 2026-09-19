@@ -1,9 +1,9 @@
 use bitmatrix::BitMatrix;
 
 fn print_matrix(m: &BitMatrix) {
-    for y in 0..bitmatrix::HEIGHT {
+    for y in 0..=u8::MAX {
         let mut line = String::with_capacity(bitmatrix::WIDTH);
-        for x in 0..bitmatrix::WIDTH {
+        for x in 0..=u8::MAX {
             line.push(if m.get(x, y) { '#' } else { '.' });
         }
         println!("{line}");
