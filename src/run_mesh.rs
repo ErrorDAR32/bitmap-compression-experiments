@@ -88,8 +88,22 @@ impl Span {
 /// Runs for one orientation. For rows, `lines[y]` holds column spans; for
 /// columns, `lines[x]` holds row spans. The two are mirror images, which
 /// is what lets a seed be either kind without special-casing.
+///
+/// Runs are also indexed by length, so the longest is found by looking
+/// rather than searching. Carving only ever shortens a run or splits it
+/// into shorter pieces, so the longest run left never gets longer — which
+/// means `max_len` only ever walks downward, costing 256 steps over the
+/// whole meshing rather than a scan per step.
 struct Runs {
     lines: Vec<Vec<Span>>,
+    /// `by_len[n]` holds runs that were `n` long when filed. Entries go
+    /// stale when the run they name is carved, and are skipped over when
+    /// reached; a carved run can never come back, since carving only
+    /// removes, so passing one is permanent.
+    by_len: Vec<Vec<(u8, Span)>>,
+    /// How far into each bucket the stale entries have been skipped.
+    cursor: Vec<usize>,
+    max_len: usize,
 }
 
 impl Runs {
@@ -103,6 +117,8 @@ impl Runs {
 
     fn build(set: impl Fn(u8, u8) -> bool) -> Self {
         let mut lines = Vec::with_capacity(256);
+        let mut by_len: Vec<Vec<(u8, Span)>> = vec![Vec::new(); 257];
+        let mut max_len = 0usize;
         for line in 0..=u8::MAX {
             let mut spans = Vec::new();
             let mut start: Option<u8> = None;
@@ -119,24 +135,32 @@ impl Runs {
             if let Some(s) = start {
                 spans.push(Span { start: s, end: u8::MAX });
             }
+            // Filed in line order, so equal-length runs come out in the
+            // order they appear on the grid.
+            for span in &spans {
+                by_len[span.len() as usize].push((line, *span));
+                max_len = max_len.max(span.len() as usize);
+            }
             lines.push(spans);
         }
-        Self { lines }
+        Self { lines, by_len, cursor: vec![0; 257], max_len }
     }
 
-    /// Scans every run, so a step costs O(runs remaining). Fine while the
-    /// run count stays in the hundreds; a shape that fragments into
-    /// thousands of single cells would want a heap here instead.
-    fn longest(&self) -> Option<(u8, Span)> {
-        let mut best: Option<(u8, Span)> = None;
-        for (line, spans) in self.lines.iter().enumerate() {
-            for span in spans {
-                if best.is_none_or(|(_, b)| span.len() > b.len()) {
-                    best = Some((line as u8, *span));
+    /// The longest run still standing, by walking down the length index
+    /// and stepping over entries whose run has since been carved.
+    fn longest(&mut self) -> Option<(u8, Span)> {
+        while self.max_len > 0 {
+            let bucket = self.max_len;
+            while self.cursor[bucket] < self.by_len[bucket].len() {
+                let (line, span) = self.by_len[bucket][self.cursor[bucket]];
+                if self.lines[line as usize].contains(&span) {
+                    return Some((line, span));
                 }
+                self.cursor[bucket] += 1;
             }
+            self.max_len -= 1;
         }
-        best
+        None
     }
 
     fn span_at(&self, line: u8, pos: u8) -> Option<Span> {
@@ -152,19 +176,32 @@ impl Runs {
         for line in lines.0..=lines.1 {
             let spans = &mut self.lines[line as usize];
             let mut next = Vec::with_capacity(spans.len() + 1);
+            let mut fresh: Vec<Span> = Vec::new();
             for span in spans.iter() {
                 if hi < span.start || lo > span.end {
+                    // Untouched, so its existing index entry still holds.
                     next.push(*span);
                     continue;
                 }
                 if lo > span.start {
-                    next.push(Span { start: span.start, end: lo - 1 });
+                    let piece = Span { start: span.start, end: lo - 1 };
+                    next.push(piece);
+                    fresh.push(piece);
                 }
                 if hi < span.end {
-                    next.push(Span { start: hi + 1, end: span.end });
+                    let piece = Span { start: hi + 1, end: span.end };
+                    next.push(piece);
+                    fresh.push(piece);
                 }
             }
             *spans = next;
+
+            // A piece is always shorter than the run it came from, so it
+            // files below `max_len` and will still be reached on the way
+            // down.
+            for piece in fresh {
+                self.by_len[piece.len() as usize].push((line, piece));
+            }
         }
     }
 }
