@@ -80,16 +80,15 @@ impl Rect {
 /// best rectangle using only the genuinely unclaimed cells is committed
 /// instead.
 ///
-/// This is a naive greedy heuristic, not a minimum-rectangle solver. It
-/// favours large, square-ish rectangles rather than few of them, and it
-/// cannot reach an optimum that requires taking a *smaller* rectangle
-/// first, so it uses more rectangles than necessary on roughly a tenth
-/// of all 4x4 bitmaps (see `examples/optimality_search.rs`). It is also
-/// orientation-sensitive: the scan runs top to bottom and equal-area
-/// ties prefer the wider rectangle, so the same shape can mesh better or
-/// worse depending on how it is turned — feeding the search a shape's
-/// eight symmetries and keeping the best drops that tenth to a fortieth,
-/// which measures how much the row-major bias costs. A true
+/// This is a greedy heuristic, not a minimum-rectangle solver. Retrying
+/// around declined candidates recovers many of the optima that need a
+/// smaller rectangle taken first, but not all of them: it still uses
+/// more rectangles than necessary on about 8% of all 4x4 bitmaps, and
+/// on 4% of blob-shaped 8x8 ones, where it is never off by more than a
+/// single rectangle (see `examples/optimality_search.rs`). It is also
+/// orientation-sensitive, since the scan runs top to bottom and
+/// equal-area ties prefer the wider rectangle, so the same shape can
+/// mesh better or worse depending on how it is turned. A true
 /// minimum partition into disjoint rectangles is not out of reach — it
 /// is polynomial, via maximum matching over the chords joining reflex
 /// vertices — it is just a different algorithm than this one. (Minimum
