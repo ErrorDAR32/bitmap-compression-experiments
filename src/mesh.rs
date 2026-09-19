@@ -4,6 +4,9 @@
 use crate::BitMatrix;
 use std::cmp::Ordering;
 
+/// How many of a rectangle's runners-up to play out when it is in the way.
+const ALTERNATIVES_TRIED: usize = 2;
+
 /// An inclusive axis-aligned rectangle over the matrix's `u8` coordinate
 /// space.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -247,7 +250,10 @@ impl<'a> Mesher<'a> {
         let mut best: Option<Mesher<'a>> = None;
 
         for &i in obstructions {
-            for replacement in self.alternatives[i].clone() {
+            let mut options = self.alternatives[i].clone();
+            options.sort_by(|a, b| if a.better_than(b) { Ordering::Less } else { Ordering::Greater });
+            options.truncate(ALTERNATIVES_TRIED);
+            for replacement in options {
                 if replacement.overlaps(&ideal) {
                     continue;
                 }
