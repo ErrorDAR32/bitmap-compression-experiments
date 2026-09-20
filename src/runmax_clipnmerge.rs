@@ -470,6 +470,66 @@ const UNCOUNTED: u32 = u32::MAX - 1;
 /// one stretch of positions, so the buckets to revisit are a range
 /// rather than the whole level. Scanning the level instead is what made
 /// a bitmap of thousands of equal runs take two thirds of a second.
+/// No run sits in this slot.
+const NO_SEED: u32 = u32::MAX;
+
+/// The runs waiting to be seeded, bucketed by length.
+///
+/// The only thing the queue is ever asked for is every run at the
+/// longest length left, and a length is 1 to 256, so the order is an
+/// array index rather than a comparison. Carving a run leaves pieces
+/// strictly shorter than it, and no run longer than the level's length
+/// is standing to be carved, so nothing can ever land in a bucket the
+/// cursor has already passed. The cursor only descends, every push is
+/// two writes, and drawing a level is a walk down one chain.
+///
+/// The chains live in one arena that only grows, at twelve bytes a run
+/// and a few thousand runs a bitmap, rather than in 257 vectors that
+/// would each have to find their own size.
+struct Queue {
+    /// Every run pushed, each holding the slot of the next one in its
+    /// bucket.
+    seeds: Vec<(Seed, u32)>,
+    /// The run pushed most recently at each length.
+    heads: Box<[u32; 257]>,
+    longest: usize,
+}
+
+impl Queue {
+    fn new() -> Self {
+        Self { seeds: Vec::new(), heads: Box::new([NO_SEED; 257]), longest: 256 }
+    }
+
+    fn push(&mut self, seed: Seed) {
+        let length = seed.len() as usize;
+        let slot = self.seeds.len() as u32;
+        self.seeds.push((seed, self.heads[length]));
+        self.heads[length] = slot;
+    }
+
+    /// Empties the bucket at the longest length that has anything in it
+    /// into `out`, and answers that length.
+    fn drain_longest(&mut self, out: &mut Vec<Seed>) -> Option<u16> {
+        loop {
+            let head = self.heads[self.longest];
+            if head != NO_SEED {
+                self.heads[self.longest] = NO_SEED;
+                let mut at = head;
+                while at != NO_SEED {
+                    let (seed, next) = self.seeds[at as usize];
+                    out.push(seed);
+                    at = next;
+                }
+                return Some(self.longest as u16);
+            }
+            if self.longest == 0 {
+                return None;
+            }
+            self.longest -= 1;
+        }
+    }
+}
+
 #[derive(Default)]
 struct Level {
     length: u16,
@@ -480,6 +540,8 @@ struct Level {
     buckets: Vec<Vec<u32>>,
     filled: Vec<usize>,
     scratch: Vec<u32>,
+    /// The bucket the queue last handed over, standing or not.
+    drawn: Vec<Seed>,
 }
 
 impl Level {
@@ -514,7 +576,11 @@ impl Level {
     }
 
     /// Draws every run standing at the longest length left.
-    fn draw(&mut self, queue: &mut BinaryHeap<Seed>, rows: &Runs, cols: &Runs) {
+    ///
+    /// A bucket can come back holding nothing but runs that have since
+    /// been carved away, which is no level at all, so the cursor keeps
+    /// descending until one of them is still standing.
+    fn draw(&mut self, queue: &mut Queue, rows: &Runs, cols: &Runs) {
         for &slot in &self.filled {
             self.buckets[slot].clear();
         }
@@ -522,33 +588,32 @@ impl Level {
         self.runs.clear();
         self.order.clear();
 
-        self.length = loop {
-            match queue.peek() {
-                None => return,
-                Some(top) if top.standing(rows, cols) => break top.len(),
-                Some(_) => drop(queue.pop()),
-            }
-        };
+        loop {
+            self.drawn.clear();
+            let Some(length) = queue.drain_longest(&mut self.drawn) else { return };
+            self.length = length;
 
-        while let Some(top) = queue.peek() {
-            if top.len() != self.length {
-                break;
-            }
-            let seed = queue.pop().expect("just peeked");
-            if !seed.standing(rows, cols) {
-                continue;
+            for index in 0..self.drawn.len() {
+                let seed = self.drawn[index];
+                if !seed.standing(rows, cols) {
+                    continue;
+                }
+
+                let slot = self.runs.len() as u32;
+                let key = self.key(&seed, self.bound());
+                self.order.push(Ranked { key, area: UNCOUNTED, slot });
+                self.runs.push((seed, UNCOUNTED));
+
+                let bucket = Self::bucket(seed.is_column, seed.start);
+                if self.buckets[bucket].is_empty() {
+                    self.filled.push(bucket);
+                }
+                self.buckets[bucket].push(slot);
             }
 
-            let slot = self.runs.len() as u32;
-            let key = self.key(&seed, self.bound());
-            self.order.push(Ranked { key, area: UNCOUNTED, slot });
-            self.runs.push((seed, UNCOUNTED));
-
-            let bucket = Self::bucket(seed.is_column, seed.start);
-            if self.buckets[bucket].is_empty() {
-                self.filled.push(bucket);
+            if !self.runs.is_empty() {
+                return;
             }
-            self.buckets[bucket].push(slot);
         }
     }
 
@@ -654,7 +719,7 @@ impl RunmaxClipnmerge {
         let source = &source;
 
         let (mut rows, mut cols) = Runs::of(source);
-        let mut queue = BinaryHeap::new();
+        let mut queue = Queue::new();
         for (is_column, side) in [(false, &rows), (true, &cols)] {
             side.for_each_run(|line, span| queue.push(Seed::new(line, span, is_column)));
         }
