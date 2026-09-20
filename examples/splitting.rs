@@ -19,7 +19,10 @@ fn tally(maps: &[BitMatrix], how: fn(&BitMatrix) -> Fastile) -> (usize, usize) {
     (raw, done)
 }
 
-const WAYS: [(&str, fn(&BitMatrix) -> Fastile); 4] = [
+/// A way of meshing, named.
+type Way = (&'static str, fn(&BitMatrix) -> Fastile);
+
+const WAYS: [Way; 4] = [
     ("whole/least", |b| Fastile::with_tie(b, Tie::Least)),
     ("whole/ratio", |b| Fastile::with_tie(b, Tie::Ratio)),
     ("split/least", |b| Fastile::by_splitting(b, Tie::Least)),
