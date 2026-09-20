@@ -386,6 +386,46 @@ fn apply(
     owners.give(&band, a as u32);
 }
 
+/// The rows and columns where cells have changed hands.
+///
+/// A rectangle's four walks only ever cross the columns it spans and
+/// the rows it spans: growing up or down stays inside its columns,
+/// growing left or right inside its rows. So nothing outside those two
+/// strips can change what growing it would do, and two 256-bit masks
+/// answer "has anything of mine moved" in a handful of word operations.
+///
+/// That is what makes the sweeps after the first one cheap. Settling a
+/// realistic bitmap takes nine sweeps over a couple of hundred
+/// rectangles, and all but the first is spent re-deciding the same
+/// nothing for rectangles nowhere near a change.
+#[derive(Clone, Copy)]
+struct Strips {
+    cols: [u64; WORDS],
+    rows: [u64; WORDS],
+}
+
+impl Strips {
+    const NONE: Self = Self { cols: [0; WORDS], rows: [0; WORDS] };
+    const ALL: Self = Self { cols: [u64::MAX; WORDS], rows: [u64::MAX; WORDS] };
+
+    /// Records that a rectangle's cells have changed hands.
+    fn mark(&mut self, r: &Rect) {
+        for index in 0..WORDS {
+            self.cols[index] |= masked(u64::MAX, index, r.x0, r.x1);
+            self.rows[index] |= masked(u64::MAX, index, r.y0, r.y1);
+        }
+    }
+
+    /// Whether anything marked here or in `also` lies in either of a
+    /// rectangle's strips.
+    fn reaches(&self, also: &Self, r: &Rect) -> bool {
+        (0..WORDS).any(|index| {
+            (self.cols[index] | also.cols[index]) & masked(u64::MAX, index, r.x0, r.x1) != 0
+                || (self.rows[index] | also.rows[index]) & masked(u64::MAX, index, r.y0, r.y1) != 0
+        })
+    }
+}
+
 /// Grows every rectangle that can grow, until none can, and answers how
 /// many were swallowed.
 fn absorb(rects: &mut Vec<Rect>) -> usize {
@@ -394,11 +434,19 @@ fn absorb(rects: &mut Vec<Rect>) -> usize {
     let mut scratch = Growing::new(rects.len());
     let mut swallowed = 0;
 
+    // Nothing has been looked at yet, so the first sweep skips nothing.
+    // After that, `earlier` holds what the last sweep disturbed and
+    // `sweep` what this one has disturbed so far, and between them they
+    // cover everything that has moved since a rectangle was last
+    // weighed up.
+    let mut earlier = Strips::ALL;
+    let mut sweep = Strips::NONE;
+
     let mut again = true;
     while again {
         again = false;
         for a in 0..rects.len() {
-            if gone[a] {
+            if gone[a] || !sweep.reaches(&earlier, &rects[a]) {
                 continue;
             }
             for side in [Side::Down, Side::Up, Side::Right, Side::Left] {
@@ -410,12 +458,25 @@ fn absorb(rects: &mut Vec<Rect>) -> usize {
                 let Growing { met, taken, cut, .. } = &mut scratch;
                 split_met(rects, met, &band, side, taken, cut);
                 let reach = Reach { band, taken, cut };
+                let standing = rects.len();
                 apply(rects, &mut owners, &mut gone, a, side, reach);
+
+                // Everything that changed hands is the band, which
+                // covers whoever was swallowed, and the pieces of
+                // whoever was cut, which are the rectangles just
+                // appended.
+                sweep.mark(&band);
+                for index in standing..rects.len() {
+                    sweep.mark(&rects[index]);
+                }
+
                 swallowed += gain as usize;
                 again = true;
                 break;
             }
         }
+        earlier = sweep;
+        sweep = Strips::NONE;
     }
 
     let mut index = 0;
