@@ -560,6 +560,53 @@ fn plan_along(
     out[start..].reverse();
 }
 
+/// Covers a seed with every cell standing under it, in as few
+/// rectangles as that takes.
+///
+/// Merging two neighbouring stretches can only lower the ceiling and
+/// raise the floor of what they share, so a cover takes every cell under
+/// the seed exactly when no stretch holds two crossing runs that differ.
+/// That fixes where the cuts go, and the fewest rectangles managing it
+/// is one per stretch of equal runs: no charge to tune, no search.
+///
+/// It meshes worse than taking the seed whole, deliberately. The
+/// rectangles it leaves are thin, and thin rectangles are the ones a
+/// rewriting pass can do something with.
+fn take_all_area(
+    crossing: &Runs,
+    seed: Span,
+    line: u8,
+    seed_is_column: bool,
+    out: &mut Vec<Rect>,
+) {
+    let emit = |out: &mut Vec<Rect>, from: u8, to: u8, run: Span| {
+        out.push(if seed_is_column {
+            Rect { x0: run.start, y0: from, x1: run.end, y1: to }
+        } else {
+            Rect { x0: from, y0: run.start, x1: to, y1: run.end }
+        });
+    };
+
+    let mut open: Option<(u8, Span)> = None;
+    for pos in seed.start..=seed.end {
+        let run = crossing
+            .span_at(pos, line)
+            .expect("a cell still standing belongs to a run of either kind");
+        match open {
+            Some((from, current)) if current != run => {
+                emit(out, from, pos - 1, current);
+                open = Some((pos, run));
+            }
+            None => open = Some((pos, run)),
+            _ => {}
+        }
+    }
+
+    if let Some((from, current)) = open {
+        emit(out, from, seed.end, current);
+    }
+}
+
 /// The best stretch of a seed to take, and what it covers.
 #[derive(Clone, Copy)]
 struct Stretch {
@@ -1111,10 +1158,25 @@ impl Fastile {
         Self { rects, alone: alone_count }
     }
 
+    /// Seeds the same way, but a step covers every cell under its seed
+    /// rather than taking the seed whole. See [`take_all_area`].
+    #[doc(hidden)]
+    pub fn by_all_area(source: &BitMatrix, tie: Tie) -> Self {
+        Self::stepping(source, tie, take_all_area)
+    }
+
     /// Seeds the same way, but lets a step take one stretch of its seed
     /// or two rather than the whole of it. See [`take_stretches`].
     #[doc(hidden)]
     pub fn by_splitting(source: &BitMatrix, tie: Tie) -> Self {
+        Self::stepping(source, tie, take_stretches)
+    }
+
+    fn stepping(
+        source: &BitMatrix,
+        tie: Tie,
+        step: fn(&Runs, Span, u8, bool, &mut Vec<Rect>),
+    ) -> Self {
         let (alone, source) = source.split_isolated();
         let source = &source;
 
@@ -1125,7 +1187,7 @@ impl Fastile {
         while let Some(seed) = scan_for_seed(&rows, &cols, tie) {
             let crossing = if seed.is_column { &rows } else { &cols };
             plan.clear();
-            take_stretches(crossing, seed.span(), seed.line, seed.is_column, &mut plan);
+            step(crossing, seed.span(), seed.line, seed.is_column, &mut plan);
 
             for rect in plan.drain(..) {
                 rows.carve((rect.y0, rect.y1), rect.x0, rect.x1, &mut bin);

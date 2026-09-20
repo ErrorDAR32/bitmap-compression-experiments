@@ -23,10 +23,10 @@ fn tally(maps: &[BitMatrix], how: fn(&BitMatrix) -> Fastile) -> (usize, usize) {
 type Way = (&'static str, fn(&BitMatrix) -> Fastile);
 
 const WAYS: [Way; 4] = [
-    ("whole/least", |b| Fastile::with_tie(b, Tie::Least)),
+    ("whole", |b| Fastile::with_tie(b, Tie::Least)),
+    ("all-area", |b| Fastile::by_all_area(b, Tie::Least)),
+    ("split", |b| Fastile::by_splitting(b, Tie::Least)),
     ("whole/ratio", |b| Fastile::with_tie(b, Tie::Ratio)),
-    ("split/least", |b| Fastile::by_splitting(b, Tie::Least)),
-    ("split/ratio", |b| Fastile::by_splitting(b, Tie::Ratio)),
 ];
 
 fn main() {

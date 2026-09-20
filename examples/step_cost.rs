@@ -16,8 +16,8 @@ type Way = (&'static str, fn(&BitMatrix) -> Fastile);
 const WAYS: [Way; 5] = [
     ("queue, whole seed", Fastile::from_bit_matrix),
     ("scan,  whole seed", |b| Fastile::by_scanning(b, Tie::Least)),
+    ("scan,  all area, fewest rects", |b| Fastile::by_all_area(b, Tie::Least)),
     ("scan,  one or two stretches", |b| Fastile::by_splitting(b, Tie::Least)),
-    ("scan,  corner plan", |b| Fastile::by_corner_plan(b, Tie::Least, 4)),
     ("scan,  whole seed, ratio", |b| Fastile::with_tie(b, Tie::Ratio)),
 ];
 
