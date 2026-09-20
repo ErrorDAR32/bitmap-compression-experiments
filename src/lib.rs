@@ -3,8 +3,10 @@
 //!
 //! - [`RunmaxClipnmerge`] is the fast one. It reduces the bitmap to the
 //!   cells standing in both orientations, meshes it into deliberately
-//!   thin rectangles, and then grows them back over each other. It
-//!   lands a little over the minimum, in a fifth of the time.
+//!   thin rectangles, and then grows them back over each other. Over
+//!   540 generated bitmaps it lands 3.24% over the minimum, and costs
+//!   less than [`accurate`] does on seven of the nine shapes the corpus
+//!   is made of.
 //! - [`accurate`] is the minimum, by the construction of Lipski and of
 //!   Ohtsuki. It is what runmax-clipnmerge is measured against.
 //! - Exhaustive search, the ground truth, lives in the `ground_truth`
@@ -57,11 +59,16 @@
 //!
 //! A workspace holds no shared state, so one per worker thread is all
 //! that parallelism needs; the test suite asserts it is [`Send`]. On
-//! one core a realistic bitmap takes around 160us, so a billion bits --
-//! 15,259 bitmaps of them -- is a few seconds, and a million is a few
-//! milliseconds. Content shapes that far more than size does: see the
-//! `cost` example, where a ragged bitmap costs 260 times what a
-//! realistic one costs per set cell.
+//! one core a middling ragged bitmap takes around 2.3ms, so a billion
+//! bits -- 15,259 bitmaps of them -- is about half a minute, and a
+//! million is about 35ms. Spread that over cores and a billion bits is
+//! seconds.
+//!
+//! Content shapes the cost more than size does, though less wildly than
+//! the hand-drawn corpus once suggested. Per set cell the spread across
+//! the nine shapes is about sixfold, from 429 instructions on sparse
+//! scattered content to 2604 on dense scattered: see the `cost`
+//! example, which counts them under callgrind.
 
 pub mod accurate;
 mod data;

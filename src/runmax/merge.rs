@@ -18,10 +18,11 @@
 //! had a neighbour whose face fitted inside their span, but only 3.6%
 //! had one lining up with an end of it.
 //!
-//! What growing leaves for this one is little: 210 rectangles a bitmap
-//! against merging's 138, on middling ragged content. It is kept
-//! because it is cheap -- three milliseconds against growing's four --
-//! and because the two find different things.
+//! What growing leaves for this one is little. On middling ragged
+//! content growing alone reclaims 195.7 rectangles a bitmap and merging
+//! alone 86.8, but the two together reclaim 280.9 rather than 282.4, so
+//! nearly everything merging finds is something growing did not. It is
+//! kept for that, and because it is cheap beside growing.
 
 use crate::runmax::edges::{Axis, Edges};
 use crate::Rect;

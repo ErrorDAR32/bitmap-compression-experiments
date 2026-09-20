@@ -9,10 +9,15 @@
 //! was taken.
 //!
 //! Covering meshes worse than taking the seed whole, deliberately, and
-//! that is the point. It lands at 84.27 rectangles per realistic bitmap
-//! against 76.06 for taking the seed whole, but the rectangles it
-//! leaves are thin, and thin rectangles are the ones [`crate::runmax::grow`]
-//! can do something with: 74.66 after the rewriting pass against 75.19.
+//! that is the point: the rectangles it leaves are thin, and thin
+//! rectangles are the ones [`crate::runmax::grow`] can do something
+//! with, so covering is behind after the mesh and ahead after the
+//! rewriting pass. The figures that settled it -- 84.27 rectangles a
+//! bitmap against 76.06 meshed, 74.66 against 75.19 rewritten -- were
+//! taken on the hand-drawn corpus, which is gone, and on a mesher that
+//! went with it, so they cannot be re-measured here. On the generated
+//! corpus the covering mesher leaves 5556 rectangles on a middling
+//! ragged bitmap and 5275 after the pass.
 //!
 //! Three structures carry a step. [`Runs`] holds what is standing, as
 //! bits. [`Queue`] holds the runs waiting to be seeded, bucketed by
