@@ -322,6 +322,18 @@ pub enum Tie {
     Least,
     /// The most, which is what this used to do.
     Most,
+    /// The run with the most length for the crossing area it severs,
+    /// which weighs the two against each other rather than letting
+    /// either decide outright. Parameter-free: no threshold to tune.
+    /// Only the scan implements it.
+    Ratio,
+    /// The run with the least crossing area, consulted *before* length
+    /// rather than only to settle a tie on it.
+    ///
+    /// Length deciding first is Fastile's own invention and the theory
+    /// says it should not matter at all. Only the scan implements this:
+    /// the queue cannot, because its levels are grouped by length.
+    AreaFirst,
     /// The run whose deepest crossing run is shallowest, rather than
     /// whose crossing runs add up to least.
     ///
@@ -448,6 +460,106 @@ fn corners_served(seed: &Seed, rows: &Runs, cols: &Runs) -> u32 {
         .count() as u32
 }
 
+/// How many reflex corners lie anywhere on a rectangle's boundary.
+///
+/// Not just at its four corners. A cut serves a reflex corner when it
+/// runs out of it, and an edge passing through one does that as surely
+/// as an edge ending there: the bar across the middle of the ladder has
+/// four convex corners of its own and two reflex corners sitting along
+/// its top edge, which is the whole reason taking it is worth anything.
+fn corners_on(rect: &Rect, rows: &Runs) -> u32 {
+    let (left, right) = (rect.x0 as i32, rect.x1 as i32 + 1);
+    let (top, bottom) = (rect.y0 as i32, rect.y1 as i32 + 1);
+
+    let mut served = 0;
+    for x in left..=right {
+        served += u32::from(is_reflex(rows, x, top));
+        served += u32::from(is_reflex(rows, x, bottom));
+    }
+    for y in top + 1..bottom {
+        served += u32::from(is_reflex(rows, left, y));
+        served += u32::from(is_reflex(rows, right, y));
+    }
+    served
+}
+
+/// Cuts a seed run into the stretches that serve the most reflex corners
+/// between them, each stretch sunk to its own depth.
+///
+/// One rectangle per seed is the special case where the best cutting is
+/// no cutting. Where it is not, the seed is worth more broken up: the
+/// ladder's spine taken whole serves almost nothing, and cut into its
+/// five rows it is the minimum partition outright.
+///
+/// A rectangle is charged two corners for existing, which is what a
+/// chord serves: a cut running between two reflex corners settles both
+/// and is exactly worth making. Without the charge the rule only ever
+/// cuts, since more rectangles mean more boundary and more boundary
+/// touches more corners however uselessly, and it costs 7.1% over the
+/// minimum on 4x4 bitmaps against 2.1% for taking the seed whole.
+fn plan_along(
+    crossing: &Runs,
+    rows: &Runs,
+    seed: Span,
+    line: u8,
+    seed_is_column: bool,
+    charge: i64,
+    out: &mut Vec<Rect>,
+) {
+    let mut runs: Vec<Span> = Vec::with_capacity(seed.len() as usize);
+    for pos in seed.start..=seed.end {
+        match crossing.span_at(pos, line) {
+            Some(run) => runs.push(run),
+            None => break,
+        }
+    }
+
+    let build = |from: usize, to: usize, lo: u8, hi: u8| {
+        let (a, b) = (seed.start + from as u8, seed.start + to as u8 - 1);
+        if seed_is_column {
+            Rect { x0: lo, y0: a, x1: hi, y1: b }
+        } else {
+            Rect { x0: a, y0: lo, x1: b, y1: hi }
+        }
+    };
+
+    // best[j] is the most corners the first j positions can serve, and
+    // how many rectangles it took; cut[j] where the last one starts.
+    let n = runs.len();
+    let mut best = vec![(0i64, 0usize); n + 1];
+    let mut cut = vec![0usize; n + 1];
+    for j in 1..=n {
+        let (mut lo, mut hi) = (0u8, u8::MAX);
+        let mut chosen = (i64::MIN, usize::MAX);
+        for i in (0..j).rev() {
+            lo = lo.max(runs[i].start);
+            hi = hi.min(runs[i].end);
+
+            let (before, spent) = best[i];
+            let served = before + corners_on(&build(i, j, lo, hi), rows) as i64 - charge;
+            if (served, usize::MAX - spent) > (chosen.0, usize::MAX - chosen.1) {
+                chosen = (served, spent + 1);
+                cut[j] = i;
+            }
+        }
+        best[j] = chosen;
+    }
+
+    let start = out.len();
+    let mut j = n;
+    while j > 0 {
+        let i = cut[j];
+        let (mut lo, mut hi) = (0u8, u8::MAX);
+        for run in &runs[i..j] {
+            lo = lo.max(run.start);
+            hi = hi.min(run.end);
+        }
+        out.push(build(i, j, lo, hi));
+        j = i;
+    }
+    out[start..].reverse();
+}
+
 /// How much area stands in the runs crossing a seed: the lengths of all
 /// of them added up, not the longest of them.
 fn crossing_area(seed: &Seed, rows: &Runs, cols: &Runs) -> u32 {
@@ -500,6 +612,7 @@ fn measure(seed: &Seed, rows: &Runs, cols: &Runs, tie: Tie) -> u32 {
     match tie {
         Tie::Least | Tie::Most => crossing_area(seed, rows, cols),
         Tie::Shallowest => deepest_crossing(seed, rows, cols),
+        Tie::AreaFirst | Tie::Ratio => crossing_area(seed, rows, cols),
         Tie::Corners => {
             (corners_served(seed, rows, cols) << 17) | crossing_area(seed, rows, cols)
         }
@@ -553,7 +666,9 @@ impl Level {
         let (served, area) = (figure >> 17, figure & 0x1_FFFF);
         let by_area = match tie {
             Tie::Most => area,
-            Tie::Least | Tie::Corners | Tie::Shallowest => 0x1_FFFF - area,
+            Tie::Least | Tie::Corners | Tie::Shallowest | Tie::AreaFirst | Tie::Ratio => {
+                0x1_FFFF - area
+            }
         };
         ((served as u64) << 43) | ((by_area as u64) << 26) | seed.order as u64
     }
@@ -572,7 +687,7 @@ impl Level {
         match tie {
             Tie::Least => self.length as u32,
             Tie::Most => self.length as u32 * 256,
-            Tie::Shallowest => 1,
+            Tie::Shallowest | Tie::AreaFirst | Tie::Ratio => 1,
             Tie::Corners => (4 << 17) | self.length as u32,
         }
     }
@@ -712,6 +827,10 @@ impl Fastile {
     /// The same, with the tie on run length settled either way.
     #[doc(hidden)]
     pub fn with_tie(source: &BitMatrix, tie: Tie) -> Self {
+        if matches!(tie, Tie::AreaFirst | Tie::Ratio) {
+            return Self::by_scanning(source, tie);
+        }
+
         // Cells standing alone are forced, so they are set aside rather
         // than queued, seeded, carved and then checked against every
         // neighbour they do not have.
@@ -817,6 +936,40 @@ impl Fastile {
 // ---------------------------------------------------------------------
 
 impl Fastile {
+    /// Seeds the same way, but lets a step cut its seed into the
+    /// stretches serving the most reflex corners rather than taking it
+    /// whole. See [`plan_along`].
+    #[doc(hidden)]
+    pub fn by_corner_plan(source: &BitMatrix, tie: Tie, charge: i64) -> Self {
+        let (alone, source) = source.split_isolated();
+        let source = &source;
+
+        let (mut rows, mut cols) = Runs::of(source);
+        let mut rects = Vec::new();
+        let (mut plan, mut bin) = (Vec::new(), Vec::new());
+
+        while let Some(seed) = scan_for_seed(&rows, &cols, tie) {
+            let crossing = if seed.is_column { &rows } else { &cols };
+            plan.clear();
+            plan_along(crossing, &rows, seed.span(), seed.line, seed.is_column, charge, &mut plan);
+
+            for rect in plan.drain(..) {
+                rows.carve((rect.y0, rect.y1), rect.x0, rect.x1, &mut bin);
+                cols.carve((rect.x0, rect.x1), rect.y0, rect.y1, &mut bin);
+                bin.clear();
+                rects.push(rect);
+            }
+        }
+
+        let mut alone_count = 0;
+        alone.for_each_set(|x, y| {
+            rects.push(Rect { x0: x, y0: y, x1: x, y1: y });
+            alone_count += 1;
+        });
+
+        Self { rects, alone: alone_count }
+    }
+
     #[doc(hidden)]
     pub fn by_scanning(source: &BitMatrix, tie: Tie) -> Self {
         let (alone, source) = source.split_isolated();
@@ -858,13 +1011,20 @@ fn scan_for_seed(rows: &Runs, cols: &Runs, tie: Tie) -> Option<Seed> {
     for (is_column, side) in [(false, rows), (true, cols)] {
         for (line, spans) in side.lines.iter().enumerate() {
             for span in spans {
-                if span.len() != longest {
+                if !matches!(tie, Tie::AreaFirst | Tie::Ratio) && span.len() != longest {
                     continue;
                 }
                 let seed = Seed::new(line as u8, *span, is_column);
                 let figure = measure(&seed, rows, cols, tie);
                 let better = match best {
                     None => true,
+                    // Most run per unit of crossing area severed, by
+                    // cross multiplication so it stays in integers.
+                    Some((top, top_figure)) if tie == Tie::Ratio => {
+                        let (mine, theirs) = (figure as u64, top_figure as u64);
+                        let (long, top_long) = (seed.len() as u64, top.len() as u64);
+                        (long * theirs, seed.order) > (top_long * mine, top.order)
+                    }
                     Some((top, top_figure)) => {
                         let served = (figure >> 17, top_figure >> 17);
                         let area = (figure & 0x1_FFFF, top_figure & 0x1_FFFF);
@@ -873,7 +1033,11 @@ fn scan_for_seed(rows: &Runs, cols: &Runs, tie: Tie) -> Option<Seed> {
                         } else if area.0 != area.1 {
                             match tie {
                                 Tie::Most => area.0 > area.1,
-                                Tie::Least | Tie::Corners | Tie::Shallowest => area.0 < area.1,
+                                Tie::Least
+                                | Tie::Corners
+                                | Tie::Shallowest
+                                | Tie::AreaFirst
+                                | Tie::Ratio => area.0 < area.1,
                             }
                         } else {
                             seed.order > top.order

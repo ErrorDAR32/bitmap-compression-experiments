@@ -24,12 +24,12 @@
 //! instructions under callgrind is steadier still, and does not care
 //! what else the machine is doing.
 //!
-//! The figure the two are held to is the time each takes multiplied by
-//! how many rectangles it gives over the fewest possible. An algorithm
-//! can lose by being slow or by being wasteful and the two trade against
-//! each other, so neither one alone says which is better; the exact
-//! algorithm's own figure is just its time, since it is never over.
-//! Lower is better, and the units are whatever the time is in.
+//! The target metric the two are held to is the time each takes
+//! multiplied by how many rectangles it gives over the fewest possible.
+//! An algorithm can lose by being slow or by being wasteful and the two
+//! trade against each other, so neither alone says which is better. It
+//! is read as a bare number, lower being better; the exact algorithm's
+//! is its time alone, since it is never over the fewest.
 
 #[path = "corpus.rs"]
 #[allow(dead_code)]
@@ -49,6 +49,12 @@ fn greedy(bits: &BitMatrix) -> usize {
 
 fn minimum(bits: &BitMatrix) -> usize {
     exact::partition(bits).len()
+}
+
+/// The target metric: how long it took by how many rectangles it gave
+/// over the fewest possible, as a bare number rather than a duration.
+fn metric(took: Duration, over: f64) -> f64 {
+    took.as_secs_f64() * 1e6 * over
 }
 
 /// One algorithm's timings across the repeats.
@@ -162,9 +168,9 @@ fn main() {
         ratios[ratios.len() - 1]
     );
     println!(
-        "  time by rectangles over the fewest: fastile {:.1?}, exact {:.1?}\n",
-        (greedy_all.best() / n).mul_f64(over),
-        exact_all.best() / n,
+        "  target metric: fastile {:.1}, exact {:.1}\n",
+        metric(greedy_all.best() / n, over),
+        metric(exact_all.best() / n, 1.0),
     );
 
     println!("the hard cases, best of {REPEATS}:");
@@ -183,13 +189,13 @@ fn main() {
         let (got, best, _) = race(one);
         let over = got.count as f64 / best.count.max(1) as f64;
         println!(
-            "  {name:<22} {:>6} in {:>8.1?}   exact {:>6} in {:>8.1?}   {over:.2}x the rectangles   figure {:>8.1?} against {:>8.1?}",
+            "  {name:<22} {:>6} in {:>8.1?}   exact {:>6} in {:>8.1?}   {over:.2}x the rectangles   target metric {:>9.1} against {:>9.1}",
             got.count,
             got.best(),
             best.count,
             best.best(),
-            got.best().mul_f64(over),
-            best.best(),
+            metric(got.best(), over),
+            metric(best.best(), 1.0),
         );
     }
 }

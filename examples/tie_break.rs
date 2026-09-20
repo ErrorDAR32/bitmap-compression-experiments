@@ -94,6 +94,8 @@ fn main() {
                     Tie::Most => "most",
                     Tie::Corners => "corners",
                     Tie::Shallowest => "shallow",
+                    Tie::AreaFirst => "area",
+                    Tie::Ratio => "ratio",
                 },
                 100.0 * (raw as f64 / minimum as f64 - 1.0),
                 100.0 * (done as f64 / minimum as f64 - 1.0)
@@ -148,6 +150,8 @@ fn main() {
                     Tie::Most => "most",
                     Tie::Corners => "corners",
                     Tie::Shallowest => "shallow",
+                    Tie::AreaFirst => "area",
+                    Tie::Ratio => "ratio",
                 },
                 mesh.rects().len(),
                 mesh.rects().len() as f64 / minimum as f64,
