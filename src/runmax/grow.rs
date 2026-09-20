@@ -19,7 +19,8 @@
 //! word operations. Both are explained where they happen.
 
 use crate::runmax::pass::Pass;
-use crate::runmax::bits::{range_mask, LINE_WORDS};
+use crate::data::bits::{range_mask, LINE_WORDS};
+use crate::data::AreaMap;
 use crate::Rect;
 
 /// Which way a rectangle grows.
@@ -29,85 +30,6 @@ enum Side {
     Down,
     Left,
     Right,
-}
-
-/// Which rectangle owns each cell, for looking at a stretch of the
-/// bitmap without asking the rectangles one at a time.
-///
-/// Painting it costs one write per standing cell, which is a few
-/// thousand on a realistic bitmap, and it answers "what is in the way"
-/// directly.
-///
-/// A cell carries the bitmap it was painted for alongside its owner, so
-/// that a cell left over from the bitmap before reads as empty. That is
-/// what lets the grid be kept: blanking a quarter of a megabyte between
-/// bitmaps cost 5.18us of the 200us a bitmap took, and now nothing is
-/// written that is not painted.
-pub(crate) struct Owners {
-    of: Vec<u32>,
-    /// Which bitmap the grid is painted for, already shifted into
-    /// place. Never zero, so a grid of zeroes reads as empty
-    /// everywhere.
-    visit: u32,
-}
-
-impl Owners {
-    const SIDE: usize = 256;
-
-    /// How many bits of a cell name its owner.
-    ///
-    /// Growing starts with the mesh's rectangles and only ever cuts a
-    /// rectangle it has just taken from, so a slot is either one of the
-    /// first `n` or one of the pieces an application left. An
-    /// application drops the live count by its gain, which is at least
-    /// one, so there are fewer than `n` of them and each leaves at most
-    /// three pieces: under `4n` slots in all. A rectangle needs a cell
-    /// of its own, so `n` cannot pass 65536 and a slot cannot reach
-    /// 2^18. Nineteen bits is that with room to spare.
-    const OWNER_BITS: u32 = 19;
-    /// What one bitmap advances the stamp by. Also one past the largest
-    /// slot a cell can name.
-    const VISIT_STEP: u32 = 1 << Self::OWNER_BITS;
-
-    /// A blank grid, painted for no bitmap at all: the stamp starts at
-    /// zero and every cell reads as empty until the first paint raises
-    /// it.
-    pub(crate) fn new() -> Self {
-        Self { of: vec![0; Self::SIDE * Self::SIDE], visit: 0 }
-    }
-
-    /// Paints a fresh partition over whatever was there.
-    pub(crate) fn paint(&mut self, rects: &[Rect]) {
-        // The visit runs out of room after a few thousand bitmaps, and
-        // only then is the grid really blanked.
-        match self.visit.checked_add(Self::VISIT_STEP) {
-            Some(next) => self.visit = next,
-            None => {
-                self.of.fill(0);
-                self.visit = Self::VISIT_STEP;
-            }
-        }
-        for (index, r) in rects.iter().enumerate() {
-            self.give(r, index);
-        }
-    }
-
-    /// Who owns the cell, or `None` where nothing is standing.
-    fn at(&self, x: u8, y: u8) -> Option<usize> {
-        let held = self.of[y as usize * Self::SIDE + x as usize];
-        (held >= self.visit).then(|| (held - self.visit) as usize)
-    }
-
-    /// Hands every cell of a rectangle to a slot, a row at a time so
-    /// that each row is one contiguous fill.
-    fn give(&mut self, rect: &Rect, to: usize) {
-        debug_assert!(to < Self::VISIT_STEP as usize, "a slot outgrew its room");
-        let held = self.visit | to as u32;
-        for y in rect.y0..=rect.y1 {
-            let row = y as usize * Self::SIDE;
-            self.of[row + rect.x0 as usize..=row + rect.x1 as usize].fill(held);
-        }
-    }
 }
 
 /// The band a rectangle covers once it has grown out to a line.
@@ -258,7 +180,7 @@ impl Growing {
 /// recount per line: a band is walked, not re-scored.
 fn reach(
     rects: &[Rect],
-    owners: &Owners,
+    owners: &AreaMap,
     a: usize,
     side: Side,
     scratch: &mut Growing,
@@ -351,7 +273,7 @@ fn reach(
 /// the count falls.
 fn take_band(
     rects: &mut Vec<Rect>,
-    owners: &mut Owners,
+    owners: &mut AreaMap,
     gone: &mut Vec<bool>,
     a: usize,
     side: Side,

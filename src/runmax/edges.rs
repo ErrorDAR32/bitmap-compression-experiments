@@ -10,7 +10,7 @@
 //! is cheap because it is a counting pass rather than a sort, and it is
 //! cleared by the slots it filled rather than by walking all thousand.
 
-use crate::runmax::bits::{range_mask, LINE_WORDS};
+use crate::data::bits::{range_mask, LINE_WORDS};
 use crate::Rect;
 
 /// Which way a rectangle is cut when it merges. Cutting across its

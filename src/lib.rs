@@ -36,25 +36,22 @@
 //!
 //! | module | what lives there |
 //! |---|---|
-//! | `matrix` | the bitmap: packed words, drawing, the isolated-cell split |
-//! | `rect` | the one shape everything deals in |
-//! | `partition` | what both algorithms are, from outside |
-//! | `workspace` | the public entry point, and the mesh loop it drives |
-//! | [`exact`] | the minimum partition, which is the benchmark |
-//! | `bits` | word operations on a 256-bit line |
-//! | `mesh` | runmax: runs, the queue, the level, the step |
-//! | `grow` | the move that reclaims rectangles |
-//! | `edges` | which rectangles present a face on each edge line |
-//! | `merge` | giving a rectangle away to its neighbours |
-//! | `pass` | the buffers the three moves share, and the order they run in |
+//! | `data` | the structures both algorithms work on, and nothing that works on them |
+//! | `partition` | what an algorithm is, from outside |
+//! | [`runmax`] | the fast algorithm: the mesh and the moves that rewrite it |
+//! | [`accurate`] | the minimum partition, which is the benchmark |
+//! | [`samples`] | the one source of test bitmaps |
 //!
-//! Meshing is `mesh`; everything after it is clip-and-merge, split
-//! into the move that does the work (`grow`), the second primitive on
-//! its own (`merge`), the index they share (`edges`) and the buffers
-//! and running order (`pass`).
+//! The split that matters is `data` against the rest. Every structure
+//! in `data` is a shape plus the questions that can be asked of it and
+//! the changes that can be made to it; none of them decides anything.
+//! What to take next, what to grow into, when to stop -- all of that
+//! is in `runmax` and `accurate`, which hold that data and drive it.
+//! [`Partition`] is what the two look like from outside, so a caller
+//! can hold either without knowing which.
 //!
-//! `docs/walkthrough.md` works the hardest of those through by hand,
-//! one line at a time, on bitmaps small enough to print.
+//! `docs/walkthrough.md` works the hardest parts through by hand, one
+//! line at a time, on bitmaps small enough to print.
 //!
 //! # Throughput
 //!
@@ -67,15 +64,13 @@
 //! realistic one costs per set cell.
 
 pub mod accurate;
-mod matrix;
+mod data;
 mod partition;
-mod rect;
 pub mod runmax;
 pub mod samples;
 
-pub use matrix::BitMatrix;
+pub use data::{BitMatrix, Rect};
 pub use partition::{assert_partition, Partition};
-pub use rect::Rect;
 pub use runmax::{mesh_by_scanning, Far, RunmaxClipnmerge};
 
 /// The matrix is always this wide and this tall. Nothing is sized at

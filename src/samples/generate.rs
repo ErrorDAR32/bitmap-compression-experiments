@@ -7,7 +7,7 @@
 //! changed separately. What a corpus is made of is a decision; how a
 //! bitmap is filled is a mechanism.
 
-use crate::runmax::range_mask;
+use crate::data::bits::range_mask;
 use crate::{BitMatrix, HEIGHT, WIDTH};
 
 /// A bitmap grown from a seed, confined to a `side` by `side` corner.

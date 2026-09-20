@@ -15,18 +15,17 @@
 //! order they run in -- and the story of the third move that used to
 //! run after them.
 
-mod bits;
 mod edges;
 mod grow;
 mod merge;
 mod mesh;
 mod pass;
 
-pub(crate) use bits::range_mask;
 pub use mesh::mesh_by_scanning;
 pub use pass::Far;
 
-use crate::runmax::mesh::{take_all_area, Level, Queue, Runs, AreaSeed, Span};
+use crate::data::{Areas, Runs, Span};
+use crate::runmax::mesh::{take_all_area, AreaSeed, Level, Queue};
 use crate::runmax::pass::Pass;
 use crate::{BitMatrix, Rect};
 
@@ -56,7 +55,7 @@ pub struct RunmaxClipnmerge {
     cols: Runs,
     queue: Queue,
     level: Level,
-    rects: Vec<Rect>,
+    areas: Areas,
     plan: Vec<Rect>,
     cut_rows: Vec<(u8, Span)>,
     cut_cols: Vec<(u8, Span)>,
@@ -91,7 +90,7 @@ impl RunmaxClipnmerge {
             cols: Runs::blank(),
             queue: Queue::new(),
             level: Level::new(),
-            rects: Vec::new(),
+            areas: Areas::new(),
             plan: Vec::new(),
             cut_rows: Vec::new(),
             cut_cols: Vec::new(),
@@ -121,14 +120,11 @@ impl RunmaxClipnmerge {
     pub fn partition_to(&mut self, source: &BitMatrix, far: Option<crate::Far>) -> &[Rect] {
         self.mesh_into(source);
         if let Some(far) = far {
-            // Everything but the cells standing alone, which nothing can
-            // be done with, and which the mesh left at the end.
-            let movable = self.rects.len() - self.alone.count_set() as usize;
-            let solitary = self.rects.split_off(movable);
-            self.pass.compact_to(&mut self.rects, far);
-            self.rects.extend(solitary);
+            // Only the working areas: the cells standing alone are in a
+            // list of their own that no pass can reach.
+            self.pass.compact_to(self.areas.working(), far);
         }
-        &self.rects
+        self.areas.all()
     }
 
     /// How many rectangles growing reclaims on its own, before anything
@@ -136,11 +132,7 @@ impl RunmaxClipnmerge {
     #[doc(hidden)]
     pub fn grow_only(&mut self, source: &BitMatrix) -> usize {
         self.mesh_into(source);
-        let movable = self.rects.len() - self.alone.count_set() as usize;
-        let solitary = self.rects.split_off(movable);
-        let reclaimed = self.pass.grow_only(&mut self.rects);
-        self.rects.extend(solitary);
-        reclaimed
+        self.pass.grow_only(self.areas.working())
     }
 
     /// Only the free half of the pass, which reclaims nothing on its
@@ -148,11 +140,7 @@ impl RunmaxClipnmerge {
     #[doc(hidden)]
     pub fn merge_only(&mut self, source: &BitMatrix) -> usize {
         self.mesh_into(source);
-        let movable = self.rects.len() - self.alone.count_set() as usize;
-        let solitary = self.rects.split_off(movable);
-        let reclaimed = self.pass.merge_only(&mut self.rects);
-        self.rects.extend(solitary);
-        reclaimed
+        self.pass.merge_only(self.areas.working())
     }
 
     /// Meshes the set bits, working the runs longest first and keeping
@@ -161,10 +149,10 @@ impl RunmaxClipnmerge {
     fn mesh_into(&mut self, source: &BitMatrix) {
         source.split_isolated_into(&mut self.alone, &mut self.rest);
 
-        let Self { rows, cols, queue, level, rects, plan, cut_rows, cut_cols, .. } = self;
+        let Self { rows, cols, queue, level, areas, plan, cut_rows, cut_cols, .. } = self;
         Runs::rebuild(&self.rest, rows, cols);
         queue.reset();
-        rects.clear();
+        areas.clear();
         for (is_column, side) in [(false, &*rows), (true, &*cols)] {
             side.for_each_run(|line, span| queue.push(AreaSeed::new(line, span, is_column)));
         }
@@ -192,7 +180,7 @@ impl RunmaxClipnmerge {
                 rows.carve((rect.y0, rect.y1), rect.x0, rect.x1, cut_rows);
                 cols.carve((rect.x0, rect.x1), rect.y0, rect.y1, cut_cols);
                 level.note(&rect, rows, cols);
-                rects.push(rect);
+                areas.push(rect);
 
                 // Whatever a carve leaves behind is a run in its own
                 // right, and shorter than the one it came from, so it
@@ -206,9 +194,7 @@ impl RunmaxClipnmerge {
             }
         }
 
-        self.alone.for_each_set(|x, y| {
-            self.rects.push(Rect { x0: x, y0: y, x1: x, y1: y });
-        });
+        self.alone.for_each_set(|x, y| self.areas.push_alone(x, y));
     }
 }
 

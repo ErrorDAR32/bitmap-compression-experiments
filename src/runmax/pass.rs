@@ -16,7 +16,8 @@
 //! still clips: it cuts every neighbour it only partly covers. What
 //! went is clipping as a move of its own.
 
-use crate::runmax::grow::{grow, Growing, Owners};
+use crate::data::AreaMap;
+use crate::runmax::grow::{grow, Growing};
 use crate::runmax::merge::{merge, Work};
 use crate::Rect;
 
@@ -32,7 +33,7 @@ pub enum Far {
 /// Every buffer the rewriting pass works in, kept so that it is found
 /// once rather than once a bitmap.
 pub(crate) struct Pass {
-    pub(crate) owners: Owners,
+    pub(crate) owners: AreaMap,
     pub(crate) gone: Vec<bool>,
     pub(crate) growing: Growing,
     work: Work,
@@ -42,7 +43,7 @@ impl Pass {
     /// Every buffer empty. One is built per workspace and reused.
     pub(crate) fn new() -> Self {
         Self {
-            owners: Owners::new(),
+            owners: AreaMap::new(),
             gone: Vec::new(),
             growing: Growing::new(),
             work: Work::new(),
