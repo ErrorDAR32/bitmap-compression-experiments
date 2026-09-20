@@ -1,43 +1,69 @@
-//! Which way the tie on run length should go: the run with the most area
-//! in the runs crossing it, or the least.
+//! Which way the tie on run length should go: the run with the least
+//! area in the runs crossing it, or the most.
+//!
+//! Both run through the same queue, so this is a fair comparison of the
+//! rule and not of two implementations.
 
 #[path = "corpus.rs"]
 #[allow(dead_code)]
 mod corpus;
 
-use bitmatrix::{exact, Fastile};
+use bitmatrix::{exact, Fastile, Tie};
 use corpus::Sequence;
+use std::time::{Duration, Instant};
+
+/// The best of several sweeps, since interference can only make one
+/// slower than the machine was capable of.
+fn timed(maps: &[bitmatrix::BitMatrix], tie: Tie) -> (usize, Duration) {
+    let mut rects = 0;
+    let mut fastest = Duration::MAX;
+    for _ in 0..7 {
+        let start = Instant::now();
+        rects = 0;
+        for bits in maps {
+            let mut mesh = Fastile::with_tie(bits, tie);
+            mesh.compact();
+            rects += std::hint::black_box(mesh.rects().len());
+        }
+        fastest = fastest.min(start.elapsed());
+    }
+    (rects, fastest)
+}
 
 fn main() {
     let maps = corpus::realistic(1000);
 
-    // The scan must agree with the queue on the rule the queue implements.
+    // The scan must agree with the queue, both ways round.
     for bits in maps.iter().take(100) {
-        assert_eq!(
-            Fastile::tie_break(bits, false).rects(),
-            Fastile::from_bit_matrix(bits).rects(),
-            "the scan and the queue disagree on the shipped rule"
-        );
+        for tie in [Tie::Least, Tie::Most] {
+            assert_eq!(
+                Fastile::by_scanning(bits, tie).rects(),
+                Fastile::with_tie(bits, tie).rects(),
+                "the scan and the queue disagree on {tie:?}"
+            );
+        }
     }
-    println!("scan agrees with the queue on 100 bitmaps\n");
+    println!("scan agrees with the queue on 100 bitmaps, both ways\n");
 
     println!("1000 realistic bitmaps");
     let minimum: usize = maps.iter().map(|b| exact::partition(b).len()).sum();
-    for (label, least) in [("most crossing area (shipped)", false), ("least crossing area", true)] {
+    for (label, tie) in [("least crossing area (shipped)", Tie::Least), ("most crossing area", Tie::Most)] {
         let (mut raw, mut done) = (0usize, 0usize);
         for bits in &maps {
-            let mut mesh = Fastile::tie_break(bits, least);
+            let mut mesh = Fastile::with_tie(bits, tie);
             corpus::assert_partition(bits, mesh.rects(), label);
             raw += mesh.rects().len();
             mesh.compact();
             corpus::assert_partition(bits, mesh.rects(), label);
             done += mesh.rects().len();
         }
+        let (_, took) = timed(&maps, tie);
         println!(
-            "  {label:<30} meshed {:.2}, compacted {:.2} ({:.2}% over the minimum)",
+            "  {label:<30} meshed {:.2}, compacted {:.2} ({:.2}% over the exact answer) in {:.1?}",
             raw as f64 / maps.len() as f64,
             done as f64 / maps.len() as f64,
-            100.0 * (done as f64 / minimum as f64 - 1.0)
+            100.0 * (done as f64 / minimum as f64 - 1.0),
+            took / maps.len() as u32
         );
     }
 
@@ -48,17 +74,17 @@ fn main() {
         let minimum: usize = maps.iter().map(|b| exact::partition(b).len()).sum();
 
         print!("  {n}x{n} ({} bitmaps, minimum {minimum}):", maps.len());
-        for least in [false, true] {
+        for tie in [Tie::Least, Tie::Most] {
             let (mut raw, mut done) = (0usize, 0usize);
             for bits in &maps {
-                let mut mesh = Fastile::tie_break(bits, least);
+                let mut mesh = Fastile::with_tie(bits, tie);
                 raw += mesh.rects().len();
                 mesh.compact();
                 done += mesh.rects().len();
             }
             print!(
                 "   {} {:.1}% -> {:.1}%",
-                if least { "least" } else { "most" },
+                if tie == Tie::Least { "least" } else { "most" },
                 100.0 * (raw as f64 / minimum as f64 - 1.0),
                 100.0 * (done as f64 / minimum as f64 - 1.0)
             );
@@ -71,15 +97,17 @@ fn main() {
         let bits = corpus::tiled(rows);
         let minimum = exact::partition(&bits).len();
         print!("  {name:<22} minimum {minimum:>6}:");
-        for least in [false, true] {
-            let mut mesh = Fastile::tie_break(&bits, least);
+        for tie in [Tie::Least, Tie::Most] {
+            let mut mesh = Fastile::with_tie(&bits, tie);
             mesh.compact();
             corpus::assert_partition(&bits, mesh.rects(), name);
+            let (_, took) = timed(std::slice::from_ref(&bits), tie);
             print!(
-                "   {} {:>6} ({:.2}x)",
-                if least { "least" } else { "most" },
+                "   {} {:>6} ({:.2}x) in {:>7.1?}",
+                if tie == Tie::Least { "least" } else { "most" },
                 mesh.rects().len(),
-                mesh.rects().len() as f64 / minimum as f64
+                mesh.rects().len() as f64 / minimum as f64,
+                took
             );
         }
         println!();

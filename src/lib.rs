@@ -12,7 +12,7 @@
 mod mutate;
 pub mod exact;
 mod fastile;
-pub use fastile::{reflex_corners, Fastile, Rect, Reflex};
+pub use fastile::{reflex_corners, Fastile, Rect, Reflex, Tie};
 
 pub const WIDTH: usize = 256;
 pub const HEIGHT: usize = 256;

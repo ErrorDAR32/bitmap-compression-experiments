@@ -313,20 +313,38 @@ pub fn reflex_corners(source: &BitMatrix) -> Vec<Reflex> {
     corners
 }
 
-/// A run ranked as a seed.
+/// Which way a tie on run length is settled.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Tie {
+    /// The run with the least area standing in the runs crossing it. A
+    /// run with a lot crossing it is a run that severs a lot when it is
+    /// taken, so this is the one that leaves the tidier partition.
+    Least,
+    /// The most, which is what this used to do.
+    Most,
+}
+
+/// A run waiting to be seeded.
 ///
-/// The whole ranking is packed into one integer, most significant field
-/// first, so the queue orders seeds with a single comparison rather than
-/// walking a chain of fields. That chain is worth removing: on a bitmap
-/// of nothing but single cells the queue's own comparisons were 22% of
-/// all the work done.
+/// The ranking packed into `order` is the run's length, then a row run
+/// over a column run, then the upper-left-most, so the queue compares
+/// seeds with a single instruction rather than walking a chain of
+/// fields. The crossing area is deliberately not in it.
 ///
-/// The packing is also a unique name for the run, since no two runs of
-/// the same orientation start at the same cell, so two seeds comparing
-/// equal really are the same seed in the same state.
+/// Leaving it out is what makes the queue safe to leave stale. A run's
+/// length never changes: carving either takes a run away or leaves it
+/// alone, and what it leaves behind is a new run, queued in its own
+/// right. So a seed sitting in the queue is either exactly what it says
+/// it is or gone, and one lookup tells which. Crossing area is not like
+/// that -- it falls as the bitmap is carved -- and a figure that falls
+/// cannot be ordered lazily in the direction that prefers it small,
+/// because a seed that improved would sit buried under seeds that had
+/// not. Keeping it out of the queue and settling it only among the runs
+/// actually tied on length sidesteps that entirely, and costs nothing:
+/// the tie is the only place it was ever consulted.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 struct Seed {
-    rank: u64,
+    order: u32,
     line: u8,
     start: u8,
     end: u8,
@@ -334,52 +352,13 @@ struct Seed {
 }
 
 impl Seed {
-    /// Bit widths, most significant first: the run's length, then the
-    /// area standing in the runs that cross it, then a row run over a
-    /// column run, then the upper-left-most, and last whether the area is
-    /// the real figure or a ceiling standing in for it.
-    fn pack(len: u16, crossing_area: u32, is_column: bool, y: u8, x: u8, counted: bool) -> u64 {
-        ((len as u64) << 35)
-            | ((crossing_area as u64) << 18)
-            | ((!is_column as u64) << 17)
-            | ((255 - y as u64) << 9)
-            | ((255 - x as u64) << 1)
-            | counted as u64
-    }
-
-    /// A seed for the queue, with its crossing area counted now if that
-    /// is cheap and left at its ceiling if it is not.
-    ///
-    /// Counting costs a lookup per position of the run. Most runs never
-    /// come near the top of the queue, so for a long one the figure is
-    /// left at the most it could be and counted only if it gets there;
-    /// the ceiling can only overstate a seed, which is what the queue
-    /// already tolerates. A single-cell run is the exception: one lookup
-    /// settles it, which is cheaper than the extra trip through the queue
-    /// that deferring would cost, and a bitmap of nothing but single
-    /// cells is the worst case for both.
-    fn queued(line: u8, span: Span, is_column: bool, rows: &Runs, cols: &Runs) -> Self {
-        if span.len() == 1 {
-            return Self::rank(line, span, is_column, rows, cols);
-        }
-        Self::new(line, span, is_column, span.len() as u32 * 256, false)
-    }
-
-    fn rank(line: u8, span: Span, is_column: bool, rows: &Runs, cols: &Runs) -> Self {
-        let crossing = if is_column { rows } else { cols };
-        let mut crossing_area = 0u32;
-        for pos in span.start..=span.end {
-            if let Some(run) = crossing.span_at(pos, line) {
-                crossing_area += run.len() as u32;
-            }
-        }
-        Self::new(line, span, is_column, crossing_area, true)
-    }
-
-    fn new(line: u8, span: Span, is_column: bool, crossing_area: u32, counted: bool) -> Self {
+    fn new(line: u8, span: Span, is_column: bool) -> Self {
         let (y, x) = if is_column { (span.start, line) } else { (line, span.start) };
         Self {
-            rank: Self::pack(span.len(), crossing_area, is_column, y, x, counted),
+            order: ((span.len() as u32) << 17)
+                | ((!is_column as u32) << 16)
+                | ((255 - y as u32) << 8)
+                | (255 - x as u32),
             line,
             start: span.start,
             end: span.end,
@@ -387,35 +366,229 @@ impl Seed {
         }
     }
 
+    fn len(&self) -> u16 {
+        self.end as u16 - self.start as u16 + 1
+    }
+
     fn span(&self) -> Span {
         Span { start: self.start, end: self.end }
     }
-}
 
-/// The best seed left, or `None` once nothing is standing.
-///
-/// Carving only shortens runs and only shortens the runs crossing them,
-/// so a seed's rank never rises. That makes the queue safe to leave
-/// stale: whatever sits on top is ranked at least as high as it deserves,
-/// so it is enough to check the run is still there and that its rank has
-/// not slipped, and to put it back when it has. A seed whose crossing
-/// area was never counted overstates itself the same way, and is counted
-/// and put back the first time it reaches the top.
-fn best_seed(queue: &mut BinaryHeap<Seed>, rows: &Runs, cols: &Runs) -> Option<Seed> {
-    while let Some(seed) = queue.pop() {
-        let side = if seed.is_column { cols } else { rows };
-        if side.span_at(seed.line, seed.start) != Some(seed.span()) {
-            continue;
-        }
-
-        let fresh = Seed::rank(seed.line, seed.span(), seed.is_column, rows, cols);
-        if fresh == seed {
-            return Some(seed);
-        }
-        queue.push(fresh);
+    /// Whether the run this names is still standing, unchanged.
+    fn standing(&self, rows: &Runs, cols: &Runs) -> bool {
+        let side = if self.is_column { cols } else { rows };
+        side.span_at(self.line, self.start) == Some(self.span())
     }
 
-    None
+}
+
+/// How much area stands in the runs crossing a seed.
+fn crossing_area(seed: &Seed, rows: &Runs, cols: &Runs) -> u32 {
+    let crossing = if seed.is_column { rows } else { cols };
+    let mut area = 0;
+    for pos in seed.start..=seed.end {
+        if let Some(run) = crossing.span_at(pos, seed.line) {
+            area += run.len() as u32;
+        }
+    }
+    area
+}
+
+/// One run in a level, ranked by its crossing area.
+///
+/// The area is carried alongside the slot so a ranking that has been
+/// superseded can be told from the one in force: they are pushed, never
+/// updated in place, and the one whose area still matches the level's is
+/// the live one.
+#[derive(PartialEq, Eq, PartialOrd, Ord)]
+struct Ranked {
+    key: u64,
+    area: u32,
+    slot: u32,
+}
+
+/// Marks a run as taken or gone. Real areas never reach it.
+const SPENT: u32 = u32::MAX;
+
+/// Marks a run whose area has not been counted yet, and which is
+/// standing in the queue at the best figure it could possibly have.
+const UNCOUNTED: u32 = u32::MAX - 1;
+
+/// The runs tied at the longest length left, which is the only place the
+/// crossing area is consulted.
+///
+/// A carve can only shorten a run, and every piece it leaves is shorter
+/// than the run it came from, so nothing ever joins a level once it is
+/// drawn and the longest length only falls.
+///
+/// Within a level the areas do fall, which is the whole difficulty: a
+/// figure that improves cannot be left stale in a queue that prefers it
+/// small, because a run that got better would sit buried under runs that
+/// had not. So the ones a carve could have reached are recounted at once
+/// and pushed again, and what they supersede is recognised on the way
+/// out. Finding them is why the runs are bucketed by where they start:
+/// a run of this level's length overlaps the carve only if it starts in
+/// one stretch of positions, so the buckets to revisit are a range
+/// rather than the whole level. Scanning the level instead is what made
+/// a bitmap of thousands of equal runs take two thirds of a second.
+#[derive(Default)]
+struct Level {
+    length: u16,
+    /// Slot to run and the area in force for it, or [`SPENT`].
+    runs: Vec<(Seed, u32)>,
+    order: BinaryHeap<Ranked>,
+    /// Slots by orientation and by where the run starts.
+    buckets: Vec<Vec<u32>>,
+    filled: Vec<usize>,
+    scratch: Vec<u32>,
+}
+
+impl Level {
+    const POSITIONS: usize = 256;
+
+    fn new() -> Self {
+        Self { buckets: vec![Vec::new(); 2 * Self::POSITIONS], ..Default::default() }
+    }
+
+    fn bucket(is_column: bool, start: u8) -> usize {
+        usize::from(is_column) * Self::POSITIONS + start as usize
+    }
+
+    /// Ranks an area so the better one sorts higher, whichever way the
+    /// tie goes. Seventeen bits hold an area, which cannot exceed the
+    /// 65536 cells of the matrix.
+    fn key(&self, seed: &Seed, area: u32, tie: Tie) -> u64 {
+        let by_area = match tie {
+            Tie::Least => 0x1_FFFF - area,
+            Tie::Most => area,
+        };
+        ((by_area as u64) << 26) | seed.order as u64
+    }
+
+    /// The best figure a run of this length could have, which is one
+    /// cell of crossing run per cell of it at the least and the whole
+    /// height of the matrix at the most.
+    ///
+    /// Counting an area costs a lookup per cell of the run, and a level
+    /// of long runs all tied is exactly where that is dearest: a solid
+    /// square is 512 runs of 256 cells, and counting them all took ten
+    /// times what meshing it should. Standing them at their best figure
+    /// instead and counting only the ones that reach the top can only
+    /// overstate a run, which is what the level already copes with.
+    fn bound(&self, tie: Tie) -> u32 {
+        match tie {
+            Tie::Least => self.length as u32,
+            Tie::Most => self.length as u32 * 256,
+        }
+    }
+
+    /// Draws every run standing at the longest length left.
+    fn draw(&mut self, queue: &mut BinaryHeap<Seed>, rows: &Runs, cols: &Runs, tie: Tie) {
+        for &slot in &self.filled {
+            self.buckets[slot].clear();
+        }
+        self.filled.clear();
+        self.runs.clear();
+        self.order.clear();
+
+        self.length = loop {
+            match queue.peek() {
+                None => return,
+                Some(top) if top.standing(rows, cols) => break top.len(),
+                Some(_) => drop(queue.pop()),
+            }
+        };
+
+        while let Some(top) = queue.peek() {
+            if top.len() != self.length {
+                break;
+            }
+            let seed = queue.pop().expect("just peeked");
+            if !seed.standing(rows, cols) {
+                continue;
+            }
+
+            let slot = self.runs.len() as u32;
+            let key = self.key(&seed, self.bound(tie), tie);
+            self.order.push(Ranked { key, area: UNCOUNTED, slot });
+            self.runs.push((seed, UNCOUNTED));
+
+            let bucket = Self::bucket(seed.is_column, seed.start);
+            if self.buckets[bucket].is_empty() {
+                self.filled.push(bucket);
+            }
+            self.buckets[bucket].push(slot);
+        }
+    }
+
+    /// The best run left in the level, or `None` once it is exhausted.
+    fn take_best(&mut self, rows: &Runs, cols: &Runs, tie: Tie) -> Option<Seed> {
+        while let Some(top) = self.order.pop() {
+            let slot = top.slot as usize;
+            let (seed, area) = self.runs[slot];
+            if top.area != area {
+                continue;
+            }
+            if !seed.standing(rows, cols) {
+                self.runs[slot].1 = SPENT;
+                continue;
+            }
+
+            // Standing at its best possible figure, so settle it and let
+            // it find its real place.
+            if area == UNCOUNTED {
+                let counted = crossing_area(&seed, rows, cols);
+                self.runs[slot].1 = counted;
+                self.order.push(Ranked {
+                    key: self.key(&seed, counted, tie),
+                    area: counted,
+                    slot: top.slot,
+                });
+                continue;
+            }
+
+            self.runs[slot].1 = SPENT;
+            return Some(seed);
+        }
+        None
+    }
+
+    /// Recounts the runs the carve could have reached.
+    ///
+    /// A run of this level's length overlapping `lo..=hi` has to start
+    /// somewhere in `lo - (length - 1) ..= hi`, so only those buckets
+    /// are visited.
+    fn note(&mut self, rect: &Rect, rows: &Runs, cols: &Runs, tie: Tie) {
+        for is_column in [false, true] {
+            let (lo, hi) = if is_column { (rect.y0, rect.y1) } else { (rect.x0, rect.x1) };
+            let first = lo.saturating_sub((self.length - 1) as u8);
+
+            self.scratch.clear();
+            for start in first..=hi {
+                self.scratch
+                    .extend_from_slice(&self.buckets[Self::bucket(is_column, start)]);
+            }
+
+            for index in 0..self.scratch.len() {
+                let slot = self.scratch[index] as usize;
+                let (seed, area) = self.runs[slot];
+                // Taken already, or still standing at a figure that
+                // cannot be beaten by the area falling further.
+                if area == SPENT || area == UNCOUNTED {
+                    continue;
+                }
+                let now = crossing_area(&seed, rows, cols);
+                if now != area {
+                    self.runs[slot].1 = now;
+                    self.order.push(Ranked {
+                        key: self.key(&seed, now, tie),
+                        area: now,
+                        slot: slot as u32,
+                    });
+                }
+            }
+        }
+    }
 }
 
 /// A [`BitMatrix`] partitioned into rectangles/// A [`BitMatrix`] partitioned into rectangles by repeatedly taking the
@@ -429,6 +602,12 @@ pub struct Fastile {
 
 impl Fastile {
     pub fn from_bit_matrix(source: &BitMatrix) -> Self {
+        Self::with_tie(source, Tie::Least)
+    }
+
+    /// The same, with the tie on run length settled either way.
+    #[doc(hidden)]
+    pub fn with_tie(source: &BitMatrix, tie: Tie) -> Self {
         // Cells standing alone are forced, so they are set aside rather
         // than queued, seeded, carved and then checked against every
         // neighbour they do not have.
@@ -440,15 +619,27 @@ impl Fastile {
         for (is_column, side) in [(false, &rows), (true, &cols)] {
             for (line, spans) in side.lines.iter().enumerate() {
                 for span in spans {
-                    queue.push(Seed::queued(line as u8, *span, is_column, &rows, &cols));
+                    queue.push(Seed::new(line as u8, *span, is_column));
                 }
             }
         }
 
+        let mut level = Level::new();
         let mut rects = Vec::new();
         let (mut cut_rows, mut cut_cols) = (Vec::new(), Vec::new());
 
-        while let Some(seed) = best_seed(&mut queue, &rows, &cols) {
+        loop {
+            let seed = match level.take_best(&rows, &cols, tie) {
+                Some(seed) => seed,
+                None => {
+                    level.draw(&mut queue, &rows, &cols, tie);
+                    match level.take_best(&rows, &cols, tie) {
+                        Some(seed) => seed,
+                        None => break,
+                    }
+                }
+            };
+
             let crossing = if seed.is_column { &rows } else { &cols };
             let rect = sink(crossing, seed.span(), seed.line, seed.is_column);
 
@@ -456,13 +647,15 @@ impl Fastile {
             cut_cols.clear();
             rows.carve((rect.y0, rect.y1), rect.x0, rect.x1, &mut cut_rows);
             cols.carve((rect.x0, rect.x1), rect.y0, rect.y1, &mut cut_cols);
+            level.note(&rect, &rows, &cols, tie);
             rects.push(rect);
 
-            // Whatever a carve leaves behind is a seed in its own right,
-            // and ranking it needs both sides already updated.
+            // Whatever a carve leaves behind is a run in its own right,
+            // and shorter than the one it came from, so it belongs in the
+            // queue rather than the level being worked through.
             for (pieces, is_column) in [(&cut_rows, false), (&cut_cols, true)] {
                 for &(line, span) in pieces {
-                    queue.push(Seed::queued(line, span, is_column, &rows, &cols));
+                    queue.push(Seed::new(line, span, is_column));
                 }
             }
         }
@@ -514,46 +707,41 @@ impl Fastile {
 }
 
 // ---------------------------------------------------------------------
-// Experiment: which way the tie on run length should be settled.
-//
-// The shipped rule takes the run with the most area in the runs crossing
-// it. The worst cases found so far all suggest that is backwards, since a
-// run with a lot of area crossing it is a run that severs a lot when it
-// is taken.
-//
-// This scans every run each step instead of using the queue, which is
-// slow but exact whichever way the tie goes. The queue only stays sound
-// for "most" -- carving can only shrink a crossing run, so a seed's rank
-// can fall but never rise, which is what makes a stale entry safe to
-// leave on top. Preferring the least reverses that.
+// The same answer, worked out by scanning every run each step instead of
+// keeping a queue. Slow, obviously right, and what the fast path is
+// checked against.
 // ---------------------------------------------------------------------
 
 impl Fastile {
     #[doc(hidden)]
-    pub fn tie_break(source: &BitMatrix, prefer_least: bool) -> Self {
+    pub fn by_scanning(source: &BitMatrix, tie: Tie) -> Self {
+        let (alone, source) = source.split_isolated();
+        let source = &source;
+
         let (mut rows, mut cols) = Runs::of(source);
         let mut rects = Vec::new();
-        let mut sink_bin = Vec::new();
+        let mut bin = Vec::new();
 
-        while let Some(seed) = scan_for_seed(&rows, &cols, prefer_least) {
+        while let Some(seed) = scan_for_seed(&rows, &cols, tie) {
             let crossing = if seed.is_column { &rows } else { &cols };
             let rect = sink(crossing, seed.span(), seed.line, seed.is_column);
-            rows.carve((rect.y0, rect.y1), rect.x0, rect.x1, &mut sink_bin);
-            cols.carve((rect.x0, rect.x1), rect.y0, rect.y1, &mut sink_bin);
-            sink_bin.clear();
+            rows.carve((rect.y0, rect.y1), rect.x0, rect.x1, &mut bin);
+            cols.carve((rect.x0, rect.x1), rect.y0, rect.y1, &mut bin);
+            bin.clear();
             rects.push(rect);
         }
 
-        Self { rects, alone: 0 }
+        let mut alone_count = 0;
+        alone.for_each_set(|x, y| {
+            rects.push(Rect { x0: x, y0: y, x1: x, y1: y });
+            alone_count += 1;
+        });
+
+        Self { rects, alone: alone_count }
     }
 }
 
-fn scan_for_seed(rows: &Runs, cols: &Runs, prefer_least: bool) -> Option<Seed> {
-    /// The seventeen bits the crossing area occupies. Exclusive-oring
-    /// them complements the field in place, so a bigger area sorts lower
-    /// while every other field keeps its meaning.
-    const AREA: u64 = 0x1_FFFF << 18;
-
+fn scan_for_seed(rows: &Runs, cols: &Runs, tie: Tie) -> Option<Seed> {
     let longest = rows
         .lines
         .iter()
@@ -562,23 +750,31 @@ fn scan_for_seed(rows: &Runs, cols: &Runs, prefer_least: bool) -> Option<Seed> {
         .map(Span::len)
         .max()?;
 
-    let mut best: Option<(u64, Seed)> = None;
+    let mut best: Option<(Seed, u32)> = None;
     for (is_column, side) in [(false, rows), (true, cols)] {
         for (line, spans) in side.lines.iter().enumerate() {
             for span in spans {
                 if span.len() != longest {
                     continue;
                 }
-                let seed = Seed::rank(line as u8, *span, is_column, rows, cols);
-                let key = if prefer_least { seed.rank ^ AREA } else { seed.rank };
-                if best.is_none_or(|(b, _)| key > b) {
-                    best = Some((key, seed));
+                let seed = Seed::new(line as u8, *span, is_column);
+                let area = crossing_area(&seed, rows, cols);
+                let better = match best {
+                    None => true,
+                    Some((top, top_area)) => match (area == top_area, tie) {
+                        (true, _) => seed.order > top.order,
+                        (false, Tie::Least) => area < top_area,
+                        (false, Tie::Most) => area > top_area,
+                    },
+                };
+                if better {
+                    best = Some((seed, area));
                 }
             }
         }
     }
 
-    best.map(|(_, seed)| seed)
+    best.map(|(seed, _)| seed)
 }
 
 /// The whole seed run, taken as far as every one of its crossing runs
@@ -640,6 +836,93 @@ mod tests {
         let want_cols = runs_cell_by_cell(|line, pos| bits.get(line, pos));
         assert_eq!(rows.lines, want_rows.lines, "row runs differ");
         assert_eq!(cols.lines, want_cols.lines, "column runs differ");
+    }
+
+    /// The queue has to reach the same partition as scanning every run
+    /// each step, whichever way the tie on length goes. This is the
+    /// whole justification for the queue: it is only worth keeping if it
+    /// is the same answer, arrived at faster.
+    #[test]
+    fn the_queue_agrees_with_scanning_every_run() {
+        let mut cases = vec![BitMatrix::new()];
+
+        let mut full = BitMatrix::new();
+        full.set_rect(0, 0, 255, 255);
+        cases.push(full);
+
+        let mut plus = BitMatrix::new();
+        plus.set_rect(1, 0, 1, 2);
+        plus.set_rect(0, 1, 2, 1);
+        cases.push(plus);
+
+        let mut ring = BitMatrix::new();
+        ring.set_rect(4, 4, 40, 40);
+        ring.unset_rect(10, 10, 30, 30);
+        cases.push(ring);
+
+        // Ties on length everywhere, which is where the two could differ.
+        let mut ladder = BitMatrix::new();
+        for row in 0..20 {
+            ladder.set_rect(0, row * 3, 9, row * 3);
+            ladder.set_rect(row % 10, row * 3 + 1, row % 10, row * 3 + 2);
+        }
+        cases.push(ladder);
+
+        let mut checker = BitMatrix::new();
+        for y in 0..32u8 {
+            for x in 0..32u8 {
+                if (x + y).is_multiple_of(2) {
+                    checker.set(x, y);
+                }
+            }
+        }
+        cases.push(checker);
+
+        let mut seed = 0x243F6A8885A308D3u64;
+        let mut next = || {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed
+        };
+        for _ in 0..60 {
+            let mut bits = BitMatrix::new();
+            for _ in 0..6 {
+                let x = (next() % 60) as i64;
+                let y = (next() % 60) as i64;
+                bits.set_rect(x, y, x + (next() % 20) as i64, y + (next() % 20) as i64);
+            }
+            for _ in 0..2 {
+                let x = (next() % 60) as i64;
+                let y = (next() % 60) as i64;
+                bits.unset_rect(x, y, x + (next() % 8) as i64, y + (next() % 8) as i64);
+            }
+            cases.push(bits);
+        }
+        // Small dense bitmaps, where ties are thickest.
+        for _ in 0..200 {
+            let mut bits = BitMatrix::new();
+            let cells = next();
+            for idx in 0..36 {
+                if cells & (1u64 << idx) != 0 {
+                    bits.set((idx % 6) as u8, (idx / 6) as u8);
+                }
+            }
+            cases.push(bits);
+        }
+
+        for bits in &cases {
+            for tie in [Tie::Least, Tie::Most] {
+                let quick = Fastile::with_tie(bits, tie);
+                let slow = Fastile::by_scanning(bits, tie);
+                assert_eq!(
+                    quick.rects(),
+                    slow.rects(),
+                    "the queue and the scan disagree on {tie:?}"
+                );
+                assert_exact_partition(bits, &quick);
+            }
+        }
     }
 
     /// The corners found from the runs have to be the corners found by
@@ -888,10 +1171,11 @@ mod tests {
     }
 
     /// The worked 8x8 example, where ten rectangles is the proven
-    /// optimum. Seeding on the longest run needs eleven; the pass that
-    /// rewrites the partition afterwards finds the tenth.
+    /// optimum. Settling the tie on length by the least crossing area
+    /// reaches it outright, where settling it by the most needed eleven
+    /// and a rewriting pass afterwards to find the tenth.
     #[test]
-    fn worked_example_reaches_ten_after_compacting() {
+    fn worked_example_reaches_ten() {
         let bits = bits_from_rows(&[
             "####.###", "#..#.###", "####.###", "...#...#", "...##..#", "...#####", "########",
             "##.#####",
@@ -899,23 +1183,27 @@ mod tests {
 
         let mut mesh = Fastile::from_bit_matrix(&bits);
         assert_exact_partition(&bits, &mesh);
-        assert_eq!(mesh.rects().len(), 11);
+        assert_eq!(mesh.rects().len(), 10);
+
+        assert_eq!(Fastile::with_tie(&bits, Tie::Most).rects().len(), 11);
 
         mesh.compact();
         assert_exact_partition(&bits, &mesh);
-        assert_eq!(mesh.rects().len(), 10);
+        assert_eq!(mesh.rects().len(), 10, "there is nothing left to find");
     }
 
-    /// The 4x4 whose optimum is 3. Seeding on the longest run and taking
-    /// it whole needs 5, and the pass afterwards brings it to the
-    /// optimum.
+    /// The 4x4 whose optimum is 3, which cost five rectangles when the
+    /// tie on length went to the most crossing area and needed the pass
+    /// to come down. It is reached outright now.
     #[test]
-    fn adversarial_four_by_four_is_optimal_after_compacting() {
+    fn adversarial_four_by_four_is_optimal() {
         let bits = bits_from_rows(&["##..", ".###", "###.", "...."]);
 
         let mut mesh = Fastile::from_bit_matrix(&bits);
         assert_exact_partition(&bits, &mesh);
-        assert_eq!(mesh.rects().len(), 5);
+        assert_eq!(mesh.rects().len(), 3);
+
+        assert_eq!(Fastile::with_tie(&bits, Tie::Most).rects().len(), 5);
 
         mesh.compact();
         assert_exact_partition(&bits, &mesh);
