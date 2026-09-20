@@ -1,10 +1,9 @@
 //! A fixed-size 256x256 bit matrix backed by packed `u64` words, and
 //! three ways to split its set bits into rectangles.
 //!
-//! - [`Fastile`] is the fast one, runmax-clipnmerge. It reduces the
-//!   bitmap to run lists, meshes it into deliberately thin rectangles,
-//!   and then grows them back over each other. It lands a little over
-//!   the minimum.
+//! - [`RunmaxClipnmerge`] is the fast one. It reduces the bitmap to run
+//!   lists, meshes it into deliberately thin rectangles, and then grows
+//!   them back over each other. It lands a little over the minimum.
 //! - [`exact`] is the minimum, by the construction of Lipski and of
 //!   Ohtsuki. It is what runmax-clipnmerge is measured against.
 //! - Exhaustive search, the ground truth, lives in the `ground_truth`
@@ -13,8 +12,8 @@
 
 mod mutate;
 pub mod exact;
-mod fastile;
-pub use fastile::{Fastile, Rect};
+mod runmax_clipnmerge;
+pub use runmax_clipnmerge::{Rect, RunmaxClipnmerge};
 
 pub const WIDTH: usize = 256;
 pub const HEIGHT: usize = 256;

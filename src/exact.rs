@@ -1,7 +1,7 @@
 //! The exact algorithm: the minimum partition, worked out rather than
 //! approached.
 //!
-//! Against it runmax-clipnmerge in [`crate::fastile`] is measured,
+//! Against it runmax-clipnmerge in [`crate::runmax_clipnmerge`] is measured,
 //! and against exhaustive search, the ground truth algorithm, this one
 //! is measured in turn.
 //!
@@ -529,7 +529,7 @@ mod tests {
                 let rects = partition(&bits);
                 assert_partitions(&bits, &rects);
 
-                let mut mesh = crate::Fastile::from_bit_matrix(&bits);
+                let mut mesh = crate::RunmaxClipnmerge::from_bit_matrix(&bits);
                 mesh.compact();
                 assert!(
                     rects.len() <= mesh.rects().len(),

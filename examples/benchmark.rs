@@ -35,14 +35,14 @@
 #[allow(dead_code)]
 mod corpus;
 
-use bitmatrix::{exact, BitMatrix, Fastile};
+use bitmatrix::{exact, BitMatrix, RunmaxClipnmerge};
 use std::time::{Duration, Instant};
 
 const BITMAPS: usize = 2000;
 const REPEATS: usize = 7;
 
 fn greedy(bits: &BitMatrix) -> usize {
-    let mut mesh = Fastile::from_bit_matrix(bits);
+    let mut mesh = RunmaxClipnmerge::from_bit_matrix(bits);
     mesh.compact();
     mesh.rects().len()
 }
@@ -138,7 +138,7 @@ fn main() {
 
     // Correctness once, outside the timing.
     for bits in &maps {
-        let mut mesh = Fastile::from_bit_matrix(bits);
+        let mut mesh = RunmaxClipnmerge::from_bit_matrix(bits);
         mesh.compact();
         corpus::assert_partition(bits, mesh.rects(), "greedy");
         corpus::assert_partition(bits, &exact::partition(bits), "minimum");
@@ -148,27 +148,27 @@ fn main() {
     let n = maps.len() as u32;
     println!("{n} realistic bitmaps, best of {REPEATS}, per bitmap:");
     println!(
-        "  fastile  {:>8.2} rects  {:>9.1?}   spread {:.2}x",
+        "  runmax  {:>8.2} rects  {:>9.1?}   spread {:.2}x",
         greedy_all.count as f64 / n as f64,
         greedy_all.best() / n,
         greedy_all.spread()
     );
     println!(
-        "  exact    {:>8.2} rects  {:>9.1?}   spread {:.2}x",
+        "  exact   {:>8.2} rects  {:>9.1?}   spread {:.2}x",
         exact_all.count as f64 / n as f64,
         exact_all.best() / n,
         exact_all.spread()
     );
     let over = greedy_all.count as f64 / exact_all.count as f64;
     println!(
-        "  fastile is {:.2}% over the exact answer, in {:.2}x the time ({:.2} to {:.2} across repeats)",
+        "  runmax is {:.2}% over the exact answer, in {:.2}x the time ({:.2} to {:.2} across repeats)",
         100.0 * (over - 1.0),
         ratios[ratios.len() / 2],
         ratios[0],
         ratios[ratios.len() - 1]
     );
     println!(
-        "  target metric: fastile {:.1}, exact {:.1}\n",
+        "  target metric: runmax {:.1}, exact {:.1}\n",
         metric(greedy_all.best() / n, over),
         metric(exact_all.best() / n, 1.0),
     );

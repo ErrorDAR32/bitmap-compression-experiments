@@ -43,8 +43,8 @@
 //!
 //! # Clip and merge: the rewrite
 //!
-//! [`Fastile::compact`] is the other half, and [`crate::mutate`] holds
-//! it. A rectangle grows out over the standing cells, swallowing the
+//! [`RunmaxClipnmerge::compact`] is the other half, and
+//! [`crate::mutate`] holds it. A rectangle grows out over the standing cells, swallowing the
 //! neighbours it covers whole and clipping the ones it only partly
 //! covers; what is left over after that is given away between
 //! neighbours. Growing reclaims 9.49 rectangles per realistic bitmap
@@ -572,14 +572,14 @@ impl Level {
 
 /// A [`BitMatrix`] partitioned into rectangles by repeatedly taking the
 /// longest run still standing and covering every cell under it.
-pub struct Fastile {
+pub struct RunmaxClipnmerge {
     rects: Vec<Rect>,
     /// How many of the rectangles are single cells standing alone. They
     /// are kept at the end of the list and never take part in anything.
     alone: usize,
 }
 
-impl Fastile {
+impl RunmaxClipnmerge {
     /// Meshes the set bits, working the runs longest first and keeping
     /// the ties in a queue rather than finding them by scanning every
     /// run each step.
@@ -692,7 +692,7 @@ impl Fastile {
 // checked against.
 // ---------------------------------------------------------------------
 
-impl Fastile {
+impl RunmaxClipnmerge {
     /// The same answer, worked out by scanning every run each step
     /// instead of keeping a queue. Slow, obviously right, and what the
     /// fast path is checked against.
@@ -874,8 +874,8 @@ mod tests {
         }
 
         for bits in &cases {
-            let quick = Fastile::from_bit_matrix(bits);
-            let slow = Fastile::by_scanning(bits);
+            let quick = RunmaxClipnmerge::from_bit_matrix(bits);
+            let slow = RunmaxClipnmerge::by_scanning(bits);
             assert_eq!(quick.rects(), slow.rects(), "the queue and the scan disagree");
             assert_exact_partition(bits, &quick);
         }
@@ -960,7 +960,7 @@ mod tests {
     /// Overlap then falls out of arithmetic rather than comparing every
     /// pair: if the areas sum to more than the cells painted, two
     /// rectangles covered the same cell.
-    fn assert_exact_partition(bits: &BitMatrix, mesh: &Fastile) {
+    fn assert_exact_partition(bits: &BitMatrix, mesh: &RunmaxClipnmerge) {
         let mut painted = BitMatrix::new();
         for r in mesh.rects() {
             painted.set_rect(r.x0 as i64, r.y0 as i64, r.x1 as i64, r.y1 as i64);
@@ -979,11 +979,11 @@ mod tests {
     #[test]
     fn empty_and_full() {
         let empty = BitMatrix::new();
-        assert_eq!(Fastile::from_bit_matrix(&empty).rects().len(), 0);
+        assert_eq!(RunmaxClipnmerge::from_bit_matrix(&empty).rects().len(), 0);
 
         let mut full = BitMatrix::new();
         full.set_rect(0, 0, 255, 255);
-        let mesh = Fastile::from_bit_matrix(&full);
+        let mesh = RunmaxClipnmerge::from_bit_matrix(&full);
         assert_eq!(mesh.rects(), &[Rect { x0: 0, y0: 0, x1: 255, y1: 255 }]);
     }
 
@@ -991,7 +991,7 @@ mod tests {
     fn single_rectangle_comes_back_whole() {
         let mut bits = BitMatrix::new();
         bits.set_rect(10, 20, 40, 30);
-        let mesh = Fastile::from_bit_matrix(&bits);
+        let mesh = RunmaxClipnmerge::from_bit_matrix(&bits);
         assert_eq!(mesh.rects(), &[Rect { x0: 10, y0: 20, x1: 40, y1: 30 }]);
     }
 
@@ -1009,7 +1009,7 @@ mod tests {
         bits.set(0, 1);
         bits.set(0, 2);
 
-        let mesh = Fastile::from_bit_matrix(&bits);
+        let mesh = RunmaxClipnmerge::from_bit_matrix(&bits);
         assert_exact_partition(&bits, &mesh);
         assert_eq!(
             mesh.rects(),
@@ -1031,7 +1031,7 @@ mod tests {
         bits.set_rect(0, 0, 5, 0);
         bits.set_rect(0, 1, 1, 2);
 
-        let mesh = Fastile::from_bit_matrix(&bits);
+        let mesh = RunmaxClipnmerge::from_bit_matrix(&bits);
         assert_exact_partition(&bits, &mesh);
         assert_eq!(
             mesh.rects(),
@@ -1052,7 +1052,7 @@ mod tests {
             "##.#####",
         ]);
 
-        let mut mesh = Fastile::from_bit_matrix(&bits);
+        let mut mesh = RunmaxClipnmerge::from_bit_matrix(&bits);
         assert_exact_partition(&bits, &mesh);
         assert_eq!(mesh.rects().len(), 12, "the mesh is thin on purpose");
 
@@ -1066,7 +1066,7 @@ mod tests {
     fn adversarial_four_by_four_is_optimal() {
         let bits = bits_from_rows(&["##..", ".###", "###.", "...."]);
 
-        let mut mesh = Fastile::from_bit_matrix(&bits);
+        let mut mesh = RunmaxClipnmerge::from_bit_matrix(&bits);
         assert_exact_partition(&bits, &mesh);
         assert_eq!(mesh.rects().len(), 5, "the mesh is thin on purpose");
 
@@ -1083,7 +1083,7 @@ mod tests {
         bits.unset_rect(20, 15, 30, 25);
         bits.unset_circle(180, 180, 8);
 
-        let mesh = Fastile::from_bit_matrix(&bits);
+        let mesh = RunmaxClipnmerge::from_bit_matrix(&bits);
         assert_exact_partition(&bits, &mesh);
     }
 
@@ -1106,7 +1106,7 @@ mod tests {
                         bits.set((idx % n) as u8, (idx / n) as u8);
                     }
                 }
-                let mesh = Fastile::from_bit_matrix(&bits);
+                let mesh = RunmaxClipnmerge::from_bit_matrix(&bits);
                 assert_exact_partition(&bits, &mesh);
             }
         }
@@ -1122,7 +1122,7 @@ mod tests {
             bits.set(x, y);
         }
 
-        let mut mesh = Fastile::from_bit_matrix(&bits);
+        let mut mesh = RunmaxClipnmerge::from_bit_matrix(&bits);
         assert_exact_partition(&bits, &mesh);
         assert_eq!(mesh.rects().len(), 5, "the block and the four cells");
         assert!(mesh.rects().contains(&Rect { x0: 10, y0: 10, x1: 20, y1: 20 }));
@@ -1143,7 +1143,7 @@ mod tests {
         // An L one cell wide: the corner cell is 1x1 in the answer but
         // every cell here has a neighbour.
         let bits = bits_from_rows(&["##", "#."]);
-        let mut mesh = Fastile::from_bit_matrix(&bits);
+        let mut mesh = RunmaxClipnmerge::from_bit_matrix(&bits);
         mesh.compact();
         assert_exact_partition(&bits, &mesh);
         assert_eq!(mesh.rects().len(), 2);
@@ -1162,7 +1162,7 @@ mod tests {
             }
         }
 
-        let mesh = Fastile::from_bit_matrix(&bits);
+        let mesh = RunmaxClipnmerge::from_bit_matrix(&bits);
         assert_eq!(mesh.rects().len(), 32768);
         assert_exact_partition(&bits, &mesh);
     }

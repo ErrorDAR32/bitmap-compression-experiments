@@ -8,22 +8,22 @@
 #[allow(dead_code)]
 mod corpus;
 
-use bitmatrix::Fastile;
+use bitmatrix::RunmaxClipnmerge;
 
 fn main() {
     let maps = corpus::realistic(200);
     let (mut meshed, mut grown, mut dissolved, mut both) = (0usize, 0usize, 0usize, 0usize);
 
     for bits in &maps {
-        meshed += Fastile::from_bit_matrix(bits).rects().len();
+        meshed += RunmaxClipnmerge::from_bit_matrix(bits).rects().len();
 
-        let mut growing = Fastile::from_bit_matrix(bits);
+        let mut growing = RunmaxClipnmerge::from_bit_matrix(bits);
         grown += growing.absorb_only();
 
-        let mut alone = Fastile::from_bit_matrix(bits);
+        let mut alone = RunmaxClipnmerge::from_bit_matrix(bits);
         dissolved += alone.dissolve_only();
 
-        let mut compacted = Fastile::from_bit_matrix(bits);
+        let mut compacted = RunmaxClipnmerge::from_bit_matrix(bits);
         both += compacted.compact();
     }
 
