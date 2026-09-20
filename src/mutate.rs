@@ -466,8 +466,8 @@ fn absorb(rects: &mut Vec<Rect>) -> usize {
                 // whoever was cut, which are the rectangles just
                 // appended.
                 sweep.mark(&band);
-                for index in standing..rects.len() {
-                    sweep.mark(&rects[index]);
+                for piece in &rects[standing..] {
+                    sweep.mark(piece);
                 }
 
                 swallowed += gain as usize;

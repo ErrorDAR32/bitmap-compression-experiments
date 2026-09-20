@@ -483,27 +483,39 @@ const NO_SEED: u32 = u32::MAX;
 /// cursor has already passed. The cursor only descends, every push is
 /// two writes, and drawing a level is a walk down one chain.
 ///
-/// The chains live in one arena that only grows, at twelve bytes a run
-/// and a few thousand runs a bitmap, rather than in 257 vectors that
-/// would each have to find their own size.
+/// The chains live in one arena that only grows, rather than in 257
+/// vectors that would each have to find their own size. Run and link
+/// are kept side by side rather than paired, because a pair of them is
+/// twelve bytes and a twelve-byte push is a call to memcpy.
 struct Queue {
-    /// Every run pushed, each holding the slot of the next one in its
-    /// bucket.
-    seeds: Vec<(Seed, u32)>,
+    /// Every run pushed, in the order they were pushed.
+    seeds: Vec<Seed>,
+    /// For each of those, the slot of the next run in its bucket.
+    next: Vec<u32>,
     /// The run pushed most recently at each length.
     heads: Box<[u32; 257]>,
     longest: usize,
 }
 
 impl Queue {
+    /// Enough room for the runs a realistic bitmap goes through without
+    /// the arena having to find more.
+    const EXPECTED: usize = 8192;
+
     fn new() -> Self {
-        Self { seeds: Vec::new(), heads: Box::new([NO_SEED; 257]), longest: 256 }
+        Self {
+            seeds: Vec::with_capacity(Self::EXPECTED),
+            next: Vec::with_capacity(Self::EXPECTED),
+            heads: Box::new([NO_SEED; 257]),
+            longest: 256,
+        }
     }
 
     fn push(&mut self, seed: Seed) {
         let length = seed.len() as usize;
         let slot = self.seeds.len() as u32;
-        self.seeds.push((seed, self.heads[length]));
+        self.seeds.push(seed);
+        self.next.push(self.heads[length]);
         self.heads[length] = slot;
     }
 
@@ -516,9 +528,8 @@ impl Queue {
                 self.heads[self.longest] = NO_SEED;
                 let mut at = head;
                 while at != NO_SEED {
-                    let (seed, next) = self.seeds[at as usize];
-                    out.push(seed);
-                    at = next;
+                    out.push(self.seeds[at as usize]);
+                    at = self.next[at as usize];
                 }
                 return Some(self.longest as u16);
             }
@@ -533,11 +544,19 @@ impl Queue {
 #[derive(Default)]
 struct Level {
     length: u16,
-    /// Slot to run and the area in force for it, or [`SPENT`].
-    runs: Vec<(Seed, u32)>,
+    /// Slot to run, and beside it the area in force for that run, or
+    /// [`SPENT`]. Kept apart for the same reason the queue keeps its
+    /// links apart from its runs.
+    runs: Vec<Seed>,
+    areas: Vec<u32>,
     order: BinaryHeap<Ranked>,
     /// Slots by orientation and by where the run starts.
     buckets: Vec<Vec<u32>>,
+    /// Which start positions hold anything, by orientation. A carve
+    /// dirties a range of starts as wide as the level's runs are long,
+    /// and nearly all of them are empty, so the range is walked as set
+    /// bits rather than position by position.
+    occupied: [[u64; LINE_WORDS]; 2],
     filled: Vec<usize>,
     scratch: Vec<u32>,
     /// The bucket the queue last handed over, standing or not.
@@ -585,7 +604,9 @@ impl Level {
             self.buckets[slot].clear();
         }
         self.filled.clear();
+        self.occupied = [[0; LINE_WORDS]; 2];
         self.runs.clear();
+        self.areas.clear();
         self.order.clear();
 
         loop {
@@ -602,11 +623,14 @@ impl Level {
                 let slot = self.runs.len() as u32;
                 let key = self.key(&seed, self.bound());
                 self.order.push(Ranked { key, area: UNCOUNTED, slot });
-                self.runs.push((seed, UNCOUNTED));
+                self.runs.push(seed);
+                self.areas.push(UNCOUNTED);
 
                 let bucket = Self::bucket(seed.is_column, seed.start);
                 if self.buckets[bucket].is_empty() {
                     self.filled.push(bucket);
+                    self.occupied[usize::from(seed.is_column)][seed.start as usize / 64] |=
+                        1 << (seed.start % 64);
                 }
                 self.buckets[bucket].push(slot);
             }
@@ -621,12 +645,12 @@ impl Level {
     fn take_best(&mut self, rows: &Runs, cols: &Runs) -> Option<Seed> {
         while let Some(top) = self.order.pop() {
             let slot = top.slot as usize;
-            let (seed, area) = self.runs[slot];
+            let (seed, area) = (self.runs[slot], self.areas[slot]);
             if top.area != area {
                 continue;
             }
             if !seed.standing(rows, cols) {
-                self.runs[slot].1 = SPENT;
+                self.areas[slot] = SPENT;
                 continue;
             }
 
@@ -634,7 +658,7 @@ impl Level {
             // it find its real place.
             if area == UNCOUNTED {
                 let counted = crossing_area(&seed, rows, cols);
-                self.runs[slot].1 = counted;
+                self.areas[slot] = counted;
                 self.order.push(Ranked {
                     key: self.key(&seed, counted),
                     area: counted,
@@ -643,7 +667,7 @@ impl Level {
                 continue;
             }
 
-            self.runs[slot].1 = SPENT;
+            self.areas[slot] = SPENT;
             return Some(seed);
         }
         None
@@ -665,14 +689,20 @@ impl Level {
             let last = hi;
 
             self.scratch.clear();
-            for start in first..=last {
-                self.scratch
-                    .extend_from_slice(&self.buckets[Self::bucket(is_column, start)]);
+            let occupied = self.occupied[usize::from(is_column)];
+            for (index, word) in occupied.iter().enumerate() {
+                let mut starts = word & range_mask(index, first, last);
+                while starts != 0 {
+                    let start = (index * 64 + starts.trailing_zeros() as usize) as u8;
+                    starts &= starts - 1;
+                    self.scratch
+                        .extend_from_slice(&self.buckets[Self::bucket(is_column, start)]);
+                }
             }
 
             for index in 0..self.scratch.len() {
                 let slot = self.scratch[index] as usize;
-                let (seed, area) = self.runs[slot];
+                let (seed, area) = (self.runs[slot], self.areas[slot]);
                 // Taken already, or still standing at a figure that
                 // cannot be beaten by the area falling further.
                 if area == SPENT || area == UNCOUNTED {
@@ -681,12 +711,12 @@ impl Level {
                 // The carve may have taken it away rather than merely
                 // reached it, and there is nothing left to measure then.
                 if !seed.standing(rows, cols) {
-                    self.runs[slot].1 = SPENT;
+                    self.areas[slot] = SPENT;
                     continue;
                 }
                 let now = crossing_area(&seed, rows, cols);
                 if now != area {
-                    self.runs[slot].1 = now;
+                    self.areas[slot] = now;
                     self.order.push(Ranked {
                         key: self.key(&seed, now),
                         area: now,
