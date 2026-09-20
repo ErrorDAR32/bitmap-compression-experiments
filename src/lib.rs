@@ -1,6 +1,7 @@
 //! A fixed-size 256x256 bit matrix backed by packed `u64` words.
 
 mod mutate;
+pub mod optimal;
 mod run_mesh;
 pub use run_mesh::{Rect, RunMesh};
 

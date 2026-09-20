@@ -330,6 +330,77 @@ impl RunMesh {
     }
 }
 
+// ---------------------------------------------------------------------
+// Experiment: which way the tie on run length should be settled.
+//
+// The shipped rule takes the run with the most area in the runs crossing
+// it. The worst cases found so far all suggest that is backwards, since a
+// run with a lot of area crossing it is a run that severs a lot when it
+// is taken.
+//
+// This scans every run each step instead of using the queue, which is
+// slow but exact whichever way the tie goes. The queue only stays sound
+// for "most" -- carving can only shrink a crossing run, so a seed's rank
+// can fall but never rise, which is what makes a stale entry safe to
+// leave on top. Preferring the least reverses that.
+// ---------------------------------------------------------------------
+
+impl RunMesh {
+    #[doc(hidden)]
+    pub fn tie_break(source: &BitMatrix, prefer_least: bool) -> Self {
+        let mut rows = Runs::rows_of(source);
+        let mut cols = Runs::cols_of(source);
+        let mut rects = Vec::new();
+        let mut sink_bin = Vec::new();
+
+        while let Some(seed) = scan_for_seed(&rows, &cols, prefer_least) {
+            let crossing = if seed.is_column() { &rows } else { &cols };
+            let rect = sink(crossing, seed.span(), seed.line, seed.is_column());
+            rows.carve((rect.y0, rect.y1), rect.x0, rect.x1, &mut sink_bin);
+            cols.carve((rect.x0, rect.x1), rect.y0, rect.y1, &mut sink_bin);
+            sink_bin.clear();
+            rects.push(rect);
+        }
+
+        Self { rects }
+    }
+}
+
+fn scan_for_seed(rows: &Runs, cols: &Runs, prefer_least: bool) -> Option<Seed> {
+    let longest = rows
+        .lines
+        .iter()
+        .chain(cols.lines.iter())
+        .flatten()
+        .map(Span::len)
+        .max()?;
+
+    let mut best: Option<Seed> = None;
+    for (is_column, side) in [(false, rows), (true, cols)] {
+        for (line, spans) in side.lines.iter().enumerate() {
+            for span in spans {
+                if span.len() != longest {
+                    continue;
+                }
+                let seed = Seed::rank(line as u8, *span, is_column, rows, cols);
+                let better = match best {
+                    None => true,
+                    Some(b) if prefer_least => {
+                        (seed.crossing_area, b.is_row, b.neg_y, b.neg_x)
+                            < (b.crossing_area, seed.is_row, seed.neg_y, seed.neg_x)
+                    }
+                    Some(b) => seed > b,
+                };
+                if better {
+                    best = Some(seed);
+                }
+            }
+        }
+    }
+
+    best
+}
+
 /// The whole seed run, taken as far as every one of its crossing runs
 /// reaches.
 ///
