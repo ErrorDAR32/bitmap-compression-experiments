@@ -1155,19 +1155,35 @@ fn touches(a: &Rect, other: &Rect, axis: Axis) -> bool {
 /// the same length and the offcut can simply take the given rectangle's
 /// place. Keeping every index where it was is what lets the index built
 /// before the trim still be read afterwards.
-fn apply_trim(rects: &[Rect], a: usize, trim: &Trim, out: &mut Vec<Rect>) {
+/// Makes the trim, in place, remembering what it overwrote.
+///
+/// Nearly every trim is walked up to and abandoned, so a trim that
+/// leads nowhere has to cost only the entries it touched. Writing the
+/// whole partition out to try one was four tenths of everything the
+/// tiled motifs spent: one rectangle moves and thirteen thousand are
+/// copied to watch it.
+fn apply_trim(rects: &mut [Rect], a: usize, trim: &Trim, undo: &mut Vec<(usize, Rect)>) {
     let given = rects[a];
     let axis = trim.axis;
     let (lo, hi) = axis.span(&given);
 
-    out.clear();
-    out.extend_from_slice(rects);
+    undo.clear();
+    undo.push((a, given));
     for &b in &trim.takers {
-        let (blo, bhi) = axis.span(&out[b]);
-        axis.set_span(&mut out[b], blo.max(lo), bhi.min(hi));
-        axis.absorb(&mut out[b], &given);
+        undo.push((b, rects[b]));
+        let (blo, bhi) = axis.span(&rects[b]);
+        axis.set_span(&mut rects[b], blo.max(lo), bhi.min(hi));
+        axis.absorb(&mut rects[b], &given);
     }
-    out[a] = trim.offcut;
+    rects[a] = trim.offcut;
+}
+
+/// Puts back what [`apply_trim`] overwrote, newest first, so that an
+/// entry written twice comes back as it started.
+fn undo_trim(rects: &mut [Rect], undo: &[(usize, Rect)]) {
+    for &(slot, was) in undo.iter().rev() {
+        rects[slot] = was;
+    }
 }
 
 /// Dissolving, plus break-even moves taken only when they open up a
@@ -1195,6 +1211,9 @@ pub(crate) struct Pass {
     trim: Trim,
     changed: Vec<usize>,
     bench: Bench,
+    /// What a trim overwrote, so that abandoning one costs the entries
+    /// it touched rather than a copy of everything.
+    undo: Vec<(usize, Rect)>,
 }
 
 impl Pass {
@@ -1213,6 +1232,7 @@ impl Pass {
             },
             changed: Vec::new(),
             bench: Bench::default(),
+            undo: Vec::new(),
         }
     }
 
@@ -1240,7 +1260,7 @@ fn compact_to(rects: &mut Vec<Rect>, far: Far, pass: &mut Pass) -> usize {
     if far == Far::Growing {
         return started - rects.len();
     }
-    let Pass { work, index, candidate, trim, changed, bench, .. } = pass;
+    let Pass { work, index, candidate, trim, changed, bench, undo, .. } = pass;
     dissolve(rects, work);
     if far == Far::Dissolving {
         return started - rects.len();
@@ -1253,19 +1273,26 @@ fn compact_to(rects: &mut Vec<Rect>, far: Far, pass: &mut Pass) -> usize {
                 if !trim_plan(rects, index, a, axis, trim, bench) {
                     continue;
                 }
-                apply_trim(rects, a, trim, candidate);
+                apply_trim(rects, a, trim, undo);
                 changed.clear();
                 changed.push(a);
                 changed.extend_from_slice(&trim.takers);
-                if !trim_opens_dissolve(candidate, index, changed, bench) {
+                if !trim_opens_dissolve(rects, index, changed, bench) {
+                    undo_trim(rects, undo);
                     continue;
                 }
 
+                // Only now is a copy worth making: dissolving rewrites
+                // the partition, and this is the one trim in hundreds
+                // that has earned the chance.
+                candidate.clear();
+                candidate.extend_from_slice(rects);
                 dissolve(candidate, work);
                 if candidate.len() < rects.len() {
                     std::mem::swap(rects, candidate);
                     continue 'again;
                 }
+                undo_trim(rects, undo);
             }
         }
         return started - rects.len();
@@ -1404,7 +1431,6 @@ mod tests {
     #[test]
     fn a_trim_breaks_even_and_is_rolled_back() {
         let before = vec![r(0, 0, 2, 0), r(0, 1, 1, 1)];
-        let mut rewritten = Vec::new();
         let mut trim = Trim {
             axis: Axis::Vertical,
             takers: Vec::new(),
@@ -1416,13 +1442,18 @@ mod tests {
             trim_plan(&before, &index, 1, Axis::Vertical, &mut trim, &mut Bench::default()),
             "one trim fits"
         );
-        apply_trim(&before, 1, &trim, &mut rewritten);
+        let mut rewritten = before.clone();
+        let mut undo = Vec::new();
+        apply_trim(&mut rewritten, 1, &trim, &mut undo);
         assert_eq!(rewritten.len(), before.len());
         assert_eq!(
             area(&rewritten),
             area(&before),
             "a trim must not change what is covered"
         );
+
+        undo_trim(&mut rewritten, &undo);
+        assert_eq!(rewritten, before, "undoing a trim puts everything back");
 
         let mut rects = before.clone();
         assert_eq!(Pass::new().compact_to(&mut rects, Far::Trimming), 0);
