@@ -1,6 +1,6 @@
 //! One checkerboard, meshed and compacted, for a profiler to look at.
 
-use bitmatrix::{BitMatrix, RunMesh};
+use bitmatrix::{BitMatrix, Fastile};
 
 fn main() {
     let mut bits = BitMatrix::new();
@@ -12,7 +12,7 @@ fn main() {
         }
     }
 
-    let mut mesh = RunMesh::from_bit_matrix(&bits);
+    let mut mesh = Fastile::from_bit_matrix(&bits);
     let reclaimed = mesh.compact();
     println!("{} rects, {reclaimed} reclaimed", mesh.rects().len());
 }

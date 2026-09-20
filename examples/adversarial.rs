@@ -10,13 +10,13 @@
 #[allow(dead_code)]
 mod corpus;
 
-use bitmatrix::{optimal, BitMatrix, RunMesh};
+use bitmatrix::{exact, BitMatrix, Fastile};
 use corpus::Sequence;
 
 fn gap(bits: &BitMatrix) -> (usize, usize) {
-    let mut mesh = RunMesh::from_bit_matrix(bits);
+    let mut mesh = Fastile::from_bit_matrix(bits);
     mesh.compact();
-    (optimal::partition(bits).len(), mesh.rects().len())
+    (exact::partition(bits).len(), mesh.rects().len())
 }
 
 fn render(bits: &BitMatrix, n: u8) -> String {

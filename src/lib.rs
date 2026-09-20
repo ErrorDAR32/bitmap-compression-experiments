@@ -1,9 +1,18 @@
-//! A fixed-size 256x256 bit matrix backed by packed `u64` words.
+//! A fixed-size 256x256 bit matrix backed by packed `u64` words, and
+//! three ways to split its set bits into rectangles.
+//!
+//! - [`Fastile`] is the fast one. It reduces the bitmap to run lists and
+//!   works on those, and lands a little over the minimum.
+//! - [`exact`] is the minimum, by the construction of Lipski and of
+//!   Ohtsuki. It is what Fastile is measured against.
+//! - Exhaustive search, the ground truth, lives in the `ground_truth`
+//!   example. It is what the exact algorithm is measured against, on
+//!   grids small enough to survive it.
 
 mod mutate;
-pub mod optimal;
-mod run_mesh;
-pub use run_mesh::{Rect, RunMesh};
+pub mod exact;
+mod fastile;
+pub use fastile::{reflex_corners, Fastile, Rect, Reflex};
 
 pub const WIDTH: usize = 256;
 pub const HEIGHT: usize = 256;

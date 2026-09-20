@@ -28,20 +28,20 @@
 #[allow(dead_code)]
 mod corpus;
 
-use bitmatrix::{optimal, BitMatrix, RunMesh};
+use bitmatrix::{exact, BitMatrix, Fastile};
 use std::time::{Duration, Instant};
 
 const BITMAPS: usize = 2000;
 const REPEATS: usize = 7;
 
 fn greedy(bits: &BitMatrix) -> usize {
-    let mut mesh = RunMesh::from_bit_matrix(bits);
+    let mut mesh = Fastile::from_bit_matrix(bits);
     mesh.compact();
     mesh.rects().len()
 }
 
 fn minimum(bits: &BitMatrix) -> usize {
-    optimal::partition(bits).len()
+    exact::partition(bits).len()
 }
 
 /// One algorithm's timings across the repeats.
@@ -125,29 +125,29 @@ fn main() {
 
     // Correctness once, outside the timing.
     for bits in &maps {
-        let mut mesh = RunMesh::from_bit_matrix(bits);
+        let mut mesh = Fastile::from_bit_matrix(bits);
         mesh.compact();
         corpus::assert_partition(bits, mesh.rects(), "greedy");
-        corpus::assert_partition(bits, &optimal::partition(bits), "minimum");
+        corpus::assert_partition(bits, &exact::partition(bits), "minimum");
     }
 
     let (greedy_all, exact_all, ratios) = race(&maps);
     let n = maps.len() as u32;
     println!("{n} realistic bitmaps, best of {REPEATS}, per bitmap:");
     println!(
-        "  greedy   {:>8.2} rects  {:>9.1?}   spread {:.2}x",
+        "  fastile  {:>8.2} rects  {:>9.1?}   spread {:.2}x",
         greedy_all.count as f64 / n as f64,
         greedy_all.best() / n,
         greedy_all.spread()
     );
     println!(
-        "  minimum  {:>8.2} rects  {:>9.1?}   spread {:.2}x",
+        "  exact    {:>8.2} rects  {:>9.1?}   spread {:.2}x",
         exact_all.count as f64 / n as f64,
         exact_all.best() / n,
         exact_all.spread()
     );
     println!(
-        "  greedy is {:.2}% over the minimum, in {:.2}x the time ({:.2} to {:.2} across repeats)\n",
+        "  fastile is {:.2}% over the exact answer, in {:.2}x the time ({:.2} to {:.2} across repeats)\n",
         100.0 * (greedy_all.count as f64 / exact_all.count as f64 - 1.0),
         ratios[ratios.len() / 2],
         ratios[0],

@@ -1,4 +1,9 @@
-//! The minimum partition, worked out rather than approached.
+//! The exact algorithm: the minimum partition, worked out rather than
+//! approached.
+//!
+//! Against it the Fastile algorithm in [`crate::fastile`] is measured,
+//! and against exhaustive search, the ground truth algorithm, this one
+//! is measured in turn.
 //!
 //! Partitioning a rectilinear region into the fewest disjoint rectangles
 //! is not the NP-hard problem it is often mistaken for; that is covering
@@ -524,7 +529,7 @@ mod tests {
                 let rects = partition(&bits);
                 assert_partitions(&bits, &rects);
 
-                let mut mesh = crate::RunMesh::from_bit_matrix(&bits);
+                let mut mesh = crate::Fastile::from_bit_matrix(&bits);
                 mesh.compact();
                 assert!(
                     rects.len() <= mesh.rects().len(),

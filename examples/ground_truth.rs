@@ -1,4 +1,8 @@
-//! Checks the minimum partition against exhaustive search.
+//! The ground truth algorithm: exhaustive search, which is the last
+//! word on what the minimum is and far too slow to be anything else.
+//!
+//! It is here to check the exact algorithm, which in turn is what the
+//! Fastile algorithm is measured against.
 //!
 //! The construction is a theorem, so in principle it needs no checking:
 //! if it is right, a second algorithm agreeing with it proves nothing
@@ -18,7 +22,7 @@
 #[allow(dead_code)]
 mod corpus;
 
-use bitmatrix::{optimal, BitMatrix};
+use bitmatrix::{exact, BitMatrix};
 use corpus::Sequence;
 use std::collections::HashMap;
 
@@ -101,7 +105,7 @@ impl Report {
     fn check(&mut self, cells: u64, n: usize, memo: &mut HashMap<u64, u8>) {
         assert!(n <= LARGEST, "exhaustive search does not reach {n}x{n}");
         let bits = to_bits(cells, n);
-        let got = optimal::partition(&bits);
+        let got = exact::partition(&bits);
         self.checked += 1;
 
         let mut painted = BitMatrix::new();
