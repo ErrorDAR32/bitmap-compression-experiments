@@ -222,11 +222,6 @@ fn full_size(work: &mut RunmaxClipnmerge, seeds: u64) {
     println!(
         "worst of {seeds} seeds a shape, full 256x256, ranked by how far over the minimum:\n"
     );
-    println!(
-        "  {:<20} {:>10} {:>10} {:>9} {:>8} {:>9}",
-        "shape", "worst seed", "runmax", "fewest", "excess", "over"
-    );
-
     let mut rows = Vec::new();
     let (mut all_ours, mut all_fewest) = (0usize, 0usize);
     for shape in samples::SHAPES {
@@ -249,6 +244,10 @@ fn full_size(work: &mut RunmaxClipnmerge, seeds: u64) {
     println!(
         "  CORPUS {all_ours} areas against {all_fewest} fewest, {:+.3}% over\n",
         (all_ours as f64 / all_fewest as f64 - 1.0) * 100.0
+    );
+    println!(
+        "  {:<20} {:>10} {:>10} {:>9} {:>8} {:>9}",
+        "shape", "worst seed", "runmax", "fewest", "excess", "over"
     );
     rows.sort_by(|a, b| b.2.over().total_cmp(&a.2.over()));
 

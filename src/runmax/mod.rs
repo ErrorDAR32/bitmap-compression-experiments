@@ -179,7 +179,7 @@ impl RunmaxClipnmerge {
                 cut_cols.clear();
                 rows.carve((rect.y0, rect.y1), rect.x0, rect.x1, cut_rows);
                 cols.carve((rect.x0, rect.x1), rect.y0, rect.y1, cut_cols);
-                level.note(&rect, rows, cols);
+
                 areas.push(rect);
 
                 // Whatever a carve leaves behind is a run in its own
