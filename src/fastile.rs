@@ -1099,6 +1099,13 @@ impl Fastile {
         self.without_the_alone(crate::mutate::compact)
     }
 
+    /// Only the growing pass, which is the first thing [`Self::compact`]
+    /// runs. For measuring what growing is worth on its own.
+    #[doc(hidden)]
+    pub fn absorb_only(&mut self) -> usize {
+        self.without_the_alone(crate::mutate::absorb_only)
+    }
+
     /// Only the free half of [`Self::compact`], which reclaims nothing on
     /// its own. Kept so that claim stays measurable.
     #[doc(hidden)]

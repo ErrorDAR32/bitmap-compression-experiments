@@ -38,6 +38,383 @@
 
 use crate::Rect;
 
+/// Which way a rectangle grows.
+#[derive(Clone, Copy)]
+enum Side {
+    Up,
+    Down,
+    Left,
+    Right,
+}
+
+/// No rectangle owns this cell, so nothing is set there.
+const NOBODY: u32 = u32::MAX;
+
+/// Which rectangle owns each cell, for looking at a stretch of the
+/// bitmap without asking the rectangles one at a time.
+///
+/// Painting it costs one write per set cell, which is a few thousand on
+/// a realistic bitmap, and it answers "what is in the way" directly.
+struct Owners {
+    of: Vec<u32>,
+}
+
+impl Owners {
+    const SIDE: usize = 256;
+
+    fn paint(rects: &[Rect]) -> Self {
+        let mut of = vec![NOBODY; Self::SIDE * Self::SIDE];
+        for (index, r) in rects.iter().enumerate() {
+            for y in r.y0..=r.y1 {
+                let row = y as usize * Self::SIDE;
+                of[row + r.x0 as usize..=row + r.x1 as usize].fill(index as u32);
+            }
+        }
+        Self { of }
+    }
+
+    fn at(&self, x: u8, y: u8) -> u32 {
+        self.of[y as usize * Self::SIDE + x as usize]
+    }
+
+    fn give(&mut self, rect: &Rect, to: u32) {
+        for y in rect.y0..=rect.y1 {
+            let row = y as usize * Self::SIDE;
+            self.of[row + rect.x0 as usize..=row + rect.x1 as usize].fill(to);
+        }
+    }
+}
+
+/// The band a rectangle covers once it has grown out to a line.
+fn band_to(grown: Rect, side: Side, edge: u8) -> Rect {
+    let mut band = grown;
+    match side {
+        Side::Down => band.y1 = edge,
+        Side::Up => band.y0 = edge,
+        Side::Right => band.x1 = edge,
+        Side::Left => band.x0 = edge,
+    }
+    band
+}
+
+/// Where a rectangle's own far edge lies, looking the way the growth
+/// goes: the last line of it the band has to cover to swallow it whole.
+fn far_edge(r: &Rect, side: Side) -> u8 {
+    match side {
+        Side::Down => r.y1,
+        Side::Up => r.y0,
+        Side::Right => r.x1,
+        Side::Left => r.x0,
+    }
+}
+
+/// The pieces a rectangle is left in when a band is taken out of it.
+///
+/// The band runs the full depth of the growth and lies inside the
+/// growing rectangle's sides, so what survives is at most three
+/// rectangles: whatever hangs past the far edge across the whole width,
+/// and whatever hangs past each side beside the band. One piece when the
+/// neighbour only overshoots the end, two when it overhangs a side,
+/// three when it does both, which is the corner case.
+fn pieces_left(other: &Rect, band: &Rect, side: Side) -> u8 {
+    let (olo, ohi, blo, bhi) = match side {
+        Side::Up | Side::Down => (other.x0, other.x1, band.x0, band.x1),
+        Side::Left | Side::Right => (other.y0, other.y1, band.y0, band.y1),
+    };
+    let past_end = match side {
+        Side::Down => other.y1 > band.y1,
+        Side::Up => other.y0 < band.y0,
+        Side::Right => other.x1 > band.x1,
+        Side::Left => other.x0 < band.x0,
+    };
+    u8::from(past_end) + u8::from(olo < blo) + u8::from(ohi > bhi)
+}
+
+/// A settled growth: the band the rectangle takes, and what that does
+/// to everyone it runs into.
+struct Reach<'a> {
+    band: Rect,
+    /// Neighbours swallowed whole, each one a rectangle reclaimed.
+    taken: &'a [usize],
+    /// Neighbours cut, and the pieces each one is left in.
+    cut: &'a [(usize, u8)],
+}
+
+/// Sorts the neighbours a growth meets into the ones it swallows whole
+/// and the ones it cuts, once the band is settled.
+fn split_met(
+    rects: &[Rect],
+    met: &[usize],
+    band: &Rect,
+    side: Side,
+    taken: &mut Vec<usize>,
+    cut: &mut Vec<(usize, u8)>,
+) {
+    taken.clear();
+    cut.clear();
+    for &other in met {
+        let pieces = pieces_left(&rects[other], band, side);
+        if pieces == 0 {
+            taken.push(other);
+        } else {
+            cut.push((other, pieces));
+        }
+    }
+}
+
+/// Scratch the growth pass reuses, so that walking a band costs no
+/// allocation at all.
+struct Growing {
+    /// The neighbours the band has run into, in the order it met them.
+    met: Vec<usize>,
+    taken: Vec<usize>,
+    cut: Vec<(usize, u8)>,
+    /// Which visit last saw each rectangle, so that "have I met this
+    /// one already" is a compare rather than a search.
+    seen: Vec<u32>,
+    visit: u32,
+    /// How many met neighbours stop hanging past the band at each line.
+    settles: [i32; 256],
+}
+
+impl Growing {
+    fn new(rects: usize) -> Self {
+        Self {
+            met: Vec::new(),
+            taken: Vec::new(),
+            cut: Vec::new(),
+            seen: vec![0; rects],
+            visit: 0,
+            settles: [0; 256],
+        }
+    }
+}
+
+/// How far a rectangle could grow, and how much that is worth.
+///
+/// The growth is looked at without regard to who owns what: a rectangle
+/// can reach as far as the cells are standing, which is what the owner
+/// grid says by having an owner at all. Only then is the cost of what
+/// lies in the way counted.
+///
+/// Reaching further can only swallow more, but it can also cut more, so
+/// the furthest reach is not always the best one. The walk runs out to
+/// the limit and every line along the way is scored, which is the same
+/// as starting from the limit and drawing back to the next neighbour's
+/// border, and cheaper than doing it that way round.
+///
+/// A neighbour is worth one rectangle when it is swallowed whole and
+/// costs one for every piece beyond the first that cutting it leaves,
+/// so its worth is `1 - overhangs - hangs_past`: a cut straight across
+/// is free, a cut that leaves an L costs one, and the gain is never
+/// more than the number swallowed.
+///
+/// Both terms are cheap to keep as the band deepens. How far a
+/// neighbour overhangs the sides never changes, since the band keeps
+/// the growing rectangle's width. Whether it hangs past the far edge
+/// changes exactly once, at its own far edge, and always the same way,
+/// so the whole score moves by one there. That leaves nothing to
+/// recount per line: a band is walked, not re-scored.
+fn grow(
+    rects: &[Rect],
+    owners: &Owners,
+    a: usize,
+    side: Side,
+    scratch: &mut Growing,
+) -> Option<(u8, i32)> {
+    let grown = rects[a];
+    let (from, to) = match side {
+        Side::Up | Side::Down => (grown.x0, grown.x1),
+        Side::Left | Side::Right => (grown.y0, grown.y1),
+    };
+
+    let Growing { met, seen, visit, settles, .. } = scratch;
+    met.clear();
+    *visit += 1;
+    let visit = *visit;
+
+    let mut line = far_edge(&grown, side);
+    let mut gain = 0i32;
+    let mut best: Option<(u8, i32, usize)> = None;
+
+    loop {
+        let next = match side {
+            Side::Down | Side::Right => line.checked_add(1),
+            Side::Up | Side::Left => line.checked_sub(1),
+        };
+        let Some(next) = next else { break };
+        line = next;
+
+        // As far as the cells are standing, whoever owns them. Each
+        // owner met covers the rest of its own width, so the walk
+        // steps from neighbour to neighbour, not cell to cell.
+        let mut standing = true;
+        let mut across = from;
+        loop {
+            let (x, y) = match side {
+                Side::Up | Side::Down => (across, line),
+                Side::Left | Side::Right => (line, across),
+            };
+            let owner = owners.at(x, y);
+            if owner == NOBODY {
+                standing = false;
+                break;
+            }
+            let other = &rects[owner as usize];
+            if seen[owner as usize] != visit {
+                seen[owner as usize] = visit;
+                met.push(owner as usize);
+                let (olo, ohi) = match side {
+                    Side::Up | Side::Down => (other.x0, other.x1),
+                    Side::Left | Side::Right => (other.y0, other.y1),
+                };
+                gain += 1 - i32::from(olo < from) - i32::from(ohi > to);
+                let far = far_edge(other, side);
+                if far != line {
+                    gain -= 1;
+                    settles[far as usize] += 1;
+                }
+            }
+            let end = match side {
+                Side::Up | Side::Down => other.x1,
+                Side::Left | Side::Right => other.y1,
+            };
+            if end >= to {
+                break;
+            }
+            across = end + 1;
+        }
+        if !standing {
+            break;
+        }
+        gain += settles[line as usize];
+
+        if gain > 0 && best.is_none_or(|(_, had, _)| gain > had) {
+            best = Some((line, gain, met.len()));
+        }
+    }
+
+    for &other in met.iter() {
+        settles[far_edge(&rects[other], side) as usize] = 0;
+    }
+
+    let (edge, gain, reached) = best?;
+    met.truncate(reached);
+    Some((edge, gain))
+}
+
+/// Commits a growth: the rectangle takes the band, whoever was
+/// swallowed is gone, and whoever was cut keeps its pieces.
+///
+/// Cutting a neighbour into two or three leaves the first piece in its
+/// own slot and the rest appended, which is why the list grows even as
+/// the count falls.
+fn apply(
+    rects: &mut Vec<Rect>,
+    owners: &mut Owners,
+    gone: &mut Vec<bool>,
+    a: usize,
+    side: Side,
+    reach: Reach<'_>,
+) {
+    let band = reach.band;
+    for &other in reach.taken {
+        gone[other] = true;
+    }
+
+    for &(other, _) in reach.cut {
+        let whole = rects[other];
+        let mut leftovers = [Rect { x0: 0, y0: 0, x1: 0, y1: 0 }; 3];
+        let mut pieces = 0;
+
+        // Past the far end, across the neighbour's whole width.
+        let past = match side {
+            Side::Down if whole.y1 > band.y1 => Some(Rect { y0: band.y1 + 1, ..whole }),
+            Side::Up if whole.y0 < band.y0 => Some(Rect { y1: band.y0 - 1, ..whole }),
+            Side::Right if whole.x1 > band.x1 => Some(Rect { x0: band.x1 + 1, ..whole }),
+            Side::Left if whole.x0 < band.x0 => Some(Rect { x1: band.x0 - 1, ..whole }),
+            _ => None,
+        };
+        if let Some(piece) = past {
+            leftovers[pieces] = piece;
+            pieces += 1;
+        }
+
+        // Beside the band, over the part of the neighbour it covers.
+        let mut beside = whole;
+        match side {
+            Side::Down => beside.y1 = beside.y1.min(band.y1),
+            Side::Up => beside.y0 = beside.y0.max(band.y0),
+            Side::Right => beside.x1 = beside.x1.min(band.x1),
+            Side::Left => beside.x0 = beside.x0.max(band.x0),
+        }
+        let (lo, hi) = match side {
+            Side::Up | Side::Down => (
+                (beside.x0 < band.x0).then(|| Rect { x1: band.x0 - 1, ..beside }),
+                (beside.x1 > band.x1).then(|| Rect { x0: band.x1 + 1, ..beside }),
+            ),
+            Side::Left | Side::Right => (
+                (beside.y0 < band.y0).then(|| Rect { y1: band.y0 - 1, ..beside }),
+                (beside.y1 > band.y1).then(|| Rect { y0: band.y1 + 1, ..beside }),
+            ),
+        };
+        for piece in [lo, hi].into_iter().flatten() {
+            leftovers[pieces] = piece;
+            pieces += 1;
+        }
+
+        gone[other] = true;
+        for &piece in &leftovers[..pieces] {
+            rects.push(piece);
+            gone.push(false);
+            owners.give(&piece, (rects.len() - 1) as u32);
+        }
+    }
+
+    rects[a] = band;
+    owners.give(&band, a as u32);
+}
+
+/// Grows every rectangle that can grow, until none can, and answers how
+/// many were swallowed.
+fn absorb(rects: &mut Vec<Rect>) -> usize {
+    let mut owners = Owners::paint(rects);
+    let mut gone = vec![false; rects.len()];
+    let mut scratch = Growing::new(rects.len());
+    let mut swallowed = 0;
+
+    let mut again = true;
+    while again {
+        again = false;
+        for a in 0..rects.len() {
+            if gone[a] {
+                continue;
+            }
+            for side in [Side::Down, Side::Up, Side::Right, Side::Left] {
+                scratch.seen.resize(rects.len(), 0);
+                let Some((edge, gain)) = grow(rects, &owners, a, side, &mut scratch) else {
+                    continue;
+                };
+                let band = band_to(rects[a], side, edge);
+                let Growing { met, taken, cut, .. } = &mut scratch;
+                split_met(rects, met, &band, side, taken, cut);
+                let reach = Reach { band, taken, cut };
+                apply(rects, &mut owners, &mut gone, a, side, reach);
+                swallowed += gain as usize;
+                again = true;
+                break;
+            }
+        }
+    }
+
+    let mut index = 0;
+    rects.retain(|_| {
+        index += 1;
+        !gone[index - 1]
+    });
+    swallowed
+}
+
 /// Which way a rectangle is cut when it dissolves. Cutting across its
 /// width hands stretches to neighbours above and below; cutting across
 /// its height hands them to neighbours left and right.
@@ -686,6 +1063,13 @@ fn apply_trim(rects: &[Rect], a: usize, trim: &Trim, out: &mut Vec<Rect>) {
 /// Dissolving, plus break-even moves taken only when they open up a
 /// dissolve that was not there before. Answers how many rectangles the
 /// whole thing reclaimed.
+/// How many rectangles growing reclaims on its own, before anything
+/// else has run. For measuring what the move is worth.
+#[doc(hidden)]
+pub fn absorb_only(rects: &mut Vec<Rect>) -> usize {
+    absorb(rects)
+}
+
 pub fn compact(rects: &mut Vec<Rect>) -> usize {
     let started = rects.len();
     let mut work = Work::new();
@@ -698,6 +1082,7 @@ pub fn compact(rects: &mut Vec<Rect>) -> usize {
     };
     let mut changed: Vec<usize> = Vec::new();
     let mut bench = Bench::default();
+    absorb(rects);
     dissolve(rects, &mut work);
 
     'again: loop {
@@ -741,6 +1126,51 @@ mod tests {
     /// Only the free moves, without the break-even ones.
     fn free(rects: &mut Vec<Rect>) -> usize {
         dissolve(rects, &mut Work::new())
+    }
+
+    /// A wide rectangle sitting on a row of single cells takes all of
+    /// them at once.
+    ///
+    /// Dissolving reaches the same answer by the opposite route: the
+    /// wide one is given away to the cells, which each grow up into it,
+    /// and the columns left over then merge in pairs. So growing is not
+    /// the only way to see this, which is worth recording -- it was
+    /// supposed to be the move dissolving could not make.
+    #[test]
+    fn a_wide_rectangle_swallows_the_cells_under_it() {
+        let mut rects = vec![r(0, 0, 9, 0)];
+        for x in 0..=9 {
+            rects.push(r(x, 1, x, 1));
+        }
+
+        assert_eq!(free(&mut rects.clone()), 10, "dissolving gets there too");
+        assert_eq!(absorb(&mut rects), 10);
+        assert_eq!(rects, vec![r(0, 0, 9, 1)]);
+    }
+
+    /// A neighbour reaching past the side cannot be taken, since the
+    /// union would not be a rectangle.
+    #[test]
+    fn a_neighbour_hanging_over_the_side_is_left_alone() {
+        let mut rects = vec![r(1, 0, 2, 0), r(0, 1, 3, 1)];
+        assert_eq!(absorb(&mut rects), 0);
+    }
+
+    /// Something straddling the far edge is cut there for nothing: the
+    /// piece inside joins the rectangle growing and the piece outside is
+    /// still a rectangle, so it is one before and one after.
+    ///
+    ///     A A          A A
+    ///     B B    ->    A A
+    ///     C D          A A
+    ///     C .          C .
+    #[test]
+    fn a_neighbour_straddling_the_far_edge_is_cut_for_nothing() {
+        let mut rects = vec![r(0, 0, 1, 0), r(0, 1, 1, 1), r(0, 2, 0, 3), r(1, 2, 1, 2)];
+        assert_eq!(absorb(&mut rects), 2, "the row and the single cell");
+        assert_eq!(rects.len(), 2);
+        assert!(rects.contains(&r(0, 0, 1, 2)));
+        assert!(rects.contains(&r(0, 3, 0, 3)));
     }
 
     /// The `k = 1` case: two rectangles sharing a whole edge.
