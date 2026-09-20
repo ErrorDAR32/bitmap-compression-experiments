@@ -201,11 +201,11 @@ impl RunMesh {
 // ---------------------------------------------------------------------
 
 impl RunMesh {
-    /// Seeds on the longest run left anywhere, a row run breaking a tie
-    /// on length and the most up-left run breaking a tie on that, and
-    /// lets each step cover its seed with several rectangles.
+    /// Seeds on the longest run left anywhere and covers that seed with
+    /// every cell standing under it, using as few rectangles as that
+    /// takes. See [`pick_longest`] for how ties on length are settled.
     #[doc(hidden)]
-    pub fn largest_first(source: &BitMatrix, rect_cost: i64) -> Self {
+    pub fn largest_first(source: &BitMatrix) -> Self {
         let mut rows = Runs::rows_of(source);
         let mut cols = Runs::cols_of(source);
         let mut rects = Vec::new();
@@ -214,13 +214,45 @@ impl RunMesh {
         while let Some((line, seed, is_column)) = pick_longest(&rows, &cols) {
             step.clear();
             let crossing = if is_column { &rows } else { &cols };
-            split_along(crossing, seed, line, is_column, rect_cost, &mut step);
+            split_along(crossing, seed, line, is_column, &mut step);
 
             for rect in step.drain(..) {
                 rows.carve((rect.y0, rect.y1), rect.x0, rect.x1);
                 cols.carve((rect.x0, rect.x1), rect.y0, rect.y1);
                 rects.push(rect);
             }
+        }
+
+        Self { rects }
+    }
+}
+
+/// Largest-run-first taking each seed whole: one rectangle per seed, as
+/// wide as the seed and as deep as its shallowest crossing run.
+impl RunMesh {
+    #[doc(hidden)]
+    pub fn largest_first_whole(source: &BitMatrix) -> Self {
+        let mut rows = Runs::rows_of(source);
+        let mut cols = Runs::cols_of(source);
+        let mut rects = Vec::new();
+
+        while let Some((line, seed, is_column)) = pick_longest(&rows, &cols) {
+            let crossing = if is_column { &rows } else { &cols };
+            let (mut lo, mut hi) = (0u8, u8::MAX);
+            for pos in seed.start..=seed.end {
+                let run = crossing.span_at(pos, line).expect("a standing cell is in a run");
+                lo = lo.max(run.start);
+                hi = hi.min(run.end);
+            }
+
+            let rect = if is_column {
+                Rect { x0: lo, y0: seed.start, x1: hi, y1: seed.end }
+            } else {
+                Rect { x0: seed.start, y0: lo, x1: seed.end, y1: hi }
+            };
+            rows.carve((rect.y0, rect.y1), rect.x0, rect.x1);
+            cols.carve((rect.x0, rect.x1), rect.y0, rect.y1);
+            rects.push(rect);
         }
 
         Self { rects }
@@ -285,29 +317,53 @@ impl RunMesh {
     }
 }
 
-/// The longest run still standing in either orientation. Length wins; a
-/// tie goes to a row run; a further tie goes to whichever starts at the
-/// upper-left-most cell.
+/// The longest run still standing in either orientation.
+///
+/// Length wins. A tie goes to whichever run has the most area standing in
+/// the runs that cross it, so a seed is judged by the neighbourhood it
+/// sits in rather than by its own length alone. A further tie goes to a
+/// row run, and then to whichever starts at the upper-left-most cell.
+///
+/// The crossing area is only summed for runs already tied at the longest
+/// length, so the scan stays proportional to the number of runs rather
+/// than to the number of cells.
 fn pick_longest(rows: &Runs, cols: &Runs) -> Option<(u8, Span, bool)> {
-    // (length, is_row, -y, -x) compared as "bigger is better".
-    let mut best: Option<(u16, bool, i32, i32)> = None;
+    let longest = rows
+        .lines
+        .iter()
+        .chain(cols.lines.iter())
+        .flatten()
+        .map(Span::len)
+        .max()?;
+
+    // (crossing area, is a row run, -y, -x), compared as bigger is better.
+    let mut best: Option<(u32, bool, i32, i32)> = None;
     let mut pick: Option<(u8, Span, bool)> = None;
 
-    for (line, spans) in rows.lines.iter().enumerate() {
-        for span in spans {
-            let key = (span.len(), true, -(line as i32), -(span.start as i32));
-            if best.is_none_or(|b| key > b) {
-                best = Some(key);
-                pick = Some((line as u8, *span, false));
-            }
-        }
-    }
-    for (line, spans) in cols.lines.iter().enumerate() {
-        for span in spans {
-            let key = (span.len(), false, -(span.start as i32), -(line as i32));
-            if best.is_none_or(|b| key > b) {
-                best = Some(key);
-                pick = Some((line as u8, *span, true));
+    for (is_column, (side, crossing)) in [(false, (rows, cols)), (true, (cols, rows))] {
+        for (line, spans) in side.lines.iter().enumerate() {
+            for span in spans {
+                if span.len() != longest {
+                    continue;
+                }
+
+                let mut area = 0u32;
+                for pos in span.start..=span.end {
+                    if let Some(run) = crossing.span_at(pos, line as u8) {
+                        area += run.len() as u32;
+                    }
+                }
+
+                let (y, x) = if is_column {
+                    (span.start as i32, line as i32)
+                } else {
+                    (line as i32, span.start as i32)
+                };
+                let key = (area, !is_column, -y, -x);
+                if best.is_none_or(|b| key > b) {
+                    best = Some(key);
+                    pick = Some((line as u8, *span, is_column));
+                }
             }
         }
     }
@@ -315,74 +371,50 @@ fn pick_longest(rows: &Runs, cols: &Runs) -> Option<(u8, Span, bool)> {
     pick
 }
 
-/// Covers a seed run with as much area as possible using as few
-/// rectangles as that takes.
+/// Covers a seed run with all the area under it, in as few rectangles as
+/// that takes.
 ///
 /// A rectangle is a contiguous stretch of the seed's crossing runs
 /// intersected together, so covering the seed means cutting it into
-/// consecutive stretches: a long stretch reaches only as deep as its
-/// shallowest member, a short one reaches deeper but costs another
-/// rectangle. `rect_cost` is what a rectangle has to earn to be worth
-/// spending; at zero, area decides and the fewest rectangles achieving
-/// that area break the tie.
+/// consecutive stretches. Merging two neighbours into one stretch can
+/// only lower its ceiling and raise its floor, so a partition covers
+/// every cell under the seed exactly when no stretch holds two runs that
+/// differ. Taking all the area therefore fixes where the cuts go, and the
+/// fewest rectangles that manage it is one per maximal stretch of equal
+/// runs: no charge to tune, no search, one pass.
 fn split_along(
     crossing: &Runs,
     seed: Span,
     line: u8,
     seed_is_column: bool,
-    rect_cost: i64,
     out: &mut Vec<Rect>,
 ) {
-    let mut crossings: Vec<Span> = Vec::with_capacity(seed.len() as usize);
-    for pos in seed.start..=seed.end {
-        match crossing.span_at(pos, line) {
-            Some(span) => crossings.push(span),
-            None => break,
-        }
-    }
-
-    // best[j] is the (score, rectangles) of the best cover of the first j
-    // positions and cut[j] where its last rectangle starts. Extending a
-    // stretch leftwards only raises its floor and lowers its ceiling, so
-    // every candidate's depth falls out of the walk.
-    let n = crossings.len();
-    let mut best = vec![(0i64, 0usize); n + 1];
-    let mut cut = vec![0usize; n + 1];
-    for j in 1..=n {
-        let (mut lo, mut hi) = (0u8, u8::MAX);
-        let mut chosen = (i64::MIN, 0usize);
-        for i in (0..j).rev() {
-            lo = lo.max(crossings[i].start);
-            hi = hi.min(crossings[i].end);
-            let area = (j - i) as i64 * (hi as i64 - lo as i64 + 1);
-            let (prev, prev_rects) = best[i];
-            let candidate = (prev + area - rect_cost, prev_rects + 1);
-            if candidate.0 > chosen.0 || (candidate.0 == chosen.0 && candidate.1 < chosen.1) {
-                chosen = candidate;
-                cut[j] = i;
-            }
-        }
-        best[j] = chosen;
-    }
-
-    let start = out.len();
-    let mut j = n;
-    while j > 0 {
-        let i = cut[j];
-        let (mut lo, mut hi) = (0u8, u8::MAX);
-        for span in &crossings[i..j] {
-            lo = lo.max(span.start);
-            hi = hi.min(span.end);
-        }
-        let (from, to) = (seed.start + i as u8, seed.start + j as u8 - 1);
+    let emit = |out: &mut Vec<Rect>, from: u8, to: u8, run: Span| {
         out.push(if seed_is_column {
-            Rect { x0: lo, y0: from, x1: hi, y1: to }
+            Rect { x0: run.start, y0: from, x1: run.end, y1: to }
         } else {
-            Rect { x0: from, y0: lo, x1: to, y1: hi }
+            Rect { x0: from, y0: run.start, x1: to, y1: run.end }
         });
-        j = i;
+    };
+
+    let mut open: Option<(u8, Span)> = None;
+    for pos in seed.start..=seed.end {
+        let run = crossing
+            .span_at(pos, line)
+            .expect("a cell still standing belongs to a run of either kind");
+        match open {
+            Some((from, current)) if current != run => {
+                emit(out, from, pos - 1, current);
+                open = Some((pos, run));
+            }
+            None => open = Some((pos, run)),
+            _ => {}
+        }
     }
-    out[start..].reverse();
+
+    if let Some((from, current)) = open {
+        emit(out, from, seed.end, current);
+    }
 }
 
 /// The whole seed run, taken as far as every one of its crossing runs

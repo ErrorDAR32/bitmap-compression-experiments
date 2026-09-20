@@ -40,8 +40,8 @@ fn main() {
         println!(
             "{name}: optimum {opt}, shipped {}, largest+maxarea {}, largest+whole {}",
             RunMesh::from_bit_matrix(&bits).rects().len(),
-            RunMesh::largest_first(&bits, 0).rects().len(),
-            RunMesh::largest_first(&bits, 1 << 20).rects().len(),
+            RunMesh::largest_first(&bits).rects().len(),
+            RunMesh::largest_first_whole(&bits).rects().len(),
         );
     }
 }

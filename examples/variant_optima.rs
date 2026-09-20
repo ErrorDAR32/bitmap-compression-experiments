@@ -82,8 +82,8 @@ fn run(label: &str, cases: &[u64], n: usize, memo: &mut HashMap<u64, u8>) {
         let opt = optimal_count(cells, n, memo) as u32;
         total_opt += opt;
         shipped.add(&RunMesh::from_bit_matrix(&bits), &bits, opt, "shipped");
-        greedy_area.add(&RunMesh::largest_first(&bits, 0), &bits, opt, "c=0");
-        largest_whole.add(&RunMesh::largest_first(&bits, 1 << 20), &bits, opt, "c=inf");
+        greedy_area.add(&RunMesh::largest_first(&bits), &bits, opt, "c=0");
+        largest_whole.add(&RunMesh::largest_first_whole(&bits), &bits, opt, "c=inf");
     }
 
     let pct = |t: &Tally| 100.0 * t.over as f64 / cases.len() as f64;

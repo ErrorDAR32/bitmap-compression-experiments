@@ -50,7 +50,7 @@ fn check(bits: &BitMatrix, mesh: &RunMesh, label: &str) {
 }
 
 fn main() {
-    let bitmaps = sample(200);
+    let bitmaps = sample(1000);
 
     let mut total = Duration::ZERO;
     let mut rects = 0usize;
@@ -62,7 +62,7 @@ fn main() {
         rects += mesh.rects().len();
     }
     println!(
-        "{:>22}  {:>7}  {:>10.1?}",
+        "{:>26}  {:>7}  {:>10.1?}",
         "topmost, whole seed",
         rects / bitmaps.len(),
         total / bitmaps.len() as u32
@@ -79,26 +79,28 @@ fn main() {
             rects += mesh.rects().len();
         }
         println!(
-            "{:>22}  {:>7}  {:>10.1?}",
+            "{:>26}  {:>7}  {:>10.1?}",
             "largest first, 1 rect",
             rects / bitmaps.len(),
             total / bitmaps.len() as u32
         );
     }
 
-    for cost in [0i64, 1, 2, 4, 16, 64, 256, 1024, 2048, 1 << 20] {
+    for (label, mesh_of) in [
+        ("largest first, all area", RunMesh::largest_first as fn(&BitMatrix) -> RunMesh),
+        ("largest first, whole seed", RunMesh::largest_first_whole),
+    ] {
         let mut total = Duration::ZERO;
         let mut rects = 0usize;
         for bits in &bitmaps {
             let start = Instant::now();
-            let mesh = RunMesh::largest_first(bits, cost);
+            let mesh = mesh_of(bits);
             total += start.elapsed();
-            check(bits, &mesh, "largest-first");
+            check(bits, &mesh, label);
             rects += mesh.rects().len();
         }
         println!(
-            "{:>22}  {:>7}  {:>10.1?}",
-            format!("largest first, c={cost}"),
+            "{label:>26}  {:>7}  {:>10.1?}",
             rects / bitmaps.len(),
             total / bitmaps.len() as u32
         );
