@@ -275,25 +275,25 @@ Two places in the rewriting pass look at a neighbourhood instead of the
 whole partition. Both rest on the same invariant, and it is worth being
 explicit about what it is.
 
-> **The partition is dissolved to exhaustion before any trim is tried,
-> and after every trim that lands. So at the moment a trim is weighed,
-> there is no free dissolve available anywhere.**
+> **The partition is merged to exhaustion before any clip is tried,
+> and after every clip that lands. So at the moment a clip is weighed,
+> there is no free merge available anywhere.**
 
 A rectangle is given away when its span is covered exactly by the faces
 against it. That can only become true when its own shape changes or a
-neighbour's does. So after a trim, the only place a dissolve can have
-appeared is around the rectangles the trim moved — which is why
-`dissolve_from` is given seeds, expands them by their face neighbours,
-and cascades to whatever each dissolve changes in turn, instead of
+neighbour's does. So after a clip, the only place a merge can have
+appeared is around the rectangles the clip moved — which is why
+`merge_from` is given seeds, expands them by their face neighbours,
+and cascades to whatever each merge changes in turn, instead of
 sweeping thousands of rectangles to find the one.
 
 That is not a micro-optimisation. On a ragged bitmap of 4184
-rectangles, 56 trims spent 47.5ms of the bitmap's 88ms inside the
-global dissolve they did not need.
+rectangles, 56 clips spent 47.5ms of the bitmap's 88ms inside the
+global merge they did not need.
 
 The second is the sweep itself, and this one is **not** exactly
 equivalent, which is the honest part. The loop used to restart from
-index zero every time a trim landed — 57 restarts and 158,728 trim
+index zero every time a clip landed — 57 restarts and 158,728 clip
 plans on that same bitmap. It now rebuilds the index, because the index
 describes a partition that no longer exists, and carries on from where
 it was, sweeping again until a sweep finds nothing. That changes the
@@ -314,8 +314,8 @@ times faster.
 
 Growing finds nothing here — every reach it could make costs more in
 clipping than it gains in swallowing. What gets this from five to three
-is trimming: a break-even move, one rectangle spent and one reclaimed,
-taken only because it opens a dissolve that was not there before.
+is clipping: a break-even move, one rectangle spent and one reclaimed,
+taken only because it opens a merge that was not there before.
 
 On realistic bitmaps the two later moves are worth 0.13 rectangles
 apiece for something like a fifth of the run, which is a bad trade in

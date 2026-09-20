@@ -226,7 +226,7 @@ impl Runs {
 /// actually tied on length sidesteps that entirely, and costs nothing:
 /// the tie is the only place it was ever consulted.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) struct Seed {
+pub(crate) struct AreaSeed {
     order: u32,
     pub(crate) line: u8,
     start: u8,
@@ -234,7 +234,7 @@ pub(crate) struct Seed {
     pub(crate) is_column: bool,
 }
 
-impl Seed {
+impl AreaSeed {
     /// Packs the ranking as the run is named, so that the queue never
     /// has to look at anything but `order` to compare two runs.
     ///
@@ -324,7 +324,7 @@ pub(crate) fn take_all_area(
 
 /// How much area stands in the runs crossing a seed: the lengths of all
 /// of them added up, not the longest of them.
-fn crossing_area(seed: &Seed, rows: &Runs, cols: &Runs) -> u32 {
+fn crossing_area(seed: &AreaSeed, rows: &Runs, cols: &Runs) -> u32 {
     let crossing = if seed.is_column { rows } else { cols };
     let mut area = 0;
     for pos in seed.start..=seed.end {
@@ -391,7 +391,7 @@ const NO_SEED: u32 = u32::MAX;
 /// twelve bytes and a twelve-byte push is a call to memcpy.
 pub(crate) struct Queue {
     /// Every run pushed, in the order they were pushed.
-    seeds: Vec<Seed>,
+    seeds: Vec<AreaSeed>,
     /// For each of those, the slot of the next run in its bucket.
     next: Vec<u32>,
     /// The run pushed most recently at each length.
@@ -430,7 +430,7 @@ impl Queue {
     /// what it leaves behind is a new run pushed in its own right, so a
     /// run sitting in a bucket is either exactly what it says it is or
     /// gone, and one lookup tells which.
-    pub(crate) fn push(&mut self, seed: Seed) {
+    pub(crate) fn push(&mut self, seed: AreaSeed) {
         let length = seed.len() as usize;
         let slot = self.seeds.len() as u32;
         self.seeds.push(seed);
@@ -440,7 +440,7 @@ impl Queue {
 
     /// Empties the bucket at the longest length that has anything in it
     /// into `out`, and answers that length.
-    fn drain_longest(&mut self, out: &mut Vec<Seed>) -> Option<u16> {
+    fn drain_longest(&mut self, out: &mut Vec<AreaSeed>) -> Option<u16> {
         loop {
             let head = self.heads[self.longest];
             if head != NO_SEED {
@@ -477,7 +477,7 @@ pub(crate) struct Level {
     /// Slot to run, and beside it the area in force for that run, or
     /// [`SPENT`]. Kept apart for the same reason the queue keeps its
     /// links apart from its runs.
-    runs: Vec<Seed>,
+    runs: Vec<AreaSeed>,
     areas: Vec<u32>,
     /// Slots by how good they look, best first. Rankings are pushed and
     /// never updated in place, and a superseded one is recognised on
@@ -500,7 +500,7 @@ pub(crate) struct Level {
     /// those rather than all five hundred.
     filled: Vec<usize>,
     /// The bucket the queue last handed over, standing or not.
-    drawn: Vec<Seed>,
+    drawn: Vec<AreaSeed>,
 }
 
 impl Level {
@@ -547,7 +547,7 @@ impl Level {
 
     /// Ranks an area so the smaller one sorts higher. Seventeen bits
     /// hold an area, which cannot exceed the 65536 cells of the matrix.
-    fn key(&self, seed: &Seed, area: u32) -> u64 {
+    fn key(&self, seed: &AreaSeed, area: u32) -> u64 {
         ((0x1_FFFF - area as u64) << 26) | seed.order as u64
     }
 
@@ -615,7 +615,7 @@ impl Level {
     }
 
     /// The best run left in the level, or `None` once it is exhausted.
-    pub(crate) fn take_best(&mut self, rows: &Runs, cols: &Runs) -> Option<Seed> {
+    pub(crate) fn take_best(&mut self, rows: &Runs, cols: &Runs) -> Option<AreaSeed> {
         while let Some(top) = self.order.pop() {
             let slot = top.slot as usize;
             let (seed, area) = (self.runs[slot], self.areas[slot]);
@@ -715,7 +715,7 @@ pub fn mesh_by_scanning(source: &BitMatrix) -> Vec<Rect> {
     let mut rects = Vec::new();
     let (mut plan, mut bin) = (Vec::new(), Vec::new());
 
-    while let Some(seed) = scan_for_seed(&rows, &cols) {
+    while let Some(seed) = scan_for_area_seed(&rows, &cols) {
         let crossing = if seed.is_column { &rows } else { &cols };
         plan.clear();
         take_all_area(crossing, seed.span(), seed.line, seed.is_column, &mut plan);
@@ -735,7 +735,7 @@ pub fn mesh_by_scanning(source: &BitMatrix) -> Vec<Rect> {
 /// The longest run left, the one with the least crossing area among
 /// those tied on length, and the upper-left-most among those tied on
 /// both.
-fn scan_for_seed(rows: &Runs, cols: &Runs) -> Option<Seed> {
+fn scan_for_area_seed(rows: &Runs, cols: &Runs) -> Option<AreaSeed> {
     let mut longest = 0;
     for side in [rows, cols] {
         side.for_each_run(|_, span| longest = longest.max(span.len()));
@@ -744,13 +744,13 @@ fn scan_for_seed(rows: &Runs, cols: &Runs) -> Option<Seed> {
         return None;
     }
 
-    let mut best: Option<(Seed, u32)> = None;
+    let mut best: Option<(AreaSeed, u32)> = None;
     for (is_column, side) in [(false, rows), (true, cols)] {
         side.for_each_run(|line, span| {
             if span.len() != longest {
                 return;
             }
-            let seed = Seed::new(line, span, is_column);
+            let seed = AreaSeed::new(line, span, is_column);
             let area = crossing_area(&seed, rows, cols);
             let better = match best {
                 None => true,

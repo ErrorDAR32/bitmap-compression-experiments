@@ -3,17 +3,16 @@
 //! [`Pass`] holds every buffer the two moves work in, so that they are
 //! found once rather than once a bitmap, and [`Pass::compact_to`] runs
 //! them in the order that pays: growing first, since it takes nearly
-//! everything there is to take, then dissolving, then trimming to
-//! unblock the dissolves that were not free.
+//! everything there is to take, then merging, then clipping to
+//! unblock the merges that were not free.
 //!
 //! What each move is worth against what it costs is measured by the
 //! `moves` example, and the numbers are in the two modules' own docs.
 
-use crate::dissolve::{
-    apply_trim, dissolve, dissolve_from, trim_opens_dissolve, trim_plan, undo_trim, Axis, Bench,
-    Edges, Trim, Work,
-};
-use crate::grow::{absorb, Growing, Owners};
+use crate::clip::{apply_clip, clip_opens_merge, clip_plan, undo_clip, Bench, Clip};
+use crate::edges::{Axis, Edges};
+use crate::grow::{grow, Growing, Owners};
+use crate::merge::{merge, merge_from, Work};
 use crate::Rect;
 
 /// How far [`Pass::compact_to`] goes, for weighing each move against
@@ -22,8 +21,8 @@ use crate::Rect;
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Far {
     Growing,
-    Dissolving,
-    Trimming,
+    Merging,
+    Clipping,
 }
 
 /// Every buffer the rewriting pass works in, kept so that it is found
@@ -35,10 +34,10 @@ pub(crate) struct Pass {
     work: Work,
     index: Edges,
     candidate: Vec<Rect>,
-    trim: Trim,
+    clip: Clip,
     changed: Vec<usize>,
     bench: Bench,
-    /// What a trim overwrote, so that abandoning one costs the entries
+    /// What a clip overwrote, so that abandoning one costs the entries
     /// it touched rather than a copy of everything.
     undo: Vec<(usize, Rect)>,
 }
@@ -53,7 +52,7 @@ impl Pass {
             work: Work::new(),
             index: Edges::new(),
             candidate: Vec::new(),
-            trim: Trim {
+            clip: Clip {
                 axis: Axis::Vertical,
                 takers: Vec::new(),
                 offcut: Rect { x0: 0, y0: 0, x1: 0, y1: 0 },
@@ -66,15 +65,15 @@ impl Pass {
 
     /// How many rectangles growing reclaims on its own, before anything
     /// else has run. For measuring what the move is worth.
-    pub(crate) fn absorb_only(&mut self, rects: &mut Vec<Rect>) -> usize {
-        absorb(rects, self)
+    pub(crate) fn grow_only(&mut self, rects: &mut Vec<Rect>) -> usize {
+        grow(rects, self)
     }
 
-    /// Dissolving on its own, which is the engine that runs after every
+    /// Merging on its own, which is the engine that runs after every
     /// break-even move. How much it finds by itself says something about
     /// the mesher feeding it. See the module docs.
-    pub(crate) fn dissolve_only(&mut self, rects: &mut Vec<Rect>) -> usize {
-        dissolve(rects, &mut self.work)
+    pub(crate) fn merge_only(&mut self, rects: &mut Vec<Rect>) -> usize {
+        merge(rects, &mut self.work)
     }
 
     /// Rewrites the partition in place and answers how many rectangles
@@ -88,24 +87,24 @@ impl Pass {
 /// rectangles the whole thing reclaimed.
 ///
 /// Growing first, because it takes nearly everything there is to take
-/// and leaves the other two little to find. Then dissolving to
-/// exhaustion, which is what makes the trim loop's locality argument
-/// hold: from here on the partition has no free dissolve anywhere
-/// except one a trim has just opened. Then trimming, which is a
-/// break-even move worth making only when it opens such a dissolve.
+/// and leaves the other two little to find. Then merging to
+/// exhaustion, which is what makes the clip loop's locality argument
+/// hold: from here on the partition has no free merge anywhere
+/// except one a clip has just opened. Then clipping, which is a
+/// break-even move worth making only when it opens such a merge.
 fn compact_to(rects: &mut Vec<Rect>, far: Far, pass: &mut Pass) -> usize {
     let started = rects.len();
-    absorb(rects, pass);
+    grow(rects, pass);
     if far == Far::Growing {
         return started - rects.len();
     }
-    let Pass { work, index, candidate, trim, changed, bench, undo, .. } = pass;
-    dissolve(rects, work);
-    if far == Far::Dissolving {
+    let Pass { work, index, candidate, clip, changed, bench, undo, .. } = pass;
+    merge(rects, work);
+    if far == Far::Merging {
         return started - rects.len();
     }
 
-    // Sweeps until one of them finds nothing. A trim that lands leaves
+    // Sweeps until one of them finds nothing. A clip that lands leaves
     // the index describing a partition that no longer exists, so the
     // index is rebuilt and the sweep carries on from where it was
     // rather than starting over: starting over re-asked the same
@@ -118,34 +117,34 @@ fn compact_to(rects: &mut Vec<Rect>, far: Far, pass: &mut Pass) -> usize {
 
         while a < rects.len() {
             for axis in [Axis::Vertical, Axis::Horizontal] {
-                if !trim_plan(rects, index, a, axis, trim, bench) {
+                if !clip_plan(rects, index, a, axis, clip, bench) {
                     continue;
                 }
-                apply_trim(rects, a, trim, undo);
+                apply_clip(rects, a, clip, undo);
                 changed.clear();
                 changed.push(a);
-                changed.extend_from_slice(&trim.takers);
-                if !trim_opens_dissolve(rects, index, changed, bench) {
-                    undo_trim(rects, undo);
+                changed.extend_from_slice(&clip.takers);
+                if !clip_opens_merge(rects, index, changed, bench) {
+                    undo_clip(rects, undo);
                     continue;
                 }
 
-                // Only now is a copy worth making: dissolving rewrites
-                // the partition, and this is the one trim in hundreds
+                // Only now is a copy worth making: merging rewrites
+                // the partition, and this is the one clip in hundreds
                 // that has earned the chance.
                 candidate.clear();
                 candidate.extend_from_slice(rects);
-                // Only around what the trim moved: the partition had no
-                // dissolve anywhere before it, so there is nowhere else
+                // Only around what the clip moved: the partition had no
+                // merge anywhere before it, so there is nowhere else
                 // for one to have appeared.
-                dissolve_from(candidate, work, Some(&bench.nearby));
+                merge_from(candidate, work, Some(&bench.nearby));
                 if candidate.len() < rects.len() {
                     std::mem::swap(rects, candidate);
                     index.rebuild(rects);
                     landed = true;
                     break;
                 }
-                undo_trim(rects, undo);
+                undo_clip(rects, undo);
             }
             a += 1;
         }
@@ -165,17 +164,17 @@ mod tests {
 
     /// Only the free moves, without the break-even ones.
     fn free(rects: &mut Vec<Rect>) -> usize {
-        dissolve(rects, &mut Work::new())
+        merge(rects, &mut Work::new())
     }
 
     /// A wide rectangle sitting on a row of single cells takes all of
     /// them at once.
     ///
-    /// Dissolving reaches the same answer by the opposite route: the
+    /// Merging reaches the same answer by the opposite route: the
     /// wide one is given away to the cells, which each grow up into it,
     /// and the columns left over then merge in pairs. So growing is not
     /// the only way to see this, which is worth recording -- it was
-    /// supposed to be the move dissolving could not make.
+    /// supposed to be the move merging could not make.
     #[test]
     fn a_wide_rectangle_swallows_the_cells_under_it() {
         let mut rects = vec![r(0, 0, 9, 0)];
@@ -183,8 +182,8 @@ mod tests {
             rects.push(r(x, 1, x, 1));
         }
 
-        assert_eq!(free(&mut rects.clone()), 10, "dissolving gets there too");
-        assert_eq!(Pass::new().absorb_only(&mut rects), 10);
+        assert_eq!(free(&mut rects.clone()), 10, "merging gets there too");
+        assert_eq!(Pass::new().grow_only(&mut rects), 10);
         assert_eq!(rects, vec![r(0, 0, 9, 1)]);
     }
 
@@ -193,7 +192,7 @@ mod tests {
     #[test]
     fn a_neighbour_hanging_over_the_side_is_left_alone() {
         let mut rects = vec![r(1, 0, 2, 0), r(0, 1, 3, 1)];
-        assert_eq!(Pass::new().absorb_only(&mut rects), 0);
+        assert_eq!(Pass::new().grow_only(&mut rects), 0);
     }
 
     /// Something straddling the far edge is cut there for nothing: the
@@ -207,7 +206,7 @@ mod tests {
     #[test]
     fn a_neighbour_straddling_the_far_edge_is_cut_for_nothing() {
         let mut rects = vec![r(0, 0, 1, 0), r(0, 1, 1, 1), r(0, 2, 0, 3), r(1, 2, 1, 2)];
-        assert_eq!(Pass::new().absorb_only(&mut rects), 2, "the row and the single cell");
+        assert_eq!(Pass::new().grow_only(&mut rects), 2, "the row and the single cell");
         assert_eq!(rects.len(), 2);
         assert!(rects.contains(&r(0, 0, 1, 2)));
         assert!(rects.contains(&r(0, 3, 0, 3)));
@@ -237,7 +236,7 @@ mod tests {
     /// Only part of the rectangle finds a taker, so nothing moves: the
     /// cut would cost as much as it reclaims.
     #[test]
-    fn a_partial_dissolve_is_refused() {
+    fn a_partial_merge_is_refused() {
         let mut rects = vec![r(0, 0, 0, 0), r(0, 1, 1, 1)];
         assert_eq!(free(&mut rects), 0);
         assert_eq!(rects, vec![r(0, 0, 0, 0), r(0, 1, 1, 1)]);
@@ -251,7 +250,7 @@ mod tests {
         assert_eq!(free(&mut rects), 0);
     }
 
-    /// Dissolving one rectangle can open the way for the next, so the
+    /// Merging one rectangle can open the way for the next, so the
     /// pass runs to a fixed point.
     ///
     ///     A A .        C C C
@@ -271,7 +270,7 @@ mod tests {
     ///     B B B        A A A
     ///     A A C   ->   A A A
     #[test]
-    fn a_row_dissolves_into_the_pieces_under_it() {
+    fn a_row_merges_into_the_pieces_under_it() {
         let mut rects = vec![r(0, 0, 2, 0), r(0, 1, 1, 1), r(2, 1, 2, 1)];
         assert_eq!(free(&mut rects), 2);
         assert_eq!(rects, vec![r(0, 0, 2, 1)]);

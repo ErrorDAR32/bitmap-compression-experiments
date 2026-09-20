@@ -9,7 +9,7 @@
 //! rectangle takes that whole band.
 //!
 //! On 200 realistic bitmaps this reclaims 9.49 rectangles apiece,
-//! against 0.04 for everything in [`crate::dissolve`], which is why it
+//! against 0.04 for everything in [`crate::merge`], which is why it
 //! runs first.
 //!
 //! Two things keep it cheap. A band is walked rather than re-scored,
@@ -157,7 +157,7 @@ fn pieces_left(other: &Rect, band: &Rect, side: Side) -> u8 {
 
 /// A settled growth: the band the rectangle takes, and what that does
 /// to everyone it runs into.
-struct Reach<'a> {
+struct Band<'a> {
     band: Rect,
     /// Neighbours swallowed whole, each one a rectangle reclaimed.
     taken: &'a [usize],
@@ -187,7 +187,7 @@ fn split_met(
     }
 }
 
-/// Scratch the growth pass reuses, so that walking a band costs no
+/// Covering the growth pass reuses, so that walking a band costs no
 /// allocation at all.
 pub(crate) struct Growing {
     /// The neighbours the band has run into, in the order it met them.
@@ -256,7 +256,7 @@ impl Growing {
 /// changes exactly once, at its own far edge, and always the same way,
 /// so the whole score moves by one there. That leaves nothing to
 /// recount per line: a band is walked, not re-scored.
-fn grow(
+fn reach(
     rects: &[Rect],
     owners: &Owners,
     a: usize,
@@ -349,13 +349,13 @@ fn grow(
 /// Cutting a neighbour into two or three leaves the first piece in its
 /// own slot and the rest appended, which is why the list grows even as
 /// the count falls.
-fn apply(
+fn take_band(
     rects: &mut Vec<Rect>,
     owners: &mut Owners,
     gone: &mut Vec<bool>,
     a: usize,
     side: Side,
-    reach: Reach<'_>,
+    reach: Band<'_>,
 ) {
     let band = reach.band;
     for &other in reach.taken {
@@ -457,7 +457,7 @@ impl Strips {
 
 /// Grows every rectangle that can grow, until none can, and answers how
 /// many were swallowed.
-pub(crate) fn absorb(rects: &mut Vec<Rect>, pass: &mut Pass) -> usize {
+pub(crate) fn grow(rects: &mut Vec<Rect>, pass: &mut Pass) -> usize {
     let Pass { owners, gone, growing: scratch, .. } = pass;
     owners.paint(rects);
     gone.clear();
@@ -482,15 +482,14 @@ pub(crate) fn absorb(rects: &mut Vec<Rect>, pass: &mut Pass) -> usize {
             }
             for side in [Side::Down, Side::Up, Side::Right, Side::Left] {
                 scratch.seen.resize(rects.len(), 0);
-                let Some((edge, gain)) = grow(rects, owners, a, side, scratch) else {
+                let Some((edge, gain)) = reach(rects, owners, a, side, scratch) else {
                     continue;
                 };
                 let band = band_to(rects[a], side, edge);
                 let Growing { met, taken, cut, .. } = &mut *scratch;
                 split_met(rects, met, &band, side, taken, cut);
-                let reach = Reach { band, taken, cut };
                 let standing = rects.len();
-                apply(rects, owners, gone, a, side, reach);
+                take_band(rects, owners, gone, a, side, Band { band, taken, cut });
 
                 // Everything that changed hands is the band, which
                 // covers whoever was swallowed, and the pieces of

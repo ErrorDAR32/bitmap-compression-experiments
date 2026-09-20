@@ -43,14 +43,33 @@
 //! | `bits` | word operations on a 256-bit line |
 //! | `mesh` | runmax: runs, the queue, the level, the step |
 //! | `grow` | the move that reclaims rectangles |
-//! | `dissolve` | the moves that finish what growing started |
-//! | `pass` | the buffers those two share, and the order they run in |
+//! | `edges` | which rectangles present a face on each edge line |
+//! | `merge` | giving a rectangle away to its neighbours |
+//! | `clip` | the break-even move that unblocks a merge |
+//! | `pass` | the buffers the three moves share, and the order they run in |
+//!
+//! Meshing is `mesh`; everything after it is clip-and-merge, split
+//! into the move that does the work (`grow`), the two primitives it is
+//! built out of (`merge`, `clip`), the index all three share (`edges`)
+//! and the buffers and running order (`pass`).
 //!
 //! `docs/walkthrough.md` works the hardest of those through by hand,
 //! one line at a time, on bitmaps small enough to print.
+//!
+//! # Throughput
+//!
+//! A workspace holds no shared state, so one per worker thread is all
+//! that parallelism needs; the test suite asserts it is [`Send`]. On
+//! one core a realistic bitmap takes around 160us, so a billion bits --
+//! 15,259 bitmaps of them -- is a few seconds, and a million is a few
+//! milliseconds. Content shapes that far more than size does: see the
+//! `cost` example, where a ragged bitmap costs 260 times what a
+//! realistic one costs per set cell.
 
 mod bits;
-mod dissolve;
+mod clip;
+mod edges;
+mod merge;
 pub mod exact;
 mod grow;
 mod matrix;

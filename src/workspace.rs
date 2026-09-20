@@ -3,10 +3,10 @@
 //!
 //! Everything else in the crate is reachable only through here. The
 //! mesh is in [`crate::mesh`], the moves that rewrite it in
-//! [`crate::grow`] and [`crate::dissolve`], and the pass that runs them
+//! [`crate::grow`] and [`crate::merge`], and the pass that runs them
 //! in [`crate::pass`].
 
-use crate::mesh::{take_all_area, Level, Queue, Runs, Seed, Span};
+use crate::mesh::{take_all_area, Level, Queue, Runs, AreaSeed, Span};
 use crate::pass::Pass;
 use crate::{BitMatrix, Rect};
 
@@ -74,7 +74,7 @@ impl RunmaxClipnmerge {
     /// They are disjoint and cover every set bit exactly once. The slice
     /// belongs to the workspace and lasts until the next bitmap.
     pub fn partition(&mut self, source: &BitMatrix) -> &[Rect] {
-        self.partition_to(source, Some(crate::Far::Trimming))
+        self.partition_to(source, Some(crate::Far::Clipping))
     }
 
     /// The mesh alone, with no rewriting at all. A valid partition, and
@@ -104,11 +104,11 @@ impl RunmaxClipnmerge {
     /// How many rectangles growing reclaims on its own, before anything
     /// else has run. For measuring what the move is worth.
     #[doc(hidden)]
-    pub fn absorb_only(&mut self, source: &BitMatrix) -> usize {
+    pub fn grow_only(&mut self, source: &BitMatrix) -> usize {
         self.mesh_into(source);
         let movable = self.rects.len() - self.alone.count_set() as usize;
         let solitary = self.rects.split_off(movable);
-        let reclaimed = self.pass.absorb_only(&mut self.rects);
+        let reclaimed = self.pass.grow_only(&mut self.rects);
         self.rects.extend(solitary);
         reclaimed
     }
@@ -116,11 +116,11 @@ impl RunmaxClipnmerge {
     /// Only the free half of the pass, which reclaims nothing on its
     /// own. Kept so that claim stays measurable.
     #[doc(hidden)]
-    pub fn dissolve_only(&mut self, source: &BitMatrix) -> usize {
+    pub fn merge_only(&mut self, source: &BitMatrix) -> usize {
         self.mesh_into(source);
         let movable = self.rects.len() - self.alone.count_set() as usize;
         let solitary = self.rects.split_off(movable);
-        let reclaimed = self.pass.dissolve_only(&mut self.rects);
+        let reclaimed = self.pass.merge_only(&mut self.rects);
         self.rects.extend(solitary);
         reclaimed
     }
@@ -136,7 +136,7 @@ impl RunmaxClipnmerge {
         queue.reset();
         rects.clear();
         for (is_column, side) in [(false, &*rows), (true, &*cols)] {
-            side.for_each_run(|line, span| queue.push(Seed::new(line, span, is_column)));
+            side.for_each_run(|line, span| queue.push(AreaSeed::new(line, span, is_column)));
         }
         level.reset();
 
@@ -170,7 +170,7 @@ impl RunmaxClipnmerge {
                 // worked through.
                 for (pieces, is_column) in [(&*cut_rows, false), (&*cut_cols, true)] {
                     for &(line, span) in pieces {
-                        queue.push(Seed::new(line, span, is_column));
+                        queue.push(AreaSeed::new(line, span, is_column));
                     }
                 }
             }
@@ -191,6 +191,18 @@ impl RunmaxClipnmerge {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A workspace holds no globals and no shared state, so one per
+    /// worker thread is all that parallelism needs. This is a compile
+    /// time check: it fails to build rather than fails to run.
+    #[test]
+    fn a_workspace_can_be_sent_to_another_thread() {
+        fn assert_send<T: Send>() {}
+        assert_send::<RunmaxClipnmerge>();
+        assert_send::<BitMatrix>();
+        assert_send::<Rect>();
+    }
+
     use crate::mesh::mesh_by_scanning;
 
     /// A small bitmap written out as rows of `#` and `.`, which is how
