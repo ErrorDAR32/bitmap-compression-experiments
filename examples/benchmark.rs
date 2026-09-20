@@ -23,6 +23,13 @@
 //! For comparing one version of the code against another, counting
 //! instructions under callgrind is steadier still, and does not care
 //! what else the machine is doing.
+//!
+//! The figure the two are held to is the time each takes multiplied by
+//! how many rectangles it gives over the fewest possible. An algorithm
+//! can lose by being slow or by being wasteful and the two trade against
+//! each other, so neither one alone says which is better; the exact
+//! algorithm's own figure is just its time, since it is never over.
+//! Lower is better, and the units are whatever the time is in.
 
 #[path = "corpus.rs"]
 #[allow(dead_code)]
@@ -146,12 +153,18 @@ fn main() {
         exact_all.best() / n,
         exact_all.spread()
     );
+    let over = greedy_all.count as f64 / exact_all.count as f64;
     println!(
-        "  fastile is {:.2}% over the exact answer, in {:.2}x the time ({:.2} to {:.2} across repeats)\n",
-        100.0 * (greedy_all.count as f64 / exact_all.count as f64 - 1.0),
+        "  fastile is {:.2}% over the exact answer, in {:.2}x the time ({:.2} to {:.2} across repeats)",
+        100.0 * (over - 1.0),
         ratios[ratios.len() / 2],
         ratios[0],
         ratios[ratios.len() - 1]
+    );
+    println!(
+        "  time by rectangles over the fewest: fastile {:.1?}, exact {:.1?}\n",
+        (greedy_all.best() / n).mul_f64(over),
+        exact_all.best() / n,
     );
 
     println!("the hard cases, best of {REPEATS}:");
@@ -167,17 +180,16 @@ fn main() {
 
     for (name, bits) in &cases {
         let one = std::slice::from_ref(bits);
-        let (got, best, ratios) = race(one);
+        let (got, best, _) = race(one);
+        let over = got.count as f64 / best.count.max(1) as f64;
         println!(
-            "  {name:<22} {:>6} in {:>8.1?}   minimum {:>6} in {:>8.1?}   {:.2}x the rectangles, {:.2}x the time ({:.2} to {:.2})",
+            "  {name:<22} {:>6} in {:>8.1?}   exact {:>6} in {:>8.1?}   {over:.2}x the rectangles   figure {:>8.1?} against {:>8.1?}",
             got.count,
             got.best(),
             best.count,
             best.best(),
-            got.count as f64 / best.count.max(1) as f64,
-            ratios[ratios.len() / 2],
-            ratios[0],
-            ratios[ratios.len() - 1]
+            got.best().mul_f64(over),
+            best.best(),
         );
     }
 }

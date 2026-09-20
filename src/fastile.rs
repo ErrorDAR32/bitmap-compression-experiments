@@ -322,6 +322,13 @@ pub enum Tie {
     Least,
     /// The most, which is what this used to do.
     Most,
+    /// The run whose deepest crossing run is shallowest, rather than
+    /// whose crossing runs add up to least.
+    ///
+    /// Taking a run severs every run crossing it, and severing a long
+    /// one looks like the expensive thing to do, so this asks which run
+    /// does the least damage at its worst point rather than on average.
+    Shallowest,
     /// The run whose rectangle lays the most of its edges along chords,
     /// and the least crossing area after that.
     ///
@@ -441,7 +448,8 @@ fn corners_served(seed: &Seed, rows: &Runs, cols: &Runs) -> u32 {
         .count() as u32
 }
 
-/// How much area stands in the runs crossing a seed.
+/// How much area stands in the runs crossing a seed: the lengths of all
+/// of them added up, not the longest of them.
 fn crossing_area(seed: &Seed, rows: &Runs, cols: &Runs) -> u32 {
     let crossing = if seed.is_column { rows } else { cols };
     let mut area = 0;
@@ -451,6 +459,18 @@ fn crossing_area(seed: &Seed, rows: &Runs, cols: &Runs) -> u32 {
         }
     }
     area
+}
+
+/// The longest of the runs crossing a seed.
+fn deepest_crossing(seed: &Seed, rows: &Runs, cols: &Runs) -> u32 {
+    let crossing = if seed.is_column { rows } else { cols };
+    let mut deepest = 0;
+    for pos in seed.start..=seed.end {
+        if let Some(run) = crossing.span_at(pos, seed.line) {
+            deepest = deepest.max(run.len() as u32);
+        }
+    }
+    deepest
 }
 
 /// One run in a level, ranked by its crossing area.
@@ -477,10 +497,12 @@ const UNCOUNTED: u32 = u32::MAX - 1;
 /// the crossing area, with the corners its rectangle would serve above
 /// it when those are being counted.
 fn measure(seed: &Seed, rows: &Runs, cols: &Runs, tie: Tie) -> u32 {
-    let area = crossing_area(seed, rows, cols);
     match tie {
-        Tie::Least | Tie::Most => area,
-        Tie::Corners => (corners_served(seed, rows, cols) << 17) | area,
+        Tie::Least | Tie::Most => crossing_area(seed, rows, cols),
+        Tie::Shallowest => deepest_crossing(seed, rows, cols),
+        Tie::Corners => {
+            (corners_served(seed, rows, cols) << 17) | crossing_area(seed, rows, cols)
+        }
     }
 }
 
@@ -531,7 +553,7 @@ impl Level {
         let (served, area) = (figure >> 17, figure & 0x1_FFFF);
         let by_area = match tie {
             Tie::Most => area,
-            Tie::Least | Tie::Corners => 0x1_FFFF - area,
+            Tie::Least | Tie::Corners | Tie::Shallowest => 0x1_FFFF - area,
         };
         ((served as u64) << 43) | ((by_area as u64) << 26) | seed.order as u64
     }
@@ -550,6 +572,7 @@ impl Level {
         match tie {
             Tie::Least => self.length as u32,
             Tie::Most => self.length as u32 * 256,
+            Tie::Shallowest => 1,
             Tie::Corners => (4 << 17) | self.length as u32,
         }
     }
@@ -850,7 +873,7 @@ fn scan_for_seed(rows: &Runs, cols: &Runs, tie: Tie) -> Option<Seed> {
                         } else if area.0 != area.1 {
                             match tie {
                                 Tie::Most => area.0 > area.1,
-                                Tie::Least | Tie::Corners => area.0 < area.1,
+                                Tie::Least | Tie::Corners | Tie::Shallowest => area.0 < area.1,
                             }
                         } else {
                             seed.order > top.order
@@ -1002,7 +1025,7 @@ mod tests {
         }
 
         for bits in &cases {
-            for tie in [Tie::Least, Tie::Most, Tie::Corners] {
+            for tie in [Tie::Least, Tie::Most, Tie::Corners, Tie::Shallowest] {
                 let quick = Fastile::with_tie(bits, tie);
                 let slow = Fastile::by_scanning(bits, tie);
                 assert_eq!(

@@ -35,7 +35,7 @@ fn main() {
 
     // The scan must agree with the queue, both ways round.
     for bits in maps.iter().take(100) {
-        for tie in [Tie::Least, Tie::Most, Tie::Corners] {
+        for tie in [Tie::Least, Tie::Most, Tie::Corners, Tie::Shallowest] {
             assert_eq!(
                 Fastile::by_scanning(bits, tie).rects(),
                 Fastile::with_tie(bits, tie).rects(),
@@ -51,6 +51,7 @@ fn main() {
         ("least crossing area", Tie::Least),
         ("most crossing area", Tie::Most),
         ("reflex corners served", Tie::Corners),
+        ("shallowest crossing run", Tie::Shallowest),
     ] {
         let (mut raw, mut done) = (0usize, 0usize);
         for bits in &maps {
@@ -78,7 +79,7 @@ fn main() {
         let minimum: usize = maps.iter().map(|b| exact::partition(b).len()).sum();
 
         print!("  {n}x{n} ({} bitmaps, minimum {minimum}):", maps.len());
-        for tie in [Tie::Least, Tie::Most, Tie::Corners] {
+        for tie in [Tie::Least, Tie::Most, Tie::Corners, Tie::Shallowest] {
             let (mut raw, mut done) = (0usize, 0usize);
             for bits in &maps {
                 let mut mesh = Fastile::with_tie(bits, tie);
@@ -88,7 +89,12 @@ fn main() {
             }
             print!(
                 "   {} {:.1}% -> {:.1}%",
-                match tie { Tie::Least => "least", Tie::Most => "most", Tie::Corners => "corners" },
+                match tie {
+                    Tie::Least => "least",
+                    Tie::Most => "most",
+                    Tie::Corners => "corners",
+                    Tie::Shallowest => "shallow",
+                },
                 100.0 * (raw as f64 / minimum as f64 - 1.0),
                 100.0 * (done as f64 / minimum as f64 - 1.0)
             );
@@ -130,14 +136,19 @@ fn main() {
         let bits = corpus::tiled(rows);
         let minimum = exact::partition(&bits).len();
         print!("  {name:<22} minimum {minimum:>6}:");
-        for tie in [Tie::Least, Tie::Most, Tie::Corners] {
+        for tie in [Tie::Least, Tie::Most, Tie::Corners, Tie::Shallowest] {
             let mut mesh = Fastile::with_tie(&bits, tie);
             mesh.compact();
             corpus::assert_partition(&bits, mesh.rects(), name);
             let (_, took) = timed(std::slice::from_ref(&bits), tie);
             print!(
                 "   {} {:>6} ({:.2}x) in {:>7.1?}",
-                match tie { Tie::Least => "least", Tie::Most => "most", Tie::Corners => "corners" },
+                match tie {
+                    Tie::Least => "least",
+                    Tie::Most => "most",
+                    Tie::Corners => "corners",
+                    Tie::Shallowest => "shallow",
+                },
                 mesh.rects().len(),
                 mesh.rects().len() as f64 / minimum as f64,
                 took
