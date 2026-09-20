@@ -71,14 +71,28 @@ enum Side {
 /// bitmaps cost 5.18us of the 200us a bitmap took, and now nothing is
 /// written that is not painted.
 struct Owners {
-    of: Vec<u64>,
-    /// Which bitmap the grid is painted for. Never zero, so a grid of
-    /// zeroes reads as empty everywhere.
-    visit: u64,
+    of: Vec<u32>,
+    /// Which bitmap the grid is painted for, already shifted into
+    /// place. Never zero, so a grid of zeroes reads as empty
+    /// everywhere.
+    visit: u32,
 }
 
 impl Owners {
     const SIDE: usize = 256;
+
+    /// How many bits of a cell name its owner.
+    ///
+    /// Growing starts with the mesh's rectangles and only ever cuts a
+    /// rectangle it has just taken from, so a slot is either one of the
+    /// first `n` or one of the pieces an application left. An
+    /// application drops the live count by its gain, which is at least
+    /// one, so there are fewer than `n` of them and each leaves at most
+    /// three pieces: under `4n` slots in all. A rectangle needs a cell
+    /// of its own, so `n` cannot pass 65536 and a slot cannot reach
+    /// 2^18. Nineteen bits is that with room to spare.
+    const OWNER_BITS: u32 = 19;
+    const VISIT_STEP: u32 = 1 << Self::OWNER_BITS;
 
     fn new() -> Self {
         Self { of: vec![0; Self::SIDE * Self::SIDE], visit: 0 }
@@ -86,7 +100,15 @@ impl Owners {
 
     /// Paints a fresh partition over whatever was there.
     fn paint(&mut self, rects: &[Rect]) {
-        self.visit += 1;
+        // The visit runs out of room after a few thousand bitmaps, and
+        // only then is the grid really blanked.
+        match self.visit.checked_add(Self::VISIT_STEP) {
+            Some(next) => self.visit = next,
+            None => {
+                self.of.fill(0);
+                self.visit = Self::VISIT_STEP;
+            }
+        }
         for (index, r) in rects.iter().enumerate() {
             self.give(r, index);
         }
@@ -95,11 +117,12 @@ impl Owners {
     /// Who owns the cell, or `None` where nothing is standing.
     fn at(&self, x: u8, y: u8) -> Option<usize> {
         let held = self.of[y as usize * Self::SIDE + x as usize];
-        (held >> 32 == self.visit).then_some(held as u32 as usize)
+        (held >= self.visit).then(|| (held - self.visit) as usize)
     }
 
     fn give(&mut self, rect: &Rect, to: usize) {
-        let held = (self.visit << 32) | to as u64;
+        debug_assert!(to < Self::VISIT_STEP as usize, "a slot outgrew its room");
+        let held = self.visit | to as u32;
         for y in rect.y0..=rect.y1 {
             let row = y as usize * Self::SIDE;
             self.of[row + rect.x0 as usize..=row + rect.x1 as usize].fill(held);
