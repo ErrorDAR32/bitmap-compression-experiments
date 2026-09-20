@@ -560,6 +560,118 @@ fn plan_along(
     out[start..].reverse();
 }
 
+/// The best stretch of a seed to take, and what it covers.
+#[derive(Clone, Copy)]
+struct Stretch {
+    from: usize,
+    to: usize,
+    lo: u8,
+    hi: u8,
+    covers: u32,
+}
+
+impl Stretch {
+    const NOTHING: Self = Self { from: 0, to: 0, lo: 0, hi: 0, covers: 0 };
+
+    fn rect(&self, seed: Span, seed_is_column: bool) -> Rect {
+        let (a, b) = (seed.start + self.from as u8, seed.start + self.to as u8 - 1);
+        if seed_is_column {
+            Rect { x0: self.lo, y0: a, x1: self.hi, y1: b }
+        } else {
+            Rect { x0: a, y0: self.lo, x1: b, y1: self.hi }
+        }
+    }
+}
+
+/// Takes one stretch of a seed, or two, whichever covers more.
+///
+/// A seed need not be taken whole: whatever is left of it is clipped
+/// into shorter runs and queued again. So the question at each step is
+/// which stretch of the run to take, and whether two stretches with a
+/// gap between them beat one.
+///
+/// Covering the most is the right thing to ask because it is not
+/// degenerate. Splitting a run whose crossing runs are all the same
+/// depth gains nothing -- the two pieces cover between them exactly what
+/// the whole would -- so the tie goes to taking one. Splitting only wins
+/// where the pieces can sink deeper than the whole, which is precisely
+/// where the whole was being held back by its shallowest crossing.
+///
+/// The best pair is found without looking at pairs. For every place the
+/// run could be divided, the best stretch to the left of it and the best
+/// to the right are already known from a single sweep each way, so the
+/// best pair is the best of those sums.
+fn take_stretches(
+    crossing: &Runs,
+    seed: Span,
+    line: u8,
+    seed_is_column: bool,
+    out: &mut Vec<Rect>,
+) {
+    let mut runs: Vec<Span> = Vec::with_capacity(seed.len() as usize);
+    for pos in seed.start..=seed.end {
+        match crossing.span_at(pos, line) {
+            Some(run) => runs.push(run),
+            None => break,
+        }
+    }
+    let n = runs.len();
+
+    // The best stretch ending at or before each position, and starting
+    // at or after it.
+    let mut before = vec![Stretch::NOTHING; n + 1];
+    let mut after = vec![Stretch::NOTHING; n + 1];
+
+    for end in 1..=n {
+        let mut here = before[end - 1];
+        let (mut lo, mut hi) = (0u8, u8::MAX);
+        for start in (0..end).rev() {
+            lo = lo.max(runs[start].start);
+            hi = hi.min(runs[start].end);
+            let covers = (end - start) as u32 * (hi as u32 - lo as u32 + 1);
+            if covers > here.covers {
+                here = Stretch { from: start, to: end, lo, hi, covers };
+            }
+        }
+        before[end] = here;
+    }
+
+    for start in (0..n).rev() {
+        let mut here = after[start + 1];
+        let (mut lo, mut hi) = (0u8, u8::MAX);
+        for end in start + 1..=n {
+            lo = lo.max(runs[end - 1].start);
+            hi = hi.min(runs[end - 1].end);
+            let covers = (end - start) as u32 * (hi as u32 - lo as u32 + 1);
+            if covers > here.covers {
+                here = Stretch { from: start, to: end, lo, hi, covers };
+            }
+        }
+        after[start] = here;
+    }
+
+    let one = before[n];
+    let mut two: Option<(Stretch, Stretch)> = None;
+    for divide in 1..n {
+        let (left, right) = (before[divide], after[divide]);
+        if right.covers == 0 {
+            continue;
+        }
+        let covers = left.covers + right.covers;
+        if covers > one.covers && two.is_none_or(|(l, r)| covers > l.covers + r.covers) {
+            two = Some((left, right));
+        }
+    }
+
+    match two {
+        Some((left, right)) => {
+            out.push(left.rect(seed, seed_is_column));
+            out.push(right.rect(seed, seed_is_column));
+        }
+        None => out.push(one.rect(seed, seed_is_column)),
+    }
+}
+
 /// How much area stands in the runs crossing a seed: the lengths of all
 /// of them added up, not the longest of them.
 fn crossing_area(seed: &Seed, rows: &Runs, cols: &Runs) -> u32 {
@@ -952,6 +1064,39 @@ impl Fastile {
             let crossing = if seed.is_column { &rows } else { &cols };
             plan.clear();
             plan_along(crossing, &rows, seed.span(), seed.line, seed.is_column, charge, &mut plan);
+
+            for rect in plan.drain(..) {
+                rows.carve((rect.y0, rect.y1), rect.x0, rect.x1, &mut bin);
+                cols.carve((rect.x0, rect.x1), rect.y0, rect.y1, &mut bin);
+                bin.clear();
+                rects.push(rect);
+            }
+        }
+
+        let mut alone_count = 0;
+        alone.for_each_set(|x, y| {
+            rects.push(Rect { x0: x, y0: y, x1: x, y1: y });
+            alone_count += 1;
+        });
+
+        Self { rects, alone: alone_count }
+    }
+
+    /// Seeds the same way, but lets a step take one stretch of its seed
+    /// or two rather than the whole of it. See [`take_stretches`].
+    #[doc(hidden)]
+    pub fn by_splitting(source: &BitMatrix, tie: Tie) -> Self {
+        let (alone, source) = source.split_isolated();
+        let source = &source;
+
+        let (mut rows, mut cols) = Runs::of(source);
+        let mut rects = Vec::new();
+        let (mut plan, mut bin) = (Vec::new(), Vec::new());
+
+        while let Some(seed) = scan_for_seed(&rows, &cols, tie) {
+            let crossing = if seed.is_column { &rows } else { &cols };
+            plan.clear();
+            take_stretches(crossing, seed.span(), seed.line, seed.is_column, &mut plan);
 
             for rect in plan.drain(..) {
                 rows.carve((rect.y0, rect.y1), rect.x0, rect.x1, &mut bin);
