@@ -150,7 +150,7 @@ fn main() {
                 }
             }
         }
-        println!("{n}x{n} random: {checked} checked, {broken} not partitions, {over} not minimum");
+        println!("{n}x{n} from the fixed sequence: {checked} checked, {broken} not partitions, {over} not minimum");
     }
 
     for e in &examples {

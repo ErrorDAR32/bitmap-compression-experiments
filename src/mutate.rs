@@ -86,79 +86,171 @@ impl Axis {
 /// Rectangle indices bucketed by each of their four edges, so the
 /// neighbours sitting against one face of a rectangle are found without
 /// scanning the whole list.
+/// One rectangle's face on an edge line, carrying the extent it covers
+/// so a search through a bucket never has to reach back into the
+/// rectangle list. Chasing those indices was most of what the search
+/// cost, since each probe landed somewhere else in memory.
+#[derive(Clone, Copy)]
+struct Face {
+    start: u8,
+    end: u8,
+    rect: u32,
+}
+
 struct Edges {
     /// Indexed as `[axis][side][line]`: for a vertical cut the sides are
     /// the rectangles whose bottom edge, then whose top edge, lies on
     /// `line`; for a horizontal cut, their right then their left edge.
-    buckets: Vec<Vec<usize>>,
+    buckets: Vec<Vec<Face>>,
+    /// Which positions on each edge line any face covers, four words to
+    /// a line.
+    ///
+    /// Most queries ask about a stretch nothing sits against, and on a
+    /// bitmap of scattered single cells every query is. Testing the
+    /// stretch against this settles those in a few instructions instead
+    /// of a search, and searching for nothing was a fifth of the work.
+    covered: Vec<u64>,
     /// The slots last filled, so a rebuild clears those rather than
     /// walking all thousand-odd of them. A partition of a few dozen
     /// rectangles touches a few dozen slots.
     filled: Vec<usize>,
+    /// Rectangles in order of where their faces start, and the counters
+    /// that put them there. See [`Edges::rebuild`].
+    order: Vec<u32>,
+    counts: Vec<u32>,
+}
+
+/// The words of `covered` holding one edge line.
+const WORDS: usize = 256 / 64;
+
+/// The bits of the `index`th word that fall inside `lo..=hi`.
+fn masked(word: u64, index: usize, lo: u8, hi: u8) -> u64 {
+    let (first, last) = (lo as usize / 64, hi as usize / 64);
+    if index < first || index > last {
+        return 0;
+    }
+    let mut bits = word;
+    if index == first {
+        bits &= u64::MAX << (lo % 64);
+    }
+    if index == last {
+        bits &= u64::MAX >> (63 - hi % 64);
+    }
+    bits
 }
 
 impl Edges {
     const LINES: usize = 256;
 
     fn new() -> Self {
-        Self { buckets: vec![Vec::new(); 4 * Self::LINES], filled: Vec::new() }
+        Self {
+            buckets: vec![Vec::new(); 4 * Self::LINES],
+            covered: vec![0; 4 * Self::LINES * WORDS],
+            filled: Vec::new(),
+            order: Vec::new(),
+            counts: Vec::new(),
+        }
     }
 
     fn slot(axis: usize, side: usize, line: u8) -> usize {
         (axis * 2 + side) * Self::LINES + line as usize
     }
 
+    /// Rebuilds the index.
+    ///
+    /// Each bucket has to come out ordered by where its faces start, so
+    /// that the ones overlapping a stretch are a contiguous slice. Rather
+    /// than sort each bucket, the rectangles are walked in order of the
+    /// coordinate in question and pushed as they come, which leaves every
+    /// bucket sorted for free. Positions only run to 255, so that order
+    /// is a counting pass rather than a sort.
     fn rebuild(&mut self, rects: &[Rect]) {
         for &slot in &self.filled {
             self.buckets[slot].clear();
+            self.covered[slot * WORDS..(slot + 1) * WORDS].fill(0);
         }
         self.filled.clear();
 
-        for (i, r) in rects.iter().enumerate() {
-            for slot in [
-                Self::slot(0, 0, r.y1),
-                Self::slot(0, 1, r.y0),
-                Self::slot(1, 0, r.x1),
-                Self::slot(1, 1, r.x0),
-            ] {
-                if self.buckets[slot].is_empty() {
-                    self.filled.push(slot);
-                }
-                self.buckets[slot].push(i);
-            }
-        }
+        // Faces across a horizontal edge line are keyed by x, faces down
+        // a vertical one by y.
+        for across in [true, false] {
+            self.sort_by_start(rects, across);
+            for index in 0..self.order.len() {
+                let rect = rects[self.order[index] as usize];
+                let face = if across {
+                    Face { start: rect.x0, end: rect.x1, rect: self.order[index] }
+                } else {
+                    Face { start: rect.y0, end: rect.y1, rect: self.order[index] }
+                };
+                let slots = if across {
+                    [Self::slot(0, 0, rect.y1), Self::slot(0, 1, rect.y0)]
+                } else {
+                    [Self::slot(1, 0, rect.x1), Self::slot(1, 1, rect.x0)]
+                };
+                for slot in slots {
+                    if self.buckets[slot].is_empty() {
+                        self.filled.push(slot);
+                    }
+                    self.buckets[slot].push(face);
 
-        // Rectangles sharing an edge line lie side by side along it, so
-        // each bucket holds disjoint spans and sorting it once makes the
-        // ones overlapping a given stretch a contiguous slice.
-        for &slot in &self.filled {
-            let axis = if slot < 2 * Self::LINES { Axis::Vertical } else { Axis::Horizontal };
-            self.buckets[slot].sort_unstable_by_key(|&i| axis.span(&rects[i]).0);
+                    let first = face.start as usize / 64;
+                    let last = face.end as usize / 64;
+                    let words = &mut self.covered[slot * WORDS + first..slot * WORDS + last + 1];
+                    for (offset, word) in words.iter_mut().enumerate() {
+                        *word |= masked(u64::MAX, first + offset, face.start, face.end);
+                    }
+                }
+            }
         }
     }
 
-    /// The rectangles in a bucket whose spans overlap `lo..=hi`.
-    fn overlapping(
-        &self,
-        axis: Axis,
-        side: usize,
-        line: u8,
-        lo: u8,
-        hi: u8,
-        rects: &[Rect],
-    ) -> &[usize] {
+    /// Fills `order` with the rectangles by where their faces start.
+    fn sort_by_start(&mut self, rects: &[Rect], across: bool) {
+        let key = |r: &Rect| if across { r.x0 } else { r.y0 } as usize;
+
+        self.counts.clear();
+        self.counts.resize(Self::LINES + 1, 0);
+        for rect in rects {
+            self.counts[key(rect) + 1] += 1;
+        }
+        for i in 1..self.counts.len() {
+            self.counts[i] += self.counts[i - 1];
+        }
+
+        self.order.clear();
+        self.order.resize(rects.len(), 0);
+        for (index, rect) in rects.iter().enumerate() {
+            let slot = &mut self.counts[key(rect)];
+            self.order[*slot as usize] = index as u32;
+            *slot += 1;
+        }
+    }
+
+    /// The faces in a bucket that overlap `lo..=hi`.
+    fn overlapping(&self, axis: Axis, side: usize, line: u8, lo: u8, hi: u8) -> &[Face] {
+        let slot = Self::slot(Self::axis_index(axis), side, line);
+        let words = &self.covered[slot * WORDS..(slot + 1) * WORDS];
+        let anything = (lo as usize / 64..=hi as usize / 64)
+            .any(|index| masked(words[index], index, lo, hi) != 0);
+        if !anything {
+            return &[];
+        }
+
         let bucket = self.at(axis, side, line);
-        let first = bucket.partition_point(|&i| axis.span(&rects[i]).1 < lo);
-        let last = bucket.partition_point(|&i| axis.span(&rects[i]).0 <= hi);
+        let first = bucket.partition_point(|f| f.end < lo);
+        let last = bucket.partition_point(|f| f.start <= hi);
         &bucket[first..last.max(first)]
     }
 
-    fn at(&self, axis: Axis, side: usize, line: u8) -> &[usize] {
-        let axis = match axis {
+    fn at(&self, axis: Axis, side: usize, line: u8) -> &[Face] {
+        &self.buckets[Self::slot(Self::axis_index(axis), side, line)]
+    }
+
+    fn axis_index(axis: Axis) -> usize {
+        match axis {
             Axis::Vertical => 0,
             Axis::Horizontal => 1,
-        };
-        &self.buckets[Self::slot(axis, side, line)]
+        }
     }
 }
 
@@ -248,6 +340,7 @@ struct Scratch {
     /// dissolving rectangle's own start.
     faces: Vec<(usize, usize, usize)>,
     reached: Vec<Option<usize>>,
+    open: Vec<bool>,
     takers: Vec<usize>,
 }
 
@@ -272,17 +365,14 @@ fn plan(
     scratch.faces.clear();
     for (side, line) in axis.faces(&rects[a]).into_iter().enumerate() {
         let Some(line) = line else { continue };
-        for &b in edges.overlapping(axis, side, line, lo, hi, rects) {
-            if touched[b] {
-                continue;
-            }
-            let (blo, bhi) = axis.span(&rects[b]);
-            if blo < lo || bhi > hi {
+        for face in edges.overlapping(axis, side, line, lo, hi) {
+            let b = face.rect as usize;
+            if touched[b] || face.start < lo || face.end > hi {
                 continue;
             }
             scratch.faces.push((
-                blo as usize - lo as usize,
-                bhi as usize - lo as usize + 1,
+                face.start as usize - lo as usize,
+                face.end as usize - lo as usize + 1,
                 b,
             ));
         }
@@ -293,20 +383,21 @@ fn plan(
 
     scratch.reached.clear();
     scratch.reached.resize(width + 1, None);
-    let mut open = vec![false; width + 1];
-    open[0] = true;
+    scratch.open.clear();
+    scratch.open.resize(width + 1, false);
+    scratch.open[0] = true;
     for pos in 0..width {
-        if !open[pos] {
+        if !scratch.open[pos] {
             continue;
         }
         for &(start, end, b) in &scratch.faces {
             if start == pos && scratch.reached[end].is_none() {
                 scratch.reached[end] = Some(b);
-                open[end] = true;
+                scratch.open[end] = true;
             }
         }
     }
-    if !open[width] {
+    if !scratch.open[width] {
         return false;
     }
 
@@ -344,44 +435,79 @@ struct Trim {
     offcut: Rect,
 }
 
+/// Buffers the trim search reuses.
+///
+/// Every rectangle is tried as a candidate on both axes, so on a large
+/// partition these are entered tens of thousands of times; allocating
+/// them per call put a tenth of the whole run inside the allocator.
+#[derive(Default)]
+struct Bench {
+    /// `(start, end + 1, index, trims)` for the rectangle being given
+    /// away, and the cheapest tiling walked over them.
+    faces: Vec<(usize, usize, usize, usize)>,
+    cost: Vec<usize>,
+    from: Vec<Option<(usize, usize)>>,
+    /// `(start, end + 1)` for a rectangle being tested for a free
+    /// dissolve, and how far its span has been reached.
+    spans: Vec<(usize, usize)>,
+    open: Vec<bool>,
+    /// Rectangles near a trim, which are the only ones it can affect.
+    nearby: Vec<usize>,
+}
+
 /// Works out how to give `a` away with its takers trimmed to fit, when
 /// exactly one trim does it. Nothing is written to `rects`.
 ///
 /// Reclaiming `a` is worth one rectangle and the trim costs one, so the
 /// rewrite breaks even. It is only worth making as a step towards a free
 /// dissolve that was not available before.
-fn trim_plan(rects: &[Rect], edges: &Edges, a: usize, axis: Axis, out: &mut Trim) -> bool {
+fn trim_plan(
+    rects: &[Rect],
+    edges: &Edges,
+    a: usize,
+    axis: Axis,
+    out: &mut Trim,
+    bench: &mut Bench,
+) -> bool {
     let given = rects[a];
     let (lo, hi) = axis.span(&given);
     let width = hi as usize - lo as usize + 1;
 
     // (start, end + 1, index, trims), clipped to a's span.
-    let mut faces: Vec<(usize, usize, usize, usize)> = Vec::new();
+    bench.faces.clear();
     for (side, line) in axis.faces(&given).into_iter().enumerate() {
         let Some(line) = line else { continue };
-        for &b in edges.overlapping(axis, side, line, lo, hi, rects) {
+        for face in edges.overlapping(axis, side, line, lo, hi) {
+            let b = face.rect as usize;
             if b == a {
                 continue;
             }
-            let (blo, bhi) = axis.span(&rects[b]);
-            faces.push((
-                blo.max(lo) as usize - lo as usize,
-                bhi.min(hi) as usize - lo as usize + 1,
+            bench.faces.push((
+                face.start.max(lo) as usize - lo as usize,
+                face.end.min(hi) as usize - lo as usize + 1,
                 b,
-                usize::from(blo < lo) + usize::from(bhi > hi),
+                usize::from(face.start < lo) + usize::from(face.end > hi),
             ));
         }
     }
 
+    // Nothing sits against it, so there is nothing to work with.
+    if bench.faces.is_empty() {
+        return false;
+    }
+
     // Cheapest tiling of a's span, counting trims.
-    let mut cost = vec![usize::MAX; width + 1];
-    let mut from: Vec<Option<(usize, usize)>> = vec![None; width + 1];
+    let Bench { faces, cost, from, .. } = bench;
+    cost.clear();
+    cost.resize(width + 1, usize::MAX);
+    from.clear();
+    from.resize(width + 1, None);
     cost[0] = 0;
     for pos in 0..width {
         if cost[pos] == usize::MAX {
             continue;
         }
-        for &(start, end, b, trims) in &faces {
+        for &(start, end, b, trims) in faces.iter() {
             if start == pos && cost[pos] + trims < cost[end] {
                 cost[end] = cost[pos] + trims;
                 from[end] = Some((b, pos));
@@ -439,43 +565,52 @@ fn trim_plan(rects: &[Rect], edges: &Edges, a: usize, axis: Axis, out: &mut Trim
 /// stays sorted and correct for everything the trim did not touch; the
 /// few that it did are carried alongside and checked by hand.
 fn trim_opens_dissolve(
-    before: &[Rect],
     after: &[Rect],
     edges: &Edges,
     changed: &[usize],
+    bench: &mut Bench,
 ) -> bool {
-    let mut seen: Vec<usize> = changed.to_vec();
+    bench.nearby.clear();
+    bench.nearby.extend_from_slice(changed);
     for &c in changed {
         for axis in [Axis::Vertical, Axis::Horizontal] {
             let (lo, hi) = axis.span(&after[c]);
             for (side, line) in axis.faces(&after[c]).into_iter().enumerate() {
                 let Some(line) = line else { continue };
-                for &b in edges.overlapping(axis, side, line, lo, hi, before) {
-                    if !seen.contains(&b) {
-                        seen.push(b);
+                for face in edges.overlapping(axis, side, line, lo, hi) {
+                    let b = face.rect as usize;
+                    if !bench.nearby.contains(&b) {
+                        bench.nearby.push(b);
                     }
                 }
             }
         }
     }
 
-    seen.iter()
-        .any(|&x| [Axis::Vertical, Axis::Horizontal].into_iter().any(|axis| dissolves(x, after, before, edges, changed, axis)))
+    for i in 0..bench.nearby.len() {
+        let x = bench.nearby[i];
+        for axis in [Axis::Vertical, Axis::Horizontal] {
+            if dissolves(x, after, edges, changed, axis, bench) {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 /// Whether `x` can be given away whole, against the rewritten list.
 fn dissolves(
     x: usize,
     after: &[Rect],
-    before: &[Rect],
     edges: &Edges,
     changed: &[usize],
     axis: Axis,
+    bench: &mut Bench,
 ) -> bool {
     let (lo, hi) = axis.span(&after[x]);
     let width = hi as usize - lo as usize + 1;
 
-    let mut faces: Vec<(usize, usize)> = Vec::new();
+    bench.spans.clear();
     let offer = |b: usize, faces: &mut Vec<(usize, usize)>| {
         if b == x || !touches(&after[x], &after[b], axis) {
             return;
@@ -489,23 +624,26 @@ fn dissolves(
 
     for (side, line) in axis.faces(&after[x]).into_iter().enumerate() {
         let Some(line) = line else { continue };
-        for &b in edges.overlapping(axis, side, line, lo, hi, before) {
+        for face in edges.overlapping(axis, side, line, lo, hi) {
+            let b = face.rect as usize;
             if !changed.contains(&b) {
-                offer(b, &mut faces);
+                offer(b, &mut bench.spans);
             }
         }
     }
     for &c in changed {
-        offer(c, &mut faces);
+        offer(c, &mut bench.spans);
     }
 
-    let mut open = vec![false; width + 1];
+    let Bench { spans, open, .. } = bench;
+    open.clear();
+    open.resize(width + 1, false);
     open[0] = true;
     for pos in 0..width {
         if !open[pos] {
             continue;
         }
-        for &(start, end) in &faces {
+        for &(start, end) in spans.iter() {
             if start == pos {
                 open[end] = true;
             }
@@ -559,20 +697,21 @@ pub fn compact(rects: &mut Vec<Rect>) -> usize {
         offcut: Rect { x0: 0, y0: 0, x1: 0, y1: 0 },
     };
     let mut changed: Vec<usize> = Vec::new();
+    let mut bench = Bench::default();
     dissolve(rects, &mut work);
 
     'again: loop {
         index.rebuild(rects);
         for a in 0..rects.len() {
             for axis in [Axis::Vertical, Axis::Horizontal] {
-                if !trim_plan(rects, &index, a, axis, &mut trim) {
+                if !trim_plan(rects, &index, a, axis, &mut trim, &mut bench) {
                     continue;
                 }
                 apply_trim(rects, a, &trim, &mut candidate);
                 changed.clear();
                 changed.push(a);
                 changed.extend_from_slice(&trim.takers);
-                if !trim_opens_dissolve(rects, &candidate, &index, &changed) {
+                if !trim_opens_dissolve(&candidate, &index, &changed, &mut bench) {
                     continue;
                 }
 
@@ -683,7 +822,7 @@ mod tests {
         let mut index = Edges::new();
         index.rebuild(&before);
         assert!(
-            trim_plan(&before, &index, 1, Axis::Vertical, &mut trim),
+            trim_plan(&before, &index, 1, Axis::Vertical, &mut trim, &mut Bench::default()),
             "one trim fits"
         );
         apply_trim(&before, 1, &trim, &mut rewritten);
