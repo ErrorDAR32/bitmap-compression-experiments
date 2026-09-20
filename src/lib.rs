@@ -2,7 +2,7 @@
 
 mod mutate;
 mod run_mesh;
-pub use run_mesh::{Rect, RunMesh};
+pub use run_mesh::{Pick, Rect, RunMesh, Take};
 
 pub const WIDTH: usize = 256;
 pub const HEIGHT: usize = 256;

@@ -203,6 +203,146 @@ impl RunMesh {
     }
 }
 
+// ---------------------------------------------------------------------
+// Experiment: third-order checks. Not wired into `from_bit_matrix`.
+//
+// A step looks at its seed run (first order) and at the runs crossing it
+// (second order). A third-order check runs the same area check on each of
+// those crossing runs, so the step sees the shape from both directions
+// before committing, and can take a rectangle along a crossing run rather
+// than along the seed.
+// ---------------------------------------------------------------------
+
+/// How a step turns a run into rectangles.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Take {
+    /// The run whole, one rectangle, as deep as its shallowest crossing.
+    Whole,
+    /// Every cell standing under the run, in as few rectangles as that
+    /// takes: one per stretch of identical crossing runs.
+    AllArea,
+}
+
+/// Which candidate a step commits to.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Pick {
+    /// Ignore the third-order checks; always take the seed.
+    Seed,
+    /// The most area covered, ties to the fewest rectangles.
+    MostArea,
+    /// The most area per rectangle spent.
+    BestRate,
+    /// The fewest rectangles, ties to the most area.
+    FewestRects,
+}
+
+/// One way a step could go: the rectangles it would emit and what they
+/// cover.
+struct Candidate {
+    rects: Vec<Rect>,
+    area: u32,
+}
+
+impl Candidate {
+    fn beats(&self, other: &Candidate, pick: Pick) -> bool {
+        let (mine, theirs) = (self.rects.len() as u32, other.rects.len() as u32);
+        match pick {
+            Pick::Seed => false,
+            Pick::MostArea => (self.area, theirs) > (other.area, mine),
+            // area/mine > other.area/theirs, in integers.
+            Pick::BestRate => {
+                (self.area as u64 * theirs as u64, theirs)
+                    > (other.area as u64 * mine as u64, mine)
+            }
+            Pick::FewestRects => (theirs, self.area) > (mine, other.area),
+        }
+    }
+}
+
+impl RunMesh {
+    #[doc(hidden)]
+    pub fn third_order(source: &BitMatrix, seed_take: Take, cross_take: Take, pick: Pick) -> Self {
+        let mut rows = Runs::rows_of(source);
+        let mut cols = Runs::cols_of(source);
+        let mut rects = Vec::new();
+
+        while let Some((line, seed)) = rows.topmost() {
+            let mut best = take(&cols, seed, line, false, seed_take);
+
+            if pick != Pick::Seed {
+                // The second-order runs, one per stretch the seed's own
+                // area check would cut it into, and a third-order check on
+                // each of them.
+                let mut last: Option<Span> = None;
+                for pos in seed.start..=seed.end {
+                    let run = cols.span_at(pos, line).expect("a standing cell is in a run");
+                    if last == Some(run) {
+                        continue;
+                    }
+                    last = Some(run);
+
+                    let candidate = take(&rows, run, pos, true, cross_take);
+                    if candidate.beats(&best, pick) {
+                        best = candidate;
+                    }
+                }
+            }
+
+            for rect in best.rects {
+                rows.carve((rect.y0, rect.y1), rect.x0, rect.x1);
+                cols.carve((rect.x0, rect.x1), rect.y0, rect.y1);
+                rects.push(rect);
+            }
+        }
+
+        Self { rects }
+    }
+}
+
+/// Turns one run into the rectangles a step would emit for it.
+fn take(crossing: &Runs, seed: Span, line: u8, seed_is_column: bool, how: Take) -> Candidate {
+    let build = |from: u8, to: u8, run: Span| {
+        if seed_is_column {
+            Rect { x0: run.start, y0: from, x1: run.end, y1: to }
+        } else {
+            Rect { x0: from, y0: run.start, x1: to, y1: run.end }
+        }
+    };
+
+    let mut rects = Vec::new();
+    match how {
+        Take::Whole => {
+            let (mut lo, mut hi) = (0u8, u8::MAX);
+            for pos in seed.start..=seed.end {
+                let run = crossing.span_at(pos, line).expect("a standing cell is in a run");
+                lo = lo.max(run.start);
+                hi = hi.min(run.end);
+            }
+            rects.push(build(seed.start, seed.end, Span { start: lo, end: hi }));
+        }
+        Take::AllArea => {
+            let mut open: Option<(u8, Span)> = None;
+            for pos in seed.start..=seed.end {
+                let run = crossing.span_at(pos, line).expect("a standing cell is in a run");
+                match open {
+                    Some((from, current)) if current != run => {
+                        rects.push(build(from, pos - 1, current));
+                        open = Some((pos, run));
+                    }
+                    None => open = Some((pos, run)),
+                    _ => {}
+                }
+            }
+            if let Some((from, current)) = open {
+                rects.push(build(from, seed.end, current));
+            }
+        }
+    }
+
+    let area = rects.iter().map(|r| r.area()).sum();
+    Candidate { rects, area }
+}
+
 /// The whole seed run, taken as far as every one of its crossing runs
 /// reaches.
 ///
