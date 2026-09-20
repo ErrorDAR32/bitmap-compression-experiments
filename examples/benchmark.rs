@@ -24,13 +24,13 @@
 //! instructions under callgrind is steadier still, and does not care
 //! what else the machine is doing.
 //!
-//! The metric the two are held to is time-optimal bias: the time each
-//! takes multiplied by how many rectangles it gives over the fewest
-//! possible.
-//! An algorithm can lose by being slow or by being wasteful and the two
-//! trade against each other, so neither alone says which is better. It
-//! is read as a bare number, lower being better; the exact algorithm's
-//! is its time alone, since it is never over the fewest.
+//! This one reports time and rectangles, and leaves the metrics to the
+//! `cost` example, which counts instructions instead. Instruction-
+//! optimal bias wants a count this cannot take, and a wall clock that
+//! moves by a fifth between runs cannot be multiplied by anything and
+//! stay meaningful. What time is still good for is the ratio between
+//! two algorithms measured microseconds apart, which is what this
+//! reports.
 
 #[path = "corpus.rs"]
 #[allow(dead_code)]
@@ -48,12 +48,6 @@ fn greedy(work: &mut RunmaxClipnmerge, bits: &BitMatrix) -> usize {
 
 fn minimum(bits: &BitMatrix) -> usize {
     exact::partition(bits).len()
-}
-
-/// Time-optimal bias: how long it took by how many rectangles it gave
-/// over the fewest possible, as a bare number rather than a duration.
-fn bias(took: Duration, over: f64) -> f64 {
-    took.as_secs_f64() * 1e6 * over
 }
 
 /// One algorithm's timings across the repeats.
@@ -175,11 +169,7 @@ fn main() {
         ratios[0],
         ratios[ratios.len() - 1]
     );
-    println!(
-        "  time-optimal bias: runmax {:.1}, exact {:.1}\n",
-        bias(greedy_all.best() / n, over),
-        bias(exact_all.best() / n, 1.0),
-    );
+
 
     println!("the hard cases, best of {REPEATS}:");
     let mut solid = BitMatrix::new();
@@ -197,13 +187,11 @@ fn main() {
         let (got, best, _) = race(one);
         let over = got.count as f64 / best.count.max(1) as f64;
         println!(
-            "  {name:<22} {:>6} in {:>8.1?}   exact {:>6} in {:>8.1?}   {over:.2}x the rectangles   bias {:>9.1} against {:>9.1}",
+            "  {name:<22} {:>6} in {:>8.1?}   exact {:>6} in {:>8.1?}   {over:.2}x the rectangles",
             got.count,
             got.best(),
             best.count,
             best.best(),
-            bias(got.best(), over),
-            bias(best.best(), 1.0),
         );
     }
 }

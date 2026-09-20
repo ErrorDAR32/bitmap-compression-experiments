@@ -1113,33 +1113,28 @@ mod tests {
         }
         cases.push(checker);
 
+        // Grown bitmaps across the range of both parameters, so that
+        // scattered cells, blobs and everything between are all put to
+        // the queue and the scan. Only a few seeds apiece: the scan is
+        // quadratic in the runs, and scattered cells are all run.
+        for seed in 0..3u64 {
+            for density in [0.02, 0.1, 0.35] {
+                for cluster in [0.0, 0.6, 0.95] {
+                    cases.push(BitMatrix::grown(seed, density, cluster));
+                }
+            }
+        }
+
+        // Small dense bitmaps, where ties are thickest. Grown bitmaps
+        // fill the whole matrix, so these are cut from a seed directly.
         let mut seed = 0x243F6A8885A308D3u64;
-        let mut next = || {
+        for _ in 0..200 {
             seed ^= seed << 13;
             seed ^= seed >> 7;
             seed ^= seed << 17;
-            seed
-        };
-        for _ in 0..60 {
             let mut bits = BitMatrix::new();
-            for _ in 0..6 {
-                let x = (next() % 60) as i64;
-                let y = (next() % 60) as i64;
-                bits.set_rect(x, y, x + (next() % 20) as i64, y + (next() % 20) as i64);
-            }
-            for _ in 0..2 {
-                let x = (next() % 60) as i64;
-                let y = (next() % 60) as i64;
-                bits.unset_rect(x, y, x + (next() % 8) as i64, y + (next() % 8) as i64);
-            }
-            cases.push(bits);
-        }
-        // Small dense bitmaps, where ties are thickest.
-        for _ in 0..200 {
-            let mut bits = BitMatrix::new();
-            let cells = next();
             for idx in 0..36 {
-                if cells & (1u64 << idx) != 0 {
+                if seed & (1u64 << idx) != 0 {
                     bits.set((idx % 6) as u8, (idx / 6) as u8);
                 }
             }
