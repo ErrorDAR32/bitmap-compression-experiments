@@ -95,14 +95,47 @@ impl Span {
     fn len(&self) -> u16 {
         self.end as u16 - self.start as u16 + 1
     }
+
+    /// The run of set bits around `pos` on one line, if it is standing.
+    fn around(words: &[u64], pos: u8) -> Option<Self> {
+        if words[pos as usize / 64] & (1 << (pos % 64)) == 0 {
+            return None;
+        }
+        Some(Self {
+            start: (prev_clear(words, pos as usize) + 1) as u8,
+            end: (next_clear(words, pos as usize) - 1) as u8,
+        })
+    }
 }
 
-/// Runs for one orientation. For rows, `lines[y]` holds column spans; for
-/// columns, `lines[x]` holds row spans. One is the seed side and the
-/// other the crossing side, and they are built by the same code with the
-/// coordinates swapped.
+/// How many machine words hold one line of the matrix.
+const LINE_WORDS: usize = WIDTH / 64;
+
+/// The cells still standing, one bit apiece, on 256 lines. For rows,
+/// `lines[y]` holds the columns still standing in row `y`; for columns,
+/// `lines[x]` holds the rows still standing in column `x`. One is the
+/// seed side and the other the crossing side, and they are built by the
+/// same code with the coordinates swapped.
+///
+/// Eight kilobytes an orientation, and worth every byte: a run is not
+/// stored at all, it is read off the bits around a position. Which run
+/// covers a cell, how far it reaches, and whether it is still the run a
+/// seed remembers are all a couple of word operations, where a list of
+/// spans per line answered the same questions with a binary search and
+/// paid for every carve with a splice.
 struct Runs {
-    lines: Vec<Vec<Span>>,
+    lines: Box<[[u64; LINE_WORDS]; 256]>,
+}
+
+/// The bits of `words[index]` lying in `lo..=hi`.
+fn range_mask(index: usize, lo: u8, hi: u8) -> u64 {
+    let base = index * 64;
+    let lo = (lo as usize).max(base);
+    let hi = (hi as usize).min(base + 63);
+    if lo > hi {
+        return 0;
+    }
+    (u64::MAX << (lo - base)) & (u64::MAX >> (base + 63 - hi))
 }
 
 /// The position of the next set bit at or after `from`, if any.
@@ -134,42 +167,47 @@ fn next_clear(words: &[u64], from: usize) -> usize {
     }
 }
 
+/// The position of the last clear bit strictly before `from`, or -1 when
+/// the line is set all the way back to its start.
+fn prev_clear(words: &[u64], from: usize) -> i32 {
+    let mut index = from / 64;
+    let bit = from % 64;
+    let mut word = !words[index] & (u64::MAX >> (64 - bit)) & if bit == 0 { 0 } else { u64::MAX };
+    loop {
+        if word != 0 {
+            return (index * 64) as i32 + 63 - word.leading_zeros() as i32;
+        }
+        if index == 0 {
+            return -1;
+        }
+        index -= 1;
+        word = !words[index];
+    }
+}
+
 impl Runs {
-    /// Reduces the bitmap to runs in both directions in one pass over
-    /// the machine words.
+    /// Reduces the bitmap to the cells standing in both directions in
+    /// one pass over the machine words.
     ///
-    /// Reading the bitmap a cell at a time costs the same whatever it
-    /// holds: 65536 bit tests to find the few hundred runs a real bitmap
-    /// has, and the same 65536 for an empty one. Both directions come
-    /// out of the words instead.
-    ///
-    /// Along a row, a run is found by skipping to the next set bit and
-    /// then to the next clear one, so the work is one step per run
-    /// rather than one per cell. Down a column, a run starts where a row
-    /// has a bit its predecessor did not and ends where its successor
-    /// drops it, which is two bitwise operations per word of each row
-    /// and then one step per run.
+    /// The rows are the bitmap itself, so they are copied. The columns
+    /// are its transpose, and transposing it a cell at a time would cost
+    /// 65536 bit tests whatever it holds. Instead a column run starts
+    /// where a row has a bit its predecessor did not and ends where its
+    /// successor drops it, which is two bitwise operations per word of
+    /// each row; each run found that way is then painted into the column
+    /// in one step, so the work is one step per run rather than one per
+    /// cell.
     fn of(source: &BitMatrix) -> (Self, Self) {
-        let mut rows = Self { lines: vec![Vec::new(); 256] };
-        let mut cols = Self { lines: vec![Vec::new(); 256] };
+        let mut rows = Self { lines: Box::new([[0; LINE_WORDS]; 256]) };
+        let mut cols = Self { lines: Box::new([[0; LINE_WORDS]; 256]) };
 
         // Where the column run still open at each position began.
         let mut opened = [0u8; 256];
-        let mut above = [0u64; 4];
+        let mut above = [0u64; LINE_WORDS];
 
         for line in 0..=u8::MAX {
             let row = source.row(line);
-
-            let spans = &mut rows.lines[line as usize];
-            let mut pos = 0;
-            while let Some(start) = next_set(row, pos) {
-                let end = next_clear(row, start) - 1;
-                spans.push(Span { start: start as u8, end: end as u8 });
-                pos = end + 1;
-                if pos >= WIDTH {
-                    break;
-                }
-            }
+            rows.lines[line as usize].copy_from_slice(row);
 
             for (index, (&word, &before)) in row.iter().zip(above.iter()).enumerate() {
                 let mut starting = word & !before;
@@ -182,7 +220,7 @@ impl Runs {
                 let mut ending = before & !word;
                 while ending != 0 {
                     let pos = index * 64 + ending.trailing_zeros() as usize;
-                    cols.lines[pos].push(Span { start: opened[pos], end: line - 1 });
+                    cols.fill(pos as u8, opened[pos], line - 1);
                     ending &= ending - 1;
                 }
             }
@@ -195,7 +233,7 @@ impl Runs {
             let mut open = word;
             while open != 0 {
                 let pos = index * 64 + open.trailing_zeros() as usize;
-                cols.lines[pos].push(Span { start: opened[pos], end: u8::MAX });
+                cols.fill(pos as u8, opened[pos], u8::MAX);
                 open &= open - 1;
             }
         }
@@ -203,51 +241,76 @@ impl Runs {
         (rows, cols)
     }
 
-    /// The run covering `pos`, if any. Runs on a line are disjoint and
-    /// kept in ascending order, so the last one starting at or before
-    /// `pos` is the only one that can hold it.
-    fn span_at(&self, line: u8, pos: u8) -> Option<Span> {
-        let spans = &self.lines[line as usize];
-        let idx = spans.partition_point(|s| s.start <= pos);
-        let span = *spans.get(idx.checked_sub(1)?)?;
-        (pos <= span.end).then_some(span)
+    /// Stands `[lo, hi]` up on one line.
+    fn fill(&mut self, line: u8, lo: u8, hi: u8) {
+        let words = &mut self.lines[line as usize];
+        for (index, word) in words.iter_mut().enumerate() {
+            *word |= range_mask(index, lo, hi);
+        }
     }
 
-    /// Removes `[lo, hi]` from every line in `lines`.
+    /// Whether anything in `[lo, hi]` is still standing.
+    fn any_standing(&self, line: u8, lo: u8, hi: u8) -> bool {
+        let words = &self.lines[line as usize];
+        words
+            .iter()
+            .enumerate()
+            .any(|(index, &word)| word & range_mask(index, lo, hi) != 0)
+    }
+
+    /// The run covering `pos`, if any.
     ///
-    /// Because runs on a line are sorted and disjoint, the ones the range
-    /// touches form a contiguous stretch found by two binary searches.
-    /// Everything strictly inside it is swallowed whole; only the first
-    /// can keep a piece on the left and only the last a piece on the
-    /// right. Untouched runs are never rewritten, so their index entries
-    /// stay valid.
+    /// A run is the stretch of set bits around the position, so its ends
+    /// are the nearest clear bit each way. Nothing is searched and
+    /// nothing is stored: the answer is read off the line.
+    fn span_at(&self, line: u8, pos: u8) -> Option<Span> {
+        Span::around(&self.lines[line as usize], pos)
+    }
+
+    /// Removes `[lo, hi]` from every line in `lines`, and reports the
+    /// runs that leaves behind.
+    ///
+    /// A range can only shorten the run at each of its ends, and
+    /// whatever lay strictly inside is gone, so at most one piece
+    /// survives on each side. Both are read off the bits outside the
+    /// range, which clearing the range cannot disturb.
     fn carve(&mut self, lines: (u8, u8), lo: u8, hi: u8, created: &mut Vec<(u8, Span)>) {
         for line in lines.0..=lines.1 {
-            let index = line as usize;
-            let (first, last, pieces) = {
-                let spans = &self.lines[index];
-                let first = spans.partition_point(|s| s.end < lo);
-                let last = spans.partition_point(|s| s.start <= hi);
-                if first >= last {
-                    continue;
-                }
-
-                let mut pieces: Vec<Span> = Vec::new();
-                let head = spans[first];
-                if lo > head.start {
-                    pieces.push(Span { start: head.start, end: lo - 1 });
-                }
-                let tail = spans[last - 1];
-                if hi < tail.end {
-                    pieces.push(Span { start: hi + 1, end: tail.end });
-                }
-                (first, last, pieces)
-            };
-
-            for piece in &pieces {
-                created.push((line, *piece));
+            if !self.any_standing(line, lo, hi) {
+                continue;
             }
-            self.lines[index].splice(first..last, pieces);
+
+            let words = &mut self.lines[line as usize];
+            if lo > 0 {
+                if let Some(head) = Span::around(words, lo - 1) {
+                    created.push((line, Span { start: head.start, end: lo - 1 }));
+                }
+            }
+            if hi < u8::MAX {
+                if let Some(tail) = Span::around(words, hi + 1) {
+                    created.push((line, Span { start: hi + 1, end: tail.end }));
+                }
+            }
+
+            for (index, word) in words.iter_mut().enumerate() {
+                *word &= !range_mask(index, lo, hi);
+            }
+        }
+    }
+
+    /// Every run standing, line by line and left to right.
+    fn for_each_run(&self, mut f: impl FnMut(u8, Span)) {
+        for line in 0..=u8::MAX {
+            let words = &self.lines[line as usize];
+            let mut pos = 0;
+            while let Some(start) = next_set(words, pos) {
+                let end = next_clear(words, start) - 1;
+                f(line, Span { start: start as u8, end: end as u8 });
+                pos = end + 1;
+                if pos >= WIDTH {
+                    break;
+                }
+            }
         }
     }
 }
@@ -593,11 +656,7 @@ impl RunmaxClipnmerge {
         let (mut rows, mut cols) = Runs::of(source);
         let mut queue = BinaryHeap::new();
         for (is_column, side) in [(false, &rows), (true, &cols)] {
-            for (line, spans) in side.lines.iter().enumerate() {
-                for span in spans {
-                    queue.push(Seed::new(line as u8, *span, is_column));
-                }
-            }
+            side.for_each_run(|line, span| queue.push(Seed::new(line, span, is_column)));
         }
 
         let mut level = Level::new();
@@ -732,33 +791,31 @@ impl RunmaxClipnmerge {
 /// those tied on length, and the upper-left-most among those tied on
 /// both.
 fn scan_for_seed(rows: &Runs, cols: &Runs) -> Option<Seed> {
-    let longest = rows
-        .lines
-        .iter()
-        .chain(cols.lines.iter())
-        .flatten()
-        .map(Span::len)
-        .max()?;
+    let mut longest = 0;
+    for side in [rows, cols] {
+        side.for_each_run(|_, span| longest = longest.max(span.len()));
+    }
+    if longest == 0 {
+        return None;
+    }
 
     let mut best: Option<(Seed, u32)> = None;
     for (is_column, side) in [(false, rows), (true, cols)] {
-        for (line, spans) in side.lines.iter().enumerate() {
-            for span in spans {
-                if span.len() != longest {
-                    continue;
-                }
-                let seed = Seed::new(line as u8, *span, is_column);
-                let area = crossing_area(&seed, rows, cols);
-                let better = match best {
-                    None => true,
-                    Some((_, top_area)) if area != top_area => area < top_area,
-                    Some((top, _)) => seed.order > top.order,
-                };
-                if better {
-                    best = Some((seed, area));
-                }
+        side.for_each_run(|line, span| {
+            if span.len() != longest {
+                return;
             }
-        }
+            let seed = Seed::new(line, span, is_column);
+            let area = crossing_area(&seed, rows, cols);
+            let better = match best {
+                None => true,
+                Some((_, top_area)) if area != top_area => area < top_area,
+                Some((top, _)) => seed.order > top.order,
+            };
+            if better {
+                best = Some((seed, area));
+            }
+        });
     }
 
     best.map(|(seed, _)| seed)
@@ -770,35 +827,54 @@ mod tests {
 
     /// The straightforward way to find runs: look at every cell. Kept
     /// as the reference the fast one is checked against.
-    fn runs_cell_by_cell(set: impl Fn(u8, u8) -> bool) -> Runs {
-        let mut lines = Vec::with_capacity(256);
+    fn runs_cell_by_cell(set: impl Fn(u8, u8) -> bool) -> Vec<(u8, Span)> {
+        let mut found = Vec::new();
         for line in 0..=u8::MAX {
-            let mut spans = Vec::new();
             let mut start: Option<u8> = None;
             for pos in 0..=u8::MAX {
                 match (set(line, pos), start) {
                     (true, None) => start = Some(pos),
                     (false, Some(s)) => {
-                        spans.push(Span { start: s, end: pos - 1 });
+                        found.push((line, Span { start: s, end: pos - 1 }));
                         start = None;
                     }
                     _ => {}
                 }
             }
             if let Some(s) = start {
-                spans.push(Span { start: s, end: u8::MAX });
+                found.push((line, Span { start: s, end: u8::MAX }));
             }
-            lines.push(spans);
         }
-        Runs { lines }
+        found
+    }
+
+    fn listed(runs: &Runs) -> Vec<(u8, Span)> {
+        let mut found = Vec::new();
+        runs.for_each_run(|line, span| found.push((line, span)));
+        found
     }
 
     fn assert_same_runs(bits: &BitMatrix) {
         let (rows, cols) = Runs::of(bits);
         let want_rows = runs_cell_by_cell(|line, pos| bits.get(pos, line));
         let want_cols = runs_cell_by_cell(|line, pos| bits.get(line, pos));
-        assert_eq!(rows.lines, want_rows.lines, "row runs differ");
-        assert_eq!(cols.lines, want_cols.lines, "column runs differ");
+        assert_eq!(listed(&rows), want_rows, "row runs differ");
+        assert_eq!(listed(&cols), want_cols, "column runs differ");
+
+        // Every standing cell has to read back the run it belongs to,
+        // and every cleared one has to read back nothing.
+        for (line, span) in &want_rows {
+            for pos in span.start..=span.end {
+                assert_eq!(rows.span_at(*line, pos), Some(*span), "row {line} pos {pos}");
+            }
+        }
+        for line in 0..=u8::MAX {
+            for pos in 0..=u8::MAX {
+                if !bits.get(pos, line) {
+                    assert_eq!(rows.span_at(line, pos), None, "row {line} pos {pos}");
+                }
+            }
+        }
     }
 
     /// The queue has to reach the same partition as scanning every run
