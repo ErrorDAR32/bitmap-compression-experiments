@@ -56,7 +56,7 @@ fn thin(rects: &[Rect]) -> (usize, usize) {
 }
 
 fn main() {
-    let bitmaps = sample(200);
+    let bitmaps = sample(1000);
     let (mut mesh_time, mut pass_time) = (Duration::ZERO, Duration::ZERO);
     let (mut before, mut after) = (0usize, 0usize);
     let (mut thin_before, mut thin_after) = (0usize, 0usize);
@@ -89,8 +89,8 @@ fn main() {
 
     let n = bitmaps.len();
     println!("over {n} bitmaps, per bitmap:");
-    println!("  rectangles   {:>6} -> {:>6}   ({:.1}% reclaimed, best bitmap {:.1}%)",
-        before / n, after / n,
+    println!("  rectangles   {:>6.2} -> {:>6.2}   ({:.1}% reclaimed, best bitmap {:.1}%)",
+        before as f64 / n as f64, after as f64 / n as f64,
         100.0 * (before - after) as f64 / before as f64,
         100.0 * worst);
     println!("  1-thin       {:>6} -> {:>6}", thin_before / n, thin_after / n);

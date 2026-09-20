@@ -1,37 +1,37 @@
 //! Rectangle meshing that works entirely on run lists.
 //!
 //! Rows and columns are both reduced to runs once, up front. Each step
-//! takes the first row run still standing, in scan order, and sinks it:
-//! the rectangle is that whole run, carried down as far as every column
-//! under it reaches. Both run lists are then updated to exclude what was
-//! taken, splitting a run in two where the rectangle cut through it.
+//! takes the longest run still standing, in either orientation, and sinks
+//! it: the rectangle is that whole run, carried down as far as every run
+//! crossing it reaches. Both run lists are then updated to exclude what
+//! was taken, splitting a run in two where the rectangle cut through it.
 //!
 //! Two choices earn their keep, and both are choices to look at less.
 //!
-//! Seeding on the topmost run rather than the longest one keeps the
-//! partition tidy. Taking the biggest rectangle available anywhere carves
-//! the middle out of a shape and leaves a ring around it, and rings
-//! shatter: seeding by size needs 107 rectangles where sweeping top to
-//! bottom needs 75, and three different ways of ranking by size all land
-//! on exactly 107, so it is the ranking that costs, not the tie-breaks.
-//!
-//! Taking the seed whole, rather than the best rectangle lying along it,
-//! is worth another two. A step could instead cut its seed into several
+//! A step takes its seed whole rather than hunting for the best rectangle
+//! lying along it. A step could instead cut its seed into several
 //! rectangles, trading depth for count; scoring those cuts by area less a
 //! fixed charge per rectangle and sweeping the charge from nothing to
 //! unbounded improves the answer monotonically as the charge rises, and
-//! saturates once it is high enough to forbid cutting at all. Measured
-//! over 200 bitmaps: 79 rectangles when every position becomes its own,
-//! 78 taking the single best rectangle per step, 77 taking the seed
-//! whole. Against exhaustive optima on small grids it cuts the number of
-//! bitmaps meshed suboptimally by roughly a third. So there is nothing to
-//! rank within a step either, and the search inside a step disappears.
+//! saturates once it is high enough to forbid cutting at all. Over 1000
+//! realistic bitmaps: 107 rectangles taking the single best rectangle per
+//! step, 82 taking all the area under the seed in as few rectangles as
+//! that needs, 73.7 taking the seed whole. Chasing area is what costs.
+//!
+//! Looking further ahead does not help either. A step can run the same
+//! check on the runs crossing its seed and commit to a rectangle along
+//! one of those instead; across fourteen combinations of how to take each
+//! and which to prefer, the best managed 74.29 against 74.79 raw, and
+//! after the pass that rewrites the finished partition every one of them
+//! landed between 72.36 and 72.72. So there is nothing to rank within a
+//! step either, and the search inside a step disappears.
 //!
 //! Nothing here walks cells. A step costs the length of the seed run, not
 //! the width of the grid, and there are as many steps as there are
 //! rectangles in the answer.
 
 use crate::BitMatrix;
+use std::collections::BinaryHeap;
 
 /// An inclusive axis-aligned rectangle over the matrix's `u8` coordinate
 /// space.
@@ -65,6 +65,12 @@ impl Rect {
 struct Span {
     start: u8,
     end: u8,
+}
+
+impl Span {
+    fn len(&self) -> u16 {
+        self.end as u16 - self.start as u16 + 1
+    }
 }
 
 /// Runs for one orientation. For rows, `lines[y]` holds column spans; for
@@ -107,15 +113,6 @@ impl Runs {
         Self { lines }
     }
 
-    /// The first run still standing in scan order: lowest line, then
-    /// lowest position within it.
-    fn topmost(&self) -> Option<(u8, Span)> {
-        self.lines
-            .iter()
-            .enumerate()
-            .find_map(|(line, spans)| spans.first().map(|s| (line as u8, *s)))
-    }
-
     /// The run covering `pos`, if any. Runs on a line are disjoint and
     /// kept in ascending order, so the last one starting at or before
     /// `pos` is the only one that can hold it.
@@ -134,7 +131,7 @@ impl Runs {
     /// can keep a piece on the left and only the last a piece on the
     /// right. Untouched runs are never rewritten, so their index entries
     /// stay valid.
-    fn carve(&mut self, lines: (u8, u8), lo: u8, hi: u8) {
+    fn carve(&mut self, lines: (u8, u8), lo: u8, hi: u8, created: &mut Vec<(u8, Span)>) {
         for line in lines.0..=lines.1 {
             let index = line as usize;
             let (first, last, pieces) = {
@@ -157,13 +154,121 @@ impl Runs {
                 (first, last, pieces)
             };
 
+            for piece in &pieces {
+                created.push((line, *piece));
+            }
             self.lines[index].splice(first..last, pieces);
         }
     }
 }
 
-/// A [`BitMatrix`] partitioned into rectangles by repeatedly taking the
-/// topmost run still standing and sinking it as deep as it will go.
+/// A run ranked as a seed, ordered worst to best by the fields in
+/// declaration order: longest first, then the most area standing in the
+/// runs that cross it, then a row run over a column run, then the
+/// upper-left-most. The trailing fields only keep the order total.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+struct Seed {
+    len: u16,
+    crossing_area: u32,
+    is_row: bool,
+    neg_y: i32,
+    neg_x: i32,
+    line: u8,
+    start: u8,
+    end: u8,
+    /// Whether `crossing_area` is the real figure or the ceiling a run of
+    /// this length could reach. See [`Seed::unranked`].
+    counted: bool,
+}
+
+impl Seed {
+    /// A seed for the queue, with its crossing area counted now if that
+    /// is cheap and left at its ceiling if it is not.
+    ///
+    /// Counting costs a lookup per position of the run. Most runs never
+    /// come near the top of the queue, so for a long one the figure is
+    /// left at the most it could be and counted only if it gets there;
+    /// the ceiling can only overstate a seed, which is what the queue
+    /// already tolerates. A single-cell run is the exception: one lookup
+    /// settles it, which is cheaper than the extra trip through the queue
+    /// that deferring would cost, and a bitmap of nothing but single
+    /// cells is the worst case for both.
+    fn queued(line: u8, span: Span, is_column: bool, rows: &Runs, cols: &Runs) -> Self {
+        if span.len() == 1 {
+            return Self::rank(line, span, is_column, rows, cols);
+        }
+        let mut seed = Self::at(line, span, is_column);
+        seed.crossing_area = span.len() as u32 * 256;
+        seed
+    }
+
+    fn at(line: u8, span: Span, is_column: bool) -> Self {
+        let (y, x) = if is_column { (span.start, line) } else { (line, span.start) };
+        Self {
+            len: span.len(),
+            crossing_area: 0,
+            is_row: !is_column,
+            neg_y: -(y as i32),
+            neg_x: -(x as i32),
+            line,
+            start: span.start,
+            end: span.end,
+            counted: false,
+        }
+    }
+
+    fn rank(line: u8, span: Span, is_column: bool, rows: &Runs, cols: &Runs) -> Self {
+        let crossing = if is_column { rows } else { cols };
+        let mut crossing_area = 0u32;
+        for pos in span.start..=span.end {
+            if let Some(run) = crossing.span_at(pos, line) {
+                crossing_area += run.len() as u32;
+            }
+        }
+
+        let mut seed = Self::at(line, span, is_column);
+        seed.crossing_area = crossing_area;
+        seed.counted = true;
+        seed
+    }
+
+    fn span(&self) -> Span {
+        Span { start: self.start, end: self.end }
+    }
+
+    fn is_column(&self) -> bool {
+        !self.is_row
+    }
+}
+
+/// The best seed left, or `None` once nothing is standing.
+///
+/// Carving only shortens runs and only shortens the runs crossing them,
+/// so a seed's rank never rises. That makes the queue safe to leave
+/// stale: whatever sits on top is ranked at least as high as it deserves,
+/// so it is enough to check the run is still there and that its rank has
+/// not slipped, and to put it back when it has. A seed whose crossing
+/// area was never counted overstates itself the same way, and is counted
+/// and put back the first time it reaches the top.
+fn best_seed(queue: &mut BinaryHeap<Seed>, rows: &Runs, cols: &Runs) -> Option<Seed> {
+    while let Some(seed) = queue.pop() {
+        let side = if seed.is_column() { cols } else { rows };
+        if side.span_at(seed.line, seed.start) != Some(seed.span()) {
+            continue;
+        }
+
+        let fresh = Seed::rank(seed.line, seed.span(), seed.is_column(), rows, cols);
+        if fresh == seed {
+            return Some(seed);
+        }
+        queue.push(fresh);
+    }
+
+    None
+}
+
+/// A [`BitMatrix`] partitioned into rectangles/// A [`BitMatrix`] partitioned into rectangles by repeatedly taking the
+/// longest run still standing and sinking it as deep as it will go.
 pub struct RunMesh {
     rects: Vec<Rect>,
 }
@@ -172,13 +277,35 @@ impl RunMesh {
     pub fn from_bit_matrix(source: &BitMatrix) -> Self {
         let mut rows = Runs::rows_of(source);
         let mut cols = Runs::cols_of(source);
-        let mut rects = Vec::new();
+        let mut queue = BinaryHeap::new();
+        for (is_column, side) in [(false, &rows), (true, &cols)] {
+            for (line, spans) in side.lines.iter().enumerate() {
+                for span in spans {
+                    queue.push(Seed::queued(line as u8, *span, is_column, &rows, &cols));
+                }
+            }
+        }
 
-        while let Some((line, seed)) = rows.topmost() {
-            let rect = sink(&cols, seed, line);
-            rows.carve((rect.y0, rect.y1), rect.x0, rect.x1);
-            cols.carve((rect.x0, rect.x1), rect.y0, rect.y1);
+        let mut rects = Vec::new();
+        let (mut cut_rows, mut cut_cols) = (Vec::new(), Vec::new());
+
+        while let Some(seed) = best_seed(&mut queue, &rows, &cols) {
+            let crossing = if seed.is_column() { &rows } else { &cols };
+            let rect = sink(crossing, seed.span(), seed.line, seed.is_column());
+
+            cut_rows.clear();
+            cut_cols.clear();
+            rows.carve((rect.y0, rect.y1), rect.x0, rect.x1, &mut cut_rows);
+            cols.carve((rect.x0, rect.x1), rect.y0, rect.y1, &mut cut_cols);
             rects.push(rect);
+
+            // Whatever a carve leaves behind is a seed in its own right,
+            // and ranking it needs both sides already updated.
+            for (pieces, is_column) in [(&cut_rows, false), (&cut_cols, true)] {
+                for &(line, span) in pieces {
+                    queue.push(Seed::queued(line, span, is_column, &rows, &cols));
+                }
+            }
         }
 
         Self { rects }
@@ -203,167 +330,29 @@ impl RunMesh {
     }
 }
 
-// ---------------------------------------------------------------------
-// Experiment: third-order checks. Not wired into `from_bit_matrix`.
-//
-// A step looks at its seed run (first order) and at the runs crossing it
-// (second order). A third-order check runs the same area check on each of
-// those crossing runs, so the step sees the shape from both directions
-// before committing, and can take a rectangle along a crossing run rather
-// than along the seed.
-// ---------------------------------------------------------------------
-
-/// How a step turns a run into rectangles.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Take {
-    /// The run whole, one rectangle, as deep as its shallowest crossing.
-    Whole,
-    /// Every cell standing under the run, in as few rectangles as that
-    /// takes: one per stretch of identical crossing runs.
-    AllArea,
-}
-
-/// Which candidate a step commits to.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Pick {
-    /// Ignore the third-order checks; always take the seed.
-    Seed,
-    /// The most area covered, ties to the fewest rectangles.
-    MostArea,
-    /// The most area per rectangle spent.
-    BestRate,
-    /// The fewest rectangles, ties to the most area.
-    FewestRects,
-}
-
-/// One way a step could go: the rectangles it would emit and what they
-/// cover.
-struct Candidate {
-    rects: Vec<Rect>,
-    area: u32,
-}
-
-impl Candidate {
-    fn beats(&self, other: &Candidate, pick: Pick) -> bool {
-        let (mine, theirs) = (self.rects.len() as u32, other.rects.len() as u32);
-        match pick {
-            Pick::Seed => false,
-            Pick::MostArea => (self.area, theirs) > (other.area, mine),
-            // area/mine > other.area/theirs, in integers.
-            Pick::BestRate => {
-                (self.area as u64 * theirs as u64, theirs)
-                    > (other.area as u64 * mine as u64, mine)
-            }
-            Pick::FewestRects => (theirs, self.area) > (mine, other.area),
-        }
-    }
-}
-
-impl RunMesh {
-    #[doc(hidden)]
-    pub fn third_order(source: &BitMatrix, seed_take: Take, cross_take: Take, pick: Pick) -> Self {
-        let mut rows = Runs::rows_of(source);
-        let mut cols = Runs::cols_of(source);
-        let mut rects = Vec::new();
-
-        while let Some((line, seed)) = rows.topmost() {
-            let mut best = take(&cols, seed, line, false, seed_take);
-
-            if pick != Pick::Seed {
-                // The second-order runs, one per stretch the seed's own
-                // area check would cut it into, and a third-order check on
-                // each of them.
-                let mut last: Option<Span> = None;
-                for pos in seed.start..=seed.end {
-                    let run = cols.span_at(pos, line).expect("a standing cell is in a run");
-                    if last == Some(run) {
-                        continue;
-                    }
-                    last = Some(run);
-
-                    let candidate = take(&rows, run, pos, true, cross_take);
-                    if candidate.beats(&best, pick) {
-                        best = candidate;
-                    }
-                }
-            }
-
-            for rect in best.rects {
-                rows.carve((rect.y0, rect.y1), rect.x0, rect.x1);
-                cols.carve((rect.x0, rect.x1), rect.y0, rect.y1);
-                rects.push(rect);
-            }
-        }
-
-        Self { rects }
-    }
-}
-
-/// Turns one run into the rectangles a step would emit for it.
-fn take(crossing: &Runs, seed: Span, line: u8, seed_is_column: bool, how: Take) -> Candidate {
-    let build = |from: u8, to: u8, run: Span| {
-        if seed_is_column {
-            Rect { x0: run.start, y0: from, x1: run.end, y1: to }
-        } else {
-            Rect { x0: from, y0: run.start, x1: to, y1: run.end }
-        }
-    };
-
-    let mut rects = Vec::new();
-    match how {
-        Take::Whole => {
-            let (mut lo, mut hi) = (0u8, u8::MAX);
-            for pos in seed.start..=seed.end {
-                let run = crossing.span_at(pos, line).expect("a standing cell is in a run");
-                lo = lo.max(run.start);
-                hi = hi.min(run.end);
-            }
-            rects.push(build(seed.start, seed.end, Span { start: lo, end: hi }));
-        }
-        Take::AllArea => {
-            let mut open: Option<(u8, Span)> = None;
-            for pos in seed.start..=seed.end {
-                let run = crossing.span_at(pos, line).expect("a standing cell is in a run");
-                match open {
-                    Some((from, current)) if current != run => {
-                        rects.push(build(from, pos - 1, current));
-                        open = Some((pos, run));
-                    }
-                    None => open = Some((pos, run)),
-                    _ => {}
-                }
-            }
-            if let Some((from, current)) = open {
-                rects.push(build(from, seed.end, current));
-            }
-        }
-    }
-
-    let area = rects.iter().map(|r| r.area()).sum();
-    Candidate { rects, area }
-}
-
 /// The whole seed run, taken as far as every one of its crossing runs
 /// reaches.
 ///
 /// The seed spans positions `seed.start..=seed.end` on `line`, and each of
 /// those positions sits in exactly one crossing run, so the rectangle is
-/// as wide as the seed and as deep as the shallowest column under it.
-/// Since the seed is the topmost run left, nothing is set above `line` and
-/// every crossing run starts there; the top is tracked anyway so the
-/// rectangle depends on the seed alone and not on how it was chosen.
-fn sink(crossing: &Runs, seed: Span, line: u8) -> Rect {
-    let (mut top, mut bottom) = (0u8, u8::MAX);
+/// as long as the seed and as deep as the shallowest run under it.
+fn sink(crossing: &Runs, seed: Span, line: u8, seed_is_column: bool) -> Rect {
+    let (mut lo, mut hi) = (0u8, u8::MAX);
     for pos in seed.start..=seed.end {
         let span = crossing
             .span_at(pos, line)
             .expect("a cell still standing belongs to a run of either kind");
-        top = top.max(span.start);
-        bottom = bottom.min(span.end);
+        lo = lo.max(span.start);
+        hi = hi.min(span.end);
     }
 
-    Rect { x0: seed.start, y0: top, x1: seed.end, y1: bottom }
+    if seed_is_column {
+        Rect { x0: lo, y0: seed.start, x1: hi, y1: seed.end }
+    } else {
+        Rect { x0: seed.start, y0: lo, x1: seed.end, y1: hi }
+    }
 }
+
 
 #[cfg(test)]
 mod tests {
@@ -468,10 +457,11 @@ mod tests {
         );
     }
 
-    /// The worked 8x8 example. Ten rectangles is the proven optimum for
-    /// this shape, so largest-run-first reaches it.
+    /// The worked 8x8 example, where ten rectangles is the proven
+    /// optimum. Seeding on the longest run needs eleven; the pass that
+    /// rewrites the partition afterwards finds the tenth.
     #[test]
-    fn worked_example_reaches_ten() {
+    fn worked_example_reaches_ten_after_compacting() {
         let bits = bits_from_rows([
             [1, 1, 1, 1, 0, 1, 1, 1],
             [1, 0, 0, 1, 0, 1, 1, 1],
@@ -483,16 +473,20 @@ mod tests {
             [1, 1, 0, 1, 1, 1, 1, 1],
         ]);
 
-        let mesh = RunMesh::from_bit_matrix(&bits);
+        let mut mesh = RunMesh::from_bit_matrix(&bits);
+        assert_exact_partition(&bits, &mesh);
+        assert_eq!(mesh.rects().len(), 11);
+
+        mesh.compact();
         assert_exact_partition(&bits, &mesh);
         assert_eq!(mesh.rects().len(), 10);
     }
 
-    /// The 4x4 that cost 5 rectangles when a step picked the best
-    /// rectangle along its seed, and 4 when seeds were ranked by length.
-    /// Taking each seed whole reaches 3, which is the proven optimum.
+    /// The 4x4 whose optimum is 3. Seeding on the longest run and taking
+    /// it whole needs 5, and the pass afterwards brings it to the
+    /// optimum.
     #[test]
-    fn adversarial_four_by_four_is_optimal() {
+    fn adversarial_four_by_four_is_optimal_after_compacting() {
         let bits = bits_from_rows([
             [1, 1, 0, 0],
             [0, 1, 1, 1],
@@ -500,7 +494,11 @@ mod tests {
             [0, 0, 0, 0],
         ]);
 
-        let mesh = RunMesh::from_bit_matrix(&bits);
+        let mut mesh = RunMesh::from_bit_matrix(&bits);
+        assert_exact_partition(&bits, &mesh);
+        assert_eq!(mesh.rects().len(), 5);
+
+        mesh.compact();
         assert_exact_partition(&bits, &mesh);
         assert_eq!(mesh.rects().len(), 3);
     }

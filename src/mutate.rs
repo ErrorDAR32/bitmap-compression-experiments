@@ -14,22 +14,23 @@
 //! took. Merging two rectangles that share a whole edge is the `k = 1`
 //! case of the same move.
 //!
-//! Measured, a free dissolve never once fires on this mesher's output:
-//! not on any of the 65536 4x4 bitmaps, not on 80000 random 5x5 through
-//! 8x8 ones, and not on 15421 rectangles meshed from full-size bitmaps.
-//! The reason is overhang. 86.6% of those rectangles do have a neighbour
-//! whose face fits inside their span, but the neighbour below a
-//! rectangle is bounded by the data rather than by the rectangle above
-//! it, so it almost never lines up with an end of the span: only 3.6%
-//! can be tiled even part of the way.
+//! How much that finds depends on the mesher. Seeding on the longest run
+//! leaves rectangles that can be given away for free on 11.7% of the
+//! 65536 4x4 bitmaps and 36% of random 8x8 ones. Seeding in scan order
+//! instead left none at all, on any of them, because a rectangle taken
+//! from the topmost run is bounded above by nothing and below by the
+//! data, so its neighbours overhang it: 86.6% of those rectangles had a
+//! neighbour whose face fitted inside their span, but only 3.6% had one
+//! lining up with an end of it.
 //!
-//! What unblocks it is trimming the taker, which is a cut clean across a
-//! neighbour rather than a corner taken out of it. That costs a
-//! rectangle and reclaims one, so it breaks even and is only worth
-//! making when it opens a free dissolve that was not there before. It
-//! does: taken that way it improves 5.4% of 4x4 bitmaps, 15% of 6x6 and
-//! 21% of 7x7, and closes almost the whole gap to the exhaustive
-//! optimum, from 1.4% over to 0.1% on 4x4 and 2.1% to 0.3% on 6x6.
+//! What unblocks the rest either way is trimming the taker, which is a
+//! cut clean across a neighbour rather than a corner taken out of it.
+//! That costs a rectangle and reclaims one, so it breaks even and is only
+//! worth making when it opens a free dissolve that was not there before.
+//! Taken that way it improves a further 6.6% of 4x4 bitmaps on top of
+//! what the free moves manage, and the two together close almost the
+//! whole gap to the exhaustive optimum: 4.8% over to 0.2% on 4x4, 5.2% to
+//! 0.4% on 6x6.
 
 use crate::Rect;
 
@@ -181,10 +182,9 @@ impl Work {
 /// Dissolves rectangles into their neighbours until none is left that
 /// can be given away whole, and answers how many were reclaimed.
 ///
-/// On this mesher's output the answer is always zero. See the module
-/// docs; it is kept separate because it is the engine [`compact`] runs
-/// after every break-even move, and because the claim is worth being
-/// able to re-measure.
+/// Kept separate from [`compact`] because it is the engine that runs
+/// after every break-even move, and because how much it finds on its own
+/// says something about the mesher feeding it. See the module docs.
 pub fn dissolve_only(rects: &mut Vec<Rect>) -> usize {
     dissolve(rects, &mut Work::new())
 }
