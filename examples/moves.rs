@@ -1,5 +1,5 @@
 //! What each move of the clip-and-merge pass is worth against what it
-//! costs, on the target metric.
+//! costs, on time-optimal bias.
 
 #[path = "corpus.rs"]
 #[allow(dead_code)]
@@ -14,7 +14,7 @@ fn main() {
     let each = maps.len() as u32;
 
     println!("{} realistic bitmaps, best of 5, per bitmap:", maps.len());
-    println!("  {:<24} {:>8} {:>10} {:>14}", "stopping after", "rects", "time", "target metric");
+    println!("  {:<24} {:>8} {:>10} {:>14}", "stopping after", "rects", "time", "bias");
 
     let mut work = RunmaxClipnmerge::new();
     for (label, far) in [
