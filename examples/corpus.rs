@@ -97,18 +97,6 @@ pub fn tiled(rows: &[&str]) -> BitMatrix {
     bits
 }
 
-/// A small bitmap from the fixed sequence, `n` by `n`.
-pub fn small(seq: &mut Sequence, n: usize) -> BitMatrix {
-    let cells = seq.step();
-    let mut bits = BitMatrix::new();
-    for idx in 0..(n * n) {
-        if cells & (1u64 << idx) != 0 {
-            bits.set((idx % n) as u8, (idx / n) as u8);
-        }
-    }
-    bits
-}
-
 /// Panics unless the rectangles cover exactly the set bits, once each.
 pub fn assert_partition(bits: &BitMatrix, rects: &[Rect], label: &str) {
     let mut painted = BitMatrix::new();

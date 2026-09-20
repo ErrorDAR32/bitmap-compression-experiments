@@ -1,11 +1,20 @@
-//! Post-pass mutations on a finished partition.
+//! Post-pass mutations on a finished partition: the clip-and-merge half
+//! of the algorithm.
 //!
-//! The mesher leaves long thin rectangles, and that is the shape that
-//! makes a rewrite cheap: a thin rectangle can be cut clean across
-//! without leaving a corner behind, and a cut that goes clean across
-//! never turns one rectangle into three.
+//! The mesher leaves long thin rectangles on purpose, and that is the
+//! shape that makes a rewrite cheap: a thin rectangle can be cut clean
+//! across without leaving a corner behind, and a cut that goes clean
+//! across never turns one rectangle into three.
 //!
-//! The move built on that is dissolving. Take a rectangle, cut it across
+//! The move that does the work is growing. A rectangle reaches out over
+//! the standing cells, without regard to who owns them, and every line
+//! it could stop at is scored: a neighbour is worth one rectangle when
+//! it is swallowed whole and costs one for every piece beyond the first
+//! that clipping it leaves. The best positive line wins, and the
+//! rectangle takes that whole band. On 200 realistic bitmaps this
+//! reclaims 9.49 rectangles apiece, against 0.04 for everything below.
+//!
+//! The other move is dissolving. Take a rectangle, cut it across
 //! into stretches, and hand each stretch to a neighbour whose face it
 //! matches exactly. Every stretch has to find a taker: cutting into `k`
 //! stretches spends `k - 1` rectangles and reclaims `k` only if the whole
@@ -34,7 +43,9 @@
 //! Taken that way it improves a further 6.6% of 4x4 bitmaps on top of
 //! what the free moves manage, and the two together close almost the
 //! whole gap to the exhaustive optimum: 4.8% over to 0.2% on 4x4, 5.2% to
-//! 0.4% on 6x6.
+//! 0.4% on 6x6. Against a mesh that grows first they add 0.12 per
+//! realistic bitmap, since growing has already taken what they would
+//! have found.
 
 use crate::Rect;
 

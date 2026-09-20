@@ -1,7 +1,7 @@
 //! The exact algorithm: the minimum partition, worked out rather than
 //! approached.
 //!
-//! Against it the Fastile algorithm in [`crate::fastile`] is measured,
+//! Against it runmax-clipnmerge in [`crate::fastile`] is measured,
 //! and against exhaustive search, the ground truth algorithm, this one
 //! is measured in turn.
 //!

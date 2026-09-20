@@ -1,36 +1,36 @@
-//! What growing a rectangle over whole neighbours is worth, on its own
-//! and on top of the pass that was already there.
+//! What each pass of the clip-and-merge step is worth on its own.
+//!
+//! Growing is the pass that pays: the mesh leaves thin rectangles on
+//! purpose, and growing is what puts them back together. Dissolving on
+//! its own reclaims almost nothing, which is why it runs second.
 
 #[path = "corpus.rs"]
 #[allow(dead_code)]
 mod corpus;
 
-use bitmatrix::{BitMatrix, Fastile, Tie};
+use bitmatrix::Fastile;
 
 fn main() {
     let maps = corpus::realistic(200);
+    let (mut meshed, mut grown, mut dissolved, mut both) = (0usize, 0usize, 0usize, 0usize);
 
-    for (label, mesh_of) in [
-        ("whole seed", (|b: &BitMatrix| Fastile::with_tie(b, Tie::Least)) as fn(&BitMatrix) -> Fastile),
-        ("all area", |b: &BitMatrix| Fastile::by_all_area(b, Tie::Least)),
-    ] {
-        let (mut meshed, mut grown, mut dissolved) = (0usize, 0usize, 0usize);
-        for bits in &maps {
-            let mesh = mesh_of(bits);
-            meshed += mesh.rects().len();
+    for bits in &maps {
+        meshed += Fastile::from_bit_matrix(bits).rects().len();
 
-            let mut growing = mesh_of(bits);
-            grown += growing.absorb_only();
+        let mut growing = Fastile::from_bit_matrix(bits);
+        grown += growing.absorb_only();
 
-            let mut alone = mesh_of(bits);
-            dissolved += alone.dissolve_only();
-        }
+        let mut alone = Fastile::from_bit_matrix(bits);
+        dissolved += alone.dissolve_only();
 
-        println!(
-            "{label:<12} meshed {:.2}   growing reclaims {:.2}   dissolving alone reclaims {:.2}",
-            meshed as f64 / maps.len() as f64,
-            grown as f64 / maps.len() as f64,
-            dissolved as f64 / maps.len() as f64
-        );
+        let mut compacted = Fastile::from_bit_matrix(bits);
+        both += compacted.compact();
     }
+
+    let each = maps.len() as f64;
+    println!("{} realistic bitmaps, per bitmap:", maps.len());
+    println!("  meshed                    {:.2}", meshed as f64 / each);
+    println!("  growing alone reclaims    {:.2}", grown as f64 / each);
+    println!("  dissolving alone reclaims {:.2}", dissolved as f64 / each);
+    println!("  the whole pass reclaims   {:.2}", both as f64 / each);
 }
