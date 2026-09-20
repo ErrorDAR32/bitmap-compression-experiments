@@ -1004,6 +1004,35 @@ impl Fastile {
         Self { rects, alone: alone_count }
     }
 
+    /// The run lists before and after carving one rectangle, as
+    /// `(is_column, line, start, end)`. For seeing what a carve does to
+    /// them and nothing else.
+    #[doc(hidden)]
+    #[allow(clippy::type_complexity)]
+    pub fn carve_demo(
+        source: &BitMatrix,
+        rect: Rect,
+    ) -> (Vec<(bool, u8, u8, u8)>, Vec<(bool, u8, u8, u8)>) {
+        let list = |rows: &Runs, cols: &Runs| {
+            let mut out = Vec::new();
+            for (is_column, side) in [(false, rows), (true, cols)] {
+                for (line, spans) in side.lines.iter().enumerate() {
+                    for span in spans {
+                        out.push((is_column, line as u8, span.start, span.end));
+                    }
+                }
+            }
+            out
+        };
+
+        let (mut rows, mut cols) = Runs::of(source);
+        let before = list(&rows, &cols);
+        let mut bin = Vec::new();
+        rows.carve((rect.y0, rect.y1), rect.x0, rect.x1, &mut bin);
+        cols.carve((rect.x0, rect.x1), rect.y0, rect.y1, &mut bin);
+        (before, list(&rows, &cols))
+    }
+
     /// Builds both run lists and answers how many runs there are, which
     /// is the first pass of [`Self::from_bit_matrix`] and nothing else.
     #[doc(hidden)]
