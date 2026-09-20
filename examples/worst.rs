@@ -218,15 +218,15 @@ fn show(work: &mut RunmaxClipnmerge, bits: &BitMatrix, side: usize, found_at: &s
 }
 
 /// The full-size sweep: which content defeats it, and by how much.
-fn full_size(work: &mut RunmaxClipnmerge, seeds: u64) {
+fn full_size(work: &mut RunmaxClipnmerge, from: u64, seeds: u64) {
     println!(
-        "worst of {seeds} seeds a shape, full 256x256, ranked by how far over the minimum:\n"
+        "worst of {seeds} seeds a shape from {from}, full 256x256, ranked by how far over the minimum:\n"
     );
     let mut rows = Vec::new();
     let (mut all_ours, mut all_fewest) = (0usize, 0usize);
     for shape in samples::SHAPES {
         let (mut worst, mut at) = (None::<Verdict>, 0u64);
-        for seed in samples::SEED..samples::SEED + seeds {
+        for seed in from..from + seeds {
             let bits = samples::one_grown(seed, shape.density, shape.cluster);
             let verdict = judge(work, &bits);
             all_ours += verdict.ours;
@@ -290,14 +290,14 @@ fn full_size(work: &mut RunmaxClipnmerge, seeds: u64) {
 
 /// The small hunt: every disagreement found, shrunk to a minimal
 /// witness and deduplicated under symmetry.
-fn witnesses(work: &mut RunmaxClipnmerge, seeds: u64) {
+fn witnesses(work: &mut RunmaxClipnmerge, from: u64, seeds: u64) {
     let mut seen: Vec<(String, usize, usize, usize, String)> = Vec::new();
     let mut hits = 0u64;
     let mut tried = 0u64;
 
     for side in SIDES {
         for shape in samples::SHAPES {
-            for seed in samples::SEED..samples::SEED + seeds {
+            for seed in from..from + seeds {
                 let bits = samples::grown_in(seed, side, shape.density, shape.cluster, 1)
                     .next()
                     .expect("one sample was asked for");
@@ -353,7 +353,18 @@ fn main() {
         .and_then(|arg| arg.parse().ok())
         .unwrap_or(SEEDS);
 
+    // A second argument moves the whole corpus somewhere else in the
+    // seed space. Every measurement in this repository is taken from
+    // seed 0, which makes them reproducible and does not make them
+    // representative: a change tuned until seeds 0..60 like it has been
+    // tuned on 540 bitmaps nobody held back. Re-run with a seed base
+    // the change has never seen before believing it.
+    let from: u64 = std::env::args()
+        .nth(2)
+        .and_then(|arg| arg.parse().ok())
+        .unwrap_or(samples::SEED);
+
     let mut work = RunmaxClipnmerge::new();
-    full_size(&mut work, seeds);
-    witnesses(&mut work, seeds);
+    full_size(&mut work, from, seeds);
+    witnesses(&mut work, from, seeds);
 }
