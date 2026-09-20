@@ -1,17 +1,17 @@
 //! Runmax-clipnmerge: the fast algorithm, and the workspace that is
 //! its whole public face.
 //!
-//! Meshing is [`mesh`]: the bitmap is reduced to the cells standing in
+//! Meshing is `mesh`: the bitmap is reduced to the cells standing in
 //! both orientations, and each step takes the longest run left and
 //! covers every cell under it. That leaves deliberately thin
 //! rectangles, more of them than taking each seed whole would.
 //!
 //! Clip-and-merge is the other half, and puts them back together.
-//! [`grow`] is the move that does nearly all of it: a rectangle reaches
+//! `grow` is the move that does nearly all of it: a rectangle reaches
 //! out over the standing cells, merging in whoever it swallows whole
-//! and clipping whoever it only partly covers. [`merge`] is the second
-//! primitive on its own, for what growing cannot reach. [`edges`] is
-//! the index it asks, and [`pass`] holds their shared buffers and the
+//! and clipping whoever it only partly covers. `merge` is the second
+//! primitive on its own, for what growing cannot reach. `edges` is
+//! the index it asks, and `pass` holds their shared buffers and the
 //! order they run in -- and the story of the third move that used to
 //! run after them.
 

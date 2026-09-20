@@ -17,7 +17,7 @@
 //! them. The worst motif cost 13,057 instructions per set cell, where
 //! `grown(_, 0.50, 0.00)` costs 124,610.
 //!
-//! [`generate`] holds the drawing itself.
+//! `generate` holds the drawing itself.
 
 mod generate;
 

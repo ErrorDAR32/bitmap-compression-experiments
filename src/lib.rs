@@ -5,7 +5,7 @@
 //!   cells standing in both orientations, meshes it into deliberately
 //!   thin rectangles, and then grows them back over each other. It
 //!   lands a little over the minimum, in a fifth of the time.
-//! - [`exact`] is the minimum, by the construction of Lipski and of
+//! - [`accurate`] is the minimum, by the construction of Lipski and of
 //!   Ohtsuki. It is what runmax-clipnmerge is measured against.
 //! - Exhaustive search, the ground truth, lives in the `ground_truth`
 //!   example. It is what the exact algorithm is measured against, on
