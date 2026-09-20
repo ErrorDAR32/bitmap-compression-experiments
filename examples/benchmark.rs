@@ -24,13 +24,20 @@
 //! instructions under callgrind is steadier still, and does not care
 //! what else the machine is doing.
 //!
-//! This one reports time and rectangles, and leaves the metrics to the
-//! `cost` example, which counts instructions instead. Instruction-
-//! optimal bias wants a count this cannot take, and a wall clock that
-//! moves by a fifth between runs cannot be multiplied by anything and
-//! stay meaningful. What time is still good for is the ratio between
-//! two algorithms measured microseconds apart, which is what this
-//! reports.
+//! Time-optimal bias is here: the time an algorithm takes multiplied by
+//! how many rectangles it gives over the fewest possible, as a bare
+//! number rather than a duration, lower being better. The accurate
+//! algorithm's is its time alone, since it is never over the fewest.
+//!
+//! It is the same formula as instruction-optimal bias in the `cost`
+//! example, in the other currency, and the two answer different
+//! questions. Instructions are the same every run and can be compared
+//! against a measurement taken last week; time is what a caller
+//! actually waits, and includes everything a count does not -- cache
+//! misses, memory traffic, what the machine is doing to itself. A wall
+//! clock on a shared machine drifts by more than the differences worth
+//! measuring, so the two algorithms alternate on every bitmap and the
+//! ratio between them is what to trust.
 
 use bitmatrix::{accurate, assert_partition, samples, BitMatrix, RunmaxClipnmerge};
 use std::time::{Duration, Instant};
@@ -43,6 +50,13 @@ fn greedy(work: &mut RunmaxClipnmerge, bits: &BitMatrix) -> usize {
 
 fn minimum(bits: &BitMatrix) -> usize {
     accurate::partition(bits).len()
+}
+
+/// Time-optimal bias: the time taken by the rectangles given over the
+/// fewest possible, as a bare number of microseconds rather than a
+/// duration.
+fn bias(took: Duration, over: f64) -> f64 {
+    took.as_secs_f64() * 1e6 * over
 }
 
 /// One algorithm's timings across the repeats.
@@ -166,19 +180,25 @@ fn main() {
         ratios[ratios.len() - 1]
     );
 
-
-    println!("every shape, one bitmap each, best of {REPEATS}:");
+    println!("\ntime-optimal bias, every shape, best of {REPEATS}:");
+    println!(
+        "  {:<20} {:>7} {:>7} {:>9} {:>9} {:>11} {:>11}",
+        "", "rects", "fewest", "time", "accurate", "bias", "accurate's"
+    );
     for shape in samples::SHAPES {
-        let one: Vec<BitMatrix> = shape.take(1).collect();
-        let (got, best, _) = race(&one);
+        let maps: Vec<BitMatrix> = shape.timed().collect();
+        let n = maps.len() as u32;
+        let (got, best, _) = race(&maps);
         let over = got.count as f64 / best.count.max(1) as f64;
         println!(
-            "  {:<20} {:>6} in {:>8.1?}   accurate {:>6} in {:>8.1?}   {over:.2}x the rectangles",
+            "  {:<20} {:>7} {:>7} {:>9.1?} {:>9.1?} {:>11.0} {:>11.0}",
             shape.name,
             got.count,
-            got.best(),
             best.count,
-            best.best(),
+            got.best() / n,
+            best.best() / n,
+            bias(got.best() / n, over),
+            bias(best.best() / n, 1.0),
         );
     }
 }
