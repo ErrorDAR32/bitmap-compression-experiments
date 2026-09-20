@@ -19,7 +19,7 @@
 use crate::data::AreaMap;
 use crate::runmax::grow::{grow, Growing};
 use crate::runmax::merge::{merge, Work};
-use crate::Rect;
+use crate::{BitMatrix, Rect};
 
 /// How far [`Pass::compact_to`] goes, for weighing each move against
 /// its cost.
@@ -52,8 +52,8 @@ impl Pass {
 
     /// How many rectangles growing reclaims on its own, before anything
     /// else has run. For measuring what the move is worth.
-    pub(crate) fn grow_only(&mut self, rects: &mut Vec<Rect>) -> usize {
-        grow(rects, self)
+    pub(crate) fn grow_only(&mut self, standing: &BitMatrix, rects: &mut Vec<Rect>) -> usize {
+        grow(standing, rects, self)
     }
 
     /// Merging on its own, for the same reason.
@@ -63,9 +63,14 @@ impl Pass {
 
     /// Rewrites the partition in place and answers how many rectangles
     /// that reclaimed, stopping after whichever move `far` names.
-    pub(crate) fn compact_to(&mut self, rects: &mut Vec<Rect>, far: Far) -> usize {
+    pub(crate) fn compact_to(
+        &mut self,
+        standing: &BitMatrix,
+        rects: &mut Vec<Rect>,
+        far: Far,
+    ) -> usize {
         let started = rects.len();
-        grow(rects, self);
+        grow(standing, rects, self);
         if far == Far::Merging {
             merge(rects, &mut self.work);
         }
@@ -76,6 +81,16 @@ impl Pass {
 #[cfg(test)]
 mod tests {
     use super::*;
+    /// The bitmap a list of areas partitions, which is what the area
+    /// map is painted on.
+    fn standing(rects: &[Rect]) -> BitMatrix {
+        let mut bits = BitMatrix::new();
+        for r in rects {
+            bits.set_rect(r.x0 as i64, r.y0 as i64, r.x1 as i64, r.y1 as i64);
+        }
+        bits
+    }
+
     fn r(x0: u8, y0: u8, x1: u8, y1: u8) -> Rect {
         Rect { x0, y0, x1, y1 }
     }
@@ -101,7 +116,7 @@ mod tests {
         }
 
         assert_eq!(free(&mut rects.clone()), 10, "merging gets there too");
-        assert_eq!(Pass::new().grow_only(&mut rects), 10);
+        assert_eq!(Pass::new().grow_only(&standing(&rects), &mut rects), 10);
         assert_eq!(rects, vec![r(0, 0, 9, 1)]);
     }
 
@@ -110,7 +125,7 @@ mod tests {
     #[test]
     fn a_neighbour_hanging_over_the_side_is_left_alone() {
         let mut rects = vec![r(1, 0, 2, 0), r(0, 1, 3, 1)];
-        assert_eq!(Pass::new().grow_only(&mut rects), 0);
+        assert_eq!(Pass::new().grow_only(&standing(&rects), &mut rects), 0);
     }
 
     /// Something straddling the far edge is cut there for nothing: the
@@ -124,7 +139,7 @@ mod tests {
     #[test]
     fn a_neighbour_straddling_the_far_edge_is_cut_for_nothing() {
         let mut rects = vec![r(0, 0, 1, 0), r(0, 1, 1, 1), r(0, 2, 0, 3), r(1, 2, 1, 2)];
-        assert_eq!(Pass::new().grow_only(&mut rects), 2, "the row and the single cell");
+        assert_eq!(Pass::new().grow_only(&standing(&rects), &mut rects), 2, "the row and the single cell");
         assert_eq!(rects.len(), 2);
         assert!(rects.contains(&r(0, 0, 1, 2)));
         assert!(rects.contains(&r(0, 3, 0, 3)));

@@ -53,6 +53,11 @@ impl BitMatrix {
         self.words[idx / BITS_PER_WORD] &= !(1u64 << (idx % BITS_PER_WORD));
     }
 
+    /// Takes on another bitmap's cells, keeping the room this one has.
+    pub(crate) fn copy_from(&mut self, other: &Self) {
+        self.words.copy_from_slice(&*other.words);
+    }
+
     /// Clears every bit back to 0.
     pub fn reset(&mut self) {
         for word in self.words.iter_mut() {

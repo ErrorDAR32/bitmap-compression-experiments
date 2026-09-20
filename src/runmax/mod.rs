@@ -122,7 +122,7 @@ impl RunmaxClipnmerge {
         if let Some(far) = far {
             // Only the working areas: the cells standing alone are in a
             // list of their own that no pass can reach.
-            self.pass.compact_to(self.areas.working(), far);
+            self.pass.compact_to(&self.rest, self.areas.working(), far);
         }
         self.areas.all()
     }
@@ -132,7 +132,7 @@ impl RunmaxClipnmerge {
     #[doc(hidden)]
     pub fn grow_only(&mut self, source: &BitMatrix) -> usize {
         self.mesh_into(source);
-        self.pass.grow_only(self.areas.working())
+        self.pass.grow_only(&self.rest, self.areas.working())
     }
 
     /// Only the free half of the pass, which reclaims nothing on its

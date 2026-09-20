@@ -21,7 +21,7 @@
 use crate::runmax::pass::Pass;
 use crate::data::bits::{range_mask, LINE_WORDS};
 use crate::data::AreaMap;
-use crate::Rect;
+use crate::{BitMatrix, Rect};
 
 /// Which way a rectangle grows.
 #[derive(Clone, Copy)]
@@ -377,11 +377,26 @@ impl Strips {
     }
 }
 
+/// The most pieces one application can leave behind.
+const PIECES: usize = 3;
+
+/// Drops the dead slots, so that the surviving areas are numbered from
+/// zero again with nothing in between.
+fn compact(rects: &mut Vec<Rect>, gone: &mut Vec<bool>) {
+    let mut index = 0;
+    rects.retain(|_| {
+        index += 1;
+        !gone[index - 1]
+    });
+    gone.clear();
+    gone.resize(rects.len(), false);
+}
+
 /// Grows every rectangle that can grow, until none can, and answers how
 /// many were swallowed.
-pub(crate) fn grow(rects: &mut Vec<Rect>, pass: &mut Pass) -> usize {
+pub(crate) fn grow(standing: &BitMatrix, rects: &mut Vec<Rect>, pass: &mut Pass) -> usize {
     let Pass { owners, gone, growing: scratch, .. } = pass;
-    owners.paint(rects);
+    owners.paint(standing, rects);
     gone.clear();
     gone.resize(rects.len(), false);
     scratch.reset(rects.len());
@@ -397,11 +412,41 @@ pub(crate) fn grow(rects: &mut Vec<Rect>, pass: &mut Pass) -> usize {
 
     let mut again = true;
     while again {
+        // A cut area is replaced by its pieces rather than moved, so
+        // the list carries dead slots and can outgrow what a cell can
+        // name. It never has on any content measured -- the worst
+        // reaches about 37,000 of the 65,536 -- but the bound is
+        // enforced rather than assumed. Dropping the dead slots
+        // renumbers the survivors, so everything that holds a slot
+        // number starts again with them.
+        if rects.len() + PIECES > AreaMap::FULL {
+            let before = rects.len();
+            compact(rects, gone);
+            if rects.len() == before {
+                // Nothing was dead, so there is no room to win and no
+                // sweep that could be finished. Every area standing is
+                // already an area, which is a partition.
+                break;
+            }
+            owners.paint(standing, rects);
+            scratch.reset(rects.len());
+            earlier = Strips::ALL;
+            sweep = Strips::NONE;
+        }
+
         again = false;
         for a in 0..rects.len() {
             if gone[a] || !sweep.reaches(&earlier, &rects[a]) {
                 continue;
             }
+            // Leave the sweep rather than overrun the slots. Something
+            // has been applied already, so another sweep is coming, and
+            // it starts by making room.
+            if rects.len() + PIECES > AreaMap::FULL {
+                again = true;
+                break;
+            }
+
             for side in [Side::Down, Side::Up, Side::Right, Side::Left] {
                 scratch.seen.resize(rects.len(), 0);
                 let Some((edge, gain)) = reach(rects, owners, a, side, scratch) else {
@@ -431,10 +476,6 @@ pub(crate) fn grow(rects: &mut Vec<Rect>, pass: &mut Pass) -> usize {
         sweep = Strips::NONE;
     }
 
-    let mut index = 0;
-    rects.retain(|_| {
-        index += 1;
-        !gone[index - 1]
-    });
+    compact(rects, gone);
     swallowed
 }
