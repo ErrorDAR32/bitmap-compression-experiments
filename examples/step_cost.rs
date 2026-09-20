@@ -13,10 +13,11 @@ use std::time::{Duration, Instant};
 
 type Way = (&'static str, fn(&BitMatrix) -> Fastile);
 
-const WAYS: [Way; 5] = [
+const WAYS: [Way; 6] = [
     ("queue, whole seed", Fastile::from_bit_matrix),
+    ("queue, all area, fewest rects", |b| Fastile::by_all_area(b, Tie::Least)),
     ("scan,  whole seed", |b| Fastile::by_scanning(b, Tie::Least)),
-    ("scan,  all area, fewest rects", |b| Fastile::by_all_area(b, Tie::Least)),
+    ("scan,  all area, fewest rects", |b| Fastile::all_area_by_scanning(b, Tie::Least)),
     ("scan,  one or two stretches", |b| Fastile::by_splitting(b, Tie::Least)),
     ("scan,  whole seed, ratio", |b| Fastile::with_tie(b, Tie::Ratio)),
 ];
@@ -77,11 +78,37 @@ fn main() {
     println!("\nthe tiled spine and ribs, same rule either way:");
     let tiled = corpus::tiled(corpus::WORST[0].1);
     for (label, how) in [
-        ("queue", Fastile::from_bit_matrix as fn(&BitMatrix) -> Fastile),
-        ("scan ", |b: &BitMatrix| Fastile::by_scanning(b, Tie::Least)),
+        ("queue, whole seed", Fastile::from_bit_matrix as fn(&BitMatrix) -> Fastile),
+        ("queue, all area   ", |b: &BitMatrix| Fastile::by_all_area(b, Tie::Least)),
+        ("scan,  whole seed ", |b: &BitMatrix| Fastile::by_scanning(b, Tie::Least)),
     ] {
         let start = Instant::now();
         let mesh = how(&tiled);
         println!("  {label} {:>6} rects in {:.1?}", mesh.rects().len(), start.elapsed());
+    }
+
+    // What the whole run costs on the tiled motifs, where the two steps
+    // do not agree and the mesh runs to thousands of rectangles.
+    println!("\nthe tiled motifs, meshed then compacted:");
+    for (name, motif) in corpus::WORST {
+        let tiled = corpus::tiled(motif);
+        let minimum = exact::partition(&tiled).len();
+        print!("  {name:<22} minimum {minimum:>6}:");
+        for (label, how) in [
+            ("whole seed", Fastile::from_bit_matrix as fn(&BitMatrix) -> Fastile),
+            ("all area", |b: &BitMatrix| Fastile::by_all_area(b, Tie::Least)),
+        ] {
+            let start = Instant::now();
+            let mut mesh = how(&tiled);
+            let meshed = mesh.rects().len();
+            mesh.compact();
+            let took = start.elapsed();
+            print!(
+                "   {label} {meshed:>6} -> {:>6} ({:.2}x) in {took:>7.1?}",
+                mesh.rects().len(),
+                mesh.rects().len() as f64 / minimum as f64
+            );
+        }
+        println!();
     }
 }

@@ -986,6 +986,19 @@ impl Fastile {
     /// The same, with the tie on run length settled either way.
     #[doc(hidden)]
     pub fn with_tie(source: &BitMatrix, tie: Tie) -> Self {
+        Self::queued(source, tie, sink_whole)
+    }
+
+    /// The queue again, but a step covers every cell under its seed
+    /// rather than taking the seed whole. See [`take_all_area`].
+    #[doc(hidden)]
+    pub fn by_all_area(source: &BitMatrix, tie: Tie) -> Self {
+        Self::queued(source, tie, take_all_area)
+    }
+
+    /// Works the runs longest first, keeping the ties in a queue rather
+    /// than finding them by scanning every run each step.
+    fn queued(source: &BitMatrix, tie: Tie, step: Step) -> Self {
         if matches!(tie, Tie::AreaFirst | Tie::Ratio) {
             return Self::by_scanning(source, tie);
         }
@@ -1008,6 +1021,7 @@ impl Fastile {
 
         let mut level = Level::new();
         let mut rects = Vec::new();
+        let mut plan = Vec::new();
         let (mut cut_rows, mut cut_cols) = (Vec::new(), Vec::new());
 
         loop {
@@ -1023,21 +1037,25 @@ impl Fastile {
             };
 
             let crossing = if seed.is_column { &rows } else { &cols };
-            let rect = sink(crossing, seed.span(), seed.line, seed.is_column);
+            plan.clear();
+            step(crossing, seed.span(), seed.line, seed.is_column, &mut plan);
 
-            cut_rows.clear();
-            cut_cols.clear();
-            rows.carve((rect.y0, rect.y1), rect.x0, rect.x1, &mut cut_rows);
-            cols.carve((rect.x0, rect.x1), rect.y0, rect.y1, &mut cut_cols);
-            level.note(&rect, &rows, &cols, tie);
-            rects.push(rect);
+            for rect in plan.drain(..) {
+                cut_rows.clear();
+                cut_cols.clear();
+                rows.carve((rect.y0, rect.y1), rect.x0, rect.x1, &mut cut_rows);
+                cols.carve((rect.x0, rect.x1), rect.y0, rect.y1, &mut cut_cols);
+                level.note(&rect, &rows, &cols, tie);
+                rects.push(rect);
 
-            // Whatever a carve leaves behind is a run in its own right,
-            // and shorter than the one it came from, so it belongs in the
-            // queue rather than the level being worked through.
-            for (pieces, is_column) in [(&cut_rows, false), (&cut_cols, true)] {
-                for &(line, span) in pieces {
-                    queue.push(Seed::new(line, span, is_column));
+                // Whatever a carve leaves behind is a run in its own
+                // right, and shorter than the one it came from, so it
+                // belongs in the queue rather than the level being
+                // worked through.
+                for (pieces, is_column) in [(&cut_rows, false), (&cut_cols, true)] {
+                    for &(line, span) in pieces {
+                        queue.push(Seed::new(line, span, is_column));
+                    }
                 }
             }
         }
@@ -1165,10 +1183,10 @@ impl Fastile {
         Self { rects, alone: alone_count }
     }
 
-    /// Seeds the same way, but a step covers every cell under its seed
-    /// rather than taking the seed whole. See [`take_all_area`].
+    /// [`Self::by_all_area`] worked out by scanning every run each step,
+    /// which is what the queued one is checked against.
     #[doc(hidden)]
-    pub fn by_all_area(source: &BitMatrix, tie: Tie) -> Self {
+    pub fn all_area_by_scanning(source: &BitMatrix, tie: Tie) -> Self {
         Self::stepping(source, tie, take_all_area)
     }
 
@@ -1179,11 +1197,7 @@ impl Fastile {
         Self::stepping(source, tie, take_stretches)
     }
 
-    fn stepping(
-        source: &BitMatrix,
-        tie: Tie,
-        step: fn(&Runs, Span, u8, bool, &mut Vec<Rect>),
-    ) -> Self {
+    fn stepping(source: &BitMatrix, tie: Tie, step: Step) -> Self {
         let (alone, source) = source.split_isolated();
         let source = &source;
 
@@ -1303,6 +1317,15 @@ fn scan_for_seed(rows: &Runs, cols: &Runs, tie: Tie) -> Option<Seed> {
 /// The seed spans positions `seed.start..=seed.end` on `line`, and each of
 /// those positions sits in exactly one crossing run, so the rectangle is
 /// as long as the seed and as deep as the shallowest run under it.
+/// How one seed turns into rectangles: the whole of it, every cell
+/// under it, or some of it.
+type Step = fn(&Runs, Span, u8, bool, &mut Vec<Rect>);
+
+/// [`sink`] as a step, for the paths that take a seed whole.
+fn sink_whole(crossing: &Runs, seed: Span, line: u8, seed_is_column: bool, out: &mut Vec<Rect>) {
+    out.push(sink(crossing, seed, line, seed_is_column));
+}
+
 fn sink(crossing: &Runs, seed: Span, line: u8, seed_is_column: bool) -> Rect {
     let (mut lo, mut hi) = (0u8, u8::MAX);
     for pos in seed.start..=seed.end {
@@ -1439,6 +1462,18 @@ mod tests {
                     quick.rects(),
                     slow.rects(),
                     "the queue and the scan disagree on {tie:?}"
+                );
+                assert_exact_partition(bits, &quick);
+
+                // And again for the step that covers every cell under
+                // its seed, which commits several rectangles at once and
+                // so leans on the queue harder.
+                let quick = Fastile::by_all_area(bits, tie);
+                let slow = Fastile::all_area_by_scanning(bits, tie);
+                assert_eq!(
+                    quick.rects(),
+                    slow.rects(),
+                    "the queue and the scan disagree on all area, {tie:?}"
                 );
                 assert_exact_partition(bits, &quick);
             }
