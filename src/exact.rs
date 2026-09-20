@@ -1,7 +1,7 @@
 //! The exact algorithm: the minimum partition, worked out rather than
 //! approached.
 //!
-//! Against it runmax-clipnmerge in [`crate::runmax_clipnmerge`] is measured,
+//! Against it runmax-clipnmerge in [`crate::RunmaxClipnmerge`] is measured,
 //! and against exhaustive search, the ground truth algorithm, this one
 //! is measured in turn.
 //!
@@ -47,11 +47,18 @@ struct Chord {
     to: u16,
 }
 
+/// The bitmap read as a region of the plane rather than a grid of
+/// cells, so that a lattice point outside the matrix can be asked about
+/// and answer "empty" rather than panic. Every corner and chord test
+/// looks just outside the cells it is about.
 struct Region<'a> {
     bits: &'a BitMatrix,
 }
 
 impl Region<'_> {
+    /// Whether the cell is in the region. Anything off the matrix is
+    /// not, which is what makes the boundary fall out of the same test
+    /// as the interior.
     fn filled(&self, x: i32, y: i32) -> bool {
         (0..WIDTH as i32).contains(&x)
             && (0..HEIGHT as i32).contains(&y)
@@ -171,6 +178,13 @@ fn matching(crosses: &[Vec<u32>], verticals: usize) -> (Vec<Option<u32>>, Vec<Op
     (left, right)
 }
 
+/// One round of Hungarian augmentation: tries to match horizontal
+/// chord `h`, taking a vertical chord from whatever already holds it
+/// if that one can be re-matched elsewhere.
+///
+/// `seen` and `stamp` stand in for clearing a visited array per round,
+/// which matters because a round runs per horizontal chord and there
+/// can be thousands of them.
 fn augment(
     h: usize,
     crosses: &[Vec<u32>],
@@ -241,6 +255,7 @@ struct Cuts {
 }
 
 impl Cuts {
+    /// No cut drawn anywhere.
     fn new() -> Self {
         Self {
             across: vec![false; CORNERS * CORNERS],
@@ -248,6 +263,8 @@ impl Cuts {
         }
     }
 
+    /// Where the lattice point `(x, y)` sits in the flat grids. There
+    /// are 257 of them per axis, one past each end of the cells.
     fn at(y: usize, x: usize) -> usize {
         y * CORNERS + x
     }
@@ -324,6 +341,8 @@ fn run_cut(region: &Region, cuts: &mut Cuts, cx: usize, cy: usize) {
 fn faces(region: &Region, cuts: &Cuts) -> Vec<Rect> {
     let mut parent: Vec<u32> = (0..(WIDTH * HEIGHT) as u32).collect();
 
+    /// The group a cell belongs to, flattening the chain on the way up
+    /// so the next lookup is shorter.
     fn find(parent: &mut [u32], mut i: u32) -> u32 {
         while parent[i as usize] != i {
             parent[i as usize] = parent[parent[i as usize] as usize];

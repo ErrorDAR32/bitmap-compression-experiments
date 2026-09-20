@@ -1,98 +1,42 @@
-//! Runmax-clipnmerge: rectangle meshing that works entirely on run
-//! lists, then rewrites what it built.
+//! Runmax: the mesh, and everything it is built out of.
 //!
-//! It buys its speed by paying up front. Reducing the bitmap to runs in
-//! both directions costs one pass over the machine words and nothing is
-//! decided by it, but every step afterwards works on a few hundred runs
-//! rather than 65536 cells. It answers close to the minimum rather than
-//! at it: 1.15% over on realistic input, in 0.58x the time the exact
-//! algorithm takes. See [`crate::exact`] for the one that is exact.
-//!
-//! # Runmax: the mesh
-//!
-//! Rows and columns are both reduced to runs once, up front. Each step
-//! takes the longest run still standing, in either orientation, and
-//! covers every cell under it: one rectangle per stretch of the seed
-//! whose crossing runs agree, each carried down as far as that run
-//! reaches. Both run lists are then updated to exclude what was taken,
-//! splitting a run in two where a rectangle cut through it.
-//!
-//! Two choices earn their keep, and both are choices to look at less.
-//!
-//! A seed is covered rather than searched. A step could instead hunt
-//! for the best rectangle lying along its seed, trading depth for
-//! count; scoring those cuts by area less a fixed charge per rectangle
-//! and sweeping the charge from nothing to unbounded improves the
-//! answer monotonically as the charge rises, and saturates once it is
-//! high enough to forbid cutting at all. There is no charge to tune
-//! here: covering every cell under the seed is what one rectangle per
-//! stretch of equal runs achieves, and nothing is searched.
+//! The bitmap is reduced to the cells still standing in both
+//! orientations, and every step afterwards works on those rather than
+//! on cells. Each step takes the longest run still standing, in either
+//! orientation, and covers every cell under it: one rectangle per
+//! stretch of the seed whose crossing runs agree, each carried down as
+//! far as that run reaches. Both sides are then carved to exclude what
+//! was taken.
 //!
 //! Covering meshes worse than taking the seed whole, deliberately, and
 //! that is the point. It lands at 84.27 rectangles per realistic bitmap
 //! against 76.06 for taking the seed whole, but the rectangles it
-//! leaves are thin, and thin rectangles are the ones the rewriting pass
-//! can do something with: 74.66 after the pass against 75.19.
+//! leaves are thin, and thin rectangles are the ones [`crate::grow`]
+//! can do something with: 74.66 after the rewriting pass against 75.19.
 //!
-//! Looking further ahead does not help. A step can run the same check
-//! on the runs crossing its seed and commit to a rectangle along one of
-//! those instead; across fourteen combinations of how to take each and
-//! which to prefer, the best managed 74.29 against 74.79 raw, and after
-//! the rewriting pass every one of them landed between 72.36 and 72.72.
-//! So there is nothing to rank within a step either.
-//!
-//! # Clip and merge: the rewrite
-//!
-//! [`RunmaxClipnmerge::compact`] is the other half, and
-//! [`crate::mutate`] holds it. A rectangle grows out over the standing cells, swallowing the
-//! neighbours it covers whole and clipping the ones it only partly
-//! covers; what is left over after that is given away between
-//! neighbours. Growing reclaims 9.49 rectangles per realistic bitmap
-//! and the giving-away another 0.12.
-//!
-//! Nothing here walks cells. A step costs the length of the seed run,
-//! not the width of the grid, and there are as many steps as there are
-//! rectangles in the mesh.
+//! Three structures carry a step. [`Runs`] holds what is standing, as
+//! bits. [`Queue`] holds the runs waiting to be seeded, bucketed by
+//! length. [`Level`] holds the runs tied at the longest length left,
+//! which is the only place the crossing area is ever consulted. Each
+//! one is there because a plainer version of it was measured and cost
+//! too much; the measurements are in their own docs.
 
-use crate::{BitMatrix, WIDTH};
+use crate::bits::{next_clear, next_set, prev_clear, range_mask, LINE_WORDS};
+use crate::{BitMatrix, Rect, WIDTH};
 use std::collections::BinaryHeap;
-
-/// An inclusive axis-aligned rectangle over the matrix's `u8` coordinate
-/// space.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Rect {
-    pub x0: u8,
-    pub y0: u8,
-    pub x1: u8,
-    pub y1: u8,
-}
-
-impl Rect {
-    /// A rectangle can span all 256 positions, which does not fit in a
-    /// `u8`, so extents are computed one size up.
-    pub fn width(&self) -> u16 {
-        self.x1 as u16 - self.x0 as u16 + 1
-    }
-
-    pub fn height(&self) -> u16 {
-        self.y1 as u16 - self.y0 as u16 + 1
-    }
-
-    pub fn area(&self) -> u32 {
-        self.width() as u32 * self.height() as u32
-    }
-}
 
 /// One run, as the inclusive positions it covers. Storing the end rather
 /// than a length keeps a run spanning all 256 positions representable.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct Span {
+pub(crate) struct Span {
     start: u8,
     end: u8,
 }
 
 impl Span {
-    fn len(&self) -> u16 {
+    /// How many positions the run covers. A `u16`, because a run can
+    /// span all 256 of them.
+    pub(crate) fn len(&self) -> u16 {
         self.end as u16 - self.start as u16 + 1
     }
 
@@ -108,9 +52,6 @@ impl Span {
     }
 }
 
-/// How many machine words hold one line of the matrix.
-const LINE_WORDS: usize = WIDTH / 64;
-
 /// The cells still standing, one bit apiece, on 256 lines. For rows,
 /// `lines[y]` holds the columns still standing in row `y`; for columns,
 /// `lines[x]` holds the rows still standing in column `x`. One is the
@@ -123,66 +64,8 @@ const LINE_WORDS: usize = WIDTH / 64;
 /// seed remembers are all a couple of word operations, where a list of
 /// spans per line answered the same questions with a binary search and
 /// paid for every carve with a splice.
-struct Runs {
+pub(crate) struct Runs {
     lines: Box<[[u64; LINE_WORDS]; 256]>,
-}
-
-/// The bits of `words[index]` lying in `lo..=hi`.
-fn range_mask(index: usize, lo: u8, hi: u8) -> u64 {
-    let base = index * 64;
-    let lo = (lo as usize).max(base);
-    let hi = (hi as usize).min(base + 63);
-    if lo > hi {
-        return 0;
-    }
-    (u64::MAX << (lo - base)) & (u64::MAX >> (base + 63 - hi))
-}
-
-/// The position of the next set bit at or after `from`, if any.
-fn next_set(words: &[u64], from: usize) -> Option<usize> {
-    let mut index = from / 64;
-    let mut word = words[index] & (u64::MAX << (from % 64));
-    loop {
-        if word != 0 {
-            return Some(index * 64 + word.trailing_zeros() as usize);
-        }
-        index += 1;
-        word = *words.get(index)?;
-    }
-}
-
-/// The position of the next clear bit at or after `from`, or the end.
-fn next_clear(words: &[u64], from: usize) -> usize {
-    let mut index = from / 64;
-    let mut word = !words[index] & (u64::MAX << (from % 64));
-    loop {
-        if word != 0 {
-            return index * 64 + word.trailing_zeros() as usize;
-        }
-        index += 1;
-        match words.get(index) {
-            Some(&next) => word = !next,
-            None => return words.len() * 64,
-        }
-    }
-}
-
-/// The position of the last clear bit strictly before `from`, or -1 when
-/// the line is set all the way back to its start.
-fn prev_clear(words: &[u64], from: usize) -> i32 {
-    let mut index = from / 64;
-    let bit = from % 64;
-    let mut word = !words[index] & (u64::MAX >> (64 - bit)) & if bit == 0 { 0 } else { u64::MAX };
-    loop {
-        if word != 0 {
-            return (index * 64) as i32 + 63 - word.leading_zeros() as i32;
-        }
-        if index == 0 {
-            return -1;
-        }
-        index -= 1;
-        word = !words[index];
-    }
 }
 
 impl Runs {
@@ -204,12 +87,12 @@ impl Runs {
     }
 
     /// Nothing standing anywhere.
-    fn blank() -> Self {
+    pub(crate) fn blank() -> Self {
         Self { lines: Box::new([[0; LINE_WORDS]; 256]) }
     }
 
     /// The same as [`Runs::of`], into lines that already exist.
-    fn rebuild(source: &BitMatrix, rows: &mut Self, cols: &mut Self) {
+    pub(crate) fn rebuild(source: &BitMatrix, rows: &mut Self, cols: &mut Self) {
         cols.lines.fill([0; LINE_WORDS]);
 
         // Where the column run still open at each position began.
@@ -283,7 +166,7 @@ impl Runs {
     /// whatever lay strictly inside is gone, so at most one piece
     /// survives on each side. Both are read off the bits outside the
     /// range, which clearing the range cannot disturb.
-    fn carve(&mut self, lines: (u8, u8), lo: u8, hi: u8, created: &mut Vec<(u8, Span)>) {
+    pub(crate) fn carve(&mut self, lines: (u8, u8), lo: u8, hi: u8, created: &mut Vec<(u8, Span)>) {
         for line in lines.0..=lines.1 {
             if !self.any_standing(line, lo, hi) {
                 continue;
@@ -308,7 +191,7 @@ impl Runs {
     }
 
     /// Every run standing, line by line and left to right.
-    fn for_each_run(&self, mut f: impl FnMut(u8, Span)) {
+    pub(crate) fn for_each_run(&self, mut f: impl FnMut(u8, Span)) {
         for line in 0..=u8::MAX {
             let words = &self.lines[line as usize];
             let mut pos = 0;
@@ -343,16 +226,24 @@ impl Runs {
 /// actually tied on length sidesteps that entirely, and costs nothing:
 /// the tie is the only place it was ever consulted.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-struct Seed {
+pub(crate) struct Seed {
     order: u32,
-    line: u8,
+    pub(crate) line: u8,
     start: u8,
     end: u8,
-    is_column: bool,
+    pub(crate) is_column: bool,
 }
 
 impl Seed {
-    fn new(line: u8, span: Span, is_column: bool) -> Self {
+    /// Packs the ranking as the run is named, so that the queue never
+    /// has to look at anything but `order` to compare two runs.
+    ///
+    /// The bits, from the top: fifteen of length, one set when the run
+    /// is a row, then the row and the column of its first cell, each
+    /// stored as `255 - v` so that a smaller coordinate sorts higher.
+    /// Reading the whole thing as one `u32` therefore orders by longest
+    /// first, then a row run over a column run, then upper-left-most.
+    pub(crate) fn new(line: u8, span: Span, is_column: bool) -> Self {
         let (y, x) = if is_column { (span.start, line) } else { (line, span.start) };
         Self {
             order: ((span.len() as u32) << 17)
@@ -366,16 +257,18 @@ impl Seed {
         }
     }
 
-    fn len(&self) -> u16 {
+    /// How many positions the run covers.
+    pub(crate) fn len(&self) -> u16 {
         self.end as u16 - self.start as u16 + 1
     }
 
-    fn span(&self) -> Span {
+    /// The run without the line it sits on.
+    pub(crate) fn span(&self) -> Span {
         Span { start: self.start, end: self.end }
     }
 
     /// Whether the run this names is still standing, unchanged.
-    fn standing(&self, rows: &Runs, cols: &Runs) -> bool {
+    pub(crate) fn standing(&self, rows: &Runs, cols: &Runs) -> bool {
         let side = if self.is_column { cols } else { rows };
         side.span_at(self.line, self.start) == Some(self.span())
     }
@@ -394,7 +287,7 @@ impl Seed {
 /// It meshes worse than taking the seed whole, deliberately. The
 /// rectangles it leaves are thin, and thin rectangles are the ones a
 /// rewriting pass can do something with.
-fn take_all_area(
+pub(crate) fn take_all_area(
     crossing: &Runs,
     seed: Span,
     line: u8,
@@ -496,7 +389,7 @@ const NO_SEED: u32 = u32::MAX;
 /// vectors that would each have to find their own size. Run and link
 /// are kept side by side rather than paired, because a pair of them is
 /// twelve bytes and a twelve-byte push is a call to memcpy.
-struct Queue {
+pub(crate) struct Queue {
     /// Every run pushed, in the order they were pushed.
     seeds: Vec<Seed>,
     /// For each of those, the slot of the next run in its bucket.
@@ -511,7 +404,9 @@ impl Queue {
     /// the arena having to find more.
     const EXPECTED: usize = 8192;
 
-    fn new() -> Self {
+    /// An empty queue, with room already found for the runs a
+    /// realistic bitmap will put through it.
+    pub(crate) fn new() -> Self {
         Self {
             seeds: Vec::with_capacity(Self::EXPECTED),
             next: Vec::with_capacity(Self::EXPECTED),
@@ -521,14 +416,21 @@ impl Queue {
     }
 
     /// Empties the queue, ready for another bitmap.
-    fn reset(&mut self) {
+    pub(crate) fn reset(&mut self) {
         self.seeds.clear();
         self.next.clear();
         self.heads.fill(NO_SEED);
         self.longest = 256;
     }
 
-    fn push(&mut self, seed: Seed) {
+    /// Files a run under its length: two writes and no comparison.
+    ///
+    /// Safe to do at any point in the mesh because a run's length never
+    /// changes. Carving either takes a run away or leaves it alone, and
+    /// what it leaves behind is a new run pushed in its own right, so a
+    /// run sitting in a bucket is either exactly what it says it is or
+    /// gone, and one lookup tells which.
+    pub(crate) fn push(&mut self, seed: Seed) {
         let length = seed.len() as usize;
         let slot = self.seeds.len() as u32;
         self.seeds.push(seed);
@@ -558,13 +460,28 @@ impl Queue {
     }
 }
 
-struct Level {
+/// The runs tied at the longest length left, ranked among themselves
+/// by crossing area.
+///
+/// Held apart from the queue because the two are ordered by figures
+/// that behave differently. Length never changes, so the queue can be
+/// left stale. Crossing area falls as the bitmap is carved, and a
+/// figure that improves cannot be left stale in an order that prefers
+/// it small, because a run that got better would sit buried under runs
+/// that had not. So the area is settled only among the runs actually
+/// tied on length, which is the only place it was ever consulted, and
+/// the ones a carve could have reached are recounted at once.
+pub(crate) struct Level {
+    /// The length every run in here is tied at.
     length: u16,
     /// Slot to run, and beside it the area in force for that run, or
     /// [`SPENT`]. Kept apart for the same reason the queue keeps its
     /// links apart from its runs.
     runs: Vec<Seed>,
     areas: Vec<u32>,
+    /// Slots by how good they look, best first. Rankings are pushed and
+    /// never updated in place, and a superseded one is recognised on
+    /// the way out by its area no longer matching the slot's.
     order: BinaryHeap<Ranked>,
     /// For each slot, the next slot in the same bucket. A run belongs
     /// to exactly one bucket, so the chains need no arena of their own:
@@ -579,15 +496,20 @@ struct Level {
     /// and nearly all of them are empty, so the range is walked as set
     /// bits rather than position by position.
     occupied: [[u64; LINE_WORDS]; 2],
+    /// The buckets holding anything, so that emptying the level walks
+    /// those rather than all five hundred.
     filled: Vec<usize>,
     /// The bucket the queue last handed over, standing or not.
     drawn: Vec<Seed>,
 }
 
 impl Level {
+    /// How many positions a run can start at, which is how wide each
+    /// orientation's half of the bucket array is.
     const POSITIONS: usize = 256;
 
-    fn new() -> Self {
+    /// An empty level. One is built per workspace and reused.
+    pub(crate) fn new() -> Self {
         Self {
             length: 0,
             runs: Vec::new(),
@@ -602,7 +524,7 @@ impl Level {
     }
 
     /// Empties the level, ready for another bitmap.
-    fn reset(&mut self) {
+    pub(crate) fn reset(&mut self) {
         for &bucket in &self.filled {
             self.heads[bucket] = NO_SEED;
         }
@@ -616,6 +538,9 @@ impl Level {
         self.drawn.clear();
     }
 
+    /// Which bucket a run belongs to: its orientation and where it
+    /// starts, which is everything [`Level::note`] needs to find the
+    /// runs a carve could have reached.
     fn bucket(is_column: bool, start: u8) -> usize {
         usize::from(is_column) * Self::POSITIONS + start as usize
     }
@@ -645,7 +570,7 @@ impl Level {
     /// A bucket can come back holding nothing but runs that have since
     /// been carved away, which is no level at all, so the cursor keeps
     /// descending until one of them is still standing.
-    fn draw(&mut self, queue: &mut Queue, rows: &Runs, cols: &Runs) {
+    pub(crate) fn draw(&mut self, queue: &mut Queue, rows: &Runs, cols: &Runs) {
         for &bucket in &self.filled {
             self.heads[bucket] = NO_SEED;
         }
@@ -690,7 +615,7 @@ impl Level {
     }
 
     /// The best run left in the level, or `None` once it is exhausted.
-    fn take_best(&mut self, rows: &Runs, cols: &Runs) -> Option<Seed> {
+    pub(crate) fn take_best(&mut self, rows: &Runs, cols: &Runs) -> Option<Seed> {
         while let Some(top) = self.order.pop() {
             let slot = top.slot as usize;
             let (seed, area) = (self.runs[slot], self.areas[slot]);
@@ -730,7 +655,7 @@ impl Level {
     /// ones overlapping its rows. A run of this level's length
     /// overlapping `lo..=hi` has to start somewhere in
     /// `lo - (length - 1) ..= hi`, so only those buckets are visited.
-    fn note(&mut self, rect: &Rect, rows: &Runs, cols: &Runs) {
+    pub(crate) fn note(&mut self, rect: &Rect, rows: &Runs, cols: &Runs) {
         for is_column in [false, true] {
             let (lo, hi) = if is_column { (rect.y0, rect.y1) } else { (rect.x0, rect.x1) };
             let first = (lo as i32 - self.length as i32 + 1).max(0) as u8;
@@ -777,183 +702,6 @@ impl Level {
         }
     }
 }
-
-/// A [`BitMatrix`] partitioned into rectangles by repeatedly taking the
-/// longest run still standing and covering every cell under it.
-/// The whole algorithm, and every buffer it works in.
-///
-/// Meshing and rewriting a bitmap needs a fair amount of room: a grid
-/// saying who owns each cell, run lines for both orientations, a queue
-/// of runs, edge indexes, and a dozen smaller lists. None of it depends
-/// on the bitmap, and all of it has a size the matrix fixes, so it is
-/// found once here and kept. A workspace weighs a few hundred kilobytes
-/// and is meant to be built once and fed bitmap after bitmap.
-///
-/// ```ignore
-/// let mut work = RunmaxClipnmerge::new();
-/// for bits in &bitmaps {
-///     let rects = work.partition(bits);
-/// }
-/// ```
-pub struct RunmaxClipnmerge {
-    /// The cells standing alone, and everything else. Cells standing
-    /// alone are forced to be 1x1, so they are set aside rather than
-    /// queued, seeded, carved and then checked against every neighbour
-    /// they do not have.
-    alone: BitMatrix,
-    rest: BitMatrix,
-    rows: Runs,
-    cols: Runs,
-    queue: Queue,
-    level: Level,
-    rects: Vec<Rect>,
-    plan: Vec<Rect>,
-    cut_rows: Vec<(u8, Span)>,
-    cut_cols: Vec<(u8, Span)>,
-    pass: crate::mutate::Pass,
-}
-
-impl Default for RunmaxClipnmerge {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl RunmaxClipnmerge {
-    pub fn new() -> Self {
-        Self {
-            alone: BitMatrix::new(),
-            rest: BitMatrix::new(),
-            rows: Runs::blank(),
-            cols: Runs::blank(),
-            queue: Queue::new(),
-            level: Level::new(),
-            rects: Vec::new(),
-            plan: Vec::new(),
-            cut_rows: Vec::new(),
-            cut_cols: Vec::new(),
-            pass: crate::mutate::Pass::new(),
-        }
-    }
-
-    /// Splits the bitmap's set bits into rectangles, and answers them.
-    ///
-    /// They are disjoint and cover every set bit exactly once. The slice
-    /// belongs to the workspace and lasts until the next bitmap.
-    pub fn partition(&mut self, source: &BitMatrix) -> &[Rect] {
-        self.partition_to(source, Some(crate::Far::Trimming))
-    }
-
-    /// The mesh alone, with no rewriting at all. A valid partition, and
-    /// a worse one: the mesh leaves thin rectangles on purpose.
-    #[doc(hidden)]
-    pub fn mesh(&mut self, source: &BitMatrix) -> &[Rect] {
-        self.partition_to(source, None)
-    }
-
-    /// [`Self::partition`] with the rewriting pass stopped after one of
-    /// its moves, or not run at all. For weighing each move against what
-    /// it costs.
-    #[doc(hidden)]
-    pub fn partition_to(&mut self, source: &BitMatrix, far: Option<crate::Far>) -> &[Rect] {
-        self.mesh_into(source);
-        if let Some(far) = far {
-            // Everything but the cells standing alone, which nothing can
-            // be done with, and which the mesh left at the end.
-            let movable = self.rects.len() - self.alone.count_set() as usize;
-            let solitary = self.rects.split_off(movable);
-            self.pass.compact_to(&mut self.rects, far);
-            self.rects.extend(solitary);
-        }
-        &self.rects
-    }
-
-    /// How many rectangles growing reclaims on its own, before anything
-    /// else has run. For measuring what the move is worth.
-    #[doc(hidden)]
-    pub fn absorb_only(&mut self, source: &BitMatrix) -> usize {
-        self.mesh_into(source);
-        let movable = self.rects.len() - self.alone.count_set() as usize;
-        let solitary = self.rects.split_off(movable);
-        let reclaimed = self.pass.absorb_only(&mut self.rects);
-        self.rects.extend(solitary);
-        reclaimed
-    }
-
-    /// Only the free half of the pass, which reclaims nothing on its
-    /// own. Kept so that claim stays measurable.
-    #[doc(hidden)]
-    pub fn dissolve_only(&mut self, source: &BitMatrix) -> usize {
-        self.mesh_into(source);
-        let movable = self.rects.len() - self.alone.count_set() as usize;
-        let solitary = self.rects.split_off(movable);
-        let reclaimed = self.pass.dissolve_only(&mut self.rects);
-        self.rects.extend(solitary);
-        reclaimed
-    }
-
-    /// Meshes the set bits, working the runs longest first and keeping
-    /// the ties in a queue rather than finding them by scanning every
-    /// run each step.
-    fn mesh_into(&mut self, source: &BitMatrix) {
-        source.split_isolated_into(&mut self.alone, &mut self.rest);
-
-        let Self { rows, cols, queue, level, rects, plan, cut_rows, cut_cols, .. } = self;
-        Runs::rebuild(&self.rest, rows, cols);
-        queue.reset();
-        rects.clear();
-        for (is_column, side) in [(false, &*rows), (true, &*cols)] {
-            side.for_each_run(|line, span| queue.push(Seed::new(line, span, is_column)));
-        }
-        level.reset();
-
-        loop {
-            let seed = match level.take_best(rows, cols) {
-                Some(seed) => seed,
-                None => {
-                    level.draw(queue, rows, cols);
-                    match level.take_best(rows, cols) {
-                        Some(seed) => seed,
-                        None => break,
-                    }
-                }
-            };
-
-            let crossing = if seed.is_column { &*rows } else { &*cols };
-            plan.clear();
-            take_all_area(crossing, seed.span(), seed.line, seed.is_column, plan);
-
-            for rect in plan.drain(..) {
-                cut_rows.clear();
-                cut_cols.clear();
-                rows.carve((rect.y0, rect.y1), rect.x0, rect.x1, cut_rows);
-                cols.carve((rect.x0, rect.x1), rect.y0, rect.y1, cut_cols);
-                level.note(&rect, rows, cols);
-                rects.push(rect);
-
-                // Whatever a carve leaves behind is a run in its own
-                // right, and shorter than the one it came from, so it
-                // belongs in the queue rather than the level being
-                // worked through.
-                for (pieces, is_column) in [(&*cut_rows, false), (&*cut_cols, true)] {
-                    for &(line, span) in pieces {
-                        queue.push(Seed::new(line, span, is_column));
-                    }
-                }
-            }
-        }
-
-        self.alone.for_each_set(|x, y| {
-            self.rects.push(Rect { x0: x, y0: y, x1: x, y1: y });
-        });
-    }
-}
-
-// ---------------------------------------------------------------------
-// The same answer, worked out by scanning every run each step instead of
-// keeping a queue. Slow, obviously right, and what the fast path is
-// checked against.
-// ---------------------------------------------------------------------
 
 /// The same mesh, worked out by scanning every run each step instead of
 /// keeping a queue. Slow, obviously right, and what the fast path is
@@ -1074,92 +822,6 @@ mod tests {
         }
     }
 
-    /// The queue has to reach the same partition as scanning every run
-    /// each step. This is the whole justification for the queue: it is
-    /// only worth keeping if it is the same answer, arrived at faster.
-    #[test]
-    fn the_queue_agrees_with_scanning_every_run() {
-        let mut cases = vec![BitMatrix::new()];
-
-        let mut full = BitMatrix::new();
-        full.set_rect(0, 0, 255, 255);
-        cases.push(full);
-
-        let mut plus = BitMatrix::new();
-        plus.set_rect(1, 0, 1, 2);
-        plus.set_rect(0, 1, 2, 1);
-        cases.push(plus);
-
-        let mut ring = BitMatrix::new();
-        ring.set_rect(4, 4, 40, 40);
-        ring.unset_rect(10, 10, 30, 30);
-        cases.push(ring);
-
-        // Ties on length everywhere, which is where the two could differ.
-        let mut ladder = BitMatrix::new();
-        for row in 0..20 {
-            ladder.set_rect(0, row * 3, 9, row * 3);
-            ladder.set_rect(row % 10, row * 3 + 1, row % 10, row * 3 + 2);
-        }
-        cases.push(ladder);
-
-        let mut checker = BitMatrix::new();
-        for y in 0..32u8 {
-            for x in 0..32u8 {
-                if (x + y).is_multiple_of(2) {
-                    checker.set(x, y);
-                }
-            }
-        }
-        cases.push(checker);
-
-        // Grown bitmaps across the range of both parameters, so that
-        // scattered cells, blobs and everything between are all put to
-        // the queue and the scan. Only a few seeds apiece: the scan is
-        // quadratic in the runs, and scattered cells are all run.
-        for seed in 0..3u64 {
-            for density in [0.02, 0.1, 0.35] {
-                for cluster in [0.0, 0.6, 0.95] {
-                    cases.push(BitMatrix::grown(seed, density, cluster));
-                }
-            }
-        }
-
-        // Small dense bitmaps, where ties are thickest. Grown bitmaps
-        // fill the whole matrix, so these are cut from a seed directly.
-        let mut seed = 0x243F6A8885A308D3u64;
-        for _ in 0..200 {
-            seed ^= seed << 13;
-            seed ^= seed >> 7;
-            seed ^= seed << 17;
-            let mut bits = BitMatrix::new();
-            for idx in 0..36 {
-                if seed & (1u64 << idx) != 0 {
-                    bits.set((idx % 6) as u8, (idx / 6) as u8);
-                }
-            }
-            cases.push(bits);
-        }
-
-        let mut work = RunmaxClipnmerge::new();
-        for bits in &cases {
-            let slow = mesh_by_scanning(bits);
-            let quick = work.mesh(bits);
-            assert_eq!(quick, slow.as_slice(), "the queue and the scan disagree");
-            assert_exact_partition(bits, quick);
-        }
-
-        // And the workspace has to give the same answer whichever
-        // bitmap it looked at last, which is the whole point of keeping
-        // it: nothing may survive from one bitmap into the next.
-        let mut reused = RunmaxClipnmerge::new();
-        let wanted: Vec<Vec<Rect>> =
-            cases.iter().map(|bits| work.partition(bits).to_vec()).collect();
-        for (bits, want) in cases.iter().zip(&wanted).rev() {
-            assert_eq!(reused.partition(bits), want.as_slice(), "the workspace kept something");
-        }
-    }
-
     /// The word-wise pass has to agree with reading every cell, on
     /// everything from an empty bitmap to a full one, including runs
     /// that end exactly on a word boundary and ones that run to 255.
@@ -1218,241 +880,5 @@ mod tests {
             }
             assert_same_runs(&bits);
         }
-    }
-
-    fn bits_from_rows(rows: &[&str]) -> BitMatrix {
-        let mut bits = BitMatrix::new();
-        for (y, row) in rows.iter().enumerate() {
-            for (x, cell) in row.bytes().enumerate() {
-                if cell == b'#' {
-                    bits.set(x as u8, y as u8);
-                }
-            }
-        }
-        bits
-    }
-
-    /// The invariant that matters: the rectangles cover exactly the set
-    /// bits, and never each other.
-    ///
-    /// Painting them into a matrix and comparing is linear in the grid.
-    /// Overlap then falls out of arithmetic rather than comparing every
-    /// pair: if the areas sum to more than the cells painted, two
-    /// rectangles covered the same cell.
-    fn assert_exact_partition(bits: &BitMatrix, rects: &[Rect]) {
-        let mut painted = BitMatrix::new();
-        for r in rects {
-            painted.set_rect(r.x0 as i64, r.y0 as i64, r.x1 as i64, r.y1 as i64);
-        }
-
-        for y in 0..=u8::MAX {
-            for x in 0..=u8::MAX {
-                assert_eq!(bits.get(x, y), painted.get(x, y), "mismatch at ({x}, {y})");
-            }
-        }
-
-        let total: u32 = rects.iter().map(|r| r.area()).sum();
-        assert_eq!(total, painted.count_set(), "rectangles overlap");
-    }
-
-    #[test]
-    fn empty_and_full() {
-        let mut work = RunmaxClipnmerge::new();
-        let empty = BitMatrix::new();
-        assert_eq!(work.mesh(&empty).len(), 0);
-
-        let mut full = BitMatrix::new();
-        full.set_rect(0, 0, 255, 255);
-        let mesh = work.mesh(&full).to_vec();
-        assert_eq!(mesh.as_slice(), &[Rect { x0: 0, y0: 0, x1: 255, y1: 255 }]);
-    }
-
-    #[test]
-    fn single_rectangle_comes_back_whole() {
-        let mut work = RunmaxClipnmerge::new();
-        let mut bits = BitMatrix::new();
-        bits.set_rect(10, 20, 40, 30);
-        let mesh = work.mesh(&bits).to_vec();
-        assert_eq!(mesh.as_slice(), &[Rect { x0: 10, y0: 20, x1: 40, y1: 30 }]);
-    }
-
-    #[test]
-    fn an_l_splits_into_its_arms() {
-        let mut work = RunmaxClipnmerge::new();
-        // An "L": a 3-wide top row and a 3-tall left column sharing
-        // corner (0,0). Both arms are runs of 3 with the same crossing
-        // area, the row wins the tie, and covering every cell under it
-        // takes the stem down its whole length and leaves the rest of
-        // the row.
-        let mut bits = BitMatrix::new();
-        bits.set(0, 0);
-        bits.set(1, 0);
-        bits.set(2, 0);
-        bits.set(0, 1);
-        bits.set(0, 2);
-
-        let mesh = work.mesh(&bits).to_vec();
-        assert_exact_partition(&bits, &mesh);
-        assert_eq!(
-            mesh.as_slice(),
-            &[
-                Rect { x0: 0, y0: 0, x1: 0, y1: 2 },
-                Rect { x0: 1, y0: 0, x1: 2, y1: 0 },
-            ]
-        );
-    }
-
-    /// A seed takes every cell standing under it, one rectangle per
-    /// stretch of equal crossing runs. A 6x1 row sits on a 2x2 block, so
-    /// the two columns under the block come off three deep and the four
-    /// beside it one deep -- where taking the row whole would have
-    /// stopped the lot at depth 1 and left the block behind.
-    #[test]
-    fn a_seed_covers_every_cell_under_it() {
-        let mut work = RunmaxClipnmerge::new();
-        let mut bits = BitMatrix::new();
-        bits.set_rect(0, 0, 5, 0);
-        bits.set_rect(0, 1, 1, 2);
-
-        let mesh = work.mesh(&bits).to_vec();
-        assert_exact_partition(&bits, &mesh);
-        assert_eq!(
-            mesh.as_slice(),
-            &[
-                Rect { x0: 0, y0: 0, x1: 1, y1: 2 },
-                Rect { x0: 2, y0: 0, x1: 5, y1: 0 },
-            ]
-        );
-    }
-
-    /// The worked 8x8 example, where ten rectangles is the proven
-    /// optimum. The mesh lands at twelve and the pass finds the other
-    /// two, which is the shape of the whole algorithm in one bitmap.
-    #[test]
-    fn worked_example_reaches_ten() {
-        let mut work = RunmaxClipnmerge::new();
-        let bits = bits_from_rows(&[
-            "####.###", "#..#.###", "####.###", "...#...#", "...##..#", "...#####", "########",
-            "##.#####",
-        ]);
-
-        let mut mesh = work.mesh(&bits).to_vec();
-        assert_exact_partition(&bits, &mesh);
-        assert_eq!(mesh.len(), 12, "the mesh is thin on purpose");
-
-        mesh = work.partition(&bits).to_vec();
-        assert_exact_partition(&bits, &mesh);
-        assert_eq!(mesh.len(), 10);
-    }
-
-    /// The 4x4 whose optimum is 3, reached from a mesh of five.
-    #[test]
-    fn adversarial_four_by_four_is_optimal() {
-        let mut work = RunmaxClipnmerge::new();
-        let bits = bits_from_rows(&["##..", ".###", "###.", "...."]);
-
-        let mut mesh = work.mesh(&bits).to_vec();
-        assert_exact_partition(&bits, &mesh);
-        assert_eq!(mesh.len(), 5, "the mesh is thin on purpose");
-
-        mesh = work.partition(&bits).to_vec();
-        assert_exact_partition(&bits, &mesh);
-        assert_eq!(mesh.len(), 3);
-    }
-
-    #[test]
-    fn rects_and_circles_with_holes_punched_out() {
-        let mut work = RunmaxClipnmerge::new();
-        let mut bits = BitMatrix::new();
-        bits.set_rect(10, 10, 40, 30);
-        bits.set_circle(180, 180, 25);
-        bits.unset_rect(20, 15, 30, 25);
-        bits.unset_circle(180, 180, 8);
-
-        let mesh = work.mesh(&bits).to_vec();
-        assert_exact_partition(&bits, &mesh);
-    }
-
-    #[test]
-    fn small_bitmaps_from_a_fixed_sequence_stay_exact_partitions() {
-        let mut work = RunmaxClipnmerge::new();
-        let mut seed = 0x243F6A8885A308D3u64;
-        let mut next = || {
-            seed ^= seed << 13;
-            seed ^= seed >> 7;
-            seed ^= seed << 17;
-            seed
-        };
-
-        for n in [3usize, 4, 5, 6] {
-            for _ in 0..150 {
-                let mut bits = BitMatrix::new();
-                let cells = next();
-                for idx in 0..(n * n) {
-                    if cells & (1u64 << idx) != 0 {
-                        bits.set((idx % n) as u8, (idx / n) as u8);
-                    }
-                }
-                let mesh = work.mesh(&bits).to_vec();
-                assert_exact_partition(&bits, &mesh);
-            }
-        }
-    }
-
-    /// Cells standing alone come out as themselves, and being set aside
-    /// does not disturb the shape they sit beside.
-    #[test]
-    fn cells_standing_alone_are_kept_whole() {
-        let mut work = RunmaxClipnmerge::new();
-        let mut bits = BitMatrix::new();
-        bits.set_rect(10, 10, 20, 20);
-        for (x, y) in [(0u8, 0u8), (100, 100), (255, 255), (5, 200)] {
-            bits.set(x, y);
-        }
-
-        let mut mesh = work.mesh(&bits).to_vec();
-        assert_exact_partition(&bits, &mesh);
-        assert_eq!(mesh.len(), 5, "the block and the four cells");
-        assert!(mesh.contains(&Rect { x0: 10, y0: 10, x1: 20, y1: 20 }));
-
-        // The pass has nothing to do with them and must leave them be.
-        mesh = work.partition(&bits).to_vec();
-        assert_exact_partition(&bits, &mesh);
-        assert_eq!(mesh.len(), 5);
-        for (x, y) in [(0u8, 0u8), (100, 100), (255, 255), (5, 200)] {
-            assert!(mesh.contains(&Rect { x0: x, y0: y, x1: x, y1: y }));
-        }
-    }
-
-    /// A single cell touching something is not standing alone, and still
-    /// has to be looked at.
-    #[test]
-    fn a_single_cell_with_a_neighbour_is_not_set_aside() {
-        let mut work = RunmaxClipnmerge::new();
-        // An L one cell wide: the corner cell is 1x1 in the answer but
-        // every cell here has a neighbour.
-        let bits = bits_from_rows(&["##", "#."]);
-        let mesh = work.partition(&bits).to_vec();
-        assert_exact_partition(&bits, &mesh);
-        assert_eq!(mesh.len(), 2);
-    }
-
-    /// The worst case: no two set cells touch, so every run is one cell
-    /// long and nothing ever merges.
-    #[test]
-    fn checkerboard_worst_case() {
-        let mut work = RunmaxClipnmerge::new();
-        let mut bits = BitMatrix::new();
-        for y in 0..=u8::MAX {
-            for x in 0..=u8::MAX {
-                if (x as u16 + y as u16).is_multiple_of(2) {
-                    bits.set(x, y);
-                }
-            }
-        }
-
-        let mesh = work.mesh(&bits).to_vec();
-        assert_eq!(mesh.len(), 32768);
-        assert_exact_partition(&bits, &mesh);
     }
 }
