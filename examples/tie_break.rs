@@ -35,7 +35,7 @@ fn main() {
 
     // The scan must agree with the queue, both ways round.
     for bits in maps.iter().take(100) {
-        for tie in [Tie::Least, Tie::Most] {
+        for tie in [Tie::Least, Tie::Most, Tie::Corners] {
             assert_eq!(
                 Fastile::by_scanning(bits, tie).rects(),
                 Fastile::with_tie(bits, tie).rects(),
@@ -47,7 +47,11 @@ fn main() {
 
     println!("1000 realistic bitmaps");
     let minimum: usize = maps.iter().map(|b| exact::partition(b).len()).sum();
-    for (label, tie) in [("least crossing area (shipped)", Tie::Least), ("most crossing area", Tie::Most)] {
+    for (label, tie) in [
+        ("least crossing area", Tie::Least),
+        ("most crossing area", Tie::Most),
+        ("reflex corners served", Tie::Corners),
+    ] {
         let (mut raw, mut done) = (0usize, 0usize);
         for bits in &maps {
             let mut mesh = Fastile::with_tie(bits, tie);
@@ -74,7 +78,7 @@ fn main() {
         let minimum: usize = maps.iter().map(|b| exact::partition(b).len()).sum();
 
         print!("  {n}x{n} ({} bitmaps, minimum {minimum}):", maps.len());
-        for tie in [Tie::Least, Tie::Most] {
+        for tie in [Tie::Least, Tie::Most, Tie::Corners] {
             let (mut raw, mut done) = (0usize, 0usize);
             for bits in &maps {
                 let mut mesh = Fastile::with_tie(bits, tie);
@@ -84,7 +88,7 @@ fn main() {
             }
             print!(
                 "   {} {:.1}% -> {:.1}%",
-                if tie == Tie::Least { "least" } else { "most" },
+                match tie { Tie::Least => "least", Tie::Most => "most", Tie::Corners => "corners" },
                 100.0 * (raw as f64 / minimum as f64 - 1.0),
                 100.0 * (done as f64 / minimum as f64 - 1.0)
             );
@@ -92,19 +96,48 @@ fn main() {
         println!();
     }
 
+    // How often the two rules pick the same seeds, not merely the same
+    // number of them.
+    let (mut same, mut differ, mut by_count) = (0u32, 0u32, 0u32);
+    let mut agreement = |bits: &bitmatrix::BitMatrix| {
+        let least = Fastile::with_tie(bits, Tie::Least);
+        let corners = Fastile::with_tie(bits, Tie::Corners);
+        if least.rects() == corners.rects() {
+            same += 1;
+        } else {
+            differ += 1;
+            if least.rects().len() != corners.rects().len() {
+                by_count += 1;
+            }
+        }
+    };
+    for bits in maps.iter().take(300) {
+        agreement(bits);
+    }
+    let mut seq = Sequence::from(0x2545F4914F6CDD1D);
+    for n in [4usize, 5, 6, 8] {
+        for _ in 0..2000 {
+            agreement(&corpus::small(&mut seq, n));
+        }
+    }
+    println!(
+        "\nleast and corners reach the same partition on {same} of {} bitmaps;\nof the {differ} that differ, {by_count} differ in how many rectangles",
+        same + differ
+    );
+
     println!("\ntiled worst cases");
     for (name, rows) in corpus::WORST {
         let bits = corpus::tiled(rows);
         let minimum = exact::partition(&bits).len();
         print!("  {name:<22} minimum {minimum:>6}:");
-        for tie in [Tie::Least, Tie::Most] {
+        for tie in [Tie::Least, Tie::Most, Tie::Corners] {
             let mut mesh = Fastile::with_tie(&bits, tie);
             mesh.compact();
             corpus::assert_partition(&bits, mesh.rects(), name);
             let (_, took) = timed(std::slice::from_ref(&bits), tie);
             print!(
                 "   {} {:>6} ({:.2}x) in {:>7.1?}",
-                if tie == Tie::Least { "least" } else { "most" },
+                match tie { Tie::Least => "least", Tie::Most => "most", Tie::Corners => "corners" },
                 mesh.rects().len(),
                 mesh.rects().len() as f64 / minimum as f64,
                 took

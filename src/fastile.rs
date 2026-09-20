@@ -322,6 +322,28 @@ pub enum Tie {
     Least,
     /// The most, which is what this used to do.
     Most,
+    /// The run whose rectangle lays the most of its edges along chords,
+    /// and the least crossing area after that.
+    ///
+    /// This is the exact algorithm's economy, borrowed. A reflex corner
+    /// has to have a cut running out of it, and a cut running between
+    /// two of them serves both at once, which is the only saving there
+    /// is; an edge with a reflex corner at each end is such a cut.
+    ///
+    /// Measured, it is the same rule as [`Tie::Least`] wearing a
+    /// different hat. The two reach the same partition on 7994 of 8300
+    /// bitmaps, and where they differ it is a wash: 1.8% over the exact
+    /// answer on every 4x4 for both, 2.3% on 6x6 for both, and the same
+    /// counts on all three of the worst cases found by search. It just
+    /// costs three to five times as much to work out.
+    ///
+    /// Which says something about why least crossing area works at all.
+    /// A run with little standing in the runs that cross it sits in a
+    /// thin part of the shape, where its rectangle's edges run out to
+    /// the boundary rather than into open interior -- which is what
+    /// laying an edge along a chord means. The cheap rule was already
+    /// the corner rule.
+    Corners,
 }
 
 /// A run waiting to be seeded.
@@ -382,6 +404,43 @@ impl Seed {
 
 }
 
+/// Whether the cell is still standing, read off the row runs.
+fn filled(rows: &Runs, x: i32, y: i32) -> bool {
+    (0..256).contains(&x)
+        && (0..256).contains(&y)
+        && rows.span_at(y as u8, x as u8).is_some()
+}
+
+/// Whether three of the four cells around a lattice point are standing,
+/// which is what makes it a corner a partition owes a cut to.
+fn is_reflex(rows: &Runs, cx: i32, cy: i32) -> bool {
+    let around = [
+        filled(rows, cx - 1, cy - 1),
+        filled(rows, cx, cy - 1),
+        filled(rows, cx - 1, cy),
+        filled(rows, cx, cy),
+    ];
+    around.iter().filter(|q| **q).count() == 3
+}
+
+/// How many of the rectangle a seed would carve land on reflex corners.
+fn corners_served(seed: &Seed, rows: &Runs, cols: &Runs) -> u32 {
+    let crossing = if seed.is_column { rows } else { cols };
+    let rect = sink(crossing, seed.span(), seed.line, seed.is_column);
+    let (left, right) = (rect.x0 as i32, rect.x1 as i32 + 1);
+    let (top, bottom) = (rect.y0 as i32, rect.y1 as i32 + 1);
+
+    let (tl, tr) = (is_reflex(rows, left, top), is_reflex(rows, right, top));
+    let (bl, br) = (is_reflex(rows, left, bottom), is_reflex(rows, right, bottom));
+
+    // An edge with a reflex corner at each end is a chord: one cut that
+    // serves both, which is the only saving the exact algorithm has.
+    [tl && tr, bl && br, tl && bl, tr && br]
+        .into_iter()
+        .filter(|chord| *chord)
+        .count() as u32
+}
+
 /// How much area stands in the runs crossing a seed.
 fn crossing_area(seed: &Seed, rows: &Runs, cols: &Runs) -> u32 {
     let crossing = if seed.is_column { rows } else { cols };
@@ -413,6 +472,17 @@ const SPENT: u32 = u32::MAX;
 /// Marks a run whose area has not been counted yet, and which is
 /// standing in the queue at the best figure it could possibly have.
 const UNCOUNTED: u32 = u32::MAX - 1;
+
+/// What a seed is judged by, once the tie on length has to be settled:
+/// the crossing area, with the corners its rectangle would serve above
+/// it when those are being counted.
+fn measure(seed: &Seed, rows: &Runs, cols: &Runs, tie: Tie) -> u32 {
+    let area = crossing_area(seed, rows, cols);
+    match tie {
+        Tie::Least | Tie::Most => area,
+        Tie::Corners => (corners_served(seed, rows, cols) << 17) | area,
+    }
+}
 
 /// The runs tied at the longest length left, which is the only place the
 /// crossing area is consulted.
@@ -457,12 +527,13 @@ impl Level {
     /// Ranks an area so the better one sorts higher, whichever way the
     /// tie goes. Seventeen bits hold an area, which cannot exceed the
     /// 65536 cells of the matrix.
-    fn key(&self, seed: &Seed, area: u32, tie: Tie) -> u64 {
+    fn key(&self, seed: &Seed, figure: u32, tie: Tie) -> u64 {
+        let (served, area) = (figure >> 17, figure & 0x1_FFFF);
         let by_area = match tie {
-            Tie::Least => 0x1_FFFF - area,
             Tie::Most => area,
+            Tie::Least | Tie::Corners => 0x1_FFFF - area,
         };
-        ((by_area as u64) << 26) | seed.order as u64
+        ((served as u64) << 43) | ((by_area as u64) << 26) | seed.order as u64
     }
 
     /// The best figure a run of this length could have, which is one
@@ -479,6 +550,7 @@ impl Level {
         match tie {
             Tie::Least => self.length as u32,
             Tie::Most => self.length as u32 * 256,
+            Tie::Corners => (4 << 17) | self.length as u32,
         }
     }
 
@@ -537,7 +609,7 @@ impl Level {
             // Standing at its best possible figure, so settle it and let
             // it find its real place.
             if area == UNCOUNTED {
-                let counted = crossing_area(&seed, rows, cols);
+                let counted = measure(&seed, rows, cols, tie);
                 self.runs[slot].1 = counted;
                 self.order.push(Ranked {
                     key: self.key(&seed, counted, tie),
@@ -557,14 +629,17 @@ impl Level {
     ///
     /// A run of this level's length overlapping `lo..=hi` has to start
     /// somewhere in `lo - (length - 1) ..= hi`, so only those buckets
-    /// are visited.
+    /// are visited. The stretch is widened by one at each end, because
+    /// whether a rectangle's corner lands on a reflex corner is decided
+    /// by the cells just outside it as well as the ones under it.
     fn note(&mut self, rect: &Rect, rows: &Runs, cols: &Runs, tie: Tie) {
         for is_column in [false, true] {
             let (lo, hi) = if is_column { (rect.y0, rect.y1) } else { (rect.x0, rect.x1) };
-            let first = lo.saturating_sub((self.length - 1) as u8);
+            let first = (lo as i32 - self.length as i32).max(0) as u8;
+            let last = (hi as i32 + 1).min(u8::MAX as i32) as u8;
 
             self.scratch.clear();
-            for start in first..=hi {
+            for start in first..=last {
                 self.scratch
                     .extend_from_slice(&self.buckets[Self::bucket(is_column, start)]);
             }
@@ -577,7 +652,13 @@ impl Level {
                 if area == SPENT || area == UNCOUNTED {
                     continue;
                 }
-                let now = crossing_area(&seed, rows, cols);
+                // The carve may have taken it away rather than merely
+                // reached it, and there is nothing left to measure then.
+                if !seed.standing(rows, cols) {
+                    self.runs[slot].1 = SPENT;
+                    continue;
+                }
+                let now = measure(&seed, rows, cols, tie);
                 if now != area {
                     self.runs[slot].1 = now;
                     self.order.push(Ranked {
@@ -758,17 +839,26 @@ fn scan_for_seed(rows: &Runs, cols: &Runs, tie: Tie) -> Option<Seed> {
                     continue;
                 }
                 let seed = Seed::new(line as u8, *span, is_column);
-                let area = crossing_area(&seed, rows, cols);
+                let figure = measure(&seed, rows, cols, tie);
                 let better = match best {
                     None => true,
-                    Some((top, top_area)) => match (area == top_area, tie) {
-                        (true, _) => seed.order > top.order,
-                        (false, Tie::Least) => area < top_area,
-                        (false, Tie::Most) => area > top_area,
-                    },
+                    Some((top, top_figure)) => {
+                        let served = (figure >> 17, top_figure >> 17);
+                        let area = (figure & 0x1_FFFF, top_figure & 0x1_FFFF);
+                        if served.0 != served.1 {
+                            served.0 > served.1
+                        } else if area.0 != area.1 {
+                            match tie {
+                                Tie::Most => area.0 > area.1,
+                                Tie::Least | Tie::Corners => area.0 < area.1,
+                            }
+                        } else {
+                            seed.order > top.order
+                        }
+                    }
                 };
                 if better {
-                    best = Some((seed, area));
+                    best = Some((seed, figure));
                 }
             }
         }
@@ -912,7 +1002,7 @@ mod tests {
         }
 
         for bits in &cases {
-            for tie in [Tie::Least, Tie::Most] {
+            for tie in [Tie::Least, Tie::Most, Tie::Corners] {
                 let quick = Fastile::with_tie(bits, tie);
                 let slow = Fastile::by_scanning(bits, tie);
                 assert_eq!(
