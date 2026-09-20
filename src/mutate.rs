@@ -27,6 +27,10 @@
 //! cut clean across a neighbour rather than a corner taken out of it.
 //! That costs a rectangle and reclaims one, so it breaks even and is only
 //! worth making when it opens a free dissolve that was not there before.
+//! Whether it does is decided by looking only at the rectangles the trim
+//! touches and the ones sitting against them, which is sound because a
+//! dissolve whose rectangles all stood still was available before the
+//! trim as well.
 //! Taken that way it improves a further 6.6% of 4x4 bitmaps on top of
 //! what the free moves manage, and the two together close almost the
 //! whole gap to the exhaustive optimum: 4.8% over to 0.2% on 4x4, 5.2% to
@@ -332,14 +336,21 @@ impl Axis {
     }
 }
 
-/// Gives `a` away with its takers trimmed to fit, writing the rewritten
-/// list into `out`. Answers whether a tiling of `a` costing exactly one
-/// trim was found; `out` is untouched when it was not.
+/// A break-even rewrite: give `a` away, trimming one taker to fit and
+/// leaving the part of it that did not fit standing on its own.
+struct Trim {
+    axis: Axis,
+    takers: Vec<usize>,
+    offcut: Rect,
+}
+
+/// Works out how to give `a` away with its takers trimmed to fit, when
+/// exactly one trim does it. Nothing is written to `rects`.
 ///
-/// Reclaiming `a` is worth one rectangle and each trim costs one, so a
-/// single trim breaks even. It is only worth making as a step towards a
-/// free dissolve that was not available before.
-fn trimmed(rects: &[Rect], edges: &Edges, a: usize, axis: Axis, out: &mut Vec<Rect>) -> bool {
+/// Reclaiming `a` is worth one rectangle and the trim costs one, so the
+/// rewrite breaks even. It is only worth making as a step towards a free
+/// dissolve that was not available before.
+fn trim_plan(rects: &[Rect], edges: &Edges, a: usize, axis: Axis, out: &mut Trim) -> bool {
     let given = rects[a];
     let (lo, hi) = axis.span(&given);
     let width = hi as usize - lo as usize + 1;
@@ -381,35 +392,157 @@ fn trimmed(rects: &[Rect], edges: &Edges, a: usize, axis: Axis, out: &mut Vec<Re
         return false;
     }
 
-    let mut takers = Vec::new();
+    out.axis = axis;
+    out.takers.clear();
     let mut pos = width;
     while pos > 0 {
         let (b, back) = from[pos].expect("a costed position carries the face that reached it");
-        takers.push(b);
+        out.takers.push(b);
         pos = back;
     }
 
+    // Exactly one taker overhangs, and what hangs over becomes the offcut.
+    let over = out
+        .takers
+        .iter()
+        .copied()
+        .find(|&b| {
+            let (blo, bhi) = axis.span(&rects[b]);
+            blo < lo || bhi > hi
+        })
+        .expect("a tiling costing one trim has one taker to trim");
+    let (blo, bhi) = axis.span(&rects[over]);
+    out.offcut = rects[over];
+    if blo < lo {
+        axis.set_span(&mut out.offcut, blo, lo - 1);
+    } else {
+        axis.set_span(&mut out.offcut, hi + 1, bhi);
+    }
+
+    true
+}
+
+/// Whether a trim would open a free dissolve that was not there before.
+///
+/// This filter is what keeps the search affordable: without it every trim
+/// that merely fits costs a full dissolve to evaluate, and nearly all of
+/// them lead nowhere.
+///
+/// It is enough to look near the change. A dissolve needs a rectangle and
+/// the neighbours its span is tiled by; if none of those rectangles moved,
+/// the dissolve was available before the trim as well. So a dissolve that
+/// is new must have a rectangle the trim touched either as the one being
+/// given away or as one of the takers, which leaves only those rectangles
+/// and the ones sitting against them to check.
+///
+/// Neighbours are read from the index as it stood before the trim, which
+/// stays sorted and correct for everything the trim did not touch; the
+/// few that it did are carried alongside and checked by hand.
+fn trim_opens_dissolve(
+    before: &[Rect],
+    after: &[Rect],
+    edges: &Edges,
+    changed: &[usize],
+) -> bool {
+    let mut seen: Vec<usize> = changed.to_vec();
+    for &c in changed {
+        for axis in [Axis::Vertical, Axis::Horizontal] {
+            let (lo, hi) = axis.span(&after[c]);
+            for (side, line) in axis.faces(&after[c]).into_iter().enumerate() {
+                let Some(line) = line else { continue };
+                for &b in edges.overlapping(axis, side, line, lo, hi, before) {
+                    if !seen.contains(&b) {
+                        seen.push(b);
+                    }
+                }
+            }
+        }
+    }
+
+    seen.iter()
+        .any(|&x| [Axis::Vertical, Axis::Horizontal].into_iter().any(|axis| dissolves(x, after, before, edges, changed, axis)))
+}
+
+/// Whether `x` can be given away whole, against the rewritten list.
+fn dissolves(
+    x: usize,
+    after: &[Rect],
+    before: &[Rect],
+    edges: &Edges,
+    changed: &[usize],
+    axis: Axis,
+) -> bool {
+    let (lo, hi) = axis.span(&after[x]);
+    let width = hi as usize - lo as usize + 1;
+
+    let mut faces: Vec<(usize, usize)> = Vec::new();
+    let offer = |b: usize, faces: &mut Vec<(usize, usize)>| {
+        if b == x || !touches(&after[x], &after[b], axis) {
+            return;
+        }
+        let (blo, bhi) = axis.span(&after[b]);
+        if blo < lo || bhi > hi {
+            return;
+        }
+        faces.push((blo as usize - lo as usize, bhi as usize - lo as usize + 1));
+    };
+
+    for (side, line) in axis.faces(&after[x]).into_iter().enumerate() {
+        let Some(line) = line else { continue };
+        for &b in edges.overlapping(axis, side, line, lo, hi, before) {
+            if !changed.contains(&b) {
+                offer(b, &mut faces);
+            }
+        }
+    }
+    for &c in changed {
+        offer(c, &mut faces);
+    }
+
+    let mut open = vec![false; width + 1];
+    open[0] = true;
+    for pos in 0..width {
+        if !open[pos] {
+            continue;
+        }
+        for &(start, end) in &faces {
+            if start == pos {
+                open[end] = true;
+            }
+        }
+    }
+
+    open[width]
+}
+
+/// Whether `other` sits against one of `a`'s faces across `axis`.
+fn touches(a: &Rect, other: &Rect, axis: Axis) -> bool {
+    let (before, after) = match axis {
+        Axis::Vertical => ((other.y1, a.y0), (other.y0, a.y1)),
+        Axis::Horizontal => ((other.x1, a.x0), (other.x0, a.x1)),
+    };
+    before.0 as u16 + 1 == before.1 as u16 || after.0 as u16 == after.1 as u16 + 1
+}
+
+/// Writes a planned trim into a fresh list.
+///
+/// A trim gives one rectangle away and leaves one offcut, so the list is
+/// the same length and the offcut can simply take the given rectangle's
+/// place. Keeping every index where it was is what lets the index built
+/// before the trim still be read afterwards.
+fn apply_trim(rects: &[Rect], a: usize, trim: &Trim, out: &mut Vec<Rect>) {
+    let given = rects[a];
+    let axis = trim.axis;
+    let (lo, hi) = axis.span(&given);
+
     out.clear();
     out.extend_from_slice(rects);
-    let mut offcuts = Vec::new();
-    for &b in &takers {
+    for &b in &trim.takers {
         let (blo, bhi) = axis.span(&out[b]);
-        if blo < lo {
-            let mut piece = out[b];
-            axis.set_span(&mut piece, blo, lo - 1);
-            offcuts.push(piece);
-        }
-        if bhi > hi {
-            let mut piece = out[b];
-            axis.set_span(&mut piece, hi + 1, bhi);
-            offcuts.push(piece);
-        }
         axis.set_span(&mut out[b], blo.max(lo), bhi.min(hi));
         axis.absorb(&mut out[b], &given);
     }
-    out.swap_remove(a);
-    out.extend(offcuts);
-    true
+    out[a] = trim.offcut;
 }
 
 /// Dissolving, plus break-even moves taken only when they open up a
@@ -420,15 +553,29 @@ pub fn compact(rects: &mut Vec<Rect>) -> usize {
     let mut work = Work::new();
     let mut index = Edges::new();
     let mut candidate = Vec::new();
+    let mut trim = Trim {
+        axis: Axis::Vertical,
+        takers: Vec::new(),
+        offcut: Rect { x0: 0, y0: 0, x1: 0, y1: 0 },
+    };
+    let mut changed: Vec<usize> = Vec::new();
     dissolve(rects, &mut work);
 
     'again: loop {
         index.rebuild(rects);
         for a in 0..rects.len() {
             for axis in [Axis::Vertical, Axis::Horizontal] {
-                if !trimmed(rects, &index, a, axis, &mut candidate) {
+                if !trim_plan(rects, &index, a, axis, &mut trim) {
                     continue;
                 }
+                apply_trim(rects, a, &trim, &mut candidate);
+                changed.clear();
+                changed.push(a);
+                changed.extend_from_slice(&trim.takers);
+                if !trim_opens_dissolve(rects, &candidate, &index, &changed) {
+                    continue;
+                }
+
                 dissolve(&mut candidate, &mut work);
                 if candidate.len() < rects.len() {
                     std::mem::swap(rects, &mut candidate);
@@ -528,14 +675,18 @@ mod tests {
     fn a_trim_breaks_even_and_is_rolled_back() {
         let before = vec![r(0, 0, 2, 0), r(0, 1, 1, 1)];
         let mut rewritten = Vec::new();
+        let mut trim = Trim {
+            axis: Axis::Vertical,
+            takers: Vec::new(),
+            offcut: Rect { x0: 0, y0: 0, x1: 0, y1: 0 },
+        };
+        let mut index = Edges::new();
+        index.rebuild(&before);
         assert!(
-            {
-                let mut index = Edges::new();
-                index.rebuild(&before);
-                trimmed(&before, &index, 1, Axis::Vertical, &mut rewritten)
-            },
+            trim_plan(&before, &index, 1, Axis::Vertical, &mut trim),
             "one trim fits"
         );
+        apply_trim(&before, 1, &trim, &mut rewritten);
         assert_eq!(rewritten.len(), before.len());
         assert_eq!(
             area(&rewritten),
