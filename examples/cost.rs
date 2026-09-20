@@ -21,7 +21,11 @@
 //! two algorithms alone. Building a corpus is not free and has no
 //! business in either figure.
 //!
-//! Run it with no arguments. It needs `valgrind` on the path.
+//! Run it with no arguments, or with a seed to start the grown bitmaps
+//! from. The same seed gives the same bitmaps, so two runs of this are
+//! comparable down to the instruction; a fresh seed asks whether what
+//! the last one showed was about the algorithm or about those bitmaps.
+//! It needs `valgrind` on the path.
 
 #[path = "corpus.rs"]
 #[allow(dead_code)]
@@ -49,12 +53,13 @@ impl Doing {
 }
 
 /// The cases, named by the argument that builds them. A grown case is
-/// `grown:<density>:<cluster>`.
-fn cases() -> Vec<String> {
+/// `grown:<density>:<cluster>:<seed>`, carrying the seed so that the
+/// child runs build the same bitmaps the parent asked for.
+fn cases(from: u64) -> Vec<String> {
     let mut named: Vec<String> = Vec::new();
     for density in ["0.05", "0.20", "0.50"] {
         for cluster in ["0.00", "0.70", "0.95"] {
-            named.push(format!("grown:{density}:{cluster}"));
+            named.push(format!("grown:{density}:{cluster}:{from}"));
         }
     }
     named.push("realistic".into());
@@ -73,10 +78,11 @@ const GROWN: u64 = 4;
 
 fn build(case: &str) -> Vec<BitMatrix> {
     if let Some(rest) = case.strip_prefix("grown:") {
-        let (density, cluster) = rest.split_once(':').expect("density and cluster");
-        let density: f64 = density.parse().expect("a density");
-        let cluster: f64 = cluster.parse().expect("a cluster weight");
-        return (0..GROWN).map(|seed| BitMatrix::grown(seed, density, cluster)).collect();
+        let mut fields = rest.split(':');
+        let density: f64 = fields.next().expect("a density").parse().expect("a density");
+        let cluster: f64 = fields.next().expect("a cluster").parse().expect("a cluster");
+        let from: u64 = fields.next().expect("a seed").parse().expect("a seed");
+        return (from..from + GROWN).map(|s| BitMatrix::grown(s, density, cluster)).collect();
     }
     match case {
         "realistic" => corpus::realistic(50),
@@ -137,7 +143,8 @@ fn count(case: &str, doing: Doing) -> Option<(u64, u64, u64)> {
 
 fn main() {
     let mut args = std::env::args().skip(1);
-    if args.next().as_deref() == Some("run") {
+    let first = args.next();
+    if first.as_deref() == Some("run") {
         let case = args.next().expect("a case to run");
         let doing = match args.next().as_deref() {
             Some("partition") => Doing::Partitioning,
@@ -148,18 +155,19 @@ fn main() {
         return;
     }
 
-    println!("counted under callgrind, the corpus build taken out:");
+    let from: u64 = first.and_then(|arg| arg.parse().ok()).unwrap_or(0);
+    println!("counted under callgrind, the corpus build taken out, seeds from {from}:");
     println!(
-        "  {:<20} {:>8} {:>7} {:>8} {:>10} {:>12} {:>12}",
+        "  {:<24} {:>8} {:>7} {:>8} {:>10} {:>12} {:>12}",
         "", "cells", "rects", "fewest", "per cell", "bias", "exact's bias"
     );
 
-    for case in cases() {
+    for case in cases(from) {
         let counted = [Doing::Building, Doing::Partitioning, Doing::Solving]
             .map(|doing| count(&case, doing));
         let [Some((bare, cells, _)), Some((mesh, _, rects)), Some((solved, _, fewest))] = counted
         else {
-            println!("  {case:<20}   (could not run valgrind)");
+            println!("  {case:<24}   (could not run valgrind)");
             continue;
         };
 
@@ -167,7 +175,7 @@ fn main() {
         let theirs = solved.saturating_sub(bare);
         let over = rects as f64 / fewest.max(1) as f64;
         println!(
-            "  {case:<20} {cells:>8} {rects:>7} {fewest:>8} {:>10.1} {:>12.0} {:>12.0}",
+            "  {case:<24} {cells:>8} {rects:>7} {fewest:>8} {:>10.1} {:>12.0} {:>12.0}",
             ours as f64 / cells.max(1) as f64,
             ours as f64 * over,
             theirs as f64,
