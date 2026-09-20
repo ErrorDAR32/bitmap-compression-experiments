@@ -822,6 +822,13 @@ impl RunmaxClipnmerge {
         self.without_the_alone(crate::mutate::absorb_only)
     }
 
+    /// [`Self::compact`], stopped after one of its moves. For weighing
+    /// each move against what it costs.
+    #[doc(hidden)]
+    pub fn compact_to(&mut self, far: crate::Far) -> usize {
+        self.without_the_alone(|rects| crate::mutate::compact_to(rects, far))
+    }
+
     /// Only the free half of [`Self::compact`], which reclaims nothing on
     /// its own. Kept so that claim stays measurable.
     #[doc(hidden)]

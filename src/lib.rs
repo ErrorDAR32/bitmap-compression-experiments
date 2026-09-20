@@ -13,6 +13,7 @@
 mod mutate;
 pub mod exact;
 mod runmax_clipnmerge;
+pub use mutate::Far;
 pub use runmax_clipnmerge::{Rect, RunmaxClipnmerge};
 
 pub const WIDTH: usize = 256;

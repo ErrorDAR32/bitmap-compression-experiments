@@ -1142,7 +1142,21 @@ pub fn absorb_only(rects: &mut Vec<Rect>) -> usize {
     absorb(rects)
 }
 
+/// How far [`compact`] goes, for weighing each move against its cost.
+#[doc(hidden)]
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Far {
+    Growing,
+    Dissolving,
+    Trimming,
+}
+
 pub fn compact(rects: &mut Vec<Rect>) -> usize {
+    compact_to(rects, Far::Trimming)
+}
+
+#[doc(hidden)]
+pub fn compact_to(rects: &mut Vec<Rect>, far: Far) -> usize {
     let started = rects.len();
     let mut work = Work::new();
     let mut index = Edges::new();
@@ -1155,7 +1169,13 @@ pub fn compact(rects: &mut Vec<Rect>) -> usize {
     let mut changed: Vec<usize> = Vec::new();
     let mut bench = Bench::default();
     absorb(rects);
+    if far == Far::Growing {
+        return started - rects.len();
+    }
     dissolve(rects, &mut work);
+    if far == Far::Dissolving {
+        return started - rects.len();
+    }
 
     'again: loop {
         index.rebuild(rects);
