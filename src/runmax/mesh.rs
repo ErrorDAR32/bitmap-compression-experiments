@@ -11,7 +11,7 @@
 //! Covering meshes worse than taking the seed whole, deliberately, and
 //! that is the point. It lands at 84.27 rectangles per realistic bitmap
 //! against 76.06 for taking the seed whole, but the rectangles it
-//! leaves are thin, and thin rectangles are the ones [`crate::grow`]
+//! leaves are thin, and thin rectangles are the ones [`crate::runmax::grow`]
 //! can do something with: 74.66 after the rewriting pass against 75.19.
 //!
 //! Three structures carry a step. [`Runs`] holds what is standing, as
@@ -21,7 +21,7 @@
 //! one is there because a plainer version of it was measured and cost
 //! too much; the measurements are in their own docs.
 
-use crate::bits::{next_clear, next_set, prev_clear, range_mask, LINE_WORDS};
+use crate::runmax::bits::{next_clear, next_set, prev_clear, range_mask, LINE_WORDS};
 use crate::{BitMatrix, Rect, WIDTH};
 use std::collections::BinaryHeap;
 
@@ -848,37 +848,14 @@ mod tests {
             assert_same_runs(&bits);
         }
 
-        let mut shapes = BitMatrix::new();
-        shapes.set_rect(10, 10, 40, 30);
-        shapes.set_circle(180, 180, 25);
-        shapes.unset_rect(20, 15, 30, 25);
-        shapes.unset_circle(180, 180, 8);
-        assert_same_runs(&shapes);
-
-        let mut checker = BitMatrix::new();
-        for y in 0..=u8::MAX {
-            for x in 0..=u8::MAX {
-                if (x as u16 + y as u16).is_multiple_of(2) {
-                    checker.set(x, y);
-                }
+        // And content of every shape, which is where runs of every
+        // length and every alignment turn up together.
+        for (density, cluster) in
+            [(0.02, 0.0), (0.02, 0.9), (0.2, 0.0), (0.2, 0.7), (0.5, 0.7), (0.9, 0.9)]
+        {
+            for bits in crate::samples::grown(0, density, cluster, 2) {
+                assert_same_runs(&bits);
             }
-        }
-        assert_same_runs(&checker);
-
-        let mut seed = 0x243F6A8885A308D3u64;
-        for _ in 0..40 {
-            let mut bits = BitMatrix::new();
-            for _ in 0..8 {
-                seed ^= seed << 13;
-                seed ^= seed >> 7;
-                seed ^= seed << 17;
-                let x = (seed % 256) as i64;
-                let y = ((seed >> 8) % 256) as i64;
-                let w = ((seed >> 16) % 40) as i64;
-                let h = ((seed >> 24) % 40) as i64;
-                bits.set_rect(x, y, x + w, y + h);
-            }
-            assert_same_runs(&bits);
         }
     }
 }

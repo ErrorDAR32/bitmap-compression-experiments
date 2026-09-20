@@ -11,7 +11,7 @@ mod corpus;
 use bitmatrix::RunmaxClipnmerge;
 
 fn main() {
-    let maps = corpus::realistic(200);
+    let maps: Vec<_> = corpus::typical().timed().collect();
     let mut work = RunmaxClipnmerge::new();
     let (mut meshed, mut grown, mut merged, mut both) = (0usize, 0usize, 0usize, 0usize);
 
@@ -24,7 +24,7 @@ fn main() {
     }
 
     let each = maps.len() as f64;
-    println!("{} realistic bitmaps, per bitmap:", maps.len());
+    println!("{} {} bitmaps, per bitmap:", maps.len(), corpus::typical().name);
     println!("  meshed                    {:.2}", meshed as f64 / each);
     println!("  growing alone reclaims    {:.2}", grown as f64 / each);
     println!("  merging alone reclaims {:.2}", merged as f64 / each);

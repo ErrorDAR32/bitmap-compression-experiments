@@ -18,9 +18,9 @@
 //! had a neighbour whose face fitted inside their span, but only 3.6%
 //! had one lining up with an end of it.
 //!
-//! What unblocks the rest is [`crate::clip`].
+//! What unblocks the rest is [`crate::runmax::clip`].
 
-use crate::edges::{Axis, Edges};
+use crate::runmax::edges::{Axis, Edges};
 use crate::Rect;
 
 /// Buffers reused across the whole pass. Rebuilding the edge index is

@@ -22,8 +22,11 @@
 #[allow(dead_code)]
 mod corpus;
 
-use bitmatrix::{exact, BitMatrix};
-use corpus::Sequence;
+use bitmatrix::{accurate, BitMatrix};
+use bitmatrix::samples;
+
+/// How many bitmaps of each shape each grid size is checked on.
+const PER_SHAPE: u64 = 400;
 use std::collections::HashMap;
 
 /// Above this the memo no longer fits in a `u64` key.
@@ -71,6 +74,21 @@ fn exhaustive(remaining: u64, n: usize, memo: &mut HashMap<u64, u8>) -> u8 {
     fewest
 }
 
+/// The `n` by `n` corner of a bitmap, as the bitmask the search is
+/// keyed by. Going the other way from [`to_bits`], so that a generated
+/// sample can be fed to a search that thinks in masks.
+fn mask_of(bits: &BitMatrix, n: usize) -> u64 {
+    let mut cells = 0u64;
+    for y in 0..n {
+        for x in 0..n {
+            if bits.get(x as u8, y as u8) {
+                cells |= 1 << (y * n + x);
+            }
+        }
+    }
+    cells
+}
+
 fn to_bits(cells: u64, n: usize) -> BitMatrix {
     let mut bits = BitMatrix::new();
     for idx in 0..(n * n) {
@@ -105,7 +123,7 @@ impl Report {
     fn check(&mut self, cells: u64, n: usize, memo: &mut HashMap<u64, u8>) {
         assert!(n <= LARGEST, "exhaustive search does not reach {n}x{n}");
         let bits = to_bits(cells, n);
-        let got = exact::partition(&bits);
+        let got = accurate::partition(&bits);
         self.checked += 1;
 
         let mut painted = BitMatrix::new();
@@ -158,17 +176,21 @@ fn main() {
         report.checked, report.broken, report.over
     );
 
-    // Larger grids, from the fixed sequence.
+    // Larger grids, grown into a corner of that size across every
+    // shape the corpus names, so the ground truth sees the same spread
+    // of content everything else is measured on.
     for n in 5..=LARGEST {
         let mut memo = HashMap::new();
-        let mut seq = Sequence::from(0x2545F4914F6CDD1D);
         let mut here = Report { checked: 0, broken: 0, over: 0, examples: Vec::new() };
-        let all = if n * n >= 64 { u64::MAX } else { (1u64 << (n * n)) - 1 };
-        for _ in 0..4000 {
-            here.check(seq.step() & all, n, &mut memo);
+        for shape in corpus::SHAPES {
+            let grown =
+                samples::grown_in(corpus::SEED, n, shape.density, shape.cluster, PER_SHAPE);
+            for bits in grown {
+                here.check(mask_of(&bits, n), n, &mut memo);
+            }
         }
         println!(
-            "{n}x{n} sampled: {} checked, {} not partitions, {} not minimum",
+            "{n}x{n} grown: {} checked, {} not partitions, {} not minimum",
             here.checked, here.broken, here.over
         );
         report.broken += here.broken;

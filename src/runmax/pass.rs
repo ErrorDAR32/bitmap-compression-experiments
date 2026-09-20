@@ -9,10 +9,10 @@
 //! What each move is worth against what it costs is measured by the
 //! `moves` example, and the numbers are in the two modules' own docs.
 
-use crate::clip::{apply_clip, clip_opens_merge, clip_plan, undo_clip, Bench, Clip};
-use crate::edges::{Axis, Edges};
-use crate::grow::{grow, Growing, Owners};
-use crate::merge::{merge, merge_from, Work};
+use crate::runmax::clip::{apply_clip, clip_opens_merge, clip_plan, undo_clip, Bench, Clip};
+use crate::runmax::edges::{Axis, Edges};
+use crate::runmax::grow::{grow, Growing, Owners};
+use crate::runmax::merge::{merge, merge_from, Work};
 use crate::Rect;
 
 /// How far [`Pass::compact_to`] goes, for weighing each move against

@@ -15,7 +15,7 @@ use crate::{BITS_PER_WORD, HEIGHT, WIDTH, WORDS};
 /// than eight kilobytes.
 #[derive(Clone)]
 pub struct BitMatrix {
-    words: Box<[u64; WORDS]>,
+    pub(crate) words: Box<[u64; WORDS]>,
 }
 
 impl BitMatrix {
@@ -140,97 +140,6 @@ impl BitMatrix {
                 }
             }
         }
-    }
-
-    /// A bitmap grown from a seed, so that the same three arguments
-    /// always give the same bitmap.
-    ///
-    /// `density` is the share of the 65536 cells that end up set.
-    /// `cluster` is how often a new cell lands beside one already set
-    /// rather than anywhere at all: at 0 the set cells are scattered,
-    /// and every one of them is its own rectangle; at 1 they only ever
-    /// extend what is already standing, so the bitmap comes out as a
-    /// few solid blobs. Everything interesting is in between, and the
-    /// two parameters cover between them the cases that were reached
-    /// before by hand -- the checkerboard is density 0.5 and cluster 0,
-    /// a solid square is density 1.
-    ///
-    /// Cells beside the ones already set are kept with repeats, so a
-    /// cell with three set neighbours is three times as likely to be
-    /// taken as one with a single neighbour. That is the point: it is
-    /// what makes a blob fill in rather than sprawl.
-    #[doc(hidden)]
-    pub fn grown(seed: u64, density: f64, cluster: f64) -> Self {
-        let wanted = (density.clamp(0.0, 1.0) * (WIDTH * HEIGHT) as f64) as usize;
-        let cluster = (cluster.clamp(0.0, 1.0) * u32::MAX as f64) as u64;
-
-        let mut bits = Self::new();
-        // Xorshift needs a state that is not zero, and it is the seed
-        // alone that has to reproduce the bitmap.
-        let mut state = seed ^ 0x9E37_79B9_7F4A_7C15;
-        let mut next = move || {
-            state ^= state << 13;
-            state ^= state >> 7;
-            state ^= state << 17;
-            state
-        };
-
-        // Unset cells beside a set one, with repeats.
-        let mut edge: Vec<(u8, u8)> = Vec::new();
-        let mut standing = 0;
-
-        while standing < wanted {
-            let beside = (!edge.is_empty() && next() % (1 << 32) < cluster)
-                .then(|| {
-                    while let Some(at) = (!edge.is_empty()).then(|| next() as usize % edge.len()) {
-                        let cell = edge.swap_remove(at);
-                        if !bits.get(cell.0, cell.1) {
-                            return Some(cell);
-                        }
-                    }
-                    None
-                })
-                .flatten();
-
-            let (x, y) = match beside {
-                Some(cell) => cell,
-                None => bits.anywhere_clear(&mut next),
-            };
-
-            bits.set(x, y);
-            standing += 1;
-            let (x, y) = (x as i32, y as i32);
-            for (nx, ny) in [(x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)] {
-                if (0..WIDTH as i32).contains(&nx) && (0..HEIGHT as i32).contains(&ny) {
-                    let (nx, ny) = (nx as u8, ny as u8);
-                    if !bits.get(nx, ny) {
-                        edge.push((nx, ny));
-                    }
-                }
-            }
-        }
-
-        bits
-    }
-
-    /// Any cell still clear, found by guessing and then, once guessing
-    /// stops paying, by looking.
-    fn anywhere_clear(&self, next: &mut impl FnMut() -> u64) -> (u8, u8) {
-        for _ in 0..64 {
-            let roll = next();
-            let (x, y) = (roll as u8, (roll >> 8) as u8);
-            if !self.get(x, y) {
-                return (x, y);
-            }
-        }
-
-        let word = self
-            .words
-            .iter()
-            .position(|w| *w != u64::MAX)
-            .expect("a bitmap that is not already full");
-        let at = word * BITS_PER_WORD + (!self.words[word]).trailing_zeros() as usize;
-        ((at % WIDTH) as u8, (at / WIDTH) as u8)
     }
 
     /// How many cells are standing, counted a word at a time.
@@ -403,49 +312,4 @@ mod tests {
         assert_eq!(m.count_set(), 0);
     }
 
-    /// The same seed has to give the same bitmap, and a different one a
-    /// different bitmap, or a reproduction is not a reproduction.
-    #[test]
-    fn growing_is_settled_by_its_seed() {
-        for (density, cluster) in [(0.05, 0.0), (0.2, 0.5), (0.4, 0.9), (0.9, 0.95)] {
-            let once = BitMatrix::grown(12345, density, cluster);
-            let again = BitMatrix::grown(12345, density, cluster);
-            assert_eq!(once.words, again.words, "the same seed wandered");
-
-            let other = BitMatrix::grown(12346, density, cluster);
-            assert_ne!(once.words, other.words, "two seeds agreed");
-
-            let wanted = (density * 65536.0) as u32;
-            assert_eq!(once.count_set(), wanted, "the density is not the density");
-        }
-    }
-
-    /// Clustering has to do what it says: at nothing the set cells are
-    /// scattered and hardly any of them touch, at almost everything
-    /// they are in blobs and nearly all of them do.
-    #[test]
-    fn clustering_decides_how_much_touches() {
-        let touching = |bits: &BitMatrix| {
-            let mut with = 0;
-            for y in 0..=u8::MAX {
-                for x in 0..=u8::MAX {
-                    if bits.get(x, y) {
-                        let (x, y) = (x as i32, y as i32);
-                        let near = [(x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)]
-                            .into_iter()
-                            .filter(|(nx, ny)| (0..256).contains(nx) && (0..256).contains(ny))
-                            .any(|(nx, ny)| bits.get(nx as u8, ny as u8));
-                        with += u32::from(near);
-                    }
-                }
-            }
-            with as f64 / bits.count_set() as f64
-        };
-
-        let scattered = touching(&BitMatrix::grown(7, 0.1, 0.0));
-        let blobs = touching(&BitMatrix::grown(7, 0.1, 0.99));
-        assert!(scattered < 0.45, "scattered cells touch too much: {scattered}");
-        assert!(blobs > 0.95, "clustered cells touch too little: {blobs}");
-        assert!(blobs > scattered * 2.0, "clustering made no difference");
-    }
 }

@@ -66,23 +66,15 @@
 //! `cost` example, where a ragged bitmap costs 260 times what a
 //! realistic one costs per set cell.
 
-mod bits;
-mod clip;
-mod edges;
-mod merge;
-pub mod exact;
-mod grow;
+pub mod accurate;
 mod matrix;
-mod mesh;
-mod pass;
 mod rect;
-mod workspace;
+pub mod runmax;
+pub mod samples;
 
 pub use matrix::BitMatrix;
-pub use mesh::mesh_by_scanning;
-pub use pass::Far;
 pub use rect::Rect;
-pub use workspace::RunmaxClipnmerge;
+pub use runmax::{mesh_by_scanning, Far, RunmaxClipnmerge};
 
 /// The matrix is always this wide and this tall. Nothing is sized at
 /// run time, which is what lets a workspace be built once and reused.

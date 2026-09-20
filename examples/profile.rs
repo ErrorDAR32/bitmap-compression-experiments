@@ -7,11 +7,10 @@ mod corpus;
 use bitmatrix::RunmaxClipnmerge;
 
 fn main() {
-    let maps = corpus::realistic(50);
     let mut work = RunmaxClipnmerge::new();
     let mut total = 0;
-    for bits in &maps {
-        total += work.partition(bits).len();
+    for bits in corpus::typical().timed() {
+        total += work.partition(&bits).len();
     }
     println!("{total}");
 }

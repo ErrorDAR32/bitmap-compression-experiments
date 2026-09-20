@@ -9,7 +9,7 @@
 //! rectangle takes that whole band.
 //!
 //! On 200 realistic bitmaps this reclaims 9.49 rectangles apiece,
-//! against 0.04 for everything in [`crate::merge`], which is why it
+//! against 0.04 for everything in [`crate::runmax::merge`], which is why it
 //! runs first.
 //!
 //! Two things keep it cheap. A band is walked rather than re-scored,
@@ -18,8 +18,8 @@
 //! could have reached, which two 256-bit masks settle in a handful of
 //! word operations. Both are explained where they happen.
 
-use crate::pass::Pass;
-use crate::bits::{range_mask, LINE_WORDS};
+use crate::runmax::pass::Pass;
+use crate::runmax::bits::{range_mask, LINE_WORDS};
 use crate::Rect;
 
 /// Which way a rectangle grows.

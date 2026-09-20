@@ -36,18 +36,17 @@
 #[allow(dead_code)]
 mod corpus;
 
-use bitmatrix::{exact, BitMatrix, RunmaxClipnmerge};
+use bitmatrix::{accurate, samples, BitMatrix, RunmaxClipnmerge};
 use std::time::{Duration, Instant};
 
-const BITMAPS: usize = 2000;
-const REPEATS: usize = 7;
+const REPEATS: usize = 5;
 
 fn greedy(work: &mut RunmaxClipnmerge, bits: &BitMatrix) -> usize {
     work.partition(bits).len()
 }
 
 fn minimum(bits: &BitMatrix) -> usize {
-    exact::partition(bits).len()
+    accurate::partition(bits).len()
 }
 
 /// One algorithm's timings across the repeats.
@@ -137,18 +136,19 @@ fn race(maps: &[BitMatrix]) -> (Measured, Measured, Vec<f64>) {
 }
 
 fn main() {
-    let maps = corpus::realistic(BITMAPS);
+    let shape = corpus::typical();
+    let maps: Vec<BitMatrix> = shape.timed().collect();
 
     // Correctness once, outside the timing.
     let mut work = RunmaxClipnmerge::new();
     for bits in &maps {
-        corpus::assert_partition(bits, work.partition(bits), "greedy");
-        corpus::assert_partition(bits, &exact::partition(bits), "minimum");
+        samples::assert_partition(bits, work.partition(bits), "runmax");
+        samples::assert_partition(bits, &accurate::partition(bits), "accurate");
     }
 
     let (greedy_all, exact_all, ratios) = race(&maps);
     let n = maps.len() as u32;
-    println!("{n} realistic bitmaps, best of {REPEATS}, per bitmap:");
+    println!("{n} {} bitmaps, best of {REPEATS}, per bitmap:", shape.name);
     println!(
         "  runmax  {:>8.2} rects  {:>9.1?}   spread {:.2}x",
         greedy_all.count as f64 / n as f64,
@@ -163,7 +163,7 @@ fn main() {
     );
     let over = greedy_all.count as f64 / exact_all.count as f64;
     println!(
-        "  runmax is {:.2}% over the exact answer, in {:.2}x the time ({:.2} to {:.2} across repeats)",
+        "  runmax is {:.2}% over the accurate answer, in {:.2}x the time ({:.2} to {:.2} across repeats)",
         100.0 * (over - 1.0),
         ratios[ratios.len() / 2],
         ratios[0],
@@ -171,23 +171,14 @@ fn main() {
     );
 
 
-    println!("the hard cases, best of {REPEATS}:");
-    let mut solid = BitMatrix::new();
-    solid.set_rect(0, 0, 255, 255);
-    let mut cases: Vec<(&str, BitMatrix)> = vec![
-        ("checkerboard", corpus::checkerboard()),
-        ("solid square", solid),
-    ];
-    for (name, rows) in corpus::WORST {
-        cases.push((name, corpus::tiled(rows)));
-    }
-
-    for (name, bits) in &cases {
-        let one = std::slice::from_ref(bits);
-        let (got, best, _) = race(one);
+    println!("every shape, one bitmap each, best of {REPEATS}:");
+    for shape in corpus::SHAPES {
+        let one: Vec<BitMatrix> = shape.take(1).collect();
+        let (got, best, _) = race(&one);
         let over = got.count as f64 / best.count.max(1) as f64;
         println!(
-            "  {name:<22} {:>6} in {:>8.1?}   exact {:>6} in {:>8.1?}   {over:.2}x the rectangles",
+            "  {:<20} {:>6} in {:>8.1?}   accurate {:>6} in {:>8.1?}   {over:.2}x the rectangles",
+            shape.name,
             got.count,
             got.best(),
             best.count,

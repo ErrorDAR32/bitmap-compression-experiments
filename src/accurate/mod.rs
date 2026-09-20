@@ -413,19 +413,23 @@ fn faces(region: &Region, cuts: &Cuts) -> Vec<Rect> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::samples;
 
-    fn bits_from_rows(rows: &[&str]) -> BitMatrix {
-        let mut bits = BitMatrix::new();
-        for (y, row) in rows.iter().enumerate() {
-            for (x, cell) in row.bytes().enumerate() {
-                if cell == b'#' {
-                    bits.set(x as u8, y as u8);
-                }
-            }
-        }
-        bits
-    }
+    /// The settings the tests sweep, matching the ones runmax is swept
+    /// on so that a case failing here can be looked at there.
+    const SHAPES: [(f64, f64); 9] = [
+        (0.02, 0.00),
+        (0.02, 0.70),
+        (0.02, 0.95),
+        (0.10, 0.00),
+        (0.10, 0.70),
+        (0.10, 0.95),
+        (0.35, 0.00),
+        (0.35, 0.70),
+        (0.35, 0.95),
+    ];
 
+    /// The rectangles cover exactly the set bits, once each.
     fn assert_partitions(bits: &BitMatrix, rects: &[Rect]) {
         let mut painted = BitMatrix::new();
         for r in rects {
@@ -440,115 +444,54 @@ mod tests {
         assert_eq!(area, painted.count_set(), "rectangles overlap");
     }
 
+    /// The two ends of the density range.
     #[test]
     fn nothing_and_everything() {
-        assert!(partition(&BitMatrix::new()).is_empty());
+        assert!(partition(&samples::one_grown(0, 0.0, 0.0)).is_empty());
 
-        let mut full = BitMatrix::new();
-        full.set_rect(0, 0, 255, 255);
+        let full = samples::one_grown(0, 1.0, 0.0);
         assert_eq!(partition(&full), vec![Rect { x0: 0, y0: 0, x1: 255, y1: 255 }]);
     }
 
-    /// A plus sign has four reflex corners and no chord joining any two of
-    /// them, so each needs its own cut and three rectangles is the floor.
+    /// Every shape has to come back an exact partition. The count being
+    /// minimal is what the `ground_truth` example checks, against
+    /// exhaustive search; this is the part that can run in a test.
     #[test]
-    fn a_plus_takes_three() {
-        let bits = bits_from_rows(&[".#.", "###", ".#."]);
-        let rects = partition(&bits);
-        assert_partitions(&bits, &rects);
-        assert_eq!(rects.len(), 3);
+    fn every_shape_comes_back_an_exact_partition() {
+        for (density, cluster) in SHAPES {
+            for bits in samples::grown(0, density, cluster, 2) {
+                assert_partitions(&bits, &partition(&bits));
+            }
+        }
     }
 
-    /// A staircase, where every reflex corner is served by its own cut
-    /// because no two of them face each other across the interior.
+    /// Scattered cells are the case the construction has least to do
+    /// with: nothing touches, so every cell is its own rectangle and
+    /// there is not a reflex corner in the bitmap.
     #[test]
-    fn a_staircase_takes_one_rectangle_a_step() {
-        let bits = bits_from_rows(&["#..", "##.", "###"]);
+    fn scattered_cells_come_back_one_apiece() {
+        let bits = samples::one_grown(0, 0.02, 0.0);
         let rects = partition(&bits);
         assert_partitions(&bits, &rects);
-        assert_eq!(rects.len(), 3);
+        let alone = rects.iter().filter(|r| r.area() == 1).count();
+        assert!(
+            alone * 5 > rects.len() * 4,
+            "cluster 0 should leave nearly all of them alone, got {alone} of {}",
+            rects.len()
+        );
     }
 
-    /// Two reflex corners facing each other, joined by one chord, which
-    /// serves both and leaves two rectangles rather than three.
+    /// Never more than runmax gives, on every shape and on small
+    /// corners where ties are thickest. The whole point of this
+    /// algorithm is that it is the floor.
     #[test]
-    fn a_chord_serves_two_corners_at_once() {
-        let bits = bits_from_rows(&["###", ".#.", ".#."]);
-        let rects = partition(&bits);
-        assert_partitions(&bits, &rects);
-        assert_eq!(rects.len(), 2);
-    }
-
-    /// The worked example, whose optimum was established by exhaustive
-    /// search earlier: ten.
-    #[test]
-    fn the_worked_example_takes_ten() {
-        let bits = bits_from_rows(&[
-            "####.###", "#..#.###", "####.###", "...#...#", "...##..#", "...#####", "########",
-            "##.#####",
-        ]);
-        let rects = partition(&bits);
-        assert_partitions(&bits, &rects);
-        assert_eq!(rects.len(), 10);
-    }
-
-    /// The 4x4 that cost the greedy mesher five rectangles before the
-    /// rewriting pass brought it to three.
-    #[test]
-    fn the_adversarial_four_by_four_takes_three() {
-        let bits = bits_from_rows(&["##..", ".###", "###.", "...."]);
-        let rects = partition(&bits);
-        assert_partitions(&bits, &rects);
-        assert_eq!(rects.len(), 3);
-    }
-
-    /// A ring, which is one hole and eight reflex corners: four on the
-    /// outside of the hole facing nothing, four chords' worth inside.
-    #[test]
-    fn a_ring_takes_four() {
-        let bits = bits_from_rows(&["###", "#.#", "###"]);
-        let rects = partition(&bits);
-        assert_partitions(&bits, &rects);
-        assert_eq!(rects.len(), 4);
-    }
-
-    #[test]
-    fn rects_and_circles_with_holes_punched_out() {
-        let mut bits = BitMatrix::new();
-        bits.set_rect(10, 10, 40, 30);
-        bits.set_circle(180, 180, 25);
-        bits.unset_rect(20, 15, 30, 25);
-        bits.unset_circle(180, 180, 8);
-
-        let rects = partition(&bits);
-        assert_partitions(&bits, &rects);
-    }
-
-    /// Never more than the greedy mesher, on bitmaps where both run.
-    #[test]
-    fn never_worse_than_the_greedy_mesher() {
+    fn never_worse_than_runmax() {
         let mut work = crate::RunmaxClipnmerge::new();
-        let mut seed = 0x243F6A8885A308D3u64;
-        let mut next = || {
-            seed ^= seed << 13;
-            seed ^= seed >> 7;
-            seed ^= seed << 17;
-            seed
-        };
-
-        for n in [3usize, 4, 5, 6, 7] {
-            for _ in 0..80 {
-                let mut bits = BitMatrix::new();
-                let cells = next();
-                for idx in 0..(n * n) {
-                    if cells & (1u64 << idx) != 0 {
-                        bits.set((idx % n) as u8, (idx / n) as u8);
-                    }
-                }
-
+        for (density, cluster) in SHAPES {
+            let corners = samples::grown_in(0, 7, density, cluster, 40);
+            for bits in corners.chain(samples::grown(0, density, cluster, 2)) {
                 let rects = partition(&bits);
                 assert_partitions(&bits, &rects);
-
                 assert!(
                     rects.len() <= work.partition(&bits).len(),
                     "the minimum partition came out bigger than the greedy one"

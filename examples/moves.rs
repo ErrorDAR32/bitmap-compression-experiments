@@ -9,22 +9,17 @@
 #[allow(dead_code)]
 mod corpus;
 
-use bitmatrix::{exact, BitMatrix, Far, RunmaxClipnmerge};
+use bitmatrix::{accurate, BitMatrix, Far, RunmaxClipnmerge};
 use std::time::{Duration, Instant};
 
 fn main() {
-    report("realistic", corpus::realistic(2000));
-    // Grown bitmaps at the settings the metrics found worst: enough
-    // content to be connected, ragged enough to be all boundary.
-    for (density, cluster) in [(0.05, 0.70), (0.20, 0.70), (0.20, 0.95)] {
-        let maps: Vec<BitMatrix> =
-            (0..4).map(|seed| BitMatrix::grown(seed, density, cluster)).collect();
-        report(&format!("grown {density:.2} {cluster:.2}"), maps);
+    for shape in corpus::SHAPES {
+        report(shape.name, shape.timed().collect());
     }
 }
 
 fn report(label: &str, maps: Vec<BitMatrix>) {
-    let minimum: usize = maps.iter().map(|b| exact::partition(b).len()).sum();
+    let minimum: usize = maps.iter().map(|b| accurate::partition(b).len()).sum();
     let each = maps.len() as u32;
 
     println!("\n{} {label} bitmaps, best of 5, per bitmap:", maps.len());

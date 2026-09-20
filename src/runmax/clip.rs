@@ -19,7 +19,7 @@
 //! realistic bitmap, since growing has already taken what they would
 //! have found.
 
-use crate::edges::{Axis, Edges};
+use crate::runmax::edges::{Axis, Edges};
 use crate::Rect;
 
 impl Axis {
@@ -314,7 +314,7 @@ pub(crate) fn undo_clip(rects: &mut [Rect], undo: &[(usize, Rect)]) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::pass::{Far, Pass};
+    use crate::runmax::pass::{Far, Pass};
 
     fn r(x0: u8, y0: u8, x1: u8, y1: u8) -> Rect {
         Rect { x0, y0, x1, y1 }
