@@ -128,6 +128,58 @@ impl BitMatrix {
     pub fn count_set(&self) -> u32 {
         self.words.iter().map(|w| w.count_ones()).sum()
     }
+
+    /// Splits the set cells into those with no orthogonal neighbour and
+    /// the rest.
+    ///
+    /// A cell standing alone is its own rectangle in every partition,
+    /// and nothing can ever be laid against it: a rectangle touching one
+    /// of its faces would have to contain a cell beside it, and there is
+    /// none. So it decides nothing and nothing decides it, and the work
+    /// of meshing and rewriting can pass it by entirely.
+    ///
+    /// Found a row of words at a time. Whether the cell to the left is
+    /// set is the row shifted up one bit, carrying across the word
+    /// boundary; above and below are the neighbouring rows unshifted.
+    pub(crate) fn split_isolated(&self) -> (Self, Self) {
+        const PER_ROW: usize = WIDTH / BITS_PER_WORD;
+
+        let mut alone = Self::new();
+        let mut rest = self.clone();
+        for y in 0..HEIGHT {
+            let row = y * PER_ROW;
+            for i in 0..PER_ROW {
+                let word = self.words[row + i];
+                if word == 0 {
+                    continue;
+                }
+
+                let left = (word << 1) | if i > 0 { self.words[row + i - 1] >> 63 } else { 0 };
+                let right =
+                    (word >> 1) | if i + 1 < PER_ROW { self.words[row + i + 1] << 63 } else { 0 };
+                let above = if y > 0 { self.words[row - PER_ROW + i] } else { 0 };
+                let below = if y + 1 < HEIGHT { self.words[row + PER_ROW + i] } else { 0 };
+
+                let solo = word & !(left | right | above | below);
+                alone.words[row + i] = solo;
+                rest.words[row + i] = word & !solo;
+            }
+        }
+
+        (alone, rest)
+    }
+
+    /// Calls `visit` with every set cell, in scan order.
+    pub(crate) fn for_each_set(&self, mut visit: impl FnMut(u8, u8)) {
+        for (index, &word) in self.words.iter().enumerate() {
+            let mut bits = word;
+            while bits != 0 {
+                let at = index * BITS_PER_WORD + bits.trailing_zeros() as usize;
+                visit((at % WIDTH) as u8, (at / WIDTH) as u8);
+                bits &= bits - 1;
+            }
+        }
+    }
 }
 
 impl Default for BitMatrix {

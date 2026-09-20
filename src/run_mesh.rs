@@ -271,10 +271,19 @@ fn best_seed(queue: &mut BinaryHeap<Seed>, rows: &Runs, cols: &Runs) -> Option<S
 /// longest run still standing and sinking it as deep as it will go.
 pub struct RunMesh {
     rects: Vec<Rect>,
+    /// How many of the rectangles are single cells standing alone. They
+    /// are kept at the end of the list and never take part in anything.
+    alone: usize,
 }
 
 impl RunMesh {
     pub fn from_bit_matrix(source: &BitMatrix) -> Self {
+        // Cells standing alone are forced, so they are set aside rather
+        // than queued, seeded, carved and then checked against every
+        // neighbour they do not have.
+        let (alone, source) = source.split_isolated();
+        let source = &source;
+
         let mut rows = Runs::rows_of(source);
         let mut cols = Runs::cols_of(source);
         let mut queue = BinaryHeap::new();
@@ -308,7 +317,13 @@ impl RunMesh {
             }
         }
 
-        Self { rects }
+        let mut alone_count = 0;
+        alone.for_each_set(|x, y| {
+            rects.push(Rect { x0: x, y0: y, x1: x, y1: y });
+            alone_count += 1;
+        });
+
+        Self { rects, alone: alone_count }
     }
 
     pub fn rects(&self) -> &[Rect] {
@@ -319,14 +334,24 @@ impl RunMesh {
     /// neighbours, and answers how many were reclaimed. See
     /// [`crate::mutate`] for what the moves are and what they cost.
     pub fn compact(&mut self) -> usize {
-        crate::mutate::compact(&mut self.rects)
+        self.without_the_alone(crate::mutate::compact)
     }
 
     /// Only the free half of [`Self::compact`], which reclaims nothing on
     /// its own. Kept so that claim stays measurable.
     #[doc(hidden)]
     pub fn dissolve_only(&mut self) -> usize {
-        crate::mutate::dissolve_only(&mut self.rects)
+        self.without_the_alone(crate::mutate::dissolve_only)
+    }
+
+    /// Runs a rewriting pass over everything but the single cells
+    /// standing alone, which nothing can be done with.
+    fn without_the_alone(&mut self, pass: impl Fn(&mut Vec<Rect>) -> usize) -> usize {
+        let movable = self.rects.len() - self.alone;
+        let solitary = self.rects.split_off(movable);
+        let reclaimed = pass(&mut self.rects);
+        self.rects.extend(solitary);
+        reclaimed
     }
 }
 
@@ -362,7 +387,7 @@ impl RunMesh {
             rects.push(rect);
         }
 
-        Self { rects }
+        Self { rects, alone: 0 }
     }
 }
 
@@ -427,11 +452,11 @@ fn sink(crossing: &Runs, seed: Span, line: u8, seed_is_column: bool) -> Rect {
 mod tests {
     use super::*;
 
-    fn bits_from_rows<const N: usize>(rows: [[u8; N]; N]) -> BitMatrix {
+    fn bits_from_rows(rows: &[&str]) -> BitMatrix {
         let mut bits = BitMatrix::new();
         for (y, row) in rows.iter().enumerate() {
-            for (x, &cell) in row.iter().enumerate() {
-                if cell == 1 {
+            for (x, cell) in row.bytes().enumerate() {
+                if cell == b'#' {
                     bits.set(x as u8, y as u8);
                 }
             }
@@ -531,15 +556,9 @@ mod tests {
     /// rewrites the partition afterwards finds the tenth.
     #[test]
     fn worked_example_reaches_ten_after_compacting() {
-        let bits = bits_from_rows([
-            [1, 1, 1, 1, 0, 1, 1, 1],
-            [1, 0, 0, 1, 0, 1, 1, 1],
-            [1, 1, 1, 1, 0, 1, 1, 1],
-            [0, 0, 0, 1, 0, 0, 0, 1],
-            [0, 0, 0, 1, 1, 0, 0, 1],
-            [0, 0, 0, 1, 1, 1, 1, 1],
-            [1, 1, 1, 1, 1, 1, 1, 1],
-            [1, 1, 0, 1, 1, 1, 1, 1],
+        let bits = bits_from_rows(&[
+            "####.###", "#..#.###", "####.###", "...#...#", "...##..#", "...#####", "########",
+            "##.#####",
         ]);
 
         let mut mesh = RunMesh::from_bit_matrix(&bits);
@@ -556,12 +575,7 @@ mod tests {
     /// optimum.
     #[test]
     fn adversarial_four_by_four_is_optimal_after_compacting() {
-        let bits = bits_from_rows([
-            [1, 1, 0, 0],
-            [0, 1, 1, 1],
-            [1, 1, 1, 0],
-            [0, 0, 0, 0],
-        ]);
+        let bits = bits_from_rows(&["##..", ".###", "###.", "...."]);
 
         let mut mesh = RunMesh::from_bit_matrix(&bits);
         assert_exact_partition(&bits, &mesh);
@@ -607,6 +621,43 @@ mod tests {
                 assert_exact_partition(&bits, &mesh);
             }
         }
+    }
+
+    /// Cells standing alone come out as themselves, and being set aside
+    /// does not disturb the shape they sit beside.
+    #[test]
+    fn cells_standing_alone_are_kept_whole() {
+        let mut bits = BitMatrix::new();
+        bits.set_rect(10, 10, 20, 20);
+        for (x, y) in [(0u8, 0u8), (100, 100), (255, 255), (5, 200)] {
+            bits.set(x, y);
+        }
+
+        let mut mesh = RunMesh::from_bit_matrix(&bits);
+        assert_exact_partition(&bits, &mesh);
+        assert_eq!(mesh.rects().len(), 5, "the block and the four cells");
+        assert!(mesh.rects().contains(&Rect { x0: 10, y0: 10, x1: 20, y1: 20 }));
+
+        // The pass has nothing to do with them and must leave them be.
+        mesh.compact();
+        assert_exact_partition(&bits, &mesh);
+        assert_eq!(mesh.rects().len(), 5);
+        for (x, y) in [(0u8, 0u8), (100, 100), (255, 255), (5, 200)] {
+            assert!(mesh.rects().contains(&Rect { x0: x, y0: y, x1: x, y1: y }));
+        }
+    }
+
+    /// A single cell touching something is not standing alone, and still
+    /// has to be looked at.
+    #[test]
+    fn a_single_cell_with_a_neighbour_is_not_set_aside() {
+        // An L one cell wide: the corner cell is 1x1 in the answer but
+        // every cell here has a neighbour.
+        let bits = bits_from_rows(&["##", "#."]);
+        let mut mesh = RunMesh::from_bit_matrix(&bits);
+        mesh.compact();
+        assert_exact_partition(&bits, &mesh);
+        assert_eq!(mesh.rects().len(), 2);
     }
 
     /// The worst case: no two set cells touch, so every run is one cell
