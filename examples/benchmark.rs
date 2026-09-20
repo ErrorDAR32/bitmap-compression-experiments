@@ -41,10 +41,8 @@ use std::time::{Duration, Instant};
 const BITMAPS: usize = 2000;
 const REPEATS: usize = 7;
 
-fn greedy(bits: &BitMatrix) -> usize {
-    let mut mesh = RunmaxClipnmerge::from_bit_matrix(bits);
-    mesh.compact();
-    mesh.rects().len()
+fn greedy(work: &mut RunmaxClipnmerge, bits: &BitMatrix) -> usize {
+    work.partition(bits).len()
 }
 
 fn minimum(bits: &BitMatrix) -> usize {
@@ -81,37 +79,47 @@ impl Measured {
 /// what makes the ratio between them trustworthy even while the machine
 /// drifts: a clock that slows down slows both.
 fn race(maps: &[BitMatrix]) -> (Measured, Measured, Vec<f64>) {
+    // The workspace is stood up once, outside every measurement, which
+    // is how it is meant to be used.
+    let mut work = RunmaxClipnmerge::new();
     let mut greedy_out = Measured { count: 0, times: Vec::new() };
     let mut exact_out = Measured { count: 0, times: Vec::new() };
     let mut ratios = Vec::new();
 
     for bits in maps {
-        std::hint::black_box(greedy(bits) + minimum(bits));
+        std::hint::black_box(greedy(&mut work, bits) + minimum(bits));
     }
 
     for repeat in 0..REPEATS {
         let (mut greedy_time, mut exact_time) = (Duration::ZERO, Duration::ZERO);
         let (mut greedy_count, mut exact_count) = (0usize, 0usize);
 
-        let run = |f: fn(&BitMatrix) -> usize, bits: &BitMatrix| {
-            let start = Instant::now();
-            let got = std::hint::black_box(f(bits));
-            (got, start.elapsed())
-        };
+        macro_rules! run {
+            (greedy, $bits:expr) => {{
+                let start = Instant::now();
+                let got = std::hint::black_box(greedy(&mut work, $bits));
+                (got, start.elapsed())
+            }};
+            (minimum, $bits:expr) => {{
+                let start = Instant::now();
+                let got = std::hint::black_box(minimum($bits));
+                (got, start.elapsed())
+            }};
+        }
 
         for (index, bits) in maps.iter().enumerate() {
             if (repeat + index).is_multiple_of(2) {
-                let (n, t) = run(greedy, bits);
+                let (n, t) = run!(greedy, bits);
                 greedy_count += n;
                 greedy_time += t;
-                let (n, t) = run(minimum, bits);
+                let (n, t) = run!(minimum, bits);
                 exact_count += n;
                 exact_time += t;
             } else {
-                let (n, t) = run(minimum, bits);
+                let (n, t) = run!(minimum, bits);
                 exact_count += n;
                 exact_time += t;
-                let (n, t) = run(greedy, bits);
+                let (n, t) = run!(greedy, bits);
                 greedy_count += n;
                 greedy_time += t;
             }
@@ -137,10 +145,9 @@ fn main() {
     let maps = corpus::realistic(BITMAPS);
 
     // Correctness once, outside the timing.
+    let mut work = RunmaxClipnmerge::new();
     for bits in &maps {
-        let mut mesh = RunmaxClipnmerge::from_bit_matrix(bits);
-        mesh.compact();
-        corpus::assert_partition(bits, mesh.rects(), "greedy");
+        corpus::assert_partition(bits, work.partition(bits), "greedy");
         corpus::assert_partition(bits, &exact::partition(bits), "minimum");
     }
 

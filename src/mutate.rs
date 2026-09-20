@@ -58,40 +58,51 @@ enum Side {
     Right,
 }
 
-/// No rectangle owns this cell, so nothing is set there.
-const NOBODY: u32 = u32::MAX;
-
 /// Which rectangle owns each cell, for looking at a stretch of the
 /// bitmap without asking the rectangles one at a time.
 ///
-/// Painting it costs one write per set cell, which is a few thousand on
-/// a realistic bitmap, and it answers "what is in the way" directly.
+/// Painting it costs one write per standing cell, which is a few
+/// thousand on a realistic bitmap, and it answers "what is in the way"
+/// directly.
+///
+/// A cell carries the bitmap it was painted for alongside its owner, so
+/// that a cell left over from the bitmap before reads as empty. That is
+/// what lets the grid be kept: blanking a quarter of a megabyte between
+/// bitmaps cost 5.18us of the 200us a bitmap took, and now nothing is
+/// written that is not painted.
 struct Owners {
-    of: Vec<u32>,
+    of: Vec<u64>,
+    /// Which bitmap the grid is painted for. Never zero, so a grid of
+    /// zeroes reads as empty everywhere.
+    visit: u64,
 }
 
 impl Owners {
     const SIDE: usize = 256;
 
-    fn paint(rects: &[Rect]) -> Self {
-        let mut of = vec![NOBODY; Self::SIDE * Self::SIDE];
+    fn new() -> Self {
+        Self { of: vec![0; Self::SIDE * Self::SIDE], visit: 0 }
+    }
+
+    /// Paints a fresh partition over whatever was there.
+    fn paint(&mut self, rects: &[Rect]) {
+        self.visit += 1;
         for (index, r) in rects.iter().enumerate() {
-            for y in r.y0..=r.y1 {
-                let row = y as usize * Self::SIDE;
-                of[row + r.x0 as usize..=row + r.x1 as usize].fill(index as u32);
-            }
+            self.give(r, index);
         }
-        Self { of }
     }
 
-    fn at(&self, x: u8, y: u8) -> u32 {
-        self.of[y as usize * Self::SIDE + x as usize]
+    /// Who owns the cell, or `None` where nothing is standing.
+    fn at(&self, x: u8, y: u8) -> Option<usize> {
+        let held = self.of[y as usize * Self::SIDE + x as usize];
+        (held >> 32 == self.visit).then_some(held as u32 as usize)
     }
 
-    fn give(&mut self, rect: &Rect, to: u32) {
+    fn give(&mut self, rect: &Rect, to: usize) {
+        let held = (self.visit << 32) | to as u64;
         for y in rect.y0..=rect.y1 {
             let row = y as usize * Self::SIDE;
-            self.of[row + rect.x0 as usize..=row + rect.x1 as usize].fill(to);
+            self.of[row + rect.x0 as usize..=row + rect.x1 as usize].fill(held);
         }
     }
 }
@@ -189,15 +200,28 @@ struct Growing {
 }
 
 impl Growing {
-    fn new(rects: usize) -> Self {
+    fn new() -> Self {
         Self {
             met: Vec::new(),
             taken: Vec::new(),
             cut: Vec::new(),
-            seen: vec![0; rects],
+            seen: Vec::new(),
             visit: 0,
             settles: [0; 256],
         }
+    }
+
+    /// Stands the scratch up for a fresh partition. The stamps are
+    /// blanked rather than carried over, since the slots they name
+    /// belong to the partition before.
+    fn reset(&mut self, rects: usize) {
+        self.met.clear();
+        self.taken.clear();
+        self.cut.clear();
+        self.seen.clear();
+        self.seen.resize(rects, 0);
+        self.visit = 0;
+        self.settles = [0; 256];
     }
 }
 
@@ -266,15 +290,14 @@ fn grow(
                 Side::Up | Side::Down => (across, line),
                 Side::Left | Side::Right => (line, across),
             };
-            let owner = owners.at(x, y);
-            if owner == NOBODY {
+            let Some(owner) = owners.at(x, y) else {
                 standing = false;
                 break;
-            }
-            let other = &rects[owner as usize];
-            if seen[owner as usize] != visit {
-                seen[owner as usize] = visit;
-                met.push(owner as usize);
+            };
+            let other = &rects[owner];
+            if seen[owner] != visit {
+                seen[owner] = visit;
+                met.push(owner);
                 let (olo, ohi) = match side {
                     Side::Up | Side::Down => (other.x0, other.x1),
                     Side::Left | Side::Right => (other.y0, other.y1),
@@ -378,12 +401,12 @@ fn apply(
         for &piece in &leftovers[..pieces] {
             rects.push(piece);
             gone.push(false);
-            owners.give(&piece, (rects.len() - 1) as u32);
+            owners.give(&piece, rects.len() - 1);
         }
     }
 
     rects[a] = band;
-    owners.give(&band, a as u32);
+    owners.give(&band, a);
 }
 
 /// The rows and columns where cells have changed hands.
@@ -428,10 +451,12 @@ impl Strips {
 
 /// Grows every rectangle that can grow, until none can, and answers how
 /// many were swallowed.
-fn absorb(rects: &mut Vec<Rect>) -> usize {
-    let mut owners = Owners::paint(rects);
-    let mut gone = vec![false; rects.len()];
-    let mut scratch = Growing::new(rects.len());
+fn absorb(rects: &mut Vec<Rect>, pass: &mut Pass) -> usize {
+    let Pass { owners, gone, growing: scratch, .. } = pass;
+    owners.paint(rects);
+    gone.clear();
+    gone.resize(rects.len(), false);
+    scratch.reset(rects.len());
     let mut swallowed = 0;
 
     // Nothing has been looked at yet, so the first sweep skips nothing.
@@ -451,15 +476,15 @@ fn absorb(rects: &mut Vec<Rect>) -> usize {
             }
             for side in [Side::Down, Side::Up, Side::Right, Side::Left] {
                 scratch.seen.resize(rects.len(), 0);
-                let Some((edge, gain)) = grow(rects, &owners, a, side, &mut scratch) else {
+                let Some((edge, gain)) = grow(rects, owners, a, side, scratch) else {
                     continue;
                 };
                 let band = band_to(rects[a], side, edge);
-                let Growing { met, taken, cut, .. } = &mut scratch;
+                let Growing { met, taken, cut, .. } = &mut *scratch;
                 split_met(rects, met, &band, side, taken, cut);
                 let reach = Reach { band, taken, cut };
                 let standing = rects.len();
-                apply(rects, &mut owners, &mut gone, a, side, reach);
+                apply(rects, owners, gone, a, side, reach);
 
                 // Everything that changed hands is the band, which
                 // covers whoever was swallowed, and the pieces of
@@ -722,16 +747,6 @@ impl Work {
             gone: Vec::new(),
         }
     }
-}
-
-/// Dissolves rectangles into their neighbours until none is left that
-/// can be given away whole, and answers how many were reclaimed.
-///
-/// Kept separate from [`compact`] because it is the engine that runs
-/// after every break-even move, and because how much it finds on its own
-/// says something about the mesher feeding it. See the module docs.
-pub fn dissolve_only(rects: &mut Vec<Rect>) -> usize {
-    dissolve(rects, &mut Work::new())
 }
 
 fn dissolve(rects: &mut Vec<Rect>, work: &mut Work) -> usize {
@@ -1135,14 +1150,8 @@ fn apply_trim(rects: &[Rect], a: usize, trim: &Trim, out: &mut Vec<Rect>) {
 /// Dissolving, plus break-even moves taken only when they open up a
 /// dissolve that was not there before. Answers how many rectangles the
 /// whole thing reclaimed.
-/// How many rectangles growing reclaims on its own, before anything
-/// else has run. For measuring what the move is worth.
-#[doc(hidden)]
-pub fn absorb_only(rects: &mut Vec<Rect>) -> usize {
-    absorb(rects)
-}
-
-/// How far [`compact`] goes, for weighing each move against its cost.
+/// How far [`Pass::compact_to`] goes, for weighing each move against
+/// its cost.
 #[doc(hidden)]
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Far {
@@ -1151,28 +1160,65 @@ pub enum Far {
     Trimming,
 }
 
-pub fn compact(rects: &mut Vec<Rect>) -> usize {
-    compact_to(rects, Far::Trimming)
+/// Every buffer the rewriting pass works in, kept so that it is found
+/// once rather than once a bitmap.
+pub(crate) struct Pass {
+    owners: Owners,
+    gone: Vec<bool>,
+    growing: Growing,
+    work: Work,
+    index: Edges,
+    candidate: Vec<Rect>,
+    trim: Trim,
+    changed: Vec<usize>,
+    bench: Bench,
 }
 
-#[doc(hidden)]
-pub fn compact_to(rects: &mut Vec<Rect>, far: Far) -> usize {
+impl Pass {
+    pub(crate) fn new() -> Self {
+        Self {
+            owners: Owners::new(),
+            gone: Vec::new(),
+            growing: Growing::new(),
+            work: Work::new(),
+            index: Edges::new(),
+            candidate: Vec::new(),
+            trim: Trim {
+                axis: Axis::Vertical,
+                takers: Vec::new(),
+                offcut: Rect { x0: 0, y0: 0, x1: 0, y1: 0 },
+            },
+            changed: Vec::new(),
+            bench: Bench::default(),
+        }
+    }
+
+    /// How many rectangles growing reclaims on its own, before anything
+    /// else has run. For measuring what the move is worth.
+    pub(crate) fn absorb_only(&mut self, rects: &mut Vec<Rect>) -> usize {
+        absorb(rects, self)
+    }
+
+    /// Dissolving on its own, which is the engine that runs after every
+    /// break-even move. How much it finds by itself says something about
+    /// the mesher feeding it. See the module docs.
+    pub(crate) fn dissolve_only(&mut self, rects: &mut Vec<Rect>) -> usize {
+        dissolve(rects, &mut self.work)
+    }
+
+    pub(crate) fn compact_to(&mut self, rects: &mut Vec<Rect>, far: Far) -> usize {
+        compact_to(rects, far, self)
+    }
+}
+
+fn compact_to(rects: &mut Vec<Rect>, far: Far, pass: &mut Pass) -> usize {
     let started = rects.len();
-    let mut work = Work::new();
-    let mut index = Edges::new();
-    let mut candidate = Vec::new();
-    let mut trim = Trim {
-        axis: Axis::Vertical,
-        takers: Vec::new(),
-        offcut: Rect { x0: 0, y0: 0, x1: 0, y1: 0 },
-    };
-    let mut changed: Vec<usize> = Vec::new();
-    let mut bench = Bench::default();
-    absorb(rects);
+    absorb(rects, pass);
     if far == Far::Growing {
         return started - rects.len();
     }
-    dissolve(rects, &mut work);
+    let Pass { work, index, candidate, trim, changed, bench, .. } = pass;
+    dissolve(rects, work);
     if far == Far::Dissolving {
         return started - rects.len();
     }
@@ -1181,20 +1227,20 @@ pub fn compact_to(rects: &mut Vec<Rect>, far: Far) -> usize {
         index.rebuild(rects);
         for a in 0..rects.len() {
             for axis in [Axis::Vertical, Axis::Horizontal] {
-                if !trim_plan(rects, &index, a, axis, &mut trim, &mut bench) {
+                if !trim_plan(rects, index, a, axis, trim, bench) {
                     continue;
                 }
-                apply_trim(rects, a, &trim, &mut candidate);
+                apply_trim(rects, a, trim, candidate);
                 changed.clear();
                 changed.push(a);
                 changed.extend_from_slice(&trim.takers);
-                if !trim_opens_dissolve(&candidate, &index, &changed, &mut bench) {
+                if !trim_opens_dissolve(candidate, index, changed, bench) {
                     continue;
                 }
 
-                dissolve(&mut candidate, &mut work);
+                dissolve(candidate, work);
                 if candidate.len() < rects.len() {
-                    std::mem::swap(rects, &mut candidate);
+                    std::mem::swap(rects, candidate);
                     continue 'again;
                 }
             }
@@ -1236,7 +1282,7 @@ mod tests {
         }
 
         assert_eq!(free(&mut rects.clone()), 10, "dissolving gets there too");
-        assert_eq!(absorb(&mut rects), 10);
+        assert_eq!(Pass::new().absorb_only(&mut rects), 10);
         assert_eq!(rects, vec![r(0, 0, 9, 1)]);
     }
 
@@ -1245,7 +1291,7 @@ mod tests {
     #[test]
     fn a_neighbour_hanging_over_the_side_is_left_alone() {
         let mut rects = vec![r(1, 0, 2, 0), r(0, 1, 3, 1)];
-        assert_eq!(absorb(&mut rects), 0);
+        assert_eq!(Pass::new().absorb_only(&mut rects), 0);
     }
 
     /// Something straddling the far edge is cut there for nothing: the
@@ -1259,7 +1305,7 @@ mod tests {
     #[test]
     fn a_neighbour_straddling_the_far_edge_is_cut_for_nothing() {
         let mut rects = vec![r(0, 0, 1, 0), r(0, 1, 1, 1), r(0, 2, 0, 3), r(1, 2, 1, 2)];
-        assert_eq!(absorb(&mut rects), 2, "the row and the single cell");
+        assert_eq!(Pass::new().absorb_only(&mut rects), 2, "the row and the single cell");
         assert_eq!(rects.len(), 2);
         assert!(rects.contains(&r(0, 0, 1, 2)));
         assert!(rects.contains(&r(0, 3, 0, 3)));
@@ -1356,7 +1402,7 @@ mod tests {
         );
 
         let mut rects = before.clone();
-        assert_eq!(compact(&mut rects), 0);
+        assert_eq!(Pass::new().compact_to(&mut rects, Far::Trimming), 0);
         assert_eq!(rects, before);
     }
 

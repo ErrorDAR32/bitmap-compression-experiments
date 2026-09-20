@@ -8,11 +8,10 @@ use bitmatrix::RunmaxClipnmerge;
 
 fn main() {
     let maps = corpus::realistic(50);
+    let mut work = RunmaxClipnmerge::new();
     let mut total = 0;
     for bits in &maps {
-        let mut mesh = RunmaxClipnmerge::from_bit_matrix(bits);
-        mesh.compact();
-        total += mesh.rects().len();
+        total += work.partition(bits).len();
     }
     println!("{total}");
 }

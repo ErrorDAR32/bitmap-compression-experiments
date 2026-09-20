@@ -16,6 +16,7 @@ fn main() {
     println!("{} realistic bitmaps, best of 5, per bitmap:", maps.len());
     println!("  {:<24} {:>8} {:>10} {:>14}", "stopping after", "rects", "time", "target metric");
 
+    let mut work = RunmaxClipnmerge::new();
     for (label, far) in [
         ("the mesh", None),
         ("growing", Some(Far::Growing)),
@@ -28,11 +29,7 @@ fn main() {
             let start = Instant::now();
             rects = 0;
             for bits in &maps {
-                let mut mesh = RunmaxClipnmerge::from_bit_matrix(bits);
-                if let Some(far) = far {
-                    mesh.compact_to(far);
-                }
-                rects += std::hint::black_box(mesh.rects().len());
+                rects += std::hint::black_box(work.partition_to(bits, far).len());
             }
             fastest = fastest.min(start.elapsed());
         }

@@ -508,6 +508,7 @@ mod tests {
     /// Never more than the greedy mesher, on bitmaps where both run.
     #[test]
     fn never_worse_than_the_greedy_mesher() {
+        let mut work = crate::RunmaxClipnmerge::new();
         let mut seed = 0x243F6A8885A308D3u64;
         let mut next = || {
             seed ^= seed << 13;
@@ -529,10 +530,8 @@ mod tests {
                 let rects = partition(&bits);
                 assert_partitions(&bits, &rects);
 
-                let mut mesh = crate::RunmaxClipnmerge::from_bit_matrix(&bits);
-                mesh.compact();
                 assert!(
-                    rects.len() <= mesh.rects().len(),
+                    rects.len() <= work.partition(&bits).len(),
                     "the minimum partition came out bigger than the greedy one"
                 );
             }

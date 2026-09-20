@@ -12,19 +12,15 @@ use bitmatrix::RunmaxClipnmerge;
 
 fn main() {
     let maps = corpus::realistic(200);
+    let mut work = RunmaxClipnmerge::new();
     let (mut meshed, mut grown, mut dissolved, mut both) = (0usize, 0usize, 0usize, 0usize);
 
     for bits in &maps {
-        meshed += RunmaxClipnmerge::from_bit_matrix(bits).rects().len();
-
-        let mut growing = RunmaxClipnmerge::from_bit_matrix(bits);
-        grown += growing.absorb_only();
-
-        let mut alone = RunmaxClipnmerge::from_bit_matrix(bits);
-        dissolved += alone.dissolve_only();
-
-        let mut compacted = RunmaxClipnmerge::from_bit_matrix(bits);
-        both += compacted.compact();
+        meshed += work.mesh(bits).len();
+        grown += work.absorb_only(bits);
+        dissolved += work.dissolve_only(bits);
+        let before = work.mesh(bits).len();
+        both += before - work.partition(bits).len();
     }
 
     let each = maps.len() as f64;

@@ -14,7 +14,7 @@ mod mutate;
 pub mod exact;
 mod runmax_clipnmerge;
 pub use mutate::Far;
-pub use runmax_clipnmerge::{Rect, RunmaxClipnmerge};
+pub use runmax_clipnmerge::{mesh_by_scanning, Rect, RunmaxClipnmerge};
 
 pub const WIDTH: usize = 256;
 pub const HEIGHT: usize = 256;
@@ -154,10 +154,18 @@ impl BitMatrix {
     /// boundary; above and below are the neighbouring rows unshifted.
     #[doc(hidden)]
     pub fn split_isolated(&self) -> (Self, Self) {
+        let (mut alone, mut rest) = (Self::new(), Self::new());
+        self.split_isolated_into(&mut alone, &mut rest);
+        (alone, rest)
+    }
+
+    /// The same, into bitmaps that already exist. Whatever they held is
+    /// overwritten.
+    pub(crate) fn split_isolated_into(&self, alone: &mut Self, rest: &mut Self) {
         const PER_ROW: usize = WIDTH / BITS_PER_WORD;
 
-        let mut alone = Self::new();
-        let mut rest = self.clone();
+        alone.words.fill(0);
+        rest.words.copy_from_slice(&*self.words);
         for y in 0..HEIGHT {
             let row = y * PER_ROW;
             for i in 0..PER_ROW {
@@ -177,8 +185,6 @@ impl BitMatrix {
                 rest.words[row + i] = word & !solo;
             }
         }
-
-        (alone, rest)
     }
 
     /// The machine words holding one row.
