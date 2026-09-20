@@ -52,11 +52,32 @@ fn minimum(bits: &BitMatrix) -> usize {
     accurate::partition(bits).len()
 }
 
-/// Time-optimal bias: the time taken by the rectangles given over the
+/// Time-optimal bias: the time taken by the areas given over the
 /// fewest possible, as a bare number of microseconds rather than a
 /// duration.
 fn bias(took: Duration, over: f64) -> f64 {
     took.as_secs_f64() * 1e6 * over
+}
+
+/// One line of a report, header and data alike.
+///
+/// Both go through here, so a column cannot be labelled at one width
+/// and filled at another.
+fn row(fields: [&str; 7]) -> String {
+    const WIDTHS: [usize; 7] = [20, 9, 9, 10, 10, 12, 14];
+    let mut out = String::from("  ");
+    for (index, (field, width)) in fields.iter().zip(WIDTHS).enumerate() {
+        if index > 0 {
+            out.push(' ');
+        }
+        // The first column reads as a label, the rest as figures.
+        if index == 0 {
+            out.push_str(&format!("{field:<width$}"));
+        } else {
+            out.push_str(&format!("{field:>width$}"));
+        }
+    }
+    out.trim_end().to_string()
 }
 
 /// One algorithm's timings across the repeats.
@@ -180,25 +201,36 @@ fn main() {
         ratios[ratios.len() - 1]
     );
 
-    println!("\ntime-optimal bias, every shape, best of {REPEATS}:");
+    println!("\ntime-optimal bias, time by areas over fewest, best of {REPEATS}:\n");
     println!(
-        "  {:<20} {:>7} {:>7} {:>9} {:>9} {:>11} {:>11}",
-        "", "rects", "fewest", "time", "accurate", "bias", "accurate's"
+        "{}",
+        row([
+            "shape",
+            "areas",
+            "fewest",
+            "runmax",
+            "accurate",
+            "runmax bias",
+            "accurate bias",
+        ])
     );
     for shape in samples::SHAPES {
         let maps: Vec<BitMatrix> = shape.timed().collect();
         let n = maps.len() as u32;
         let (got, best, _) = race(&maps);
         let over = got.count as f64 / best.count.max(1) as f64;
+        let (ours, theirs) = (bias(got.best() / n, over), bias(best.best() / n, 1.0));
         println!(
-            "  {:<20} {:>7} {:>7} {:>9.1?} {:>9.1?} {:>11.0} {:>11.0}",
-            shape.name,
-            got.count,
-            best.count,
-            got.best() / n,
-            best.best() / n,
-            bias(got.best() / n, over),
-            bias(best.best() / n, 1.0),
+            "{}",
+            row([
+                shape.name,
+                &got.count.to_string(),
+                &best.count.to_string(),
+                &format!("{:.1?}", got.best() / n),
+                &format!("{:.1?}", best.best() / n),
+                &format!("{ours:.0}"),
+                &format!("{theirs:.0}"),
+            ])
         );
     }
 }

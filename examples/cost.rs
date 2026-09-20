@@ -36,6 +36,28 @@ use std::process::Command;
 /// what a sparse one does.
 const EACH: u64 = 4;
 
+/// One line of a report, header and data alike.
+///
+/// Both go through here, so a column cannot be labelled at one width
+/// and filled at another. Doing it by hand is how the last report came
+/// out crooked.
+fn row(fields: [&str; 5]) -> String {
+    const WIDTHS: [usize; 5] = [20, 18, 14, 12, 16];
+    let mut out = String::from("  ");
+    for (index, (field, width)) in fields.iter().zip(WIDTHS).enumerate() {
+        if index > 0 {
+            out.push(' ');
+        }
+        // The first column reads as a label, the rest as figures.
+        if index == 0 {
+            out.push_str(&format!("{field:<width$}"));
+        } else {
+            out.push_str(&format!("{field:>width$}"));
+        }
+    }
+    out.trim_end().to_string()
+}
+
 /// What a child run is asked to do.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Doing {
@@ -109,30 +131,51 @@ fn main() {
     }
 
     let from: u64 = first.and_then(|arg| arg.parse().ok()).unwrap_or(samples::SEED);
-    println!("counted under callgrind, the sample build taken out, seeds from {from}:");
-    println!(
-        "  {:<20} {:>8} {:>7} {:>8} {:>10} {:>12} {:>12}",
-        "", "cells", "rects", "fewest", "per cell", "bias", "accurate's"
-    );
 
+    let mut measured = Vec::new();
     for shape in samples::SHAPES {
-        let (name, density, cluster) = (shape.name, shape.density, shape.cluster);
         let counted = [Doing::Building, Doing::Partitioning, Doing::Solving]
-            .map(|doing| count(density, cluster, from, doing));
-        let [Some((bare, cells, _)), Some((mesh, _, rects)), Some((solved, _, fewest))] = counted
+            .map(|doing| count(shape.density, shape.cluster, from, doing));
+        let [Some((bare, cells, _)), Some((mesh, _, areas)), Some((solved, _, fewest))] = counted
         else {
-            println!("  {name:<20}   (could not run valgrind)");
+            println!("  {}   (could not run valgrind)", shape.name);
             continue;
         };
+        measured.push((shape.name, cells, areas, fewest, mesh - bare, solved - bare));
+    }
 
-        let ours = mesh.saturating_sub(bare);
-        let theirs = solved.saturating_sub(bare);
-        let over = rects as f64 / fewest.max(1) as f64;
+    println!(
+        "instructions per active cell, counted under callgrind with the \
+         sample build taken out, seeds from {from}:\n"
+    );
+    println!("{}", row(["shape", "active cells", "areas", "fewest", "per active cell"]));
+    for &(name, cells, areas, fewest, ours, _) in &measured {
         println!(
-            "  {name:<20} {cells:>8} {rects:>7} {fewest:>8} {:>10.1} {:>12.0} {:>12.0}",
-            ours as f64 / cells.max(1) as f64,
-            ours as f64 * over,
-            theirs as f64,
+            "{}",
+            row([
+                name,
+                &cells.to_string(),
+                &areas.to_string(),
+                &fewest.to_string(),
+                &format!("{:.1}", ours as f64 / cells.max(1) as f64),
+            ])
+        );
+    }
+
+    println!("\ninstruction-optimal bias, instructions by areas over fewest, same run:\n");
+    println!("{}", row(["shape", "runmax-clipnmerge", "accurate", "ratio", "winner"]));
+    for &(name, _, areas, fewest, ours, theirs) in &measured {
+        let over = areas as f64 / fewest.max(1) as f64;
+        let (ours, theirs) = (ours as f64 * over, theirs as f64);
+        println!(
+            "{}",
+            row([
+                name,
+                &format!("{ours:.0}"),
+                &format!("{theirs:.0}"),
+                &format!("{:.2}x", ours / theirs),
+                if ours < theirs { "runmax wins" } else { "accurate wins" },
+            ])
         );
     }
 }
