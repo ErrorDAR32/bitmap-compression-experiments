@@ -141,7 +141,8 @@ impl BitMatrix {
     /// Found a row of words at a time. Whether the cell to the left is
     /// set is the row shifted up one bit, carrying across the word
     /// boundary; above and below are the neighbouring rows unshifted.
-    pub(crate) fn split_isolated(&self) -> (Self, Self) {
+    #[doc(hidden)]
+    pub fn split_isolated(&self) -> (Self, Self) {
         const PER_ROW: usize = WIDTH / BITS_PER_WORD;
 
         let mut alone = Self::new();
@@ -167,6 +168,13 @@ impl BitMatrix {
         }
 
         (alone, rest)
+    }
+
+    /// The machine words holding one row.
+    pub(crate) fn row(&self, y: u8) -> &[u64] {
+        const PER_ROW: usize = WIDTH / BITS_PER_WORD;
+        let at = y as usize * PER_ROW;
+        &self.words[at..at + PER_ROW]
     }
 
     /// Calls `visit` with every set cell, in scan order.

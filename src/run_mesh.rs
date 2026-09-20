@@ -30,7 +30,7 @@
 //! the width of the grid, and there are as many steps as there are
 //! rectangles in the answer.
 
-use crate::BitMatrix;
+use crate::{BitMatrix, WIDTH};
 use std::collections::BinaryHeap;
 
 /// An inclusive axis-aligned rectangle over the matrix's `u8` coordinate
@@ -81,36 +81,102 @@ struct Runs {
     lines: Vec<Vec<Span>>,
 }
 
+/// The position of the next set bit at or after `from`, if any.
+fn next_set(words: &[u64], from: usize) -> Option<usize> {
+    let mut index = from / 64;
+    let mut word = words[index] & (u64::MAX << (from % 64));
+    loop {
+        if word != 0 {
+            return Some(index * 64 + word.trailing_zeros() as usize);
+        }
+        index += 1;
+        word = *words.get(index)?;
+    }
+}
+
+/// The position of the next clear bit at or after `from`, or the end.
+fn next_clear(words: &[u64], from: usize) -> usize {
+    let mut index = from / 64;
+    let mut word = !words[index] & (u64::MAX << (from % 64));
+    loop {
+        if word != 0 {
+            return index * 64 + word.trailing_zeros() as usize;
+        }
+        index += 1;
+        match words.get(index) {
+            Some(&next) => word = !next,
+            None => return words.len() * 64,
+        }
+    }
+}
+
 impl Runs {
-    fn rows_of(source: &BitMatrix) -> Self {
-        Self::build(|line, pos| source.get(pos, line))
-    }
+    /// Reduces the bitmap to runs in both directions in one pass over
+    /// the machine words.
+    ///
+    /// Reading the bitmap a cell at a time costs the same whatever it
+    /// holds: 65536 bit tests to find the few hundred runs a real bitmap
+    /// has, and the same 65536 for an empty one. Both directions come
+    /// out of the words instead.
+    ///
+    /// Along a row, a run is found by skipping to the next set bit and
+    /// then to the next clear one, so the work is one step per run
+    /// rather than one per cell. Down a column, a run starts where a row
+    /// has a bit its predecessor did not and ends where its successor
+    /// drops it, which is two bitwise operations per word of each row
+    /// and then one step per run.
+    fn of(source: &BitMatrix) -> (Self, Self) {
+        let mut rows = Self { lines: vec![Vec::new(); 256] };
+        let mut cols = Self { lines: vec![Vec::new(); 256] };
 
-    fn cols_of(source: &BitMatrix) -> Self {
-        Self::build(|line, pos| source.get(line, pos))
-    }
+        // Where the column run still open at each position began.
+        let mut opened = [0u8; 256];
+        let mut above = [0u64; 4];
 
-    fn build(set: impl Fn(u8, u8) -> bool) -> Self {
-        let mut lines = Vec::with_capacity(256);
         for line in 0..=u8::MAX {
-            let mut spans = Vec::new();
-            let mut start: Option<u8> = None;
-            for pos in 0..=u8::MAX {
-                match (set(line, pos), start) {
-                    (true, None) => start = Some(pos),
-                    (false, Some(s)) => {
-                        spans.push(Span { start: s, end: pos - 1 });
-                        start = None;
-                    }
-                    _ => {}
+            let row = source.row(line);
+
+            let spans = &mut rows.lines[line as usize];
+            let mut pos = 0;
+            while let Some(start) = next_set(row, pos) {
+                let end = next_clear(row, start) - 1;
+                spans.push(Span { start: start as u8, end: end as u8 });
+                pos = end + 1;
+                if pos >= WIDTH {
+                    break;
                 }
             }
-            if let Some(s) = start {
-                spans.push(Span { start: s, end: u8::MAX });
+
+            for (index, (&word, &before)) in row.iter().zip(above.iter()).enumerate() {
+                let mut starting = word & !before;
+                while starting != 0 {
+                    let pos = index * 64 + starting.trailing_zeros() as usize;
+                    opened[pos] = line;
+                    starting &= starting - 1;
+                }
+
+                let mut ending = before & !word;
+                while ending != 0 {
+                    let pos = index * 64 + ending.trailing_zeros() as usize;
+                    cols.lines[pos].push(Span { start: opened[pos], end: line - 1 });
+                    ending &= ending - 1;
+                }
             }
-            lines.push(spans);
+
+            above.copy_from_slice(row);
         }
-        Self { lines }
+
+        // Whatever is still open runs to the last line.
+        for (index, &word) in above.iter().enumerate() {
+            let mut open = word;
+            while open != 0 {
+                let pos = index * 64 + open.trailing_zeros() as usize;
+                cols.lines[pos].push(Span { start: opened[pos], end: u8::MAX });
+                open &= open - 1;
+            }
+        }
+
+        (rows, cols)
     }
 
     /// The run covering `pos`, if any. Runs on a line are disjoint and
@@ -284,8 +350,7 @@ impl RunMesh {
         let (alone, source) = source.split_isolated();
         let source = &source;
 
-        let mut rows = Runs::rows_of(source);
-        let mut cols = Runs::cols_of(source);
+        let (mut rows, mut cols) = Runs::of(source);
         let mut queue = BinaryHeap::new();
         for (is_column, side) in [(false, &rows), (true, &cols)] {
             for (line, spans) in side.lines.iter().enumerate() {
@@ -324,6 +389,14 @@ impl RunMesh {
         });
 
         Self { rects, alone: alone_count }
+    }
+
+    /// Builds both run lists and answers how many runs there are, which
+    /// is the first pass of [`Self::from_bit_matrix`] and nothing else.
+    #[doc(hidden)]
+    pub fn count_runs(source: &BitMatrix) -> usize {
+        let (rows, cols) = Runs::of(source);
+        rows.lines.iter().chain(cols.lines.iter()).map(Vec::len).sum()
     }
 
     pub fn rects(&self) -> &[Rect] {
@@ -373,8 +446,7 @@ impl RunMesh {
 impl RunMesh {
     #[doc(hidden)]
     pub fn tie_break(source: &BitMatrix, prefer_least: bool) -> Self {
-        let mut rows = Runs::rows_of(source);
-        let mut cols = Runs::cols_of(source);
+        let (mut rows, mut cols) = Runs::of(source);
         let mut rects = Vec::new();
         let mut sink_bin = Vec::new();
 
@@ -451,6 +523,99 @@ fn sink(crossing: &Runs, seed: Span, line: u8, seed_is_column: bool) -> Rect {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The straightforward way to find runs: look at every cell. Kept
+    /// as the reference the fast one is checked against.
+    fn runs_cell_by_cell(set: impl Fn(u8, u8) -> bool) -> Runs {
+        let mut lines = Vec::with_capacity(256);
+        for line in 0..=u8::MAX {
+            let mut spans = Vec::new();
+            let mut start: Option<u8> = None;
+            for pos in 0..=u8::MAX {
+                match (set(line, pos), start) {
+                    (true, None) => start = Some(pos),
+                    (false, Some(s)) => {
+                        spans.push(Span { start: s, end: pos - 1 });
+                        start = None;
+                    }
+                    _ => {}
+                }
+            }
+            if let Some(s) = start {
+                spans.push(Span { start: s, end: u8::MAX });
+            }
+            lines.push(spans);
+        }
+        Runs { lines }
+    }
+
+    fn assert_same_runs(bits: &BitMatrix) {
+        let (rows, cols) = Runs::of(bits);
+        let want_rows = runs_cell_by_cell(|line, pos| bits.get(pos, line));
+        let want_cols = runs_cell_by_cell(|line, pos| bits.get(line, pos));
+        assert_eq!(rows.lines, want_rows.lines, "row runs differ");
+        assert_eq!(cols.lines, want_cols.lines, "column runs differ");
+    }
+
+    /// The word-wise pass has to agree with reading every cell, on
+    /// everything from an empty bitmap to a full one, including runs
+    /// that end exactly on a word boundary and ones that run to 255.
+    #[test]
+    fn the_fast_run_pass_agrees_with_reading_every_cell() {
+        assert_same_runs(&BitMatrix::new());
+
+        let mut full = BitMatrix::new();
+        full.set_rect(0, 0, 255, 255);
+        assert_same_runs(&full);
+
+        // Word boundaries sit at 64, 128 and 192.
+        for edge in [0u8, 1, 63, 64, 65, 127, 128, 191, 192, 254, 255] {
+            let mut bits = BitMatrix::new();
+            bits.set_rect(0, 0, edge as i64, 255);
+            assert_same_runs(&bits);
+
+            let mut bits = BitMatrix::new();
+            bits.set_rect(edge as i64, 0, 255, 255);
+            assert_same_runs(&bits);
+
+            let mut bits = BitMatrix::new();
+            bits.set(edge, edge);
+            assert_same_runs(&bits);
+        }
+
+        let mut shapes = BitMatrix::new();
+        shapes.set_rect(10, 10, 40, 30);
+        shapes.set_circle(180, 180, 25);
+        shapes.unset_rect(20, 15, 30, 25);
+        shapes.unset_circle(180, 180, 8);
+        assert_same_runs(&shapes);
+
+        let mut checker = BitMatrix::new();
+        for y in 0..=u8::MAX {
+            for x in 0..=u8::MAX {
+                if (x as u16 + y as u16).is_multiple_of(2) {
+                    checker.set(x, y);
+                }
+            }
+        }
+        assert_same_runs(&checker);
+
+        let mut seed = 0x243F6A8885A308D3u64;
+        for _ in 0..40 {
+            let mut bits = BitMatrix::new();
+            for _ in 0..8 {
+                seed ^= seed << 13;
+                seed ^= seed >> 7;
+                seed ^= seed << 17;
+                let x = (seed % 256) as i64;
+                let y = ((seed >> 8) % 256) as i64;
+                let w = ((seed >> 16) % 40) as i64;
+                let h = ((seed >> 24) % 40) as i64;
+                bits.set_rect(x, y, x + w, y + h);
+            }
+            assert_same_runs(&bits);
+        }
+    }
 
     fn bits_from_rows(rows: &[&str]) -> BitMatrix {
         let mut bits = BitMatrix::new();
