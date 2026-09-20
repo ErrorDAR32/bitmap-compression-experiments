@@ -26,7 +26,6 @@ fn report(label: &str, maps: Vec<BitMatrix>) {
         ("the mesh", None),
         ("growing", Some(Far::Growing)),
         ("merging", Some(Far::Merging)),
-        ("clipping", Some(Far::Clipping)),
     ] {
         let mut rects = 0;
         let mut fastest = Duration::MAX;

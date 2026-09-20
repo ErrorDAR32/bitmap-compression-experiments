@@ -9,13 +9,13 @@
 //! Clip-and-merge is the other half, and puts them back together.
 //! [`grow`] is the move that does nearly all of it: a rectangle reaches
 //! out over the standing cells, merging in whoever it swallows whole
-//! and clipping whoever it only partly covers. [`merge`] and [`clip`]
-//! are the two primitives on their own, for the cases growing cannot
-//! reach. [`edges`] is the index all three ask, and [`pass`] holds
-//! their shared buffers and the order they run in.
+//! and clipping whoever it only partly covers. [`merge`] is the second
+//! primitive on its own, for what growing cannot reach. [`edges`] is
+//! the index it asks, and [`pass`] holds their shared buffers and the
+//! order they run in -- and the story of the third move that used to
+//! run after them.
 
 mod bits;
-mod clip;
 mod edges;
 mod grow;
 mod merge;
@@ -104,7 +104,7 @@ impl RunmaxClipnmerge {
     /// They are disjoint and cover every set bit exactly once. The slice
     /// belongs to the workspace and lasts until the next bitmap.
     pub fn partition(&mut self, source: &BitMatrix) -> &[Rect] {
-        self.partition_to(source, Some(crate::Far::Clipping))
+        self.partition_to(source, Some(crate::Far::Merging))
     }
 
     /// The mesh alone, with no rewriting at all. A valid partition, and

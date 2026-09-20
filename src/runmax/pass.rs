@@ -3,16 +3,21 @@
 //! [`Pass`] holds every buffer the two moves work in, so that they are
 //! found once rather than once a bitmap, and [`Pass::compact_to`] runs
 //! them in the order that pays: growing first, since it takes nearly
-//! everything there is to take, then merging, then clipping to
-//! unblock the merges that were not free.
+//! everything there is to take, then merging what is left.
 //!
-//! What each move is worth against what it costs is measured by the
-//! `moves` example, and the numbers are in the two modules' own docs.
+//! A third move used to run after those two. Clipping cut a neighbour
+//! clean across to unblock a merge that was not free, which broke even
+//! in rectangles and was worth making when it opened one. On the
+//! hand-drawn corpus it looked cheap: a fifth of the run for a tenth of
+//! a rectangle a bitmap. On generated bitmaps, which run to thousands
+//! of rectangles rather than seventy, it was 94ms of a 105ms bitmap for
+//! two percent of the rectangles -- and with it the algorithm lost to
+//! [`crate::accurate`] on both count and time. It is gone. Growing
+//! still clips: it cuts every neighbour it only partly covers. What
+//! went is clipping as a move of its own.
 
-use crate::runmax::clip::{apply_clip, clip_opens_merge, clip_plan, undo_clip, Bench, Clip};
-use crate::runmax::edges::{Axis, Edges};
 use crate::runmax::grow::{grow, Growing, Owners};
-use crate::runmax::merge::{merge, merge_from, Work};
+use crate::runmax::merge::{merge, Work};
 use crate::Rect;
 
 /// How far [`Pass::compact_to`] goes, for weighing each move against
@@ -22,7 +27,6 @@ use crate::Rect;
 pub enum Far {
     Growing,
     Merging,
-    Clipping,
 }
 
 /// Every buffer the rewriting pass works in, kept so that it is found
@@ -32,14 +36,6 @@ pub(crate) struct Pass {
     pub(crate) gone: Vec<bool>,
     pub(crate) growing: Growing,
     work: Work,
-    index: Edges,
-    candidate: Vec<Rect>,
-    clip: Clip,
-    changed: Vec<usize>,
-    bench: Bench,
-    /// What a clip overwrote, so that abandoning one costs the entries
-    /// it touched rather than a copy of everything.
-    undo: Vec<(usize, Rect)>,
 }
 
 impl Pass {
@@ -50,16 +46,6 @@ impl Pass {
             gone: Vec::new(),
             growing: Growing::new(),
             work: Work::new(),
-            index: Edges::new(),
-            candidate: Vec::new(),
-            clip: Clip {
-                axis: Axis::Vertical,
-                takers: Vec::new(),
-                offcut: Rect { x0: 0, y0: 0, x1: 0, y1: 0 },
-            },
-            changed: Vec::new(),
-            bench: Bench::default(),
-            undo: Vec::new(),
         }
     }
 
@@ -69,9 +55,7 @@ impl Pass {
         grow(rects, self)
     }
 
-    /// Merging on its own, which is the engine that runs after every
-    /// break-even move. How much it finds by itself says something about
-    /// the mesher feeding it. See the module docs.
+    /// Merging on its own, for the same reason.
     pub(crate) fn merge_only(&mut self, rects: &mut Vec<Rect>) -> usize {
         merge(rects, &mut self.work)
     }
@@ -79,79 +63,12 @@ impl Pass {
     /// Rewrites the partition in place and answers how many rectangles
     /// that reclaimed, stopping after whichever move `far` names.
     pub(crate) fn compact_to(&mut self, rects: &mut Vec<Rect>, far: Far) -> usize {
-        compact_to(rects, far, self)
-    }
-}
-
-/// Runs the moves in the order that pays, and answers how many
-/// rectangles the whole thing reclaimed.
-///
-/// Growing first, because it takes nearly everything there is to take
-/// and leaves the other two little to find. Then merging to
-/// exhaustion, which is what makes the clip loop's locality argument
-/// hold: from here on the partition has no free merge anywhere
-/// except one a clip has just opened. Then clipping, which is a
-/// break-even move worth making only when it opens such a merge.
-fn compact_to(rects: &mut Vec<Rect>, far: Far, pass: &mut Pass) -> usize {
-    let started = rects.len();
-    grow(rects, pass);
-    if far == Far::Growing {
-        return started - rects.len();
-    }
-    let Pass { work, index, candidate, clip, changed, bench, undo, .. } = pass;
-    merge(rects, work);
-    if far == Far::Merging {
-        return started - rects.len();
-    }
-
-    // Sweeps until one of them finds nothing. A clip that lands leaves
-    // the index describing a partition that no longer exists, so the
-    // index is rebuilt and the sweep carries on from where it was
-    // rather than starting over: starting over re-asked the same
-    // question of the same rectangles fifty seven times, and answering
-    // it 158,728 times was a seventh of the bitmap.
-    loop {
-        index.rebuild(rects);
-        let mut landed = false;
-        let mut a = 0;
-
-        while a < rects.len() {
-            for axis in [Axis::Vertical, Axis::Horizontal] {
-                if !clip_plan(rects, index, a, axis, clip, bench) {
-                    continue;
-                }
-                apply_clip(rects, a, clip, undo);
-                changed.clear();
-                changed.push(a);
-                changed.extend_from_slice(&clip.takers);
-                if !clip_opens_merge(rects, index, changed, bench) {
-                    undo_clip(rects, undo);
-                    continue;
-                }
-
-                // Only now is a copy worth making: merging rewrites
-                // the partition, and this is the one clip in hundreds
-                // that has earned the chance.
-                candidate.clear();
-                candidate.extend_from_slice(rects);
-                // Only around what the clip moved: the partition had no
-                // merge anywhere before it, so there is nowhere else
-                // for one to have appeared.
-                merge_from(candidate, work, Some(&bench.nearby));
-                if candidate.len() < rects.len() {
-                    std::mem::swap(rects, candidate);
-                    index.rebuild(rects);
-                    landed = true;
-                    break;
-                }
-                undo_clip(rects, undo);
-            }
-            a += 1;
+        let started = rects.len();
+        grow(rects, self);
+        if far == Far::Merging {
+            merge(rects, &mut self.work);
         }
-
-        if !landed {
-            return started - rects.len();
-        }
+        started - rects.len()
     }
 }
 

@@ -269,42 +269,71 @@ returned.
 
 ---
 
-## 6. Locality, twice, and why it is allowed
+## 6. Locality, and a move that was measured out of the crate
 
-Two places in the rewriting pass look at a neighbourhood instead of the
-whole partition. Both rest on the same invariant, and it is worth being
-explicit about what it is.
+Merging after growing looks only at what growing moved, rather than
+sweeping the partition. It rests on an invariant worth being explicit
+about:
 
-> **The partition is merged to exhaustion before any clip is tried,
-> and after every clip that lands. So at the moment a clip is weighed,
-> there is no free merge available anywhere.**
+> **A rectangle is given away when its span is covered exactly by the
+> faces against it. That can only become true when its own shape
+> changes or a neighbour's does.**
 
-A rectangle is given away when its span is covered exactly by the faces
-against it. That can only become true when its own shape changes or a
-neighbour's does. So after a clip, the only place a merge can have
-appeared is around the rectangles the clip moved — which is why
-`merge_from` is given seeds, expands them by their face neighbours,
-and cascades to whatever each merge changes in turn, instead of
-sweeping thousands of rectangles to find the one.
+So after anything moves, the only place a merge can have appeared is
+around the rectangles that moved — which is why `merge_from` takes
+seeds, expands them by their face neighbours, and cascades to whatever
+each merge changes in turn, instead of sweeping thousands of rectangles
+to find one.
 
-That is not a micro-optimisation. On a ragged bitmap of 4184
-rectangles, 56 clips spent 47.5ms of the bitmap's 88ms inside the
-global merge they did not need.
+### The move that is not here any more
 
-The second is the sweep itself, and this one is **not** exactly
-equivalent, which is the honest part. The loop used to restart from
-index zero every time a clip landed — 57 restarts and 158,728 clip
-plans on that same bitmap. It now rebuilds the index, because the index
-describes a partition that no longer exists, and carries on from where
-it was, sweeping again until a sweep finds nothing. That changes the
-order trims are found in. Measured across fourteen cases it costs
-exactly one rectangle in 56,934, on one of them, and it is 2.2 to 2.9
-times faster.
+There used to be a third move. **Clipping** cut a neighbour clean
+across to unblock a merge that was not free: one rectangle spent and
+one reclaimed, so it broke even, and it was worth making when it opened
+a merge that was not there before.
 
-### What the later moves are actually for
+It is gone, and how it went is the most useful thing in this document.
+
+On the hand-drawn corpus it looked like a reasonable trade — a fifth of
+the run for about a tenth of a rectangle a bitmap. That corpus was
+unions of circles, and it meshed to **seventy** rectangles. Generated
+bitmaps of the same size mesh to **five thousand**, and everything
+after growing is superlinear in that count. Measured there:
 
 ```
-    ##..            mesh:    5      after growing:   5      all three:  3
+4 dense ragged bitmaps            rects       time
+  growing                       9833.50      4.3ms
+  merging                       9538.00      7.5ms
+  clipping                      9359.25    101.4ms   <- 94ms for 2%
+  the accurate algorithm        9005.00      9.3ms   <- fewer, and faster
+```
+
+Clipping was ninety-four milliseconds of a hundred and five, to buy two
+percent of the rectangles — and with it in, the fast algorithm lost to
+the exact one on *both* count and time. Taking it out:
+
+```
+12 middling ragged bitmaps
+  before   5221.92 rects   25.0ms   10.41x the accurate algorithm
+  after    5295.25 rects    3.1ms    1.43x
+```
+
+Eight times faster for 1.4% more rectangles.
+
+Nothing about the move was wrong. Two rounds of real optimisation went
+into it — a partition-sized memcpy per candidate, then a global merge
+and a scan restart per landing, together worth about 3.5x. It was the
+*measurement* that was wrong, and no amount of optimising it would have
+shown that. A generator that reaches ragged content did, in one run.
+
+Growing still clips, and the algorithm is still called clip-and-merge:
+a reach cuts every neighbour it only partly covers. What went is
+clipping as a move of its own.
+
+### What merging is still for
+
+```
+    ##..            mesh:    5      after growing:   5      after merging:  3
     .###              (1,0)-(1,2)     unchanged             (1,1)-(3,1)
     ###.              (2,1)-(2,2)                           (0,0)-(1,0)
     ....              (3,1)-(3,1)                           (0,2)-(2,2)
@@ -312,15 +341,12 @@ times faster.
                       (0,2)-(0,2)
 ```
 
-Growing finds nothing here — every reach it could make costs more in
-clipping than it gains in swallowing. What gets this from five to three
-is clipping: a break-even move, one rectangle spent and one reclaimed,
-taken only because it opens a merge that was not there before.
+Growing finds nothing here: every reach it could make costs more in
+clipping than it gains in swallowing. Merging gets it from five to
+three on its own.
 
-On realistic bitmaps the two later moves are worth 0.13 rectangles
-apiece for something like a fifth of the run, which is a bad trade in
-isolation. On bitmaps like this one they are the whole answer. That is
-the argument for keeping them, and it is the reason `Far` exists: so
-the trade stays measurable rather than assumed. Run `cargo run
---release --example moves` for the current split, and the `cost`
-example when the wall clock is too noisy to trust.
+That example is also a small warning about attributing a result to the
+move you happen to be looking at. An earlier version of this document
+said the three came from clipping, because clipping was what ran last.
+Taking clipping out and finding the three still there is what showed
+otherwise.

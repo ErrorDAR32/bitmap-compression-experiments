@@ -18,7 +18,10 @@
 //! had a neighbour whose face fitted inside their span, but only 3.6%
 //! had one lining up with an end of it.
 //!
-//! What unblocks the rest is [`crate::runmax::clip`].
+//! What growing leaves for this one is little: 210 rectangles a bitmap
+//! against merging's 138, on middling ragged content. It is kept
+//! because it is cheap -- three milliseconds against growing's four --
+//! and because the two find different things.
 
 use crate::runmax::edges::{Axis, Edges};
 use crate::Rect;
@@ -55,10 +58,8 @@ impl Work {
     }
 }
 
-/// Merges everywhere, looking at every rectangle. What the pass
-/// runs once, before any clip, to leave the partition with no free
-/// merge anywhere -- which is the invariant the clip loop's locality
-/// then rests on. See [`merge_from`].
+/// Merges everywhere, looking at every rectangle. See [`merge_from`],
+/// which is the same thing told where to look.
 pub(crate) fn merge(rects: &mut Vec<Rect>, work: &mut Work) -> usize {
     merge_from(rects, work, None)
 }
@@ -75,8 +76,8 @@ pub(crate) fn merge(rects: &mut Vec<Rect>, work: &mut Work) -> usize {
 /// faces against it, so it can only become givable when its own shape
 /// changes or a neighbour's does. Nothing outside the seeds and what
 /// the cascade reaches has anything to find, and looking anyway is what
-/// made a clip cost a sweep of a partition running to thousands: fifty
-/// six clips spent 47.5ms of a bitmap's 88ms here.
+/// mattered when a third move used to call this after every change it
+/// made: looking everywhere anyway spent 47.5ms of a bitmap's 88ms.
 pub(crate) fn merge_from(rects: &mut Vec<Rect>, work: &mut Work, seeds: Option<&[usize]>) -> usize {
     let Work { edges, scratch, touched, gone, live, grew, moved } = work;
     let mut reclaimed = 0;

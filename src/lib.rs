@@ -46,13 +46,12 @@
 //! | `grow` | the move that reclaims rectangles |
 //! | `edges` | which rectangles present a face on each edge line |
 //! | `merge` | giving a rectangle away to its neighbours |
-//! | `clip` | the break-even move that unblocks a merge |
 //! | `pass` | the buffers the three moves share, and the order they run in |
 //!
 //! Meshing is `mesh`; everything after it is clip-and-merge, split
-//! into the move that does the work (`grow`), the two primitives it is
-//! built out of (`merge`, `clip`), the index all three share (`edges`)
-//! and the buffers and running order (`pass`).
+//! into the move that does the work (`grow`), the second primitive on
+//! its own (`merge`), the index they share (`edges`) and the buffers
+//! and running order (`pass`).
 //!
 //! `docs/walkthrough.md` works the hardest of those through by hand,
 //! one line at a time, on bitmaps small enough to print.

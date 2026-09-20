@@ -28,7 +28,7 @@ fn show(label: &str, rows: &[&str]) {
     for row in rows {
         println!("    {row}");
     }
-    for (stage, rects) in [("mesh", &meshed), ("after growing", &grown), ("all three moves", &whole)]
+    for (stage, rects) in [("mesh", &meshed), ("after growing", &grown), ("after merging", &whole)]
     {
         print!("  {stage:<16} {:>2}:", rects.len());
         for r in rects.iter() {
@@ -45,6 +45,6 @@ fn main() {
         "####.###", "#..#.###", "####.###", "...#...#",
         "...##..#", "...#####", "########", "##.#####",
     ]);
-    show("the 4x4 whose optimum is three", &["##..", ".###", "###.", "...."]);
+    show("the 4x4 growing cannot touch but merging can", &["##..", ".###", "###.", "...."]);
     show("a comb: growing swallows the teeth", &["#####", "#.#.#", "#.#.#"]);
 }
