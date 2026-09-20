@@ -362,7 +362,7 @@ fn main() {
     let from: u64 = std::env::args()
         .nth(2)
         .and_then(|arg| arg.parse().ok())
-        .unwrap_or(samples::SEED);
+        .unwrap_or(samples::SAMPLE_SEED);
 
     let mut work = RunmaxClipnmerge::new();
     full_size(&mut work, from, seeds);

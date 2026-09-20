@@ -4,7 +4,7 @@
 //! Meshing is `mesh`: the bitmap is reduced to the cells standing in
 //! both orientations, and each step takes the longest run left and
 //! covers every cell under it. That leaves deliberately thin
-//! rectangles, more of them than taking each seed whole would.
+//! rectangles, more of them than taking each seed run whole would.
 //!
 //! Clip-and-merge is the other half, and puts them back together.
 //! `grow` is the move that does nearly all of it: a rectangle reaches
@@ -25,7 +25,7 @@ pub use mesh::mesh_by_scanning;
 pub use pass::Far;
 
 use crate::data::{Areas, Runs, Span};
-use crate::runmax::mesh::{take_all_area, AreaSeed, Level, Queue};
+use crate::runmax::mesh::{take_all_area, AreaRunSeed, Level, Queue};
 use crate::runmax::pass::Pass;
 use crate::{BitMatrix, Rect};
 
@@ -154,25 +154,25 @@ impl RunmaxClipnmerge {
         queue.reset();
         areas.clear();
         for (is_column, side) in [(false, &*rows), (true, &*cols)] {
-            side.for_each_run(|line, span| queue.push(AreaSeed::new(line, span, is_column)));
+            side.for_each_run(|line, span| queue.push(AreaRunSeed::new(line, span, is_column)));
         }
         level.reset();
 
         loop {
-            let seed = match level.take_best(rows, cols) {
-                Some(seed) => seed,
+            let run = match level.take_best(rows, cols) {
+                Some(run) => run,
                 None => {
                     level.draw(queue, rows, cols);
                     match level.take_best(rows, cols) {
-                        Some(seed) => seed,
+                        Some(run) => run,
                         None => break,
                     }
                 }
             };
 
-            let crossing = if seed.is_column { &*rows } else { &*cols };
+            let crossing = if run.is_column { &*rows } else { &*cols };
             plan.clear();
-            take_all_area(crossing, seed.span(), seed.line, seed.is_column, plan);
+            take_all_area(crossing, run.span(), run.line, run.is_column, plan);
 
             for rect in plan.drain(..) {
                 cut_rows.clear();
@@ -188,7 +188,7 @@ impl RunmaxClipnmerge {
                 // worked through.
                 for (pieces, is_column) in [(&*cut_rows, false), (&*cut_cols, true)] {
                     for &(line, span) in pieces {
-                        queue.push(AreaSeed::new(line, span, is_column));
+                        queue.push(AreaRunSeed::new(line, span, is_column));
                     }
                 }
             }

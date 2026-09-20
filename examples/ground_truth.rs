@@ -179,7 +179,7 @@ fn main() {
         let mut here = Report { checked: 0, broken: 0, over: 0, examples: Vec::new() };
         for shape in samples::SHAPES {
             let grown =
-                samples::grown_in(samples::SEED, n, shape.density, shape.cluster, PER_SHAPE);
+                samples::grown_in(samples::SAMPLE_SEED, n, shape.density, shape.cluster, PER_SHAPE);
             for bits in grown {
                 here.check(mask_of(&bits, n), n, &mut memo);
             }

@@ -4,11 +4,11 @@
 //! orientations, and every step afterwards works on those rather than
 //! on cells. Each step takes the longest run still standing, in either
 //! orientation, and covers every cell under it: one rectangle per
-//! stretch of the seed whose crossing runs agree, each carried down as
+//! stretch of the seed run whose crossing runs agree, each carried down as
 //! far as that run reaches. Both sides are then carved to exclude what
 //! was taken.
 //!
-//! Covering meshes worse than taking the seed whole, deliberately, and
+//! Covering meshes worse than taking the seed run whole, deliberately, and
 //! that is the point: the rectangles it leaves are thin, and thin
 //! rectangles are the ones [`crate::runmax::grow`] can do something
 //! with, so covering is behind after the mesh and ahead after the
@@ -29,26 +29,32 @@
 use crate::data::{Runs, Span};
 use crate::{BitMatrix, Rect};
 
-/// A run waiting to be seeded.
+/// A run waiting to be seeded: the run itself, in whichever
+/// orientation it lies, plus the ranking the queue sorts it by.
+///
+/// Named for all three of those, because "seed" on its own says
+/// nothing -- the crate also seeds a random generator with one and
+/// starts a merge from a list of them, and none of the three is the
+/// others. This is the one that is a run.
 ///
 /// The ranking packed into `order` is the run's length, then a row run
 /// over a column run, then the upper-left-most, so the queue compares
-/// seeds with a single instruction rather than walking a chain of
+/// seed runs with a single instruction rather than walking a chain of
 /// fields. The crossing area is deliberately not in it.
 ///
 /// Leaving it out is what makes the queue safe to leave stale. A run's
 /// length never changes: carving either takes a run away or leaves it
 /// alone, and what it leaves behind is a new run, queued in its own
-/// right. So a seed sitting in the queue is either exactly what it says
+/// right. So a seed run sitting in the queue is either exactly what it says
 /// it is or gone, and one lookup tells which. Crossing area is not like
-/// that -- it falls as the bitmap is carved -- so a seed sitting in the
+/// that -- it falls as the bitmap is carved -- so a seed run sitting in the
 /// queue on a figure counted long ago is sitting on a figure it may no
 /// longer earn, and the queue has no way to tell. Keeping the area out
 /// of it and settling that only among the runs actually tied on length
 /// sidesteps the question, and costs nothing: the tie is the only place
 /// the area was ever consulted.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) struct AreaSeed {
+pub(crate) struct AreaRunSeed {
     order: u32,
     pub(crate) line: u8,
     start: u8,
@@ -56,7 +62,7 @@ pub(crate) struct AreaSeed {
     pub(crate) is_column: bool,
 }
 
-impl AreaSeed {
+impl AreaRunSeed {
     /// Packs the ranking as the run is named, so that the queue never
     /// has to look at anything but `order` to compare two runs.
     ///
@@ -97,61 +103,61 @@ impl AreaSeed {
 
 }
 
-/// Covers a seed with every cell standing under it, in as few
+/// Covers a seed run with every cell standing under it, in as few
 /// rectangles as that takes.
 ///
 /// Merging two neighbouring stretches can only lower the ceiling and
 /// raise the floor of what they share, so a cover takes every cell under
-/// the seed exactly when no stretch holds two crossing runs that differ.
+/// the seed run exactly when no stretch holds two crossing runs that differ.
 /// That fixes where the cuts go, and the fewest rectangles managing it
 /// is one per stretch of equal runs: no charge to tune, no search.
 ///
-/// It meshes worse than taking the seed whole, deliberately. The
+/// It meshes worse than taking the seed run whole, deliberately. The
 /// rectangles it leaves are thin, and thin rectangles are the ones a
 /// rewriting pass can do something with.
 pub(crate) fn take_all_area(
     crossing: &Runs,
-    seed: Span,
+    run: Span,
     line: u8,
-    seed_is_column: bool,
+    run_is_column: bool,
     out: &mut Vec<Rect>,
 ) {
-    let emit = |out: &mut Vec<Rect>, from: u8, to: u8, run: Span| {
-        out.push(if seed_is_column {
-            Rect { x0: run.start, y0: from, x1: run.end, y1: to }
+    let emit = |out: &mut Vec<Rect>, from: u8, to: u8, across: Span| {
+        out.push(if run_is_column {
+            Rect { x0: across.start, y0: from, x1: across.end, y1: to }
         } else {
-            Rect { x0: from, y0: run.start, x1: to, y1: run.end }
+            Rect { x0: from, y0: across.start, x1: to, y1: across.end }
         });
     };
 
     let mut open: Option<(u8, Span)> = None;
-    for pos in seed.start..=seed.end {
-        let run = crossing
+    for pos in run.start..=run.end {
+        let across = crossing
             .span_at(pos, line)
             .expect("a cell still standing belongs to a run of either kind");
         match open {
-            Some((from, current)) if current != run => {
+            Some((from, current)) if current != across => {
                 emit(out, from, pos - 1, current);
-                open = Some((pos, run));
+                open = Some((pos, across));
             }
-            None => open = Some((pos, run)),
+            None => open = Some((pos, across)),
             _ => {}
         }
     }
 
     if let Some((from, current)) = open {
-        emit(out, from, seed.end, current);
+        emit(out, from, run.end, current);
     }
 }
 
-/// How much area stands in the runs crossing a seed: the lengths of all
+/// How much area stands in the runs crossing a seed run: the lengths of all
 /// of them added up, not the longest of them.
-fn crossing_area(seed: &AreaSeed, rows: &Runs, cols: &Runs) -> u32 {
-    let crossing = if seed.is_column { rows } else { cols };
+fn crossing_area(run: &AreaRunSeed, rows: &Runs, cols: &Runs) -> u32 {
+    let crossing = if run.is_column { rows } else { cols };
     let mut area = 0;
-    for pos in seed.start..=seed.end {
-        if let Some(run) = crossing.span_at(pos, seed.line) {
-            area += run.len() as u32;
+    for pos in run.start..=run.end {
+        if let Some(across) = crossing.span_at(pos, run.line) {
+            area += across.len() as u32;
         }
     }
     area
@@ -176,7 +182,7 @@ const NO_SEED: u32 = u32::MAX;
 /// twelve bytes and a twelve-byte push is a call to memcpy.
 pub(crate) struct Queue {
     /// Every run pushed, in the order they were pushed.
-    seeds: Vec<AreaSeed>,
+    runs: Vec<AreaRunSeed>,
     /// For each of those, the slot of the next run in its bucket.
     next: Vec<u32>,
     /// The run pushed most recently at each length.
@@ -193,7 +199,7 @@ impl Queue {
     /// realistic bitmap will put through it.
     pub(crate) fn new() -> Self {
         Self {
-            seeds: Vec::with_capacity(Self::EXPECTED),
+            runs: Vec::with_capacity(Self::EXPECTED),
             next: Vec::with_capacity(Self::EXPECTED),
             heads: Box::new([NO_SEED; 257]),
             longest: 256,
@@ -202,7 +208,7 @@ impl Queue {
 
     /// Empties the queue, ready for another bitmap.
     pub(crate) fn reset(&mut self) {
-        self.seeds.clear();
+        self.runs.clear();
         self.next.clear();
         self.heads.fill(NO_SEED);
         self.longest = 256;
@@ -215,24 +221,24 @@ impl Queue {
     /// what it leaves behind is a new run pushed in its own right, so a
     /// run sitting in a bucket is either exactly what it says it is or
     /// gone, and one lookup tells which.
-    pub(crate) fn push(&mut self, seed: AreaSeed) {
-        let length = seed.len() as usize;
-        let slot = self.seeds.len() as u32;
-        self.seeds.push(seed);
+    pub(crate) fn push(&mut self, run: AreaRunSeed) {
+        let length = run.len() as usize;
+        let slot = self.runs.len() as u32;
+        self.runs.push(run);
         self.next.push(self.heads[length]);
         self.heads[length] = slot;
     }
 
     /// Empties the bucket at the longest length that has anything in it
     /// into `out`, and answers that length.
-    fn drain_longest(&mut self, out: &mut Vec<AreaSeed>) -> Option<u16> {
+    fn drain_longest(&mut self, out: &mut Vec<AreaRunSeed>) -> Option<u16> {
         loop {
             let head = self.heads[self.longest];
             if head != NO_SEED {
                 self.heads[self.longest] = NO_SEED;
                 let mut at = head;
                 while at != NO_SEED {
-                    out.push(self.seeds[at as usize]);
+                    out.push(self.runs[at as usize]);
                     at = self.next[at as usize];
                 }
                 return Some(self.longest as u16);
@@ -250,7 +256,7 @@ impl Queue {
 ///
 /// Held apart from the queue because the two are ordered by figures
 /// that behave differently. Length never changes, so the queue can be
-/// left stale: a seed in it either names a run that is still exactly
+/// left stale: a seed run in it either names a run that is still exactly
 /// what it says, or names one that is gone, and one lookup tells which.
 /// Crossing area is not like that -- a carve makes it fall. So the area
 /// is settled only among the runs actually tied on length, which is the
@@ -274,11 +280,11 @@ pub(crate) struct Level {
     /// and never reranked: one sort of a few dozen entries beats a push
     /// and a pop apiece, and the cursor below is the whole of what
     /// popping used to mean.
-    ranked: Vec<(u64, AreaSeed)>,
+    ranked: Vec<(u64, AreaRunSeed)>,
     /// How far through `ranked` [`Level::take_best`] has got.
     at: usize,
     /// The bucket the queue last handed over, standing or not.
-    drawn: Vec<AreaSeed>,
+    drawn: Vec<AreaRunSeed>,
 }
 
 impl Level {
@@ -297,7 +303,7 @@ impl Level {
     /// Ranks a run so that the better one sorts higher: the larger
     /// crossing area, then the earlier position. Seventeen bits hold an
     /// area, which cannot exceed the 65536 cells of the matrix, and the
-    /// twenty-six below it hold the seed's own ranking.
+    /// twenty-six below it hold the seed run's own ranking.
     ///
     /// Larger area, not smaller, and that was worth 8.8% of every
     /// rectangle the algorithm spends over the minimum. The old reading
@@ -316,8 +322,8 @@ impl Level {
     /// No two runs can share a key, since `order` names a run's
     /// orientation and where it starts, so the sort has nothing to
     /// break a tie on and the result does not depend on how it sorts.
-    fn key(seed: &AreaSeed, area: u32) -> u64 {
-        ((area as u64) << 26) | seed.order as u64
+    fn key(run: &AreaRunSeed, area: u32) -> u64 {
+        ((area as u64) << 26) | run.order as u64
     }
 
     /// Draws every run standing at the longest length left, counts what
@@ -336,12 +342,12 @@ impl Level {
             let Some(_length) = queue.drain_longest(&mut self.drawn) else { return };
 
             for index in 0..self.drawn.len() {
-                let seed = self.drawn[index];
-                if !seed.standing(rows, cols) {
+                let run = self.drawn[index];
+                if !run.standing(rows, cols) {
                     continue;
                 }
-                let area = crossing_area(&seed, rows, cols);
-                self.ranked.push((Self::key(&seed, area), seed));
+                let area = crossing_area(&run, rows, cols);
+                self.ranked.push((Self::key(&run, area), run));
             }
 
             if !self.ranked.is_empty() {
@@ -359,12 +365,12 @@ impl Level {
     /// A run ranked when the level was drawn may have been carved away
     /// since by a run taken ahead of it, so what the cursor hands over
     /// is checked against the bitmap before it is answered.
-    pub(crate) fn take_best(&mut self, rows: &Runs, cols: &Runs) -> Option<AreaSeed> {
+    pub(crate) fn take_best(&mut self, rows: &Runs, cols: &Runs) -> Option<AreaRunSeed> {
         while self.at < self.ranked.len() {
-            let seed = self.ranked[self.at].1;
+            let run = self.ranked[self.at].1;
             self.at += 1;
-            if seed.standing(rows, cols) {
-                return Some(seed);
+            if run.standing(rows, cols) {
+                return Some(run);
             }
         }
         None
@@ -398,15 +404,15 @@ pub fn mesh_by_scanning(source: &BitMatrix) -> Vec<Rect> {
     let mut level = Vec::new();
 
     while scan_for_level(&rows, &cols, &mut level) {
-        for seed in level.drain(..) {
+        for run in level.drain(..) {
             // Something taken ahead of it may have carved it away.
-            if !seed.standing(&rows, &cols) {
+            if !run.standing(&rows, &cols) {
                 continue;
             }
 
-            let crossing = if seed.is_column { &rows } else { &cols };
+            let crossing = if run.is_column { &rows } else { &cols };
             plan.clear();
-            take_all_area(crossing, seed.span(), seed.line, seed.is_column, &mut plan);
+            take_all_area(crossing, run.span(), run.line, run.is_column, &mut plan);
 
             for rect in plan.drain(..) {
                 rows.carve((rect.y0, rect.y1), rect.x0, rect.x1, &mut bin);
@@ -430,7 +436,7 @@ pub fn mesh_by_scanning(source: &BitMatrix) -> Vec<Rect> {
 /// scan is bound to find a shorter one. That is what makes drawing a
 /// level at a time the same thing as scanning for the longest run every
 /// step, apart from the areas being older.
-fn scan_for_level(rows: &Runs, cols: &Runs, level: &mut Vec<AreaSeed>) -> bool {
+fn scan_for_level(rows: &Runs, cols: &Runs, level: &mut Vec<AreaRunSeed>) -> bool {
     let mut longest = 0;
     for side in [rows, cols] {
         side.for_each_run(|_, span| longest = longest.max(span.len()));
@@ -439,22 +445,22 @@ fn scan_for_level(rows: &Runs, cols: &Runs, level: &mut Vec<AreaSeed>) -> bool {
         return false;
     }
 
-    let mut ranked: Vec<(u32, AreaSeed)> = Vec::new();
+    let mut ranked: Vec<(u32, AreaRunSeed)> = Vec::new();
     for (is_column, side) in [(false, rows), (true, cols)] {
         side.for_each_run(|line, span| {
             if span.len() != longest {
                 return;
             }
-            let seed = AreaSeed::new(line, span, is_column);
-            ranked.push((crossing_area(&seed, rows, cols), seed));
+            let run = AreaRunSeed::new(line, span, is_column);
+            ranked.push((crossing_area(&run, rows, cols), run));
         });
     }
 
-    // Biggest area first, then the seed's own ranking, which is what
+    // Biggest area first, then the seed run's own ranking, which is what
     // [`Level::key`] packs into one number and sorts on there.
     ranked.sort_by(|a, b| b.0.cmp(&a.0).then(b.1.order.cmp(&a.1.order)));
     level.clear();
-    level.extend(ranked.into_iter().map(|(_, seed)| seed));
+    level.extend(ranked.into_iter().map(|(_, run)| run));
     true
 }
 

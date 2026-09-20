@@ -68,24 +68,25 @@ pub(crate) fn merge(rects: &mut Vec<Rect>, work: &mut Work) -> usize {
 /// Merges rectangles into their neighbours until none is left that
 /// can be given away whole, and answers how many were reclaimed.
 ///
-/// Given seeds, only those rectangles and their neighbours are tried,
-/// and after that only whatever the merges themselves disturb.
+/// Given somewhere to start, only those rectangles and their
+/// neighbours are tried, and after that only whatever the merges
+/// themselves disturb.
 ///
 /// That is sound wherever the partition has already been merged to
 /// exhaustion, which is how the rewriting pass always leaves it. A
 /// rectangle is given away when its span is covered exactly by the
 /// faces against it, so it can only become givable when its own shape
-/// changes or a neighbour's does. Nothing outside the seeds and what
+/// changes or a neighbour's does. Nothing outside the start and what
 /// the cascade reaches has anything to find, and looking anyway is what
 /// mattered when a third move used to call this after every change it
 /// made: looking everywhere anyway spent 47.5ms of a bitmap's 88ms.
-pub(crate) fn merge_from(rects: &mut Vec<Rect>, work: &mut Work, seeds: Option<&[usize]>) -> usize {
+pub(crate) fn merge_from(rects: &mut Vec<Rect>, work: &mut Work, start: Option<&[usize]>) -> usize {
     let Work { edges, scratch, touched, gone, live, grew, moved } = work;
     let mut reclaimed = 0;
 
     live.clear();
-    if let Some(seeds) = seeds {
-        live.extend_from_slice(seeds);
+    if let Some(start) = start {
+        live.extend_from_slice(start);
     }
 
     loop {
@@ -98,7 +99,7 @@ pub(crate) fn merge_from(rects: &mut Vec<Rect>, work: &mut Work, seeds: Option<&
         gone.clear();
         gone.resize(rects.len(), false);
 
-        if seeds.is_none() {
+        if start.is_none() {
             live.clear();
             live.extend(0..rects.len());
         } else {

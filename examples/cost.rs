@@ -130,7 +130,7 @@ fn main() {
         return;
     }
 
-    let from: u64 = first.and_then(|arg| arg.parse().ok()).unwrap_or(samples::SEED);
+    let from: u64 = first.and_then(|arg| arg.parse().ok()).unwrap_or(samples::SAMPLE_SEED);
 
     let mut measured = Vec::new();
     for shape in samples::SHAPES {

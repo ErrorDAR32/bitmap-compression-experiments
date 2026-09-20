@@ -23,9 +23,16 @@ mod generate;
 
 use crate::BitMatrix;
 
-/// Where every sample's seeds start. Move it to ask whether a result
-/// was about an algorithm or about those particular bitmaps.
-pub const SEED: u64 = 0;
+/// Where every sample's seeds start, and the seed of a random
+/// generator rather than the [`crate::runmax`] kind, which is a run.
+///
+/// Move it to ask whether a result was about an algorithm or about
+/// those particular bitmaps. It has been zero for every measurement in
+/// this repository, which is what makes them reproducible and is not
+/// what makes them representative -- `examples/worst.rs` takes a seed
+/// base as an argument so a change can be checked on bitmaps it was
+/// not tuned on.
+pub const SAMPLE_SEED: u64 = 0;
 
 /// One shape worth measuring on: what it looks like, the two numbers
 /// that make it, and how many of it a timed run should take.
@@ -49,12 +56,12 @@ pub struct Shape {
 impl Shape {
     /// `count` bitmaps of this shape, built one at a time.
     pub fn take(&self, count: u64) -> Samples {
-        grown(SEED, self.density, self.cluster, count)
+        grown(SAMPLE_SEED, self.density, self.cluster, count)
     }
 
     /// The same, confined to a `side` by `side` corner.
     pub fn take_in(&self, side: usize, count: u64) -> Samples {
-        grown_in(SEED, side, self.density, self.cluster, count)
+        grown_in(SAMPLE_SEED, side, self.density, self.cluster, count)
     }
 
     /// As many as a timed run of this shape should take.
