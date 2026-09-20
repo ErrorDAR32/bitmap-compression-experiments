@@ -18,12 +18,7 @@
 //! touching at a point -- all fit in far less than that. Everything
 //! bigger is measured against the minimum partition itself.
 
-#[path = "corpus.rs"]
-#[allow(dead_code)]
-mod corpus;
-
-use bitmatrix::{accurate, BitMatrix};
-use bitmatrix::samples;
+use bitmatrix::{accurate, samples, BitMatrix};
 
 /// How many bitmaps of each shape each grid size is checked on.
 const PER_SHAPE: u64 = 400;
@@ -182,9 +177,9 @@ fn main() {
     for n in 5..=LARGEST {
         let mut memo = HashMap::new();
         let mut here = Report { checked: 0, broken: 0, over: 0, examples: Vec::new() };
-        for shape in corpus::SHAPES {
+        for shape in samples::SHAPES {
             let grown =
-                samples::grown_in(corpus::SEED, n, shape.density, shape.cluster, PER_SHAPE);
+                samples::grown_in(samples::SEED, n, shape.density, shape.cluster, PER_SHAPE);
             for bits in grown {
                 here.check(mask_of(&bits, n), n, &mut memo);
             }

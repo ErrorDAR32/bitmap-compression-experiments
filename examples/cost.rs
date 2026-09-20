@@ -27,10 +27,6 @@
 //! about the algorithms or about those bitmaps. It needs `valgrind` on
 //! the path.
 
-#[path = "corpus.rs"]
-#[allow(dead_code)]
-mod corpus;
-
 use bitmatrix::{accurate, samples, RunmaxClipnmerge};
 use std::process::Command;
 
@@ -112,14 +108,14 @@ fn main() {
         return;
     }
 
-    let from: u64 = first.and_then(|arg| arg.parse().ok()).unwrap_or(corpus::SEED);
+    let from: u64 = first.and_then(|arg| arg.parse().ok()).unwrap_or(samples::SEED);
     println!("counted under callgrind, the sample build taken out, seeds from {from}:");
     println!(
         "  {:<20} {:>8} {:>7} {:>8} {:>10} {:>12} {:>12}",
         "", "cells", "rects", "fewest", "per cell", "bias", "accurate's"
     );
 
-    for shape in corpus::SHAPES {
+    for shape in samples::SHAPES {
         let (name, density, cluster) = (shape.name, shape.density, shape.cluster);
         let counted = [Doing::Building, Doing::Partitioning, Doing::Solving]
             .map(|doing| count(density, cluster, from, doing));

@@ -38,6 +38,7 @@
 //! |---|---|
 //! | `matrix` | the bitmap: packed words, drawing, the isolated-cell split |
 //! | `rect` | the one shape everything deals in |
+//! | `partition` | what both algorithms are, from outside |
 //! | `workspace` | the public entry point, and the mesh loop it drives |
 //! | [`exact`] | the minimum partition, which is the benchmark |
 //! | `bits` | word operations on a 256-bit line |
@@ -68,11 +69,13 @@
 
 pub mod accurate;
 mod matrix;
+mod partition;
 mod rect;
 pub mod runmax;
 pub mod samples;
 
 pub use matrix::BitMatrix;
+pub use partition::{assert_partition, Partition};
 pub use rect::Rect;
 pub use runmax::{mesh_by_scanning, Far, RunmaxClipnmerge};
 

@@ -4,14 +4,10 @@
 //! purpose, and growing is what puts them back together. Merging on
 //! its own reclaims almost nothing, which is why it runs second.
 
-#[path = "corpus.rs"]
-#[allow(dead_code)]
-mod corpus;
-
-use bitmatrix::RunmaxClipnmerge;
+use bitmatrix::{samples, RunmaxClipnmerge};
 
 fn main() {
-    let maps: Vec<_> = corpus::typical().timed().collect();
+    let maps: Vec<_> = samples::typical().timed().collect();
     let mut work = RunmaxClipnmerge::new();
     let (mut meshed, mut grown, mut merged, mut both) = (0usize, 0usize, 0usize, 0usize);
 
@@ -24,7 +20,7 @@ fn main() {
     }
 
     let each = maps.len() as f64;
-    println!("{} {} bitmaps, per bitmap:", maps.len(), corpus::typical().name);
+    println!("{} {} bitmaps, per bitmap:", maps.len(), samples::typical().name);
     println!("  meshed                    {:.2}", meshed as f64 / each);
     println!("  growing alone reclaims    {:.2}", grown as f64 / each);
     println!("  merging alone reclaims {:.2}", merged as f64 / each);

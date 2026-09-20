@@ -70,6 +70,16 @@ impl Default for RunmaxClipnmerge {
     }
 }
 
+impl crate::Partition for RunmaxClipnmerge {
+    fn name(&self) -> &'static str {
+        "runmax"
+    }
+
+    fn partition(&mut self, bits: &BitMatrix) -> &[Rect] {
+        RunmaxClipnmerge::partition(self, bits)
+    }
+}
+
 impl RunmaxClipnmerge {
     /// Builds the workspace. A few hundred kilobytes, found once, and
     /// then never allocated again however many bitmaps go through it.
@@ -214,20 +224,6 @@ mod tests {
     use crate::runmax::mesh::mesh_by_scanning;
     use crate::samples;
 
-    /// The settings the tests sweep. Scattered cells, ragged shapes and
-    /// solid blobs at three densities, which is the whole range the
-    /// generator reaches.
-    const SHAPES: [(f64, f64); 9] = [
-        (0.02, 0.00),
-        (0.02, 0.70),
-        (0.02, 0.95),
-        (0.10, 0.00),
-        (0.10, 0.70),
-        (0.10, 0.95),
-        (0.35, 0.00),
-        (0.35, 0.70),
-        (0.35, 0.95),
-    ];
 
     /// The invariant that matters: the rectangles cover exactly the set
     /// bits, and never each other.
@@ -258,15 +254,15 @@ mod tests {
     #[test]
     fn every_shape_comes_back_an_exact_partition() {
         let mut work = RunmaxClipnmerge::new();
-        for (density, cluster) in SHAPES {
-            for bits in samples::grown(0, density, cluster, 3) {
+        for shape in samples::SHAPES {
+            for bits in shape.tested() {
                 let meshed = work.mesh(&bits).to_vec();
                 assert_exact_partition(&bits, &meshed);
                 let whole = work.partition(&bits).to_vec();
                 assert_exact_partition(&bits, &whole);
                 assert!(
                     whole.len() <= meshed.len(),
-                    "compacting made it worse at {density} {cluster}"
+                    "compacting made it worse on {}", shape.name
                 );
             }
         }
@@ -283,9 +279,9 @@ mod tests {
     fn the_queue_agrees_with_scanning_every_run() {
         let mut work = RunmaxClipnmerge::new();
         let mut cases: Vec<BitMatrix> = vec![BitMatrix::new()];
-        for (density, cluster) in SHAPES {
-            cases.extend(samples::grown(0, density, cluster, 2));
-            cases.extend(samples::grown_in(0, 6, density, cluster, 12));
+        for shape in samples::SHAPES {
+            cases.extend(shape.tested());
+            cases.extend(shape.take_in(6, 12));
         }
         cases.extend(samples::grown(0, 1.0, 0.0, 1));
 

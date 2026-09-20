@@ -32,11 +32,7 @@
 //! two algorithms measured microseconds apart, which is what this
 //! reports.
 
-#[path = "corpus.rs"]
-#[allow(dead_code)]
-mod corpus;
-
-use bitmatrix::{accurate, samples, BitMatrix, RunmaxClipnmerge};
+use bitmatrix::{accurate, assert_partition, samples, BitMatrix, RunmaxClipnmerge};
 use std::time::{Duration, Instant};
 
 const REPEATS: usize = 5;
@@ -136,14 +132,14 @@ fn race(maps: &[BitMatrix]) -> (Measured, Measured, Vec<f64>) {
 }
 
 fn main() {
-    let shape = corpus::typical();
+    let shape = samples::typical();
     let maps: Vec<BitMatrix> = shape.timed().collect();
 
     // Correctness once, outside the timing.
     let mut work = RunmaxClipnmerge::new();
     for bits in &maps {
-        samples::assert_partition(bits, work.partition(bits), "runmax");
-        samples::assert_partition(bits, &accurate::partition(bits), "accurate");
+        assert_partition(bits, work.partition(bits), "runmax");
+        assert_partition(bits, &accurate::partition(bits), "accurate");
     }
 
     let (greedy_all, exact_all, ratios) = race(&maps);
@@ -172,7 +168,7 @@ fn main() {
 
 
     println!("every shape, one bitmap each, best of {REPEATS}:");
-    for shape in corpus::SHAPES {
+    for shape in samples::SHAPES {
         let one: Vec<BitMatrix> = shape.take(1).collect();
         let (got, best, _) = race(&one);
         let over = got.count as f64 / best.count.max(1) as f64;

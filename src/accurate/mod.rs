@@ -270,6 +270,40 @@ impl Cuts {
     }
 }
 
+/// The minimum partition, and the room it works in.
+///
+/// A workspace rather than a free function, for the same reason
+/// [`crate::RunmaxClipnmerge`] is one: a bitmap costs the better part
+/// of a megabyte of scratch, and a caller with layers to get through
+/// wants that found once.
+#[derive(Default)]
+pub struct Accurate {
+    rects: Vec<Rect>,
+}
+
+impl Accurate {
+    /// Builds the workspace.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// The fewest rectangles the set bits can be split into.
+    pub fn partition(&mut self, bits: &BitMatrix) -> &[Rect] {
+        self.rects = partition(bits);
+        &self.rects
+    }
+}
+
+impl crate::Partition for Accurate {
+    fn name(&self) -> &'static str {
+        "accurate"
+    }
+
+    fn partition(&mut self, bits: &BitMatrix) -> &[Rect] {
+        Accurate::partition(self, bits)
+    }
+}
+
 /// The fewest rectangles the set bits can be split into, and the
 /// rectangles themselves.
 pub fn partition(bits: &BitMatrix) -> Vec<Rect> {
@@ -415,19 +449,6 @@ mod tests {
     use super::*;
     use crate::samples;
 
-    /// The settings the tests sweep, matching the ones runmax is swept
-    /// on so that a case failing here can be looked at there.
-    const SHAPES: [(f64, f64); 9] = [
-        (0.02, 0.00),
-        (0.02, 0.70),
-        (0.02, 0.95),
-        (0.10, 0.00),
-        (0.10, 0.70),
-        (0.10, 0.95),
-        (0.35, 0.00),
-        (0.35, 0.70),
-        (0.35, 0.95),
-    ];
 
     /// The rectangles cover exactly the set bits, once each.
     fn assert_partitions(bits: &BitMatrix, rects: &[Rect]) {
@@ -458,8 +479,8 @@ mod tests {
     /// exhaustive search; this is the part that can run in a test.
     #[test]
     fn every_shape_comes_back_an_exact_partition() {
-        for (density, cluster) in SHAPES {
-            for bits in samples::grown(0, density, cluster, 2) {
+        for shape in samples::SHAPES {
+            for bits in shape.tested() {
                 assert_partitions(&bits, &partition(&bits));
             }
         }
@@ -487,9 +508,9 @@ mod tests {
     #[test]
     fn never_worse_than_runmax() {
         let mut work = crate::RunmaxClipnmerge::new();
-        for (density, cluster) in SHAPES {
-            let corners = samples::grown_in(0, 7, density, cluster, 40);
-            for bits in corners.chain(samples::grown(0, density, cluster, 2)) {
+        for shape in samples::SHAPES {
+            let corners = shape.take_in(7, 40);
+            for bits in corners.chain(shape.tested()) {
                 let rects = partition(&bits);
                 assert_partitions(&bits, &rects);
                 assert!(

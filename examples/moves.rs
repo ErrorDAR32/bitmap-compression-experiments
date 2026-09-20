@@ -5,15 +5,11 @@
 //! what matters here and it is the same either way. The metrics live in
 //! the `cost` example.
 
-#[path = "corpus.rs"]
-#[allow(dead_code)]
-mod corpus;
-
-use bitmatrix::{accurate, BitMatrix, Far, RunmaxClipnmerge};
+use bitmatrix::{accurate, samples, BitMatrix, Far, RunmaxClipnmerge};
 use std::time::{Duration, Instant};
 
 fn main() {
-    for shape in corpus::SHAPES {
+    for shape in samples::SHAPES {
         report(shape.name, shape.timed().collect());
     }
 }
