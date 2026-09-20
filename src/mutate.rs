@@ -759,6 +759,13 @@ struct Work {
     scratch: Scratch,
     touched: Vec<bool>,
     gone: Vec<bool>,
+    /// The rectangles to try this round.
+    live: Vec<usize>,
+    /// The rectangles a dissolve changed the shape of, which are what
+    /// the round after it has to try.
+    grew: Vec<usize>,
+    /// Where each rectangle lands once the dissolved ones are dropped.
+    moved: Vec<usize>,
 }
 
 impl Work {
@@ -768,13 +775,39 @@ impl Work {
             scratch: Scratch::default(),
             touched: Vec::new(),
             gone: Vec::new(),
+            live: Vec::new(),
+            grew: Vec::new(),
+            moved: Vec::new(),
         }
     }
 }
 
 fn dissolve(rects: &mut Vec<Rect>, work: &mut Work) -> usize {
-    let Work { edges, scratch, touched, gone } = work;
+    dissolve_from(rects, work, None)
+}
+
+/// Dissolves rectangles into their neighbours until none is left that
+/// can be given away whole, and answers how many were reclaimed.
+///
+/// Given seeds, only those rectangles and their neighbours are tried,
+/// and after that only whatever the dissolves themselves disturb.
+///
+/// That is sound wherever the partition has already been dissolved to
+/// exhaustion, which is how the rewriting pass always leaves it. A
+/// rectangle is given away when its span is covered exactly by the
+/// faces against it, so it can only become givable when its own shape
+/// changes or a neighbour's does. Nothing outside the seeds and what
+/// the cascade reaches has anything to find, and looking anyway is what
+/// made a trim cost a sweep of a partition running to thousands: fifty
+/// six trims spent 47.5ms of a bitmap's 88ms here.
+fn dissolve_from(rects: &mut Vec<Rect>, work: &mut Work, seeds: Option<&[usize]>) -> usize {
+    let Work { edges, scratch, touched, gone, live, grew, moved } = work;
     let mut reclaimed = 0;
+
+    live.clear();
+    if let Some(seeds) = seeds {
+        live.extend_from_slice(seeds);
+    }
 
     loop {
         edges.rebuild(rects);
@@ -785,9 +818,35 @@ fn dissolve(rects: &mut Vec<Rect>, work: &mut Work) -> usize {
         touched.resize(rects.len(), false);
         gone.clear();
         gone.resize(rects.len(), false);
-        let mut passed = 0;
 
-        for a in 0..rects.len() {
+        if seeds.is_none() {
+            live.clear();
+            live.extend(0..rects.len());
+        } else {
+            // A rectangle's neighbours are candidates too, since a
+            // rectangle becomes givable when a neighbour changes shape
+            // and not only when it does itself.
+            for index in 0..live.len() {
+                let c = live[index];
+                for axis in [Axis::Vertical, Axis::Horizontal] {
+                    let (lo, hi) = axis.span(&rects[c]);
+                    for (side, line) in axis.faces(&rects[c]).into_iter().enumerate() {
+                        let Some(line) = line else { continue };
+                        for face in edges.overlapping(axis, side, line, lo, hi) {
+                            live.push(face.rect as usize);
+                        }
+                    }
+                }
+            }
+            // In the order the whole sweep would have reached them, so
+            // that where several could go it is the same one that does.
+            live.sort_unstable();
+            live.dedup();
+        }
+
+        let mut passed = 0;
+        grew.clear();
+        for &a in live.iter() {
             if touched[a] {
                 continue;
             }
@@ -802,6 +861,7 @@ fn dissolve(rects: &mut Vec<Rect>, work: &mut Work) -> usize {
             for &taker in &scratch.takers {
                 axis.absorb(&mut rects[taker], &given);
                 touched[taker] = true;
+                grew.push(taker);
             }
             touched[a] = true;
             gone[a] = true;
@@ -813,11 +873,26 @@ fn dissolve(rects: &mut Vec<Rect>, work: &mut Work) -> usize {
         }
         reclaimed += passed;
 
+        // Dropping the given-away rectangles renumbers the rest, so the
+        // ones to try next round are carried across by where they land.
+        // A taker is never itself given away, so it always lands
+        // somewhere.
+        moved.clear();
+        let mut lands = 0;
+        for &away in gone.iter() {
+            moved.push(lands);
+            lands += usize::from(!away);
+        }
         let mut i = 0;
         rects.retain(|_| {
             i += 1;
             !gone[i - 1]
         });
+
+        live.clear();
+        for &changed in grew.iter() {
+            live.push(moved[changed]);
+        }
     }
 }
 
@@ -1266,9 +1341,18 @@ fn compact_to(rects: &mut Vec<Rect>, far: Far, pass: &mut Pass) -> usize {
         return started - rects.len();
     }
 
-    'again: loop {
+    // Sweeps until one of them finds nothing. A trim that lands leaves
+    // the index describing a partition that no longer exists, so the
+    // index is rebuilt and the sweep carries on from where it was
+    // rather than starting over: starting over re-asked the same
+    // question of the same rectangles fifty seven times, and answering
+    // it 158,728 times was a seventh of the bitmap.
+    loop {
         index.rebuild(rects);
-        for a in 0..rects.len() {
+        let mut landed = false;
+        let mut a = 0;
+
+        while a < rects.len() {
             for axis in [Axis::Vertical, Axis::Horizontal] {
                 if !trim_plan(rects, index, a, axis, trim, bench) {
                     continue;
@@ -1287,15 +1371,24 @@ fn compact_to(rects: &mut Vec<Rect>, far: Far, pass: &mut Pass) -> usize {
                 // that has earned the chance.
                 candidate.clear();
                 candidate.extend_from_slice(rects);
-                dissolve(candidate, work);
+                // Only around what the trim moved: the partition had no
+                // dissolve anywhere before it, so there is nowhere else
+                // for one to have appeared.
+                dissolve_from(candidate, work, Some(&bench.nearby));
                 if candidate.len() < rects.len() {
                     std::mem::swap(rects, candidate);
-                    continue 'again;
+                    index.rebuild(rects);
+                    landed = true;
+                    break;
                 }
                 undo_trim(rects, undo);
             }
+            a += 1;
         }
-        return started - rects.len();
+
+        if !landed {
+            return started - rects.len();
+        }
     }
 }
 
