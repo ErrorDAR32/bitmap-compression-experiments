@@ -72,12 +72,14 @@
 
 pub mod accurate;
 mod data;
+pub mod halving;
 mod partition;
 pub mod runmax;
 pub mod samples;
 
 pub use data::{BitMatrix, Area};
 pub use partition::{assert_partition, Partition};
+pub use halving::Halving;
 pub use runmax::{mesh_by_scanning, RunmaxClipnmerge, Stop};
 
 /// The matrix is always this wide and this tall. Nothing is sized at
