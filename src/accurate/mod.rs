@@ -32,10 +32,62 @@
 //! already drawn. The faces are then all rectangles, and there are as few
 //! as there can be.
 
-use crate::{BitMatrix, Area, HEIGHT, WIDTH};
+use crate::data::bits::LINE_WORDS;
+use crate::{Area, BitMatrix, HEIGHT, WIDTH};
 
 /// Lattice points run one past the cells in each direction.
 const CORNERS: usize = WIDTH + 1;
+
+/// Words to hold one lattice row: 257 points needs one more than a row
+/// of 256 cells does.
+const CORNER_WORDS: usize = LINE_WORDS + 1;
+
+/// A bit per lattice point, set where three of the four cells around it
+/// are filled -- the corners a partition is forced to cut.
+///
+/// A word at a time rather than a point at a time. The construction
+/// asks this of all 65,000 interior points, and asking one point costs
+/// four bounds-checked cell reads; asking a whole row costs a dozen
+/// word operations. `Region::filled` was 16% of the run and this is
+/// most of what called it.
+///
+/// The four cells around point `(cx, cy)` are the two above it, in row
+/// `cy - 1`, and the two below, in row `cy`, at columns `cx - 1` and
+/// `cx`. Shifting a row left by one puts cell `cx - 1` at bit `cx`, so
+/// all four fall in the same bit position and the test is arithmetic.
+/// A point on the far edge has its outer two cells off the matrix and
+/// so can never have three, which the shift gives for nothing.
+fn reflex_mask(bits: &BitMatrix, out: &mut Vec<u64>) {
+    const NONE: [u64; LINE_WORDS] = [0; LINE_WORDS];
+    out.clear();
+    out.resize(CORNERS * CORNER_WORDS, 0);
+
+    for cy in 0..CORNERS {
+        let above = if cy == 0 { &NONE[..] } else { bits.row(cy as u8 - 1) };
+        let below = if cy == HEIGHT { &NONE[..] } else { bits.row(cy as u8) };
+        let (mut carry_up, mut carry_down) = (0u64, 0u64);
+
+        for word in 0..CORNER_WORDS {
+            let (up, down) = if word < LINE_WORDS {
+                (above[word], below[word])
+            } else {
+                (0, 0)
+            };
+            // Cell `cx - 1` moved to bit `cx`, carrying the top bit of
+            // the word before it.
+            let upper_left = (up << 1) | carry_up;
+            let lower_left = (down << 1) | carry_down;
+            carry_up = up >> 63;
+            carry_down = down >> 63;
+            let (upper_right, lower_right) = (up, down);
+
+            out[cy * CORNER_WORDS + word] = (upper_left & upper_right & lower_left & !lower_right)
+                | (upper_left & upper_right & !lower_left & lower_right)
+                | (upper_left & !upper_right & lower_left & lower_right)
+                | (!upper_left & upper_right & lower_left & lower_right);
+        }
+    }
+}
 
 /// An axis-parallel segment between two reflex corners, lying inside the
 /// region. `line` is the coordinate it sits on and `from`..`to` its
@@ -347,8 +399,10 @@ struct Work {
     reached_h: Vec<bool>,
     reached_v: Vec<bool>,
     stack: Vec<usize>,
-    /// Which lattice points already have a cut through them.
+    /// Which lattice points already have a cut through them, and which
+    /// are corners at all.
     served: Vec<bool>,
+    reflex: Vec<u64>,
     cuts: Cuts,
     /// The union-find the faces are read out of.
     parent: Vec<u32>,
@@ -416,7 +470,7 @@ fn partition_into(bits: &BitMatrix, work: &mut Work) {
     work.served.clear();
     work.served.resize(CORNERS * CORNERS, false);
 
-    let Work { horizontal, vertical, reached_h, reached_v, cuts, served, .. } = work;
+    let Work { horizontal, vertical, reached_h, reached_v, cuts, served, reflex, .. } = work;
     for (chord, _) in horizontal.iter().zip(reached_h.iter()).filter(|(_, t)| **t) {
         let (line, from, to) = (chord.line as usize, chord.from as usize, chord.to as usize);
         for x in from..to {
@@ -435,13 +489,20 @@ fn partition_into(bits: &BitMatrix, work: &mut Work) {
     }
 
     // A corner off the edge of the grid has an empty quadrant there and
-    // so can never have three filled, which keeps these bounds safe.
+    // so can never have three filled, which is why the mask can be
+    // walked without testing the bounds again.
+    reflex_mask(bits, reflex);
     for cy in 1..CORNERS - 1 {
-        for cx in 1..CORNERS - 1 {
-            if served[Cuts::at(cy, cx)] || !region.is_reflex(cx as i32, cy as i32) {
-                continue;
+        for word in 0..CORNER_WORDS {
+            let mut points = reflex[cy * CORNER_WORDS + word];
+            while points != 0 {
+                let cx = word * 64 + points.trailing_zeros() as usize;
+                points &= points - 1;
+                if cx == 0 || cx >= CORNERS - 1 || served[Cuts::at(cy, cx)] {
+                    continue;
+                }
+                run_cut(&region, cuts, cx, cy);
             }
-            run_cut(&region, cuts, cx, cy);
         }
     }
 
