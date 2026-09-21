@@ -4,8 +4,27 @@
 //! methods. [`Buffers`] is every list the two moves work in and nothing
 //! else -- it decides nothing, and it exists only so the room is found
 //! once per workspace rather than once per bitmap. [`rewrite`] is the
-//! order the moves pay in: growing first, since it takes nearly
-//! everything there is to take, then merging what is left.
+//! order the moves pay in: growing, then merging.
+//!
+//! That used to be because growing took nearly everything there was to
+//! take. It no longer does. Since the mesh started taking the seed run
+//! whole, merging alone reclaims 259.4 areas a bitmap against growing's
+//! 210.4, so the weaker move now runs first.
+//!
+//! The order was re-measured rather than re-argued. Four of them, over
+//! nine shapes by twelve seeds and then under callgrind:
+//!
+//! | order | over the minimum | instructions |
+//! |---|---|---|
+//! | grow, merge | 1.921% | 233.1M |
+//! | merge, grow | 1.918% | 235.3M |
+//! | merge, grow, merge | 1.899% | 272.6M |
+//! | grow, merge, grow | 1.911% | 268.8M |
+//!
+//! Running merging first is worth 0.003 percentage points and costs
+//! 0.9%. Running either of them twice buys a hundredth of a percent for
+//! sixteen. So the order stands, and the reason for it is now that it
+//! is the cheapest, not that growing is the stronger move.
 //!
 //! Splitting it this way is the same split the crate makes everywhere:
 //! data that answers questions, and free functions that decide. It also
