@@ -25,7 +25,7 @@ use crate::{BitMatrix, Area};
 
 /// Which way a rectangle grows.
 #[derive(Clone, Copy)]
-enum Side {
+pub(crate) enum Side {
     Up,
     Down,
     Left,
@@ -141,8 +141,8 @@ fn split_met(
 pub(crate) struct Growing {
     /// The neighbours the band has run into, in the order it met them.
     met: List<usize, { bounds::MET }>,
-    taken: List<usize, { bounds::MET }>,
-    cut: List<(usize, u8), { bounds::MET }>,
+    pub(crate) taken: List<usize, { bounds::MET }>,
+    pub(crate) cut: List<(usize, u8), { bounds::MET }>,
     /// Which visit last saw each rectangle, so that "have I met this
     /// one already" is a compare rather than a search.
     seen: List<u32, { bounds::AREAS }>,
@@ -169,7 +169,7 @@ impl Growing {
     /// Stands the scratch up for a fresh partition. The stamps are
     /// blanked rather than carried over, since the slots they name
     /// belong to the partition before.
-    fn reset(&mut self, areas: usize) {
+    pub(crate) fn reset(&mut self, areas: usize) {
         self.met.clear();
         self.taken.clear();
         self.cut.clear();
@@ -377,17 +377,17 @@ fn take_band(
 /// rectangles, and all but the first is spent re-deciding the same
 /// nothing for rectangles nowhere near a change.
 #[derive(Clone, Copy)]
-struct Strips {
+pub(crate) struct Strips {
     cols: [u64; LINE_WORDS],
     rows: [u64; LINE_WORDS],
 }
 
 impl Strips {
-    const NONE: Self = Self { cols: [0; LINE_WORDS], rows: [0; LINE_WORDS] };
-    const ALL: Self = Self { cols: [u64::MAX; LINE_WORDS], rows: [u64::MAX; LINE_WORDS] };
+    pub(crate) const NONE: Self = Self { cols: [0; LINE_WORDS], rows: [0; LINE_WORDS] };
+    pub(crate) const ALL: Self = Self { cols: [u64::MAX; LINE_WORDS], rows: [u64::MAX; LINE_WORDS] };
 
     /// Records that a rectangle's cells have changed hands.
-    fn mark(&mut self, r: &Area) {
+    pub(crate) fn mark(&mut self, r: &Area) {
         for index in 0..LINE_WORDS {
             self.cols[index] |= range_mask(index, r.x0, r.x1);
             self.rows[index] |= range_mask(index, r.y0, r.y1);
@@ -396,7 +396,7 @@ impl Strips {
 
     /// Whether anything marked here or in `also` lies in either of a
     /// rectangle's strips.
-    fn reaches(&self, also: &Self, r: &Area) -> bool {
+    pub(crate) fn reaches(&self, also: &Self, r: &Area) -> bool {
         (0..LINE_WORDS).any(|index| {
             (self.cols[index] | also.cols[index]) & range_mask(index, r.x0, r.x1) != 0
                 || (self.rows[index] | also.rows[index]) & range_mask(index, r.y0, r.y1) != 0
@@ -405,7 +405,7 @@ impl Strips {
 }
 
 /// The most pieces one application can leave behind.
-const PIECES: usize = 3;
+pub(crate) const PIECES: usize = 3;
 
 /// Drops the dead slots, so that the surviving areas are numbered from
 /// zero again with nothing in between.
@@ -413,6 +413,74 @@ fn compact(areas: &mut Areas, gone: &mut List<bool, { bounds::AREAS }>) {
     areas.retain(|index, _| !gone[index]);
     gone.clear();
     gone.resize(areas.len(), false);
+}
+
+/// One area's turn: the best growth it can make on any of its four
+/// sides, applied, or nothing.
+///
+/// Answers what the growth was worth and where the pieces it cut begin,
+/// so a driver can mark what moved without knowing how growing works.
+/// The driver's business is which area to offer next and when to stop;
+/// this is the move.
+pub(crate) fn grow_one(
+    areas: &mut Areas,
+    owners: &mut AreaMap,
+    gone: &mut List<bool, { bounds::AREAS }>,
+    a: usize,
+    scratch: &mut Growing,
+) -> Option<(Area, usize, usize)> {
+    let (side, edge, gain) = best_growth(areas, owners, a, scratch)?;
+    Some(take_growth(areas, owners, gone, a, side, edge, gain, scratch))
+}
+
+/// What the best growth this area can make is worth, without making it.
+///
+/// All four sides rather than the first that pays, because a driver
+/// choosing between this and another move needs to know what the move
+/// is actually worth, not merely that it is worth something.
+pub(crate) fn best_growth(
+    areas: &Areas,
+    owners: &AreaMap,
+    a: usize,
+    scratch: &mut Growing,
+) -> Option<(Side, u8, i32)> {
+    let mut best: Option<(Side, u8, i32)> = None;
+    for side in [Side::Down, Side::Up, Side::Right, Side::Left] {
+        scratch.seen.resize(areas.len(), 0);
+        let Some((edge, gain)) = reach(areas, owners, a, side, scratch) else {
+            continue;
+        };
+        if best.is_none_or(|(_, _, had)| gain > had) {
+            best = Some((side, edge, gain));
+        }
+    }
+    best
+}
+
+/// Makes a growth [`best_growth`] found, and answers the band it took,
+/// what it was worth, and where the pieces it cut begin.
+///
+/// The reach is walked again rather than remembered: `scratch` holds
+/// the neighbours of whichever side was looked at last, and the chosen
+/// side is usually not that one.
+pub(crate) fn take_growth(
+    areas: &mut Areas,
+    owners: &mut AreaMap,
+    gone: &mut List<bool, { bounds::AREAS }>,
+    a: usize,
+    side: Side,
+    edge: u8,
+    gain: i32,
+    scratch: &mut Growing,
+) -> (Area, usize, usize) {
+    scratch.seen.resize(areas.len(), 0);
+    reach(areas, owners, a, side, scratch);
+    let band = band_to(areas[a], side, edge);
+    let Growing { met, taken, cut, .. } = &mut *scratch;
+    split_met(areas, met, &band, side, taken, cut);
+    let standing = areas.len();
+    take_band(areas, owners, gone, a, side, Band { band, taken, cut });
+    (band, gain as usize, standing)
 }
 
 /// Grows every rectangle that can grow, until none can, and answers how
