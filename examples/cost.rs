@@ -8,25 +8,37 @@
 //! - **Instructions per set cell** is what an algorithm spends on the
 //!   content of a bitmap rather than on the bitmap. It compares across
 //!   bitmaps holding wildly different amounts.
-//! - **Instruction-optimal bias** is the instructions taken multiplied
-//!   by `w.pow(w)`, where `w` is one more than how many rectangles were
-//!   given over the fewest possible. One more, so that a partition
-//!   that is never over the fewest is priced at its instructions and
-//!   nothing is raised to the zeroth power. Counting the excess rather
-//!   than the ratio is deliberate: an answer within 1% of the minimum
-//!   is within 1% by the ratio however many areas it wastes, which made
-//!   the metric read as instructions alone and say nothing about the
-//!   waste.
+//! - **Instruction-optimal bias** is the instructions an optimal area
+//!   costs, multiplied by `w.pow(w)` for `w` one more than the areas a
+//!   bitmap is given over the fewest possible.
 //!
-//!   It is reported as a power of ten, because it does not fit in a
-//!   `f64` otherwise, or in the universe: 722 areas wasted prices at
-//!   `10^2067`. Read what that means before reading the numbers. The
-//!   instructions reach `10^9` and the waste reaches `10^2000`, so the
-//!   instructions are not a tie-break, they are nothing at all; and one
-//!   area saved is worth a factor of `w`, which past a hundred wasted
-//!   areas no amount of speed can answer. It is a waste metric with an
-//!   instruction count attached, and the ranking it gives is the
-//!   ranking of `w` alone unless two answers waste the same. An
+//!   Every term is per bitmap. A run is [`EACH`] of them, and counting
+//!   the whole run would put the waste of four bitmaps in an exponent
+//!   that a single bitmap's waste belongs in, so a longer run would
+//!   price the same algorithm worse. Dividing first makes the number
+//!   mean something about one bitmap, and makes two runs of different
+//!   lengths comparable.
+//!
+//!   The instructions are then divided again by the fewest areas, so
+//!   that the cost is what an algorithm spends per area it had to
+//!   produce rather than what it spends on a whole bitmap. That keeps
+//!   the term at a few thousand instead of a few hundred million, and
+//!   stops the size of the content leaking into a figure about waste.
+//!
+//!   One more than the waste, so that a partition never over the fewest
+//!   is priced at its instructions and nothing is raised to the zeroth
+//!   power. Counting the waste rather than the ratio is deliberate: an
+//!   answer within 1% of the minimum is within 1% by the ratio however
+//!   many areas it wastes, which made the metric read as instructions
+//!   alone and say nothing about the waste.
+//!
+//!   It is still reported as a power of ten, because 180 areas wasted a
+//!   bitmap prices at `10^410` and no float holds that. Read what it
+//!   means before reading the numbers: the instruction term reaches
+//!   `10^4` and the waste term `10^400`, so instructions are not a
+//!   tie-break here, they are nothing at all. It is a waste metric with
+//!   an instruction count attached, and its ranking is the ranking of
+//!   `w` alone unless two answers waste the same. An
 //!   algorithm can lose by being slow or by being wasteful and the two
 //!   trade against each other, so neither alone says which is better.
 //!   The accurate algorithm's bias is its instructions alone, since it
@@ -180,8 +192,8 @@ fn main() {
     }
 
     println!(
-        "\ninstruction-optimal bias, instructions by w.pow(w) for w one more than the areas \
-         over fewest,\nas a power of ten, same run:\n"
+        "\ninstruction-optimal bias, instructions an optimal area costs by w.pow(w),\n\
+         for w one more than the areas a bitmap wastes, as a power of ten, same run:\n"
     );
     println!("{}", row(["shape", "runmax-clipnmerge", "accurate", "apart by", "winner"]));
     for &(name, _, areas, fewest, ours, theirs) in &measured {
@@ -202,7 +214,15 @@ fn main() {
 /// The base ten logarithm of the bias, since the bias itself does not
 /// fit in anything. `w.pow(w)` in logarithms is `w * log(w)`, which is
 /// why the metric can be reported at all.
+///
+/// The counts handed in are for a whole run of [`EACH`] bitmaps, so the
+/// waste is divided by that to get what one bitmap wastes. The
+/// instructions are not, because dividing them by the run's total
+/// `fewest` already does it: both are sums over the same bitmaps, so
+/// the run length cancels and what is left is the instructions an
+/// optimal area costs.
 fn log_bias(instructions: u64, areas: u64, fewest: u64) -> f64 {
-    let w = (areas.saturating_sub(fewest) + 1) as f64;
-    (instructions.max(1) as f64).log10() + w * w.log10()
+    let per_area = instructions.max(1) as f64 / fewest.max(1) as f64;
+    let w = areas.saturating_sub(fewest) as f64 / EACH as f64 + 1.0;
+    per_area.log10() + w * w.log10()
 }
