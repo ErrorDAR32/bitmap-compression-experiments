@@ -73,14 +73,19 @@ impl Table {
 }
 
 /// Which of the 65,536 patterns a tile holds.
+///
+/// Four loads and four shifts, not sixteen cell reads. A tile starts on
+/// a multiple of four, so its four columns are an aligned nibble of the
+/// word they fall in, and a row of the tile is that nibble shifted into
+/// place. The pattern is then the table index directly -- there is
+/// nothing to search, and nothing to compare.
 fn pattern_at(bits: &BitMatrix, ox: u8, oy: u8) -> usize {
+    let word = ox as usize / 64;
+    let shift = ox as usize % 64;
     let mut pattern = 0;
     for row in 0..TILE {
-        for col in 0..TILE {
-            if bits.get(ox + col as u8, oy + row as u8) {
-                pattern |= 1 << (row * TILE + col);
-            }
-        }
+        let nibble = bits.row(oy + row as u8)[word] >> shift & 0xF;
+        pattern |= (nibble as usize) << (row * TILE);
     }
     pattern
 }

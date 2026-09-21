@@ -200,7 +200,13 @@ impl BitMatrix {
     }
 
     /// The machine words holding one row.
-    pub(crate) fn row(&self, y: u8) -> &[u64] {
+    /// One row's bits, four words of it.
+    ///
+    /// Public so a caller can read the matrix a word at a time rather
+    /// than a cell at a time, which is the difference between four
+    /// loads and sixteen for a 4x4 tile.
+    #[doc(hidden)]
+    pub fn row(&self, y: u8) -> &[u64] {
         const PER_ROW: usize = WIDTH / BITS_PER_WORD;
         let at = y as usize * PER_ROW;
         &self.words[at..at + PER_ROW]
