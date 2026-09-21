@@ -114,7 +114,7 @@ impl RunmaxClipnmerge {
     }
 
     /// [`Self::partition`] with the rewriting pass stopped after one of
-    /// its moves, or not seed run at all. For weighing each move against what
+    /// its moves, or not run at all. For weighing each move against what
     /// it costs.
     #[doc(hidden)]
     pub fn partition_to(&mut self, source: &BitMatrix, far: Option<crate::Far>) -> &[Area] {
@@ -128,7 +128,7 @@ impl RunmaxClipnmerge {
     }
 
     /// How many rectangles growing reclaims on its own, before anything
-    /// else has seed run. For measuring what the move is worth.
+    /// else has run. For measuring what the move is worth.
     #[doc(hidden)]
     pub fn grow_only(&mut self, source: &BitMatrix) -> usize {
         self.mesh_into(source);
@@ -199,7 +199,7 @@ impl RunmaxClipnmerge {
 }
 
 // ---------------------------------------------------------------------
-// The same answer, worked out by scanning every seed run each step instead of
+// The same answer, worked out by scanning every run each step instead of
 // keeping a queue. Slow, obviously right, and what the fast path is
 // checked against.
 // ---------------------------------------------------------------------
@@ -254,7 +254,7 @@ mod tests {
         }
     }
 
-    /// The queue has to reach the same partition as scanning every seed run
+    /// The queue has to reach the same partition as scanning every run
     /// each step. This is the whole justification for the queue: it is
     /// only worth keeping if it is the same answer, arrived at faster.
     ///

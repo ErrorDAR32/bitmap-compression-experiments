@@ -265,7 +265,7 @@ impl Queue {
 /// Within a level the area is measured once, when the level is drawn,
 /// and the order it gives is not revisited as carves eat into the runs
 /// still waiting. That is a decision and not an oversight. The level
-/// used to recount every seed run a carve could have reached and push it
+/// used to recount every run a carve could have reached and push it
 /// again, which is why the runs were bucketed by where they started and
 /// why a superseded ranking had to be recognised on the way out. It
 /// bought nothing: over 540 generated bitmaps the fresh figures were
@@ -378,7 +378,7 @@ impl Level {
 }
 
 
-/// The same mesh, worked out by scanning every seed run each step instead of
+/// The same mesh, worked out by scanning every run each step instead of
 /// keeping a queue. Slow, obviously right, and what the fast path is
 /// checked against.
 ///
@@ -390,7 +390,7 @@ impl Level {
 /// do if it just scanned for the best seed run every time -- is a different
 /// and very slightly better algorithm that costs a sixth of the seed run to
 /// implement. What stays independent is everything else: this keeps no
-/// queue, no cursor and no bitmask, scans every seed run from the bitmap
+/// queue, no cursor and no bitmask, scans every run from the bitmap
 /// each time it draws, and shares nothing with the fast path but the
 /// rule it is spelling out.
 #[doc(hidden)]
