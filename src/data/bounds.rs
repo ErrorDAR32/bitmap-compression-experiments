@@ -77,9 +77,4 @@ pub(crate) const CUT: usize = 2 * HEIGHT;
 /// a quarter of a megabyte to be certain.
 pub(crate) const MET: usize = CELLS;
 
-/// Two faces per area, one on each of the two edge lines it lies on,
-/// for each of the two axes. Reached 32770.
-pub(crate) const FACES: usize = 2 * AREAS;
 
-/// Edge lines: two axes, two sides, 256 lines apiece.
-pub(crate) const EDGE_LINES: usize = 4 * WIDTH;

@@ -15,9 +15,7 @@
 //! order they seed run in -- and the story of the third move that used to
 //! seed run after them.
 
-mod edges;
 mod grow;
-mod merge;
 mod mesh;
 pub(crate) mod rewrite;
 
@@ -120,7 +118,7 @@ impl RunmaxClipnmerge {
     /// They are disjoint and cover every set bit exactly once. The slice
     /// belongs to the workspace and lasts until the next bitmap.
     pub fn partition(&mut self, source: &BitMatrix) -> &[Area] {
-        self.partition_to(source, Some(crate::Stop::AfterMerging))
+        self.partition_to(source, Some(crate::Stop::AfterGrowing))
     }
 
     /// The rewriting pass over a partition that came from somewhere
@@ -146,7 +144,7 @@ impl RunmaxClipnmerge {
             &self.corners,
             self.areas.working(),
             &mut self.buffers,
-            crate::Stop::AfterMerging,
+            crate::Stop::AfterGrowing,
         );
         self.areas.all()
     }
@@ -186,13 +184,6 @@ impl RunmaxClipnmerge {
         rewrite::grow_only(&self.rest, &self.corners, self.areas.working(), &mut self.buffers)
     }
 
-    /// Only the free half of the pass, which reclaims nothing on its
-    /// own. Kept so that claim stays measurable.
-    #[doc(hidden)]
-    pub fn merge_only(&mut self, source: &BitMatrix) -> usize {
-        self.mesh_into(source);
-        rewrite::merge_only(self.areas.working(), &mut self.buffers)
-    }
 
     /// Meshes the set bits, working the runs longest first and keeping
     /// the ties in a queue rather than finding them by scanning every

@@ -90,28 +90,7 @@ impl<T: Copy + Default, const N: usize> List<T, N> {
         self.len = self.len.min(len);
     }
 
-    /// Adds every value the iterator yields.
-    pub(crate) fn extend(&mut self, values: impl IntoIterator<Item = T>) {
-        for value in values {
-            self.push(value);
-        }
-    }
 
-    /// Drops the values equal to the one before them, which after a
-    /// sort is every repeat.
-    pub(crate) fn dedup(&mut self)
-    where
-        T: PartialEq,
-    {
-        let mut kept = 0;
-        for index in 0..self.len {
-            if kept == 0 || self.slots[index] != self.slots[kept - 1] {
-                self.slots[kept] = self.slots[index];
-                kept += 1;
-            }
-        }
-        self.len = kept;
-    }
 
 }
 
