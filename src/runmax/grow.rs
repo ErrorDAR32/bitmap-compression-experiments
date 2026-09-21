@@ -18,6 +18,7 @@
 //! could have reached, which two 256-bit masks settle in a handful of
 //! word operations. Both are explained where they happen.
 
+use crate::runmax::mesh::Corners;
 use crate::runmax::rewrite::{Areas, Buffers};
 use crate::data::bits::{range_mask, LINE_WORDS};
 use crate::data::{bounds, AreaMap, List};
@@ -208,6 +209,7 @@ impl Growing {
 fn reach(
     areas: &[Area],
     owners: &AreaMap,
+    corners: &Corners,
     a: usize,
     side: Side,
     scratch: &mut Growing,
@@ -234,6 +236,20 @@ fn reach(
         };
         let Some(next) = next else { break };
         line = next;
+
+        // Stepping onto this line crosses one lattice line, and a
+        // chord lying along it is one the partition wanted. Growing
+        // over it puts it inside a face, where it is no longer a cut,
+        // and hands back the saving it was worth.
+        let crossed = match side {
+            Side::Down | Side::Right => line,
+            // Going the other way, the line crossed is the one on the
+            // near side of the cell being taken.
+            Side::Up | Side::Left => line + 1,
+        };
+        if corners.bars(matches!(side, Side::Up | Side::Down), crossed, from, to) {
+            break;
+        }
 
         // As far as the cells are standing, whoever owns them. Each
         // owner met covers the rest of its own width, so the walk
@@ -417,7 +433,27 @@ fn compact(areas: &mut Areas, gone: &mut List<bool, { bounds::AREAS }>) {
 
 /// Grows every rectangle that can grow, until none can, and answers how
 /// many were swallowed.
-pub(crate) fn grow(standing: &BitMatrix, areas: &mut Areas, buffers: &mut Buffers) -> usize {
+///
+/// No rectangle grows across a chord. The mesh stops its seed runs at
+/// the chords in [`crate::chords`] precisely so that the partition
+/// keeps them, and growing over one puts it inside a face, where it is
+/// no longer a cut and the two corners it served need one each again.
+/// Growing used to know nothing about them and undid the mesh's work
+/// wholesale: on an eleven-cell witness the mesh cut a row of five at
+/// all four of its chords and growing put three of the pieces back
+/// together across two of them, for six areas where five do.
+///
+/// Barring that is what takes the partition to the minimum. Over the
+/// corpus it goes from 126 areas over to none at all, and over 180
+/// bitmaps of twenty seeds a shape it is the minimum on every one.
+/// Merging then reclaims nothing, because there is nothing left to
+/// reclaim.
+pub(crate) fn grow(
+    standing: &BitMatrix,
+    corners: &Corners,
+    areas: &mut Areas,
+    buffers: &mut Buffers,
+) -> usize {
     let Buffers { owners, gone, growing: scratch, .. } = buffers;
     owners.paint(standing, areas);
     gone.clear();
@@ -472,7 +508,7 @@ pub(crate) fn grow(standing: &BitMatrix, areas: &mut Areas, buffers: &mut Buffer
 
             for side in [Side::Down, Side::Up, Side::Right, Side::Left] {
                 scratch.seen.resize(areas.len(), 0);
-                let Some((edge, gain)) = reach(areas, owners, a, side, scratch) else {
+                let Some((edge, gain)) = reach(areas, owners, corners, a, side, scratch) else {
                     continue;
                 };
                 let band = band_to(areas[a], side, edge);

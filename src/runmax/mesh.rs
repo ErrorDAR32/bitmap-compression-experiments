@@ -26,6 +26,7 @@
 //! too much; the measurements are in their own docs.
 
 use crate::chords::{Chords, CORNERS, CORNER_WORDS};
+use crate::data::bits::range_mask;
 use crate::data::{bounds, List, Run, Runs};
 use crate::{BitMatrix, Area};
 
@@ -614,6 +615,16 @@ pub(crate) struct Corners {
     /// The same for a column seed run, kept transposed so that it reads
     /// along a line rather than down a stride.
     crossing_col: Box<[u64; CORNERS * CORNER_WORDS]>,
+    /// The same chords the other way round, a line of them at a time
+    /// rather than a cell at a time: `across[l]` is the cells of
+    /// lattice row `l` a horizontal chord lies along, and `down[l]` the
+    /// cells of lattice column `l` a vertical chord lies along.
+    ///
+    /// The mesh wants a seed run's crossings, which is why the first
+    /// pair is indexed by cell; growing wants to ask whether a whole
+    /// lattice line is barred over a span, which is this one.
+    across: Box<[u64; CORNERS * CORNER_WORDS]>,
+    down: Box<[u64; CORNERS * CORNER_WORDS]>,
 }
 
 impl Corners {
@@ -623,6 +634,8 @@ impl Corners {
             chords: Chords::default(),
             crossing_row: Box::new([0; CORNERS * CORNER_WORDS]),
             crossing_col: Box::new([0; CORNERS * CORNER_WORDS]),
+            across: Box::new([0; CORNERS * CORNER_WORDS]),
+            down: Box::new([0; CORNERS * CORNER_WORDS]),
         }
     }
 
@@ -635,6 +648,8 @@ impl Corners {
         self.chords.rebuild(bits, rows, cols);
         self.crossing_row.fill(0);
         self.crossing_col.fill(0);
+        self.across.fill(0);
+        self.down.fill(0);
 
         for (chord, across) in self.chords.drawn() {
             // A horizontal chord on lattice row `line` crosses every
@@ -647,7 +662,28 @@ impl Corners {
             for cell in chord.from as usize..chord.to as usize {
                 painted[cell * CORNER_WORDS + line / 64] |= 1 << (line % 64);
             }
+
+            // And the same chord along its own line, for growing.
+            let along = if across { &mut self.across } else { &mut self.down };
+            let along = &mut along[line * CORNER_WORDS..(line + 1) * CORNER_WORDS];
+            for word in 0..CORNER_WORDS {
+                along[word] |= range_mask(word, chord.from as u8, chord.to as u8 - 1);
+            }
         }
+    }
+
+    /// Whether a chord bars a lattice line over a span of cells.
+    ///
+    /// Growing a rectangle across a chord destroys it: the chord ends
+    /// up inside a face rather than between two, so it stops being a
+    /// cut and the two corners it served are back to needing one each.
+    /// `across` asks about a lattice row, which a rectangle growing up
+    /// or down crosses, and its span is in columns.
+    pub(crate) fn bars(&self, across: bool, line: u8, from: u8, to: u8) -> bool {
+        let along = if across { &self.across } else { &self.down };
+        let along = &along[line as usize * CORNER_WORDS..];
+        (from as usize / 64..=to as usize / 64)
+            .any(|word| along[word] & range_mask(word, from, to) != 0)
     }
 
     /// The seed run, cut back to the longest stretch of it that no

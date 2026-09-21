@@ -131,11 +131,23 @@ impl RunmaxClipnmerge {
     /// pass assumes of anything it is handed.
     #[doc(hidden)]
     pub fn rewrite_areas(&mut self, source: &BitMatrix, areas: &[Area]) -> &[Area] {
+        // The chords are of the bitmap, so they have to be found here
+        // as well: the pass may not grow across one whoever meshed it.
+        source.split_single_cells_into(&mut self.single_cells, &mut self.rest);
+        Runs::rebuild(&self.rest, &mut self.rows, &mut self.cols);
+        self.corners.rebuild(&self.rest, &self.rows, &self.cols);
+
         self.areas.clear();
         for &a in areas {
             self.areas.push(a);
         }
-        rewrite::rewrite(source, self.areas.working(), &mut self.buffers, crate::Stop::AfterMerging);
+        rewrite::rewrite(
+            source,
+            &self.corners,
+            self.areas.working(),
+            &mut self.buffers,
+            crate::Stop::AfterMerging,
+        );
         self.areas.all()
     }
 
@@ -155,7 +167,13 @@ impl RunmaxClipnmerge {
         if let Some(stop) = stop {
             // Only the working areas: the cells standing alone are in a
             // list of their own that no pass can reach.
-            rewrite::rewrite(&self.rest, self.areas.working(), &mut self.buffers, stop);
+            rewrite::rewrite(
+                &self.rest,
+                &self.corners,
+                self.areas.working(),
+                &mut self.buffers,
+                stop,
+            );
         }
         self.areas.all()
     }
@@ -165,7 +183,7 @@ impl RunmaxClipnmerge {
     #[doc(hidden)]
     pub fn grow_only(&mut self, source: &BitMatrix) -> usize {
         self.mesh_into(source);
-        rewrite::grow_only(&self.rest, self.areas.working(), &mut self.buffers)
+        rewrite::grow_only(&self.rest, &self.corners, self.areas.working(), &mut self.buffers)
     }
 
     /// Only the free half of the pass, which reclaims nothing on its

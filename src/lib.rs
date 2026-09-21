@@ -5,9 +5,12 @@
 //!   cells standing in both orientations, meshes it into deliberately
 //!   thin rectangles stopping wherever one of the chords in
 //!   [`crate::chords`] crosses them, and then grows them back over each
-//!   other. Over the 168 generated bitmaps of the corpus it lands
-//!   0.025% over the minimum -- 126 areas of 513,520 -- and costs more
-//!   than [`accurate`] does on all nine of the shapes.
+//!   other, across anything but a chord. Over the 168 generated bitmaps
+//!   of the corpus it lands on the minimum exactly, and over 180
+//!   bitmaps of twenty seeds a shape it is the minimum on every one --
+//!   which is not a proof that it always is, only that nothing has
+//!   found otherwise. It costs about three times what [`accurate`]
+//!   does.
 //! - [`accurate`] is the minimum, by the construction of Lipski and of
 //!   Ohtsuki. It is what runmax-clipnmerge is measured against.
 //! - Exhaustive search, the ground truth, lives in the `ground_truth`

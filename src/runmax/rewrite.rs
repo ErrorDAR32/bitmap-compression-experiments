@@ -45,6 +45,7 @@
 use crate::data::{bounds, AreaMap, List};
 use crate::runmax::grow::{grow, Growing};
 use crate::runmax::merge::{merge, Work};
+use crate::runmax::mesh::Corners;
 use crate::{Area, BitMatrix};
 
 /// The areas a rewriting move works on.
@@ -86,8 +87,13 @@ impl Buffers {
 
 /// How many areas growing reclaims on its own, before anything else has
 /// run. For measuring what the move is worth.
-pub(crate) fn grow_only(standing: &BitMatrix, areas: &mut Areas, buffers: &mut Buffers) -> usize {
-    grow(standing, areas, buffers)
+pub(crate) fn grow_only(
+    standing: &BitMatrix,
+    corners: &Corners,
+    areas: &mut Areas,
+    buffers: &mut Buffers,
+) -> usize {
+    grow(standing, corners, areas, buffers)
 }
 
 /// Merging on its own, for the same reason.
@@ -99,12 +105,13 @@ pub(crate) fn merge_only(areas: &mut Areas, buffers: &mut Buffers) -> usize {
 /// reclaimed, stopping where `stop` says.
 pub(crate) fn rewrite(
     standing: &BitMatrix,
+    corners: &Corners,
     areas: &mut Areas,
     buffers: &mut Buffers,
     stop: Stop,
 ) -> usize {
     let started = areas.len();
-    grow(standing, areas, buffers);
+    grow(standing, corners, areas, buffers);
     if stop == Stop::AfterMerging {
         merge(areas, &mut buffers.work);
     }
@@ -122,6 +129,15 @@ mod tests {
             bits.set_rect(r.x0 as i64, r.y0 as i64, r.x1 as i64, r.y1 as i64);
         }
         bits
+    }
+
+    /// The chords of the bitmap the areas stand on, which growing may
+    /// not cross. Found the same way the mesh finds them.
+    fn chords_of(bits: &BitMatrix) -> Corners {
+        let (rows, cols) = crate::data::Runs::of(bits);
+        let mut corners = Corners::blank();
+        corners.rebuild(bits, &rows, &cols);
+        corners
     }
 
     fn r(x0: u8, y0: u8, x1: u8, y1: u8) -> Area {
@@ -156,7 +172,8 @@ mod tests {
         }
 
         assert_eq!(free(&mut listed(&areas)), 10, "merging gets there too");
-        assert_eq!(grow_only(&standing(&areas), &mut areas, &mut Buffers::new()), 10);
+        let bits = standing(&areas);
+        assert_eq!(grow_only(&bits, &chords_of(&bits), &mut areas, &mut Buffers::new()), 10);
         assert_eq!(&*areas, &[r(0, 0, 9, 1)]);
     }
 
@@ -165,7 +182,8 @@ mod tests {
     #[test]
     fn a_neighbour_hanging_over_the_side_is_left_alone() {
         let mut areas = listed(&[r(1, 0, 2, 0), r(0, 1, 3, 1)]);
-        assert_eq!(grow_only(&standing(&areas), &mut areas, &mut Buffers::new()), 0);
+        let bits = standing(&areas);
+        assert_eq!(grow_only(&bits, &chords_of(&bits), &mut areas, &mut Buffers::new()), 0);
     }
 
     /// Something straddling the far edge is cut there for nothing: the
@@ -179,7 +197,8 @@ mod tests {
     #[test]
     fn a_neighbour_straddling_the_far_edge_is_cut_for_nothing() {
         let mut areas = listed(&[r(0, 0, 1, 0), r(0, 1, 1, 1), r(0, 2, 0, 3), r(1, 2, 1, 2)]);
-        assert_eq!(grow_only(&standing(&areas), &mut areas, &mut Buffers::new()), 2, "the row and the single cell");
+        let bits = standing(&areas);
+        assert_eq!(grow_only(&bits, &chords_of(&bits), &mut areas, &mut Buffers::new()), 2, "the row and the single cell");
         assert_eq!(areas.len(), 2);
         assert!(areas.contains(&r(0, 0, 1, 2)));
         assert!(areas.contains(&r(0, 3, 0, 3)));
