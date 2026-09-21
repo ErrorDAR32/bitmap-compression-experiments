@@ -1,4 +1,4 @@
-//! The two metrics, both counted in instructions.
+//! The metric, counted in instructions.
 //!
 //! Wall clock on a shared machine drifts by more than the differences
 //! worth measuring, and it says nothing about a bitmap with twice the
@@ -8,47 +8,26 @@
 //! - **Instructions per set cell** is what an algorithm spends on the
 //!   content of a bitmap rather than on the bitmap. It compares across
 //!   bitmaps holding wildly different amounts.
-//! - **Instruction-optimal bias** is the instructions an optimal area
-//!   costs, multiplied by `w.pow(w)` for `w` one more than the areas a
-//!   bitmap is given over the fewest possible.
+//! - **Instructions per worked cell** is the same, less the cells that
+//!   stand alone. A cell with no neighbour it touches is its own
+//!   rectangle in any partition, and both algorithms set those aside
+//!   by the same method before they start, so counting them flatters
+//!   whichever algorithm is fed the sparsest content rather than
+//!   saying anything about either.
 //!
-//!   Every term is per bitmap. A run is [`EACH`] of them, and counting
-//!   the whole run would put the waste of four bitmaps in an exponent
-//!   that a single bitmap's waste belongs in, so a longer run would
-//!   price the same algorithm worse. Dividing first makes the number
-//!   mean something about one bitmap, and makes two runs of different
-//!   lengths comparable.
-//!
-//!   The instructions are then divided again by the fewest areas, so
-//!   that the cost is what an algorithm spends per area it had to
-//!   produce rather than what it spends on a whole bitmap. That keeps
-//!   the term at a few thousand instead of a few hundred million, and
-//!   stops the size of the content leaking into a figure about waste.
-//!
-//!   One more than the waste, so that a partition never over the fewest
-//!   is priced at its instructions and nothing is raised to the zeroth
-//!   power. Counting the waste rather than the ratio is deliberate: an
-//!   answer within 1% of the minimum is within 1% by the ratio however
-//!   many areas it wastes, which made the metric read as instructions
-//!   alone and say nothing about the waste.
-//!
-//!   It is still reported as a power of ten, because 180 areas wasted a
-//!   bitmap prices at `10^410` and no float holds that. Read what it
-//!   means before reading the numbers: the instruction term reaches
-//!   `10^4` and the waste term `10^400`, so instructions are not a
-//!   tie-break here, they are nothing at all. It is a waste metric with
-//!   an instruction count attached, and its ranking is the ranking of
-//!   `w` alone unless two answers waste the same. An
-//!   algorithm can lose by being slow or by being wasteful and the two
-//!   trade against each other, so neither alone says which is better.
-//!   The accurate algorithm's bias is its instructions alone, since it
-//!   is never over the fewest.
+//!   There used to be a second metric here. Instruction-optimal bias
+//!   multiplied the instructions by what the partition wasted, so that
+//!   an algorithm could lose by being slow or by being wasteful and
+//!   neither could be read alone. It has nothing left to say: both
+//!   algorithms give the minimum on everything measured, so the waste
+//!   term is one on both sides and the bias is the instructions again.
+//!   It is gone rather than left printing a constant.
 //!
 //! Counting is callgrind's job, so this drives it. Each shape is run
-//! three times -- building the bitmaps, building and partitioning them,
-//! and building and solving them exactly -- and the differences are the
-//! two algorithms alone. Building a sample is not free and has no
-//! business in either figure.
+//! four times -- building the bitmaps, building and reading them,
+//! building and partitioning them, and building and solving them
+//! exactly -- and the differences are the algorithms alone. Building a
+//! sample is not free and has no business in the figure.
 //!
 //! Run it with no arguments, or with a seed to start from. The same
 //! seed gives the same bitmaps, so two runs are comparable down to the
@@ -94,11 +73,14 @@ impl Doing {
     }
 }
 
-/// One run. Prints the set cells and the rectangles, so the driver has
-/// its denominator and its ratio.
+/// One run. Prints the set cells, the cells standing alone and the
+/// rectangles, so the driver has its denominator and its ratio.
 fn run(density: f64, cluster: f64, from: u64, doing: Doing) {
     let maps: Vec<_> = samples::grown(from, density, cluster, EACH).collect();
     let cells: u32 = maps.iter().map(|b| b.count_set()).sum();
+    // Both algorithms set the cells with no neighbour aside the same
+    // way and never partition them, so they are not work either does.
+    let lone: u32 = maps.iter().map(|b| b.split_isolated().0.count_set()).sum();
     let areas: usize = match doing {
         Doing::Building => 0,
         Doing::Partitioning => {
@@ -108,12 +90,12 @@ fn run(density: f64, cluster: f64, from: u64, doing: Doing) {
         Doing::Reading => maps.iter().map(|bits| bitmatrix::chords::floor(bits)).sum(),
         Doing::Solving => maps.iter().map(|bits| accurate::partition(bits).len()).sum(),
     };
-    println!("{cells} {areas}");
+    println!("{cells} {lone} {areas}");
 }
 
 /// Runs one pass under callgrind and answers its instructions, set
-/// cells and rectangles.
-fn count(density: f64, cluster: f64, from: u64, doing: Doing) -> Option<(u64, u64, u64)> {
+/// cells, cells standing alone and rectangles.
+fn count(density: f64, cluster: f64, from: u64, doing: Doing) -> Option<(u64, u64, u64, u64)> {
     let me = std::env::current_exe().ok()?;
     let out = Command::new("valgrind")
         .args(["--tool=callgrind", "--callgrind-out-file=/dev/null"])
@@ -130,8 +112,9 @@ fn count(density: f64, cluster: f64, from: u64, doing: Doing) -> Option<(u64, u6
     let stdout = String::from_utf8_lossy(&out.stdout);
     let mut fields = stdout.split_whitespace();
     let cells = fields.next()?.parse().ok()?;
+    let lone = fields.next()?.parse().ok()?;
     let areas = fields.next()?.parse().ok()?;
-    Some((took, cells, areas))
+    Some((took, cells, lone, areas))
 }
 
 fn main() {
@@ -157,104 +140,98 @@ fn main() {
         let counted =
             [Doing::Building, Doing::Reading, Doing::Partitioning, Doing::Solving]
                 .map(|doing| count(shape.density, shape.cluster, from, doing));
-        let [Some((bare, cells, _)), Some((read, _, _)), Some((mesh, _, areas)), Some((solved, _, fewest))] =
-            counted
+        let [
+            Some((bare, cells, lone, _)),
+            Some((read, ..)),
+            Some((mesh, .., areas)),
+            Some((solved, .., fewest)),
+        ] = counted
         else {
             println!("  {}   (could not run valgrind)", shape.name);
             continue;
         };
-        measured.push((shape.name, cells, areas, fewest, mesh - bare, solved - bare, read - bare));
+        measured.push((
+            shape.name,
+            cells,
+            lone,
+            areas,
+            fewest,
+            mesh - bare,
+            solved - bare,
+            read - bare,
+        ));
     }
 
     println!(
-        "instructions per active cell, counted under callgrind with the sample build\n\
-         taken out, {EACH} bitmaps a shape, seeds from {from}.\n\n  \
-         The floor is the runs and the chords, which both algorithms build before\n  \
-         they do anything of their own, so it is the part neither can drop.\n"
+        "counted under callgrind with the sample build taken out, {EACH} bitmaps a\n\
+         shape, seeds from {from}.\n"
+    );
+
+    let mut areas_table = Table::new(&[
+        "shape",
+        "active\ncells",
+        "cells\nstanding\nalone",
+        "cells the\nalgorithms\nwork on",
+        "areas given by\nrunmax-clipnmerge",
+        "areas given by\naccurate",
+    ]);
+    for &(name, cells, lone, areas, fewest, ..) in &measured {
+        areas_table.row(&[
+            name.to_string(),
+            cells.to_string(),
+            lone.to_string(),
+            (cells - lone).to_string(),
+            areas.to_string(),
+            fewest.to_string(),
+        ]);
+    }
+    areas_table.print();
+
+    println!(
+        "\n  A cell with no neighbour it touches is its own rectangle in any partition,\n  \
+         and both algorithms set those aside by the same method before they start, so\n  \
+         instructions are priced per cell that is actually partitioned.\n\n  \
+         The floor is the runs and the chords, which both build before they do anything\n  \
+         of their own, so it is the part neither can drop.\n"
     );
 
     let mut table = Table::new(&[
         "shape",
-        "active\ncells",
-        "areas given by\nrunmax-clipnmerge",
-        "areas given by\naccurate",
-        "floor\ninstructions\nper active cell",
-        "runmax-clipnmerge\ninstructions\nper active cell",
-        "accurate\ninstructions\nper active cell",
-        "runmax-clipnmerge\nabove the floor\nper active cell",
-        "accurate\nabove the floor\nper active cell",
+        "cells the\nalgorithms\nwork on",
+        "floor\ninstructions\nper worked cell",
+        "runmax-clipnmerge\ninstructions\nper worked cell",
+        "accurate\ninstructions\nper worked cell",
+        "runmax-clipnmerge\nabove the floor\nper worked cell",
+        "accurate\nabove the floor\nper worked cell",
     ]);
     let per = |count: u64, cells: u64| format!("{:.1}", count as f64 / cells.max(1) as f64);
-    let (mut all_cells, mut all_ours, mut all_theirs, mut all_floor) = (0u64, 0u64, 0u64, 0u64);
+    let (mut all_worked, mut all_ours, mut all_theirs, mut all_floor) = (0u64, 0u64, 0u64, 0u64);
 
-    for &(name, cells, areas, fewest, ours, theirs, floor) in &measured {
-        all_cells += cells;
+    for &(name, cells, lone, _, _, ours, theirs, floor) in &measured {
+        let worked = cells - lone;
+        all_worked += worked;
         all_ours += ours;
         all_theirs += theirs;
         all_floor += floor;
         table.row(&[
             name.to_string(),
-            cells.to_string(),
-            areas.to_string(),
-            fewest.to_string(),
-            per(floor, cells),
-            per(ours, cells),
-            per(theirs, cells),
-            per(ours.saturating_sub(floor), cells),
-            per(theirs.saturating_sub(floor), cells),
+            worked.to_string(),
+            per(floor, worked),
+            per(ours, worked),
+            per(theirs, worked),
+            per(ours.saturating_sub(floor), worked),
+            per(theirs.saturating_sub(floor), worked),
         ]);
     }
     table.rule();
     table.row(&[
         "every shape".to_string(),
-        all_cells.to_string(),
-        String::new(),
-        String::new(),
-        per(all_floor, all_cells),
-        per(all_ours, all_cells),
-        per(all_theirs, all_cells),
-        per(all_ours.saturating_sub(all_floor), all_cells),
-        per(all_theirs.saturating_sub(all_floor), all_cells),
+        all_worked.to_string(),
+        per(all_floor, all_worked),
+        per(all_ours, all_worked),
+        per(all_theirs, all_worked),
+        per(all_ours.saturating_sub(all_floor), all_worked),
+        per(all_theirs.saturating_sub(all_floor), all_worked),
     ]);
     table.print();
-
-    println!(
-        "\ninstruction-optimal bias: the instructions an optimal area costs, times\n\
-         w to the power w, for w one more than the areas a bitmap is given over the\n\
-         fewest possible. Reported as a power of ten. Lower is better. Same run.\n"
-    );
-    let mut table = Table::new(&[
-        "shape",
-        "runmax-clipnmerge\ninstruction-optimal bias",
-        "accurate\ninstruction-optimal bias",
-        "how far\napart",
-        "which algorithm\nwins",
-    ]);
-    for &(name, _, areas, fewest, ours, theirs, _) in &measured {
-        let (ours, theirs) = (log_bias(ours, areas, fewest), log_bias(theirs, fewest, fewest));
-        table.row(&[
-            name.to_string(),
-            format!("10^{ours:.1}"),
-            format!("10^{theirs:.1}"),
-            format!("10^{:.1}", (ours - theirs).abs()),
-            if ours < theirs { "runmax-clipnmerge" } else { "accurate" }.to_string(),
-        ]);
-    }
-    table.print();
-}
-
-/// The base ten logarithm of the bias, since the bias itself does not
-/// fit in anything. `w.pow(w)` in logarithms is `w * log(w)`, which is
-/// why the metric can be reported at all.
-///
-/// The counts handed in are for a whole run of [`EACH`] bitmaps, so the
-/// waste is divided by that to get what one bitmap wastes. The
-/// instructions are not, because dividing them by the run's total
-/// `fewest` already does it: both are sums over the same bitmaps, so
-/// the run length cancels and what is left is the instructions an
-/// optimal area costs.
-fn log_bias(instructions: u64, areas: u64, fewest: u64) -> f64 {
-    let per_area = instructions.max(1) as f64 / fewest.max(1) as f64;
-    let w = areas.saturating_sub(fewest) as f64 / EACH as f64 + 1.0;
-    per_area.log10() + w * w.log10()
 }
