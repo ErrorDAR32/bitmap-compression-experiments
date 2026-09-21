@@ -563,23 +563,30 @@ fn faces(
         }
     };
 
+    // Set cells only, read off the words rather than asked for one at a
+    // time. Whether the cell to the right or below is filled is a bit
+    // test on a word already in hand, where `Region::filled` would
+    // range-check both axes and index the matrix again.
+    const NONE: [u64; LINE_WORDS] = [0; LINE_WORDS];
     for y in 0..HEIGHT {
-        for x in 0..WIDTH {
-            if !region.filled(x as i32, y as i32) {
-                continue;
-            }
-            let here = (y * WIDTH + x) as u32;
-            if x + 1 < WIDTH
-                && region.filled(x as i32 + 1, y as i32)
-                && !cuts.down[Cuts::at(y, x + 1)]
-            {
-                join(parent, here, here + 1);
-            }
-            if y + 1 < HEIGHT
-                && region.filled(x as i32, y as i32 + 1)
-                && !cuts.across[Cuts::at(y + 1, x)]
-            {
-                join(parent, here, here + WIDTH as u32);
+        let row = region.bits.row(y as u8);
+        let under = if y + 1 < HEIGHT { region.bits.row(y as u8 + 1) } else { &NONE[..] };
+        for word in 0..LINE_WORDS {
+            let mut cells = row[word];
+            while cells != 0 {
+                let x = word * 64 + cells.trailing_zeros() as usize;
+                cells &= cells - 1;
+                let here = (y * WIDTH + x) as u32;
+
+                if x + 1 < WIDTH
+                    && row[(x + 1) / 64] >> ((x + 1) % 64) & 1 != 0
+                    && !cuts.down[Cuts::at(y, x + 1)]
+                {
+                    join(parent, here, here + 1);
+                }
+                if under[word] >> (x % 64) & 1 != 0 && !cuts.across[Cuts::at(y + 1, x)] {
+                    join(parent, here, here + WIDTH as u32);
+                }
             }
         }
     }
@@ -592,20 +599,23 @@ fn faces(
     corner.resize(WIDTH * HEIGHT, NOWHERE);
     areas.clear();
     for y in 0..HEIGHT {
-        for x in 0..WIDTH {
-            if !region.filled(x as i32, y as i32) {
-                continue;
-            }
-            let root = find(parent, (y * WIDTH + x) as u32) as usize;
-            if corner[root] == NOWHERE {
-                corner[root] = areas.len() as u32;
-                areas.push(Area { x0: x as u8, y0: y as u8, x1: x as u8, y1: y as u8 });
-            } else {
-                let r = &mut areas[corner[root] as usize];
-                r.x0 = r.x0.min(x as u8);
-                r.x1 = r.x1.max(x as u8);
-                r.y0 = r.y0.min(y as u8);
-                r.y1 = r.y1.max(y as u8);
+        let row = region.bits.row(y as u8);
+        for word in 0..LINE_WORDS {
+            let mut cells = row[word];
+            while cells != 0 {
+                let x = word * 64 + cells.trailing_zeros() as usize;
+                cells &= cells - 1;
+                let root = find(parent, (y * WIDTH + x) as u32) as usize;
+                if corner[root] == NOWHERE {
+                    corner[root] = areas.len() as u32;
+                    areas.push(Area { x0: x as u8, y0: y as u8, x1: x as u8, y1: y as u8 });
+                } else {
+                    let r = &mut areas[corner[root] as usize];
+                    r.x0 = r.x0.min(x as u8);
+                    r.x1 = r.x1.max(x as u8);
+                    r.y0 = r.y0.min(y as u8);
+                    r.y1 = r.y1.max(y as u8);
+                }
             }
         }
     }
