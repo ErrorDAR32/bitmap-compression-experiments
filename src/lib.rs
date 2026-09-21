@@ -3,10 +3,12 @@
 //!
 //! - [`RunmaxClipnmerge`] is the fast one. It reduces the bitmap to the
 //!   cells standing in both orientations, meshes it into deliberately
-//!   thin rectangles, and then grows them back over each other. Over
-//!   540 generated bitmaps it lands 3.24% over the minimum, and costs
-//!   less than [`accurate`] does on seven of the nine shapes the corpus
-//!   is made of.
+//!   thin rectangles stopping wherever a chord crosses them, and then
+//!   grows them back over each other. Over the 168 generated bitmaps of
+//!   the corpus it lands 0.61% over the minimum, and costs less than
+//!   [`accurate`] does on one of the nine shapes -- sparse scattered
+//!   content, where a bitmap holds almost no chords for either of them
+//!   to reason about.
 //! - [`accurate`] is the minimum, by the construction of Lipski and of
 //!   Ohtsuki. It is what runmax-clipnmerge is measured against.
 //! - Exhaustive search, the ground truth, lives in the `ground_truth`
@@ -61,27 +63,25 @@
 //!
 //! A workspace holds no shared state, so one per worker thread is all
 //! that parallelism needs; the test suite asserts it is [`Send`]. On
-//! one core a middling ragged bitmap takes around 2.3ms, so a billion
-//! bits -- 15,259 bitmaps of them -- is about half a minute, and a
-//! million is about 35ms. Spread that over cores and a billion bits is
-//! seconds.
+//! one core a middling ragged bitmap takes around 3.0ms, so a billion
+//! bits -- 15,259 bitmaps of them -- is about three quarters of a
+//! minute, and a million is about 46ms. Spread that over cores and a
+//! billion bits is seconds.
 //!
 //! Content shapes the cost more than size does, though less wildly than
 //! the hand-drawn corpus once suggested. Per set cell the spread across
-//! the nine shapes is about sixfold, from 429 instructions on sparse
-//! scattered content to 2604 on dense scattered: see the `cost`
+//! the nine shapes is about sixfold, from 317 instructions on sparse
+//! scattered content to 1791 on dense scattered: see the `cost`
 //! example, which counts them under callgrind.
 
 pub mod accurate;
 mod data;
-pub mod halving;
 mod partition;
 pub mod runmax;
 pub mod samples;
 
 pub use data::{BitMatrix, Area};
 pub use partition::{assert_partition, Partition};
-pub use halving::Halving;
 pub use runmax::{mesh_by_scanning, RunmaxClipnmerge, Stop};
 
 /// The matrix is always this wide and this tall. Nothing is sized at

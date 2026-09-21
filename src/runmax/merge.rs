@@ -26,9 +26,9 @@
 //! touching along the other -- needs no edge index, no cascade and no
 //! fixed point. Sort the areas by the extent that has to match and the
 //! pairs land next to each other; two sorts and two linear scans find
-//! every one of them. On the halving tree, whose leaves are all
-//! power-of-two aligned blocks, that removes 35.1% of them, and on
-//! runmax's own mesh 20.8%.
+//! every one of them. On runmax's own mesh that removes 20.8% of them,
+//! and on a binary space partition, whose leaves are all power-of-two
+//! aligned blocks, 35.1%.
 //!
 //! It still loses, and the numbers say why. On middling ragged content,
 //! net of everything else: the prepass costs 47.2M instructions and the
