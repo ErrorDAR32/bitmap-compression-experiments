@@ -25,8 +25,9 @@
 //! one is there because a plainer version of it was measured and cost
 //! too much; the measurements are in their own docs.
 
+use crate::data::bits::{next_clear, next_set, LINE_WORDS};
 use crate::data::{bounds, List, Run, Runs};
-use crate::{BitMatrix, Area};
+use crate::{BitMatrix, Area, HEIGHT, WIDTH};
 
 /// A run waiting to be seeded: the run itself, in whichever
 /// orientation it lies, plus the ranking the queue sorts it by.
@@ -407,6 +408,10 @@ pub fn mesh_by_scanning(source: &BitMatrix) -> Vec<Area> {
     let source = &source;
 
     let (mut rows, mut cols) = Runs::of(source);
+    // The chords are of the bitmap, not of what is left standing, so
+    // they are found once before anything is carved.
+    let mut corners = Corners::blank();
+    corners.rebuild(source, &rows, &cols);
     let mut areas = Vec::new();
     let mut plan: List<Area, { bounds::PLAN }> = List::new();
     let mut bin: List<(u8, Run), { bounds::CUT }> = List::new();
@@ -420,8 +425,9 @@ pub fn mesh_by_scanning(source: &BitMatrix) -> Vec<Area> {
             }
 
             let crossing = if seed_run.is_column { &rows } else { &cols };
+            let span = corners.trim(&seed_run);
             plan.clear();
-            take_all_area(crossing, seed_run.span(), seed_run.line, seed_run.is_column, &mut plan);
+            take_all_area(crossing, span, seed_run.line, seed_run.is_column, &mut plan);
 
             for index in 0..plan.len() {
                 let area = plan[index];
@@ -565,5 +571,259 @@ mod tests {
                 assert_same_runs(&bits);
             }
         }
+    }
+}
+
+// ---------------------------------------------------------------------
+// Where the partition is forced to cut, and what a seed run may cross.
+// ---------------------------------------------------------------------
+
+/// Lattice points run one past the cells in each direction.
+const CORNERS: usize = WIDTH + 1;
+
+/// Words to hold one lattice line: 257 points needs one more than a
+/// line of 256 cells does.
+const CORNER_WORDS: usize = LINE_WORDS + 1;
+
+/// Where a chord crosses a line of cells, which is where a seed run has
+/// to stop.
+///
+/// A **reflex corner** is a lattice point with three of its four cells
+/// filled; a face with one in the middle of an edge is not a rectangle,
+/// so every partition is forced to cut there. A **chord** is a cut
+/// joining two of them through cells filled on both sides: it serves
+/// both corners at once, and that is the only way a partition ever
+/// saves an area. The exact algorithm in [`crate::accurate`] builds its
+/// whole answer out of them.
+///
+/// The mesh used to know none of it, and took each seed run whole
+/// however many chords it ran past. Asking the finished partitions
+/// which chords they hold says what that costs: of the chords runmax
+/// ends without, 93% to 98% were ones the mesh never drew, and only 2%
+/// to 7% were ones the mesh had and the rewriting pass then cut across.
+/// The chords go missing here, not later.
+///
+/// Two things it deliberately does not do, both measured:
+///
+/// - **Stopping at every corner rather than at chords.** A lone corner's
+///   cut can be served in either direction, so stopping a run at one
+///   buys nothing and costs an area. The mesh grew by 62% to 119% for a
+///   15.8% better answer, against 49% better for 43% less growth here.
+/// - **Telling the directions apart.** A corner strictly inside a seed
+///   run has the run's own two cells filled, so the cell it is missing
+///   is always on the far side and its cut always runs across the run.
+///   The test is a tautology there, and measured as one: bit for bit
+///   the same partition.
+pub(crate) struct Corners {
+    /// Reflex corners, indexed by lattice point, built once and read
+    /// while the chords are walked.
+    reflex: Box<[u64; CORNERS * CORNER_WORDS]>,
+    /// For each row of cells, the lattice columns a vertical chord
+    /// covers there -- every chord in `any_row`, and the ones that
+    /// cross nothing in `free_row`. A row seed run on line `l` is
+    /// trimmed by `free_row[l]`; the wider mask is scratch, for telling
+    /// one from the other.
+    any_row: Box<[u64; CORNERS * CORNER_WORDS]>,
+    free_row: Box<[u64; CORNERS * CORNER_WORDS]>,
+    /// The same for a column seed run, kept transposed so that it reads
+    /// along a line rather than down a stride.
+    any_col: Box<[u64; CORNERS * CORNER_WORDS]>,
+    free_col: Box<[u64; CORNERS * CORNER_WORDS]>,
+}
+
+impl Corners {
+    /// No corners anywhere.
+    pub(crate) fn blank() -> Self {
+        Self {
+            reflex: Box::new([0; CORNERS * CORNER_WORDS]),
+            any_row: Box::new([0; CORNERS * CORNER_WORDS]),
+            free_row: Box::new([0; CORNERS * CORNER_WORDS]),
+            any_col: Box::new([0; CORNERS * CORNER_WORDS]),
+            free_col: Box::new([0; CORNERS * CORNER_WORDS]),
+        }
+    }
+
+    /// Finds every chord and paints the lines the uncrossed ones cross.
+    ///
+    /// Two walks, because a chord is only worth stopping a seed run at
+    /// if the partition can keep it. Chords that cross each other
+    /// compete: at most one of a crossing pair is ever drawn, and
+    /// stopping a run at the one that loses spends an area for nothing.
+    /// A chord that crosses nothing is in every maximum independent set
+    /// of them, so it is always safe. The first walk paints every
+    /// chord, which is what the second walk needs to ask whether a
+    /// chord is crossed.
+    ///
+    /// The runs are the ones the mesh has just built and has not carved
+    /// yet, so the rows are the bitmap and the columns its transpose,
+    /// which is what a chord needs read both ways.
+    pub(crate) fn rebuild(&mut self, bits: &BitMatrix, rows: &Runs, cols: &Runs) {
+        const NONE: [u64; LINE_WORDS] = [0; LINE_WORDS];
+
+        self.mark_corners(bits);
+        self.any_row.fill(0);
+        self.any_col.fill(0);
+        self.free_row.fill(0);
+        self.free_col.fill(0);
+
+        let mut inside = [0u64; LINE_WORDS];
+        for only_free in [false, true] {
+            for line in 0..CORNERS {
+                for across in [true, false] {
+                    let side = if across { rows } else { cols };
+                    // One size up before the cast: at the far lattice
+                    // line there is no line after it, and `256 as u8`
+                    // is zero.
+                    let before = if line == 0 { &NONE } else { side.line((line - 1) as u8) };
+                    let after = if line == WIDTH { &NONE } else { side.line(line as u8) };
+                    for word in 0..LINE_WORDS {
+                        inside[word] = before[word] & after[word];
+                    }
+
+                    let mut pos = 0;
+                    while pos < WIDTH {
+                        // `next_set` reads the word `pos` falls in, so
+                        // it is never asked about a position past the
+                        // line.
+                        let Some(start) = next_set(&inside, pos) else { break };
+                        let to = next_clear(&inside, start);
+                        pos = to;
+
+                        // Both ends have to be corners, or the cut is a
+                        // ray and a seed run may cross it for free.
+                        let ends_are_corners = if across {
+                            self.at(line, start) && self.at(line, to)
+                        } else {
+                            self.at(start, line) && self.at(to, line)
+                        };
+                        if !ends_are_corners {
+                            continue;
+                        }
+                        if only_free && self.is_crossed(across, line, start, to) {
+                            continue;
+                        }
+
+                        // A horizontal chord on lattice row `line`
+                        // crosses every column of cells it spans, and a
+                        // vertical one on lattice column `line` every
+                        // row, painted into the line the seed run it
+                        // crosses will read.
+                        let painted = match (across, only_free) {
+                            (true, false) => &mut self.any_col,
+                            (true, true) => &mut self.free_col,
+                            (false, false) => &mut self.any_row,
+                            (false, true) => &mut self.free_row,
+                        };
+                        for cell in start..to {
+                            painted[cell * CORNER_WORDS + line / 64] |= 1 << (line % 64);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Marks every reflex corner, a machine word of lattice points at a
+    /// time. Two lines of cells are read side by side and the four
+    /// cells around each point are those two words and the same two
+    /// shifted left by one, so all four fall in the same bit position
+    /// and the test is arithmetic.
+    fn mark_corners(&mut self, bits: &BitMatrix) {
+        const NONE: [u64; LINE_WORDS] = [0; LINE_WORDS];
+
+        for cy in 0..CORNERS {
+            let above = if cy == 0 { &NONE[..] } else { bits.row(cy as u8 - 1) };
+            let below = if cy == HEIGHT { &NONE[..] } else { bits.row(cy as u8) };
+            let (mut carry_up, mut carry_down) = (0u64, 0u64);
+
+            for word in 0..CORNER_WORDS {
+                let (up, down) = if word < LINE_WORDS { (above[word], below[word]) } else { (0, 0) };
+                // Cell `cx - 1` moved to bit `cx`, carrying the top bit
+                // of the word before it.
+                let upper_left = (up << 1) | carry_up;
+                let lower_left = (down << 1) | carry_down;
+                carry_up = up >> 63;
+                carry_down = down >> 63;
+                let (upper_right, lower_right) = (up, down);
+
+                self.reflex[cy * CORNER_WORDS + word] =
+                    (upper_left & upper_right & lower_left & !lower_right)
+                        | (upper_left & upper_right & !lower_left & lower_right)
+                        | (upper_left & !upper_right & lower_left & lower_right)
+                        | (!upper_left & upper_right & lower_left & lower_right);
+            }
+        }
+    }
+
+    /// Whether a reflex corner sits at a lattice point.
+    fn at(&self, cy: usize, cx: usize) -> bool {
+        self.reflex[cy * CORNER_WORDS + cx / 64] >> (cx % 64) & 1 != 0
+    }
+
+    /// Whether a chord meets one running the other way.
+    ///
+    /// A chord crossing this one covers the cells on both sides of this
+    /// chord's line, so it shows up in both of the two painted lines
+    /// that line separates. It has to land strictly inside, since two
+    /// chords meeting at an end share a corner rather than cross.
+    fn is_crossed(&self, across: bool, line: usize, start: usize, to: usize) -> bool {
+        // A chord on the outermost lattice lines has cells on one side
+        // only, so nothing can cross it, and a chord a single point
+        // long has no inside.
+        if line == 0 || line >= HEIGHT || start + 1 >= to {
+            return false;
+        }
+        let painted = if across { &self.any_row } else { &self.any_col };
+        let before = &painted[(line - 1) * CORNER_WORDS..];
+        let after = &painted[line * CORNER_WORDS..];
+
+        for pos in start + 1..to {
+            if (before[pos / 64] & after[pos / 64]) >> (pos % 64) & 1 != 0 {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// The seed run, cut back to the longest stretch of it that no
+    /// uncrossed chord crosses. Answers the whole run when nothing
+    /// crosses it.
+    ///
+    /// Stopping the area at a chord leaves the rest of the run
+    /// standing, to be seeded in its own right, and puts the area's end
+    /// on a cut the partition owed anyway.
+    ///
+    /// Keeping only the longest piece is what makes it pay. Emitting
+    /// every piece of the run at once instead -- one carve rather than
+    /// several, and nothing put back in the queue -- was measured and
+    /// lost on both counts: 4843 areas over the minimum against 3294,
+    /// and more instructions rather than fewer. The pieces have to go
+    /// back in the queue and compete on length with everything else,
+    /// because longest-first is the whole of what the mesh knows.
+    pub(crate) fn trim(&self, seed_run: &AreaRunSeed) -> Run {
+        let crossing = if seed_run.is_column { &self.free_col } else { &self.free_row };
+        let crossing = &crossing[seed_run.line as usize * CORNER_WORDS..];
+
+        let run = seed_run.span();
+        let (mut best, mut from) = (run, run.start);
+
+        // A `u16`, because the run may end on the last cell of the line
+        // and the walk goes one past its start.
+        for pos in run.start as u16 + 1..=run.end as u16 {
+            if crossing[pos as usize / 64] >> (pos % 64) & 1 == 0 {
+                continue;
+            }
+            let piece = Run { start: from, end: pos as u8 - 1 };
+            if from == run.start || piece.len() > best.len() {
+                best = piece;
+            }
+            from = pos as u8;
+        }
+
+        let last = Run { start: from, end: run.end };
+        if from != run.start && last.len() > best.len() {
+            best = last;
+        }
+        best
     }
 }

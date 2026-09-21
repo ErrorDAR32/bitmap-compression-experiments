@@ -25,7 +25,7 @@ pub use mesh::mesh_by_scanning;
 pub use rewrite::Stop;
 
 use crate::data::{bounds, BitmapAreas, List, Run, Runs};
-use crate::runmax::mesh::{take_all_area, AreaRunSeed, Level, Queue};
+use crate::runmax::mesh::{take_all_area, AreaRunSeed, Corners, Level, Queue};
 use crate::runmax::rewrite::Buffers;
 use crate::{BitMatrix, Area};
 
@@ -55,6 +55,7 @@ pub struct RunmaxClipnmerge {
     cols: Runs,
     queue: Queue,
     level: Level,
+    corners: Corners,
     areas: BitmapAreas,
     plan: List<Area, { bounds::PLAN }>,
     cut_rows: List<(u8, Run), { bounds::CUT }>,
@@ -90,6 +91,7 @@ impl RunmaxClipnmerge {
             cols: Runs::blank(),
             queue: Queue::new(),
             level: Level::new(),
+            corners: Corners::blank(),
             areas: BitmapAreas::new(),
             plan: List::new(),
             cut_rows: List::new(),
@@ -165,8 +167,10 @@ impl RunmaxClipnmerge {
     fn mesh_into(&mut self, source: &BitMatrix) {
         source.split_single_cells_into(&mut self.single_cells, &mut self.rest);
 
-        let Self { rows, cols, queue, level, areas, plan, cut_rows, cut_cols, .. } = self;
+        let Self { rows, cols, queue, level, corners, areas, plan, cut_rows, cut_cols, .. } =
+            self;
         Runs::rebuild(&self.rest, rows, cols);
+        corners.rebuild(&self.rest, rows, cols);
         queue.reset();
         areas.clear();
         for (is_column, side) in [(false, &*rows), (true, &*cols)] {
@@ -186,9 +190,13 @@ impl RunmaxClipnmerge {
                 }
             };
 
+            // The seed run is cut back to the longest stretch of it
+            // that no chord crosses; the rest stays standing and is
+            // seeded in its own right.
             let crossing = if seed_run.is_column { &*rows } else { &*cols };
+            let span = corners.trim(&seed_run);
             plan.clear();
-            take_all_area(crossing, seed_run.span(), seed_run.line, seed_run.is_column, plan);
+            take_all_area(crossing, span, seed_run.line, seed_run.is_column, plan);
 
             for index in 0..plan.len() {
                 let area = plan[index];
