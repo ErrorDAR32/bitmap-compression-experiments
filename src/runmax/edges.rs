@@ -7,10 +7,23 @@
 //! binary searches into a sorted slice.
 //!
 //! The index is rebuilt whenever the partition changes under it, which
-//! is cheap because it is a counting pass rather than a sort, and it is
-//! cleared by the slots it filled rather than by walking all thousand.
+//! is cheap because it is a counting pass rather than a sort.
+//!
+//! It used to carry a second structure beside the faces: a bitmask per
+//! edge line saying which positions any face covered, so that a query
+//! about a stretch nothing sits against could be settled without a
+//! search. That was worth a fifth of the work when merging swept every
+//! area every round, because nearly every query then was about nothing.
+//! Once merging started following the cascade instead, the queries it
+//! makes are mostly about somewhere it already knows something is, and
+//! the mask cost more to keep than it saved: 258.9M instructions to
+//! 234.1M when it went, for the same partition to the bit.
+//!
+//! Worth remembering as a pattern rather than a fact about masks. The
+//! mask was measured, was right, and stayed right until the code above
+//! it changed -- and nothing about it announced that it had stopped
+//! being right.
 
-use crate::data::bits::{range_mask, LINE_WORDS};
 use crate::data::{bounds, List};
 use crate::Area;
 
@@ -96,18 +109,6 @@ pub(crate) struct Edges {
     /// Where each line's group starts, with a final entry for the end
     /// of the last, so a group is always `at[slot]..at[slot + 1]`.
     at: Box<[u32; bounds::EDGE_LINES + 1]>,
-    /// Which positions on each edge line any face covers, four words to
-    /// a line.
-    ///
-    /// Most queries ask about a stretch nothing sits against, and on a
-    /// bitmap of scattered single cells every query is. Testing the
-    /// stretch against this settles those in a few instructions instead
-    /// of a search, and searching for nothing was a fifth of the work.
-    covered: Box<[u64; bounds::EDGE_LINES * LINE_WORDS]>,
-    /// The lines last filled, so a rebuild clears those rather than
-    /// walking all thousand-odd of them. A partition of a few dozen
-    /// areas touches a few dozen lines.
-    filled: List<u32, { bounds::EDGE_LINES }>,
     /// How many faces each line holds, which the rebuild turns into
     /// `at` and then spends as a cursor per line.
     counts: Box<[u32; bounds::EDGE_LINES + 1]>,
@@ -127,8 +128,6 @@ impl Edges {
         Self {
             faces: faces.try_into().unwrap_or_else(|_| unreachable!("built with FACES slots")),
             at: Box::new([0; bounds::EDGE_LINES + 1]),
-            covered: Box::new([0; bounds::EDGE_LINES * LINE_WORDS]),
-            filled: List::new(),
             counts: Box::new([0; bounds::EDGE_LINES + 1]),
             order: List::new(),
         }
@@ -151,12 +150,6 @@ impl Edges {
     /// sorted for nothing. Positions only run to 255, so putting the
     /// areas in that order is itself a counting pass rather than a sort.
     pub(crate) fn rebuild(&mut self, areas: &[Area]) {
-        for &line in self.filled.iter() {
-            let slot = line as usize;
-            self.covered[slot * LINE_WORDS..(slot + 1) * LINE_WORDS].fill(0);
-        }
-        self.filled.clear();
-
         // Which line each face belongs to, and how many each line gets.
         self.counts.fill(0);
         for area in areas {
@@ -172,9 +165,6 @@ impl Edges {
         // `counts` now becomes the per-line cursor, starting where each
         // line's group does.
         for slot in 0..bounds::EDGE_LINES {
-            if self.at[slot + 1] > self.at[slot] {
-                self.filled.push(slot as u32);
-            }
             self.counts[slot] = self.at[slot];
         }
 
@@ -235,26 +225,12 @@ impl Edges {
                 self.faces[at] = face;
                 self.counts[slot] += 1;
 
-                let first = face.start as usize / 64;
-                let last = face.end as usize / 64;
-                for offset in first..=last {
-                    self.covered[slot * LINE_WORDS + offset] |=
-                        range_mask(offset, face.start, face.end);
-                }
             }
         }
     }
 
     /// The faces in a bucket that overlap `lo..=hi`.
     pub(crate) fn overlapping(&self, axis: Axis, side: usize, line: u8, lo: u8, hi: u8) -> &[Face] {
-        let slot = Self::slot(Self::axis_index(axis), side, line);
-        let words = &self.covered[slot * LINE_WORDS..(slot + 1) * LINE_WORDS];
-        let anything = (lo as usize / 64..=hi as usize / 64)
-            .any(|index| words[index] & range_mask(index, lo, hi) != 0);
-        if !anything {
-            return &[];
-        }
-
         let group = self.at(axis, side, line);
         let first = group.partition_point(|f| f.end < lo);
         let last = group.partition_point(|f| f.start <= hi);
