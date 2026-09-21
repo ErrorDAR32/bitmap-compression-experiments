@@ -25,7 +25,8 @@
 //! what else the machine is doing.
 //!
 //! Time-optimal bias is here: the time an algorithm takes multiplied by
-//! how many rectangles it gives over the fewest possible, as a bare
+//! one more than how many rectangles it gives over the fewest
+//! possible, as a bare
 //! number rather than a duration, lower being better. The accurate
 //! algorithm's is its time alone, since it is never over the fewest.
 //!
@@ -52,8 +53,9 @@ fn minimum(bits: &BitMatrix) -> usize {
     accurate::partition(bits).len()
 }
 
-/// Time-optimal bias: the time taken by the areas given over the
-/// fewest possible, as a bare number of microseconds rather than a
+/// Time-optimal bias: the time taken by one more than the areas given
+/// over the fewest possible, as a bare number of microseconds rather
+/// than a
 /// duration.
 fn bias(took: Duration, over: f64) -> f64 {
     took.as_secs_f64() * 1e6 * over
@@ -201,7 +203,10 @@ fn main() {
         ratios[ratios.len() - 1]
     );
 
-    println!("\ntime-optimal bias, time by areas over fewest, best of {REPEATS}:\n");
+    println!(
+        "\ntime-optimal bias, time by one more than the areas over fewest, \
+         best of {REPEATS}:\n"
+    );
     println!(
         "{}",
         row([
@@ -218,7 +223,7 @@ fn main() {
         let maps: Vec<BitMatrix> = shape.timed().collect();
         let n = maps.len() as u32;
         let (got, best, _) = race(&maps);
-        let over = got.count as f64 / best.count.max(1) as f64;
+        let over = (got.count.saturating_sub(best.count) + 1) as f64;
         let (ours, theirs) = (bias(got.best() / n, over), bias(best.best() / n, 1.0));
         println!(
             "{}",

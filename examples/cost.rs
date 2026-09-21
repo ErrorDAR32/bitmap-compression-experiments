@@ -9,7 +9,13 @@
 //!   content of a bitmap rather than on the bitmap. It compares across
 //!   bitmaps holding wildly different amounts.
 //! - **Instruction-optimal bias** is the instructions taken multiplied
-//!   by how many rectangles were given over the fewest possible. An
+//!   by one more than how many rectangles were given over the fewest
+//!   possible. One more, so that a partition that is never over the
+//!   fewest is priced at its instructions and nothing is multiplied by
+//!   zero. Counting the excess rather than the ratio is deliberate: an
+//!   answer within 1% of the minimum is within 1% by the ratio however
+//!   many areas it wastes, which made the metric read as instructions
+//!   alone and say nothing about the waste. An
 //!   algorithm can lose by being slow or by being wasteful and the two
 //!   trade against each other, so neither alone says which is better.
 //!   The accurate algorithm's bias is its instructions alone, since it
@@ -162,10 +168,13 @@ fn main() {
         );
     }
 
-    println!("\ninstruction-optimal bias, instructions by areas over fewest, same run:\n");
+    println!(
+        "\ninstruction-optimal bias, instructions by one more than the areas over fewest, \
+         same run:\n"
+    );
     println!("{}", row(["shape", "runmax-clipnmerge", "accurate", "ratio", "winner"]));
     for &(name, _, areas, fewest, ours, theirs) in &measured {
-        let over = areas as f64 / fewest.max(1) as f64;
+        let over = (areas.saturating_sub(fewest) + 1) as f64;
         let (ours, theirs) = (ours as f64 * over, theirs as f64);
         println!(
             "{}",
