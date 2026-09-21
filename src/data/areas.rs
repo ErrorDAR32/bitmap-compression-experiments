@@ -49,12 +49,7 @@ impl BitmapAreas {
         self.single_cells.push(Area { x0: x, y0: y, x1: x, y1: y });
     }
 
-    /// The areas a pass may rewrite, to rewrite in place.
-    pub(crate) fn working(&mut self) -> &mut List<Area, { bounds::AREAS }> {
-        &mut self.working
-    }
-
-    /// Every area, the rewritten ones and then the ones standing alone.
+    /// Every area, the meshed ones and then the ones standing alone.
     ///
     /// Joined only here, and only when a caller asks for the answer, so
     /// that nothing inside the crate pays for the join.

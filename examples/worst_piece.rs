@@ -5,7 +5,7 @@
 //! and comparing the two algorithms piece by piece isolates the mistake
 //! to something small enough to print.
 
-use bitmatrix::{accurate, samples, Area, BitMatrix, RunmaxClipnmerge, Stop};
+use bitmatrix::{accurate, samples, Area, BitMatrix, RunmaxClipnmerge};
 use bitmatrix::{HEIGHT, WIDTH};
 
 /// Labels the pieces of the region, one number each, by flooding.
@@ -107,14 +107,10 @@ fn main() {
                     continue;
                 }
                 let bx = (x0, y0, x1, y1);
-                let meshed = work.mesh(&bits).to_vec();
-                let grown = work.partition_to(&bits, Some(Stop::AfterGrowing)).to_vec();
                 let ours = work.partition(&bits).to_vec();
                 best = Some((
                     cells,
                     vec![
-                        draw(&meshed, &label, piece as i32, bx),
-                        draw(&grown, &label, piece as i32, bx),
                         draw(&ours, &label, piece as i32, bx),
                         draw(&theirs, &label, piece as i32, bx),
                     ],
@@ -145,7 +141,7 @@ fn main() {
         println!("{}", out.trim_end());
     }
     let mut names = String::from("      ");
-    for label in ["after the mesh", "after growing", "runmax", "accurate"] {
+    for label in ["runmax-clipnmerge", "accurate"] {
         names.push_str(&format!("{label:<wide$}"));
     }
     println!("{}", names.trim_end());

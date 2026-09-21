@@ -69,12 +69,5 @@ pub(crate) const PLAN: usize = WIDTH;
 /// each. Reached 255.
 pub(crate) const CUT: usize = 2 * HEIGHT;
 
-/// The neighbours one growth walk can meet.
-///
-/// A walk crosses at most 256 lines and can meet a new owner at every
-/// position of every one of them, so the cells of the matrix bound it.
-/// Reached 255, so this is loose by two orders of magnitude and costs
-/// a quarter of a megabyte to be certain.
-pub(crate) const MET: usize = CELLS;
 
 

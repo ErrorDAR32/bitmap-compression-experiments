@@ -54,28 +54,7 @@ impl<T: Copy + Default, const N: usize> List<T, N> {
         self.len += 1;
     }
 
-    /// Grows or shrinks the list to `len`, filling any new slots with
-    /// `value`. Shrinking keeps whatever was in the slots beyond it,
-    /// which nothing may read.
-    pub(crate) fn resize(&mut self, len: usize, value: T) {
-        assert!(len <= N, "list of {N} cannot hold {len}");
-        for slot in self.len..len {
-            self.slots[slot] = value;
-        }
-        self.len = len;
-    }
 
-    /// Keeps the values `keep` answers true for, in order.
-    pub(crate) fn retain(&mut self, mut keep: impl FnMut(usize, &T) -> bool) {
-        let mut kept = 0;
-        for index in 0..self.len {
-            if keep(index, &self.slots[index]) {
-                self.slots[kept] = self.slots[index];
-                kept += 1;
-            }
-        }
-        self.len = kept;
-    }
 
     /// Adds every value in `values`.
     pub(crate) fn extend_from_slice(&mut self, values: &[T]) {
@@ -84,11 +63,6 @@ impl<T: Copy + Default, const N: usize> List<T, N> {
         }
     }
 
-    /// Drops everything past `len`, and does nothing if the list is
-    /// already that short or shorter.
-    pub(crate) fn truncate(&mut self, len: usize) {
-        self.len = self.len.min(len);
-    }
 
 
 
@@ -118,18 +92,8 @@ mod tests {
         let mut list: List<u8, 4> = List::new();
         list.extend_from_slice(&[1, 2, 3]);
         assert_eq!(&*list, &[1, 2, 3]);
-        list.truncate(2);
-        assert_eq!(&*list, &[1, 2]);
         list.clear();
         assert!(list.is_empty());
-    }
-
-    #[test]
-    fn retain_keeps_order_and_renumbers() {
-        let mut list: List<u8, 8> = List::new();
-        list.extend_from_slice(&[0, 1, 2, 3, 4]);
-        list.retain(|_, &v| v % 2 == 0);
-        assert_eq!(&*list, &[0, 2, 4]);
     }
 
     /// The bound is a claim about the algorithm, so breaking it is a

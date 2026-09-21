@@ -24,7 +24,7 @@
 //! Run it with a seed count, and optionally a seed base:
 //! `cargo run --release --example absolute_worst 400 1000`.
 
-use bitmatrix::{accurate, samples, Area, BitMatrix, RunmaxClipnmerge, Stop};
+use bitmatrix::{accurate, samples, Area, BitMatrix, RunmaxClipnmerge};
 
 #[path = "common/table.rs"]
 mod table;
@@ -204,7 +204,6 @@ fn painted(areas: &[Area], bits: &BitMatrix, side: usize) -> Vec<String> {
 fn show(work: &mut RunmaxClipnmerge, bits: &BitMatrix, side: usize, found_at: &str) {
     let stages: Vec<(&str, Vec<Area>)> = vec![
         ("meshed", work.mesh(bits).to_vec()),
-        ("grown", work.partition_to(bits, Some(Stop::AfterGrowing)).to_vec()),
         ("merged", work.partition(bits).to_vec()),
         ("fewest", accurate::partition(bits)),
     ];

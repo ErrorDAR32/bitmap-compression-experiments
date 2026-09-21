@@ -1,30 +1,32 @@
-//! Runmax-clipnmerge: the fast algorithm, and the workspace that is
-//! its whole public face.
+//! Runmax: the fast algorithm, and the workspace that is its whole
+//! public face.
 //!
-//! Meshing is `mesh`: the bitmap is reduced to the cells standing in
-//! both orientations, and each step takes the longest seed run left and
-//! covers every cell under it. That leaves deliberately thin
-//! rectangles, more of them than taking each seed run whole would.
+//! One pass now, in `mesh`. The bitmap is reduced to the cells standing
+//! in both orientations, and each step takes the longest seed run left
+//! as a rectangle: cut back to the stretch of it no chord crosses, and
+//! then as thick as the standing cells allow and the chords permit.
+//! Whatever stood under it is still standing and will be some later
+//! step's seed.
 //!
-//! Clip-and-merge is the other half, and puts them back together.
-//! `grow` is the move that does nearly all of it: a rectangle reaches
-//! out over the standing cells, merging in whoever it swallows whole
-//! and clipping whoever it only partly covers. `merge` is the second
-//! primitive on its own, for what growing cannot reach. `edges` is
-//! the index it asks, and `pass` holds their shared buffers and the
-//! order they seed run in -- and the story of the third move that used to
-//! seed run after them.
-
-mod grow;
+//! There used to be a second half, which put the mesh back together.
+//! The mesh took each seed run one cell thick, on purpose, and left
+//! growing and merging to reassemble the slivers: growing reached out
+//! over the standing cells, swallowing whoever it covered whole and
+//! clipping whoever it covered in part, and merging joined pairs that
+//! agreed along one axis. A third move, clipping, went before them.
+//!
+//! All of it is gone, and the chords are why. Once the mesh knew where
+//! the partition meant to cut, it could take the whole rectangle at
+//! once rather than a sliver of it, and the reassembly had nothing
+//! left to reassemble: growing reclaimed zero areas on all nine shapes
+//! of the corpus, as merging had before it. Between them they were 44%
+//! of the run.
 mod mesh;
-pub(crate) mod rewrite;
 
 pub use mesh::mesh_by_scanning;
-pub use rewrite::Stop;
 
 use crate::data::{bounds, BitmapAreas, List, Run, Runs};
 use crate::runmax::mesh::{take_all_area, AreaRunSeed, Corners, Level, Queue};
-use crate::runmax::rewrite::Buffers;
 use crate::{BitMatrix, Area};
 
 /// The whole algorithm, and every buffer it works in.
@@ -73,7 +75,6 @@ pub struct RunmaxClipnmerge {
     plan: List<Area, { bounds::PLAN }>,
     cut_rows: List<(u8, Run), { bounds::CUT }>,
     cut_cols: List<(u8, Run), { bounds::CUT }>,
-    buffers: Buffers,
 }
 
 impl Default for RunmaxClipnmerge {
@@ -109,7 +110,6 @@ impl RunmaxClipnmerge {
             plan: List::new(),
             cut_rows: List::new(),
             cut_cols: List::new(),
-            buffers: Buffers::new(),
         }
     }
 
@@ -118,72 +118,16 @@ impl RunmaxClipnmerge {
     /// They are disjoint and cover every set bit exactly once. The slice
     /// belongs to the workspace and lasts until the next bitmap.
     pub fn partition(&mut self, source: &BitMatrix) -> &[Area] {
-        self.partition_to(source, Some(crate::Stop::AfterGrowing))
-    }
-
-    /// The rewriting pass over a partition that came from somewhere
-    /// else, for asking whether some other mesh is a better start than
-    /// this one's.
-    ///
-    /// `areas` has to partition `source` exactly, which is what the
-    /// pass assumes of anything it is handed.
-    #[doc(hidden)]
-    pub fn rewrite_areas(&mut self, source: &BitMatrix, areas: &[Area]) -> &[Area] {
-        // The chords are of the bitmap, so they have to be found here
-        // as well: the pass may not grow across one whoever meshed it.
-        source.split_single_cells_into(&mut self.single_cells, &mut self.rest);
-        Runs::rebuild(&self.rest, &mut self.rows, &mut self.cols);
-        self.corners.rebuild(&self.rest, &self.rows, &self.cols);
-
-        self.areas.clear();
-        for &a in areas {
-            self.areas.push(a);
-        }
-        rewrite::rewrite(
-            source,
-            &self.corners,
-            self.areas.working(),
-            &mut self.buffers,
-            crate::Stop::AfterGrowing,
-        );
+        self.mesh_into(source);
         self.areas.all()
     }
 
-    /// The mesh alone, with no rewriting at all. A valid partition, and
-    /// a worse one: the mesh leaves thin rectangles on purpose.
+    /// The mesh is the whole algorithm, so this is [`Self::partition`]
+    /// under the name the examples that weigh the stages still use.
     #[doc(hidden)]
     pub fn mesh(&mut self, source: &BitMatrix) -> &[Area] {
-        self.partition_to(source, None)
+        self.partition(source)
     }
-
-    /// [`Self::partition`] with the rewriting pass stopped after one of
-    /// its moves, or not run at all. For weighing each move against what
-    /// it costs.
-    #[doc(hidden)]
-    pub fn partition_to(&mut self, source: &BitMatrix, stop: Option<crate::Stop>) -> &[Area] {
-        self.mesh_into(source);
-        if let Some(stop) = stop {
-            // Only the working areas: the cells standing alone are in a
-            // list of their own that no pass can reach.
-            rewrite::rewrite(
-                &self.rest,
-                &self.corners,
-                self.areas.working(),
-                &mut self.buffers,
-                stop,
-            );
-        }
-        self.areas.all()
-    }
-
-    /// How many rectangles growing reclaims on its own, before anything
-    /// else has run. For measuring what the move is worth.
-    #[doc(hidden)]
-    pub fn grow_only(&mut self, source: &BitMatrix) -> usize {
-        self.mesh_into(source);
-        rewrite::grow_only(&self.rest, &self.corners, self.areas.working(), &mut self.buffers)
-    }
-
 
     /// Meshes the set bits, working the runs longest first and keeping
     /// the ties in a queue rather than finding them by scanning every
@@ -215,12 +159,14 @@ impl RunmaxClipnmerge {
             };
 
             // The seed run is cut back to the longest stretch of it
-            // that no chord crosses; the rest stays standing and is
-            // seeded in its own right.
-            let crossing = if seed_run.is_column { &*rows } else { &*cols };
+            // that no chord crosses, and then taken as thick as the
+            // chords allow. The rest stays standing and is seeded in
+            // its own right.
             let span = corners.trim(&seed_run);
+            let along = if seed_run.is_column { &*cols } else { &*rows };
+            let across = corners.band(&seed_run, span, along);
             plan.clear();
-            take_all_area(crossing, span, seed_run.line, seed_run.is_column, plan);
+            take_all_area(span, across, seed_run.is_column, plan);
 
             for index in 0..plan.len() {
                 let area = plan[index];
@@ -370,15 +316,18 @@ mod tests {
         );
     }
 
-    /// Blobs are the other end: far fewer rectangles than cells, and
-    /// the rewriting pass has real work to do.
+    /// Blobs are the other end: far fewer rectangles than cells.
+    ///
+    /// This used to assert that the rewriting pass reclaimed something,
+    /// which it did as long as the mesh took its seed runs one cell
+    /// thick. Taking them as thick as the chords allow left the pass
+    /// nothing to reclaim and it went, so what is left to assert is
+    /// what the shape itself says.
     #[test]
     fn blobs_compact_much_further_than_they_mesh() {
         let mut work = RunmaxClipnmerge::new();
         let bits = samples::one_grown(0, 0.20, 0.95);
-        let meshed = work.mesh(&bits).len();
         let whole = work.partition(&bits).len();
-        assert!(whole < meshed, "the pass found nothing: {meshed} then {whole}");
         assert!(
             (whole as u32) < bits.count_set() / 2,
             "blobs should mesh to far fewer rectangles than cells"

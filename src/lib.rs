@@ -2,15 +2,13 @@
 //! bits into disjoint rectangles.
 //!
 //! - [`RunmaxClipnmerge`] is the fast one. It reduces the bitmap to the
-//!   cells standing in both orientations, meshes it into deliberately
-//!   thin rectangles stopping wherever one of the chords in
-//!   [`crate::chords`] crosses them, and then grows them back over each
-//!   other, across anything but a chord. Over the 168 generated bitmaps
-//!   of the corpus it lands on the minimum exactly, and over 180
-//!   bitmaps of twenty seeds a shape it is the minimum on every one --
-//!   which is not a proof that it always is, only that nothing has
-//!   found otherwise. It costs about three times what [`accurate`]
-//!   does.
+//!   cells standing in both orientations and takes the longest run left
+//!   as a rectangle, bounded on every side by the chords in
+//!   [`crate::chords`]. Over the 168 generated bitmaps of the corpus it
+//!   lands on the minimum exactly, and over 180 bitmaps of twenty seeds
+//!   a shape, and over every 4x4 bitmap there is -- which is not a
+//!   proof that it always does, only that nothing has found otherwise.
+//!   It costs about a third more than [`accurate`].
 //! - [`accurate`] is the minimum, by the construction of Lipski and of
 //!   Ohtsuki. It is what runmax-clipnmerge is measured against.
 //! - Exhaustive search, the ground truth, lives in the `ground_truth`
@@ -44,7 +42,7 @@
 //! |---|---|
 //! | `data` | the structures both algorithms work on, and nothing that works on them |
 //! | `partition` | what an algorithm is, from outside |
-//! | [`runmax`] | the fast algorithm: the mesh and the moves that rewrite it |
+//! | [`runmax`] | the fast algorithm, which is the mesh |
 //! | [`accurate`] | the minimum partition, which is the benchmark |
 //! | [`chords`] | what makes a minimum partition minimal, which both use |
 //! | [`samples`] | the one source of test bitmaps |
@@ -52,7 +50,7 @@
 //! The split that matters is `data` against the rest. Every structure
 //! in `data` is a shape plus the questions that can be asked of it and
 //! the changes that can be made to it; none of them decides anything.
-//! What to take next, what to grow into, when to stop -- all of that
+//! What to take next, how far it reaches, when to stop -- all of that
 //! is in `runmax` and `accurate`, which hold that data and drive it.
 //! [`Partition`] is what the two look like from outside, so a caller
 //! can hold either without knowing which.
@@ -86,7 +84,7 @@ pub mod samples;
 
 pub use data::{BitMatrix, Area};
 pub use partition::{assert_partition, Partition};
-pub use runmax::{mesh_by_scanning, RunmaxClipnmerge, Stop};
+pub use runmax::{mesh_by_scanning, RunmaxClipnmerge};
 
 /// The matrix is always this wide and this tall. Nothing is sized at
 /// run time, which is what lets a workspace be built once and reused.

@@ -26,7 +26,6 @@ pub(crate) mod bits;
 pub(crate) mod bounds;
 
 mod area;
-mod area_map;
 mod areas;
 mod list;
 mod matrix;
@@ -34,7 +33,6 @@ mod runs;
 
 pub use area::Area;
 pub use matrix::BitMatrix;
-pub(crate) use area_map::AreaMap;
 pub(crate) use areas::BitmapAreas;
 pub(crate) use list::List;
 pub(crate) use runs::{Run, Runs};

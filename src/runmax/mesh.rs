@@ -26,7 +26,7 @@
 //! too much; the measurements are in their own docs.
 
 use crate::chords::{Chords, CORNERS, CORNER_WORDS};
-use crate::data::bits::range_mask;
+use crate::data::bits::{range_mask, LINE_WORDS};
 use crate::data::{bounds, List, Run, Runs};
 use crate::{BitMatrix, Area};
 
@@ -141,20 +141,25 @@ impl AreaRunSeed {
 /// went with it, and were never retaken when the generated corpus
 /// replaced it.
 pub(crate) fn take_all_area(
-    crossing: &Runs,
     run: Run,
-    line: u8,
+    across: (u8, u8),
     run_is_column: bool,
     out: &mut List<Area, { bounds::PLAN }>,
 ) {
-    // The crossing runs settle nothing now: what is taken is the seed
-    // run itself, and what stands under it is left for the next seed.
-    let _ = crossing;
+    let (lo, hi) = across;
     out.push(if run_is_column {
-        Area { x0: line, y0: run.start, x1: line, y1: run.end }
+        Area { x0: lo, y0: run.start, x1: hi, y1: run.end }
     } else {
-        Area { x0: run.start, y0: line, x1: run.end, y1: line }
+        Area { x0: run.start, y0: lo, x1: run.end, y1: hi }
     });
+}
+
+/// Whether every cell of a run is standing on a line.
+fn whole(line: &[u64; LINE_WORDS], run: Run) -> bool {
+    (run.start as usize / 64..=run.end as usize / 64).all(|word| {
+        let want = range_mask(word, run.start, run.end);
+        line[word] & want == want
+    })
 }
 
 /// How much area stands in the runs crossing a seed run: the lengths of all
@@ -425,10 +430,11 @@ pub fn mesh_by_scanning(source: &BitMatrix) -> Vec<Area> {
                 continue;
             }
 
-            let crossing = if seed_run.is_column { &rows } else { &cols };
             let span = corners.trim(&seed_run);
+            let along = if seed_run.is_column { &cols } else { &rows };
+            let across = corners.band(&seed_run, span, along);
             plan.clear();
-            take_all_area(crossing, span, seed_run.line, seed_run.is_column, &mut plan);
+            take_all_area(span, across, seed_run.is_column, &mut plan);
 
             for index in 0..plan.len() {
                 let area = plan[index];
@@ -684,6 +690,41 @@ impl Corners {
         let along = &along[line as usize * CORNER_WORDS..];
         (from as usize / 64..=to as usize / 64)
             .any(|word| along[word] & range_mask(word, from, to) != 0)
+    }
+
+    /// How far the seed run's area reaches either side of its own
+    /// line: the thickness of the rectangle, where [`Corners::trim`]
+    /// settles its length.
+    ///
+    /// The run is already cut back so that no chord crosses it, so the
+    /// rectangle may be as thick as the standing cells allow and the
+    /// chords permit. Each step out crosses one lattice line, and a
+    /// chord lying along that line is one the partition means to keep,
+    /// so it is where the rectangle stops -- the same rule growing
+    /// obeys, applied before the area exists rather than after.
+    ///
+    /// Without this the mesh took every seed run one cell thick and
+    /// left growing to put the slivers back together, which it did at
+    /// 2.46 million questions for 32,483 answers.
+    pub(crate) fn band(&self, seed_run: &AreaRunSeed, run: Run, along: &Runs) -> (u8, u8) {
+        // A row run reaches across lattice rows, a column run across
+        // lattice columns.
+        let across = !seed_run.is_column;
+        let (mut lo, mut hi) = (seed_run.line, seed_run.line);
+
+        // Stepping onto the line below crosses the lattice line that
+        // names it; stepping onto the one above crosses the next.
+        while lo > 0 && !self.bars(across, lo, run.start, run.end) && whole(along.line(lo - 1), run)
+        {
+            lo -= 1;
+        }
+        while hi < u8::MAX
+            && !self.bars(across, hi + 1, run.start, run.end)
+            && whole(along.line(hi + 1), run)
+        {
+            hi += 1;
+        }
+        (lo, hi)
     }
 
     /// The seed run, cut back to the longest stretch of it that no
