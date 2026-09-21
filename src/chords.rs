@@ -118,6 +118,40 @@ pub fn runs_and_chords(bits: &BitMatrix) -> usize {
     chords.drawn().count()
 }
 
+/// The floor broken into the stages it is made of, for measuring which
+/// of them costs what. Each `part` does everything the one before it
+/// does and one stage more, and answers something from that stage so
+/// that none of it can be optimised away as unused.
+#[doc(hidden)]
+pub fn floor_part(bits: &BitMatrix, part: &str) -> usize {
+    if part == "nothing" {
+        return bits.count_set() as usize;
+    }
+    let (_lone, rest) = bits.split_isolated();
+    if part == "peel" {
+        return rest.count_set() as usize;
+    }
+    let (rows, cols) = Runs::of(&rest);
+    if part == "runs" {
+        return rows.line(0)[0] as usize;
+    }
+    let mut work = Chords::default();
+    reflex_mask(&rest, &mut work.reflex);
+    if part == "corners" {
+        return work.reflex.iter().map(|w| w.count_ones() as usize).sum();
+    }
+    chords(&mut work, &rows, &cols);
+    if part == "chords" {
+        return work.horizontal.len() + work.vertical.len();
+    }
+    crossings(&mut work);
+    if part == "crossings" {
+        return work.crosses.len();
+    }
+    independent(&mut work);
+    work.drawn().count()
+}
+
 impl Chords {
     /// Finds every chord of the bitmap and settles which to draw.
     ///
