@@ -38,6 +38,10 @@
 
 use bitmatrix::{accurate, samples, Area, BitMatrix, RunmaxClipnmerge};
 
+#[path = "common/table.rs"]
+mod table;
+use table::Table;
+
 /// Lattice points run one past the cells in each direction.
 const CORNERS: usize = 257;
 
@@ -110,33 +114,29 @@ impl Cuts {
     }
 }
 
-fn row(fields: [&str; 8]) -> String {
-    const WIDTHS: [usize; 8] = [20, 8, 9, 9, 8, 9, 9, 8];
-    let mut out = String::from("  ");
-    for (index, (field, width)) in fields.iter().zip(WIDTHS).enumerate() {
-        if index > 0 {
-            out.push(' ');
-        }
-        if index == 0 {
-            out.push_str(&format!("{field:<width$}"));
-        } else {
-            out.push_str(&format!("{field:>width$}"));
-        }
-    }
-    out.trim_end().to_string()
-}
 
 fn main() {
-    println!("what runmax's excess areas are made of\n");
     println!(
-        "{}",
-        row(["shape", "chosen", "mesh", "mesh", "mesh", "runmax", "runmax", "over"])
+        "what runmax-clipnmerge's excess areas are made of, over the whole corpus.\n\n  \
+         A partition saves the chords it holds, less the pairs of them that meet,\n  \
+         because a meeting hands one chord's saving back. So its areas over the\n  \
+         minimum should be the chords the minimum chose, less that saving.\n"
     );
-    println!("{}", row(["", "by exact", "holds", "meetings", "net", "holds", "meetings", "net"]));
 
     let mut exact = accurate::Accurate::new();
     let mut work = RunmaxClipnmerge::new();
     let (mut all_excess, mut all_accounted) = (0i64, 0i64);
+    let mut table = Table::new(&[
+        "shape",
+        "chords chosen\nby accurate",
+        "chords held\nby the mesh",
+        "meeting pairs\namong those",
+        "net saved\nby the mesh",
+        "chords held by\nrunmax-clipnmerge",
+        "meeting pairs\namong those",
+        "net saved by\nrunmax-clipnmerge",
+        "areas over\nthe minimum",
+    ]);
 
     for shape in samples::SHAPES {
         let maps: Vec<BitMatrix> = shape.timed().collect();
@@ -165,24 +165,22 @@ fn main() {
         let net = holds - meets;
         all_excess += excess;
         all_accounted += chosen - net;
-        println!(
-            "{}",
-            row([
-                shape.name,
-                &chosen.to_string(),
-                &mesh_holds.to_string(),
-                &mesh_meets.to_string(),
-                &(mesh_holds - mesh_meets).to_string(),
-                &holds.to_string(),
-                &meets.to_string(),
-                &net.to_string(),
-            ])
-        );
+        table.row(&[
+            shape.name.to_string(),
+            chosen.to_string(),
+            mesh_holds.to_string(),
+            mesh_meets.to_string(),
+            (mesh_holds - mesh_meets).to_string(),
+            holds.to_string(),
+            meets.to_string(),
+            net.to_string(),
+            excess.to_string(),
+        ]);
     }
+    table.print();
 
     println!(
-        "\n  over the corpus runmax wastes {all_excess} areas, and the chords it did not draw\n  \
-         or drew across each other account for {all_accounted} of them ({:.1}%)",
-        100.0 * all_accounted as f64 / all_excess.max(1) as f64
+        "\n  runmax-clipnmerge wastes {all_excess} areas over the corpus, and the chords it\n  \
+         did not draw or drew across each other account for {all_accounted} of them."
     );
 }

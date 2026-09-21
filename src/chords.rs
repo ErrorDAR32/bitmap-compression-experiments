@@ -94,6 +94,21 @@ impl Default for Chords {
     }
 }
 
+/// What finding the chords of a bitmap costs, for reading under
+/// callgrind: the runs both algorithms build, and the chords both of
+/// them draw. Neither can do less than this, so it is the floor any
+/// comparison between them sits on.
+///
+/// Answers the chords drawn, so that nothing here can be optimised
+/// away as unused.
+#[doc(hidden)]
+pub fn floor(bits: &BitMatrix) -> usize {
+    let (rows, cols) = Runs::of(bits);
+    let mut chords = Chords::default();
+    chords.rebuild(bits, &rows, &cols);
+    chords.drawn().count()
+}
+
 impl Chords {
     /// Finds every chord of the bitmap and settles which to draw.
     ///

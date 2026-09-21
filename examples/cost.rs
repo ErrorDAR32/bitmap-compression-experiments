@@ -57,6 +57,10 @@
 //! the path.
 
 use bitmatrix::{accurate, samples, RunmaxClipnmerge};
+
+#[path = "common/table.rs"]
+mod table;
+use table::Table;
 use std::process::Command;
 
 /// How many bitmaps a shape is measured over. Enough to average, few
@@ -67,30 +71,14 @@ const EACH: u64 = 4;
 
 /// One line of a report, header and data alike.
 ///
-/// Both go through here, so a column cannot be labelled at one width
-/// and filled at another. Doing it by hand is how the last report came
-/// out crooked.
-fn row(fields: [&str; 5]) -> String {
-    const WIDTHS: [usize; 5] = [20, 18, 14, 12, 16];
-    let mut out = String::from("  ");
-    for (index, (field, width)) in fields.iter().zip(WIDTHS).enumerate() {
-        if index > 0 {
-            out.push(' ');
-        }
-        // The first column reads as a label, the rest as figures.
-        if index == 0 {
-            out.push_str(&format!("{field:<width$}"));
-        } else {
-            out.push_str(&format!("{field:>width$}"));
-        }
-    }
-    out.trim_end().to_string()
-}
 
 /// What a child run is asked to do.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Doing {
     Building,
+    /// The runs and the chords, which both algorithms build before
+    /// they do anything of their own. Neither can cost less.
+    Reading,
     Partitioning,
     Solving,
 }
@@ -99,6 +87,7 @@ impl Doing {
     fn word(self) -> &'static str {
         match self {
             Doing::Building => "build",
+            Doing::Reading => "read",
             Doing::Partitioning => "partition",
             Doing::Solving => "solve",
         }
@@ -116,6 +105,7 @@ fn run(density: f64, cluster: f64, from: u64, doing: Doing) {
             let mut work = RunmaxClipnmerge::new();
             maps.iter().map(|bits| work.partition(bits).len()).sum()
         }
+        Doing::Reading => maps.iter().map(|bits| bitmatrix::chords::floor(bits)).sum(),
         Doing::Solving => maps.iter().map(|bits| accurate::partition(bits).len()).sum(),
     };
     println!("{cells} {areas}");
@@ -151,7 +141,8 @@ fn main() {
         let mut number = || args.next().expect("a number").parse::<f64>().expect("a number");
         let (density, cluster, from) = (number(), number(), number() as u64);
         let doing = match args.next().as_deref() {
-            Some("partition") => Doing::Partitioning,
+            Some("read") => Doing::Reading,
+        Some("partition") => Doing::Partitioning,
             Some("solve") => Doing::Solving,
             _ => Doing::Building,
         };
@@ -163,52 +154,93 @@ fn main() {
 
     let mut measured = Vec::new();
     for shape in samples::SHAPES {
-        let counted = [Doing::Building, Doing::Partitioning, Doing::Solving]
-            .map(|doing| count(shape.density, shape.cluster, from, doing));
-        let [Some((bare, cells, _)), Some((mesh, _, areas)), Some((solved, _, fewest))] = counted
+        let counted =
+            [Doing::Building, Doing::Reading, Doing::Partitioning, Doing::Solving]
+                .map(|doing| count(shape.density, shape.cluster, from, doing));
+        let [Some((bare, cells, _)), Some((read, _, _)), Some((mesh, _, areas)), Some((solved, _, fewest))] =
+            counted
         else {
             println!("  {}   (could not run valgrind)", shape.name);
             continue;
         };
-        measured.push((shape.name, cells, areas, fewest, mesh - bare, solved - bare));
+        measured.push((shape.name, cells, areas, fewest, mesh - bare, solved - bare, read - bare));
     }
 
     println!(
-        "instructions per active cell, counted under callgrind with the \
-         sample build taken out, seeds from {from}:\n"
+        "instructions per active cell, counted under callgrind with the sample build\n\
+         taken out, {EACH} bitmaps a shape, seeds from {from}.\n\n  \
+         The floor is the runs and the chords, which both algorithms build before\n  \
+         they do anything of their own, so it is the part neither can drop.\n"
     );
-    println!("{}", row(["shape", "active cells", "areas", "fewest", "per active cell"]));
-    for &(name, cells, areas, fewest, ours, _) in &measured {
-        println!(
-            "{}",
-            row([
-                name,
-                &cells.to_string(),
-                &areas.to_string(),
-                &fewest.to_string(),
-                &format!("{:.1}", ours as f64 / cells.max(1) as f64),
-            ])
-        );
+
+    let mut table = Table::new(&[
+        "shape",
+        "active\ncells",
+        "areas given by\nrunmax-clipnmerge",
+        "areas given by\naccurate",
+        "floor\ninstructions\nper active cell",
+        "runmax-clipnmerge\ninstructions\nper active cell",
+        "accurate\ninstructions\nper active cell",
+        "runmax-clipnmerge\nabove the floor\nper active cell",
+        "accurate\nabove the floor\nper active cell",
+    ]);
+    let per = |count: u64, cells: u64| format!("{:.1}", count as f64 / cells.max(1) as f64);
+    let (mut all_cells, mut all_ours, mut all_theirs, mut all_floor) = (0u64, 0u64, 0u64, 0u64);
+
+    for &(name, cells, areas, fewest, ours, theirs, floor) in &measured {
+        all_cells += cells;
+        all_ours += ours;
+        all_theirs += theirs;
+        all_floor += floor;
+        table.row(&[
+            name.to_string(),
+            cells.to_string(),
+            areas.to_string(),
+            fewest.to_string(),
+            per(floor, cells),
+            per(ours, cells),
+            per(theirs, cells),
+            per(ours.saturating_sub(floor), cells),
+            per(theirs.saturating_sub(floor), cells),
+        ]);
     }
+    table.rule();
+    table.row(&[
+        "every shape".to_string(),
+        all_cells.to_string(),
+        String::new(),
+        String::new(),
+        per(all_floor, all_cells),
+        per(all_ours, all_cells),
+        per(all_theirs, all_cells),
+        per(all_ours.saturating_sub(all_floor), all_cells),
+        per(all_theirs.saturating_sub(all_floor), all_cells),
+    ]);
+    table.print();
 
     println!(
-        "\ninstruction-optimal bias, instructions an optimal area costs by w.pow(w),\n\
-         for w one more than the areas a bitmap wastes, as a power of ten, same run:\n"
+        "\ninstruction-optimal bias: the instructions an optimal area costs, times\n\
+         w to the power w, for w one more than the areas a bitmap is given over the\n\
+         fewest possible. Reported as a power of ten. Lower is better. Same run.\n"
     );
-    println!("{}", row(["shape", "runmax-clipnmerge", "accurate", "apart by", "winner"]));
-    for &(name, _, areas, fewest, ours, theirs) in &measured {
+    let mut table = Table::new(&[
+        "shape",
+        "runmax-clipnmerge\ninstruction-optimal bias",
+        "accurate\ninstruction-optimal bias",
+        "how far\napart",
+        "which algorithm\nwins",
+    ]);
+    for &(name, _, areas, fewest, ours, theirs, _) in &measured {
         let (ours, theirs) = (log_bias(ours, areas, fewest), log_bias(theirs, fewest, fewest));
-        println!(
-            "{}",
-            row([
-                name,
-                &format!("10^{ours:.1}"),
-                &format!("10^{theirs:.1}"),
-                &format!("10^{:.1}", (ours - theirs).abs()),
-                if ours < theirs { "runmax wins" } else { "accurate wins" },
-            ])
-        );
+        table.row(&[
+            name.to_string(),
+            format!("10^{ours:.1}"),
+            format!("10^{theirs:.1}"),
+            format!("10^{:.1}", (ours - theirs).abs()),
+            if ours < theirs { "runmax-clipnmerge" } else { "accurate" }.to_string(),
+        ]);
     }
+    table.print();
 }
 
 /// The base ten logarithm of the bias, since the bias itself does not

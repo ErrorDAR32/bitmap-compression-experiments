@@ -26,6 +26,10 @@
 
 use bitmatrix::{accurate, samples, Area, BitMatrix, RunmaxClipnmerge, Stop};
 
+#[path = "common/table.rs"]
+mod table;
+use table::Table;
+
 /// How many seeds each full-size shape is searched over by default.
 const SEEDS: u64 = 60;
 
@@ -39,24 +43,6 @@ const SHOWN: usize = 8;
 
 /// One line of a report, header and data alike.
 ///
-/// Both go through here, so a column cannot be labelled at one width
-/// and filled at another. Hand-rolled format strings in two places is
-/// how every crooked table in this repository has happened.
-fn row(fields: [&str; 7]) -> String {
-    const WIDTHS: [usize; 7] = [20, 11, 10, 9, 9, 10, 10];
-    let mut out = String::from("  ");
-    for (index, (field, width)) in fields.iter().zip(WIDTHS).enumerate() {
-        if index > 0 {
-            out.push(' ');
-        }
-        if index == 0 {
-            out.push_str(&format!("{field:<width$}"));
-        } else {
-            out.push_str(&format!("{field:>width$}"));
-        }
-    }
-    out.trim_end().to_string()
-}
 
 /// One bitmap's verdict: what runmax gave, and what the minimum is.
 struct Verdict {
@@ -267,36 +253,41 @@ fn full_size(work: &mut RunmaxClipnmerge, from: u64, seeds: u64) {
         "  CORPUS {all_ours} areas against {all_fewest} fewest, {:+.3}% over\n",
         (all_ours as f64 / all_fewest as f64 - 1.0) * 100.0
     );
-    println!(
-        "{}",
-        row(["shape", "worst seed", "runmax", "fewest", "excess", "over", ""])
-    );
+    let mut table = Table::new(&[
+        "shape",
+        "worst\nseed",
+        "areas given by\nrunmax-clipnmerge",
+        "areas given by\naccurate",
+        "areas over\nthe minimum",
+        "per cent over\nthe minimum",
+    ]);
     rows.sort_by(|a, b| b.2.over().total_cmp(&a.2.over()));
 
     for (name, at, worst) in &rows {
-        println!(
-            "{}",
-            row([
-                name,
-                &at.to_string(),
-                &worst.ours.to_string(),
-                &worst.fewest.to_string(),
-                &worst.excess().to_string(),
-                &format!("{:.2}%", (worst.over() - 1.0) * 100.0),
-                "",
-            ])
-        );
+        table.row(&[
+            name.to_string(),
+            at.to_string(),
+            worst.ours.to_string(),
+            worst.fewest.to_string(),
+            worst.excess().to_string(),
+            format!("{:.2}%", (worst.over() - 1.0) * 100.0),
+        ]);
     }
+    table.print();
 
     // Where the excess is born, and whether anything after the mesh
     // touches it. On the small witnesses nothing does, but a witness is
     // six cells and a real bitmap is five thousand rectangles, so the
     // two questions have to be asked separately.
     println!("\n  the same worst seeds, stage by stage:\n");
-    println!(
-        "{}",
-        row(["shape", "meshed", "grown", "merged", "fewest", "grow cut", "merge cut"])
-    );
+    let mut table = Table::new(&[
+        "shape",
+        "areas after\nthe mesh",
+        "areas after\ngrowing",
+        "areas given by\naccurate",
+        "areas growing\nreclaimed",
+        "areas the mesh\nis over by",
+    ]);
     for (name, at, worst) in &rows {
         let shape = samples::SHAPES
             .iter()
@@ -304,21 +295,17 @@ fn full_size(work: &mut RunmaxClipnmerge, from: u64, seeds: u64) {
             .expect("the row came from the shape list");
         let bits = samples::one_grown(*at, shape.density, shape.cluster);
         let meshed = work.mesh(&bits).len();
-        let grown = work.partition_to(&bits, Some(Stop::AfterGrowing)).len();
-        let merged = work.partition(&bits).len();
-        println!(
-            "{}",
-            row([
-                name,
-                &meshed.to_string(),
-                &grown.to_string(),
-                &merged.to_string(),
-                &worst.fewest.to_string(),
-                &(meshed - grown).to_string(),
-                &(grown - merged).to_string(),
-            ])
-        );
+        let grown = work.partition(&bits).len();
+        table.row(&[
+            name.to_string(),
+            meshed.to_string(),
+            grown.to_string(),
+            worst.fewest.to_string(),
+            (meshed - grown).to_string(),
+            (meshed - worst.fewest).to_string(),
+        ]);
     }
+    table.print();
 }
 
 /// The small hunt: every disagreement found, shrunk to a minimal

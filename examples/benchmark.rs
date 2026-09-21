@@ -46,6 +46,10 @@
 //! ratio between them is what to trust.
 
 use bitmatrix::{accurate, assert_partition, samples, BitMatrix, RunmaxClipnmerge};
+
+#[path = "common/table.rs"]
+mod table;
+use table::Table;
 use std::time::{Duration, Instant};
 
 const REPEATS: usize = 5;
@@ -70,24 +74,6 @@ fn bias(took: Duration, fewest: f64, waste: f64) -> f64 {
 
 /// One line of a report, header and data alike.
 ///
-/// Both go through here, so a column cannot be labelled at one width
-/// and filled at another.
-fn row(fields: [&str; 7]) -> String {
-    const WIDTHS: [usize; 7] = [20, 9, 9, 10, 10, 12, 14];
-    let mut out = String::from("  ");
-    for (index, (field, width)) in fields.iter().zip(WIDTHS).enumerate() {
-        if index > 0 {
-            out.push(' ');
-        }
-        // The first column reads as a label, the rest as figures.
-        if index == 0 {
-            out.push_str(&format!("{field:<width$}"));
-        } else {
-            out.push_str(&format!("{field:>width$}"));
-        }
-    }
-    out.trim_end().to_string()
-}
 
 /// One algorithm's timings across the repeats.
 struct Measured {
@@ -211,22 +197,19 @@ fn main() {
     );
 
     println!(
-        "\ntime-optimal bias, microseconds an optimal area costs by w.pow(w),\n\
-         for w one more than the areas a bitmap wastes, as a power of ten, \
-         best of {REPEATS}:\n"
+        "\ntime-optimal bias: the microseconds an optimal area costs, times w to the\n\
+         power w, for w one more than the areas a bitmap is given over the fewest\n\
+         possible. Reported as a power of ten. Lower is better. Best of {REPEATS}.\n"
     );
-    println!(
-        "{}",
-        row([
-            "shape",
-            "areas",
-            "fewest",
-            "runmax",
-            "accurate",
-            "runmax bias",
-            "accurate bias",
-        ])
-    );
+    let mut table = Table::new(&[
+        "shape",
+        "areas given by\nrunmax-clipnmerge",
+        "areas given by\naccurate",
+        "runmax-clipnmerge\ntime a bitmap",
+        "accurate\ntime a bitmap",
+        "runmax-clipnmerge\ntime-optimal bias",
+        "accurate\ntime-optimal bias",
+    ]);
     for shape in samples::SHAPES {
         let maps: Vec<BitMatrix> = shape.timed().collect();
         let n = maps.len() as u32;
@@ -237,17 +220,15 @@ fn main() {
         let waste = got.count.saturating_sub(best.count) as f64 / n as f64 + 1.0;
         let (ours, theirs) =
             (bias(got.best() / n, fewest, waste), bias(best.best() / n, fewest, 1.0));
-        println!(
-            "{}",
-            row([
-                shape.name,
-                &got.count.to_string(),
-                &best.count.to_string(),
-                &format!("{:.1?}", got.best() / n),
-                &format!("{:.1?}", best.best() / n),
-                &format!("10^{ours:.1}"),
-                &format!("10^{theirs:.1}"),
-            ])
-        );
+        table.row(&[
+            shape.name.to_string(),
+            got.count.to_string(),
+            best.count.to_string(),
+            format!("{:.1?}", got.best() / n),
+            format!("{:.1?}", best.best() / n),
+            format!("10^{ours:.1}"),
+            format!("10^{theirs:.1}"),
+        ]);
     }
+    table.print();
 }

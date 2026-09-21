@@ -131,10 +131,11 @@ fn main() {
         return;
     };
     println!(
-        "  {losing} pieces of region still lose. The smallest holds {cells} cells, \
-         on {name}:\n"
+        "  {losing} connected pieces of region are still given more areas by\n  \
+         runmax-clipnmerge than by accurate. The smallest holds {cells} cells,\n  \
+         on {name} content: runmax-clipnmerge gives it {mine} areas where\n  \
+         accurate gives it {least}.\n"
     );
-    println!("  runmax gives {mine}, the minimum is {least}\n");
     let wide = stages[0][0].len().max(7) + 4;
     for line in 0..stages[0].len() {
         let mut out = String::from("      ");
@@ -144,7 +145,7 @@ fn main() {
         println!("{}", out.trim_end());
     }
     let mut names = String::from("      ");
-    for label in ["meshed", "grown", "merged", "fewest"] {
+    for label in ["after the mesh", "after growing", "runmax", "accurate"] {
         names.push_str(&format!("{label:<wide$}"));
     }
     println!("{}", names.trim_end());
