@@ -5,10 +5,12 @@
 //!   cells standing in both orientations, meshes it into deliberately
 //!   thin rectangles stopping wherever a chord crosses them, and then
 //!   grows them back over each other. Over the 168 generated bitmaps of
-//!   the corpus it lands 0.61% over the minimum, and costs less than
-//!   [`accurate`] does on one of the nine shapes -- sparse scattered
-//!   content, where a bitmap holds almost no chords for either of them
-//!   to reason about.
+//!   the corpus it lands 0.61% over the minimum, and costs more than
+//!   [`accurate`] does on all nine of the shapes. It used to win on
+//!   sparse scattered content by 4.02M instructions to 4.30M; setting
+//!   the lone cells aside in the exact algorithm too, which runmax had
+//!   been doing on its own, took 14.8% off that 4.30M and the win
+//!   with it.
 //! - [`accurate`] is the minimum, by the construction of Lipski and of
 //!   Ohtsuki. It is what runmax-clipnmerge is measured against.
 //! - Exhaustive search, the ground truth, lives in the `ground_truth`
