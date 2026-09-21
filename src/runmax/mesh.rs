@@ -2,22 +2,21 @@
 //!
 //! The bitmap is reduced to the cells still standing in both
 //! orientations, and every step afterwards works on those rather than
-//! on cells. Each step takes the longest seed run still standing, in either
-//! orientation, and covers every cell under it: one rectangle per
-//! stretch of the seed run whose crossing runs agree, each carried down as
-//! far as that seed run reaches. Both sides are then carved to exclude what
-//! was taken.
+//! on cells. Each step takes the longest run still standing, in either
+//! orientation, as one area a cell thick, and carves it out of both
+//! sides. Whatever stood under it is still standing and will be some
+//! later step's seed.
 //!
-//! Covering meshes worse than taking the seed run whole, deliberately, and
-//! that is the point: the rectangles it leaves are thin, and thin
-//! rectangles are the ones [`crate::runmax::grow`] can do something
-//! with, so covering is behind after the mesh and ahead after the
-//! rewriting pass. The figures that settled it -- 84.27 rectangles a
-//! bitmap against 76.06 meshed, 74.66 against 75.19 rewritten -- were
-//! taken on the hand-drawn corpus, which is gone, and on a mesher that
-//! went with it, so they cannot be re-measured here. On the generated
-//! corpus the covering mesher leaves 5556 rectangles on a middling
-//! ragged bitmap and 5275 after the pass.
+//! Thin on purpose. The areas this leaves are the ones
+//! [`crate::runmax::grow`] and [`crate::runmax::merge`] can do
+//! something with, and it leaves a great many of them: 5531 on a
+//! middling ragged bitmap, which the rewriting pass takes down to 5209.
+//! Merging alone reclaims 259.4 areas a bitmap here, against 86.8 when
+//! the mesh took more than the run.
+//!
+//! It used to take the run *and* every cell standing under it, which is
+//! in [`take_all_area`] along with the witness that settled it the
+//! other way.
 //!
 //! Three structures carry a step. [`Runs`] holds what is standing, as
 //! bits. [`Queue`] holds the runs waiting to be seeded, bucketed by
@@ -103,18 +102,42 @@ impl AreaRunSeed {
 
 }
 
-/// Covers a seed run with every cell standing under it, in as few
-/// rectangles as that takes.
+/// Takes the seed run and nothing else: one area, one cell thick.
 ///
-/// Merging two neighbouring stretches can only lower the ceiling and
-/// raise the floor of what they share, so a cover takes every cell under
-/// the seed run exactly when no stretch holds two crossing runs that differ.
-/// That fixes where the cuts go, and the fewest rectangles managing it
-/// is one per stretch of equal runs: no charge to tune, no search.
+/// This used to cover every cell standing under the seed run as well --
+/// one area per stretch of agreeing crossing runs, turning one seed
+/// into up to 256 areas. The argument for it was that covering leaves
+/// thin areas, and thin areas are what the rewriting pass can do
+/// something with.
 ///
-/// It meshes worse than taking the seed run whole, deliberately. The
-/// rectangles it leaves are thin, and thin rectangles are the ones a
-/// rewriting pass can do something with.
+/// The argument is backwards, and it took a minimal witness to see it.
+/// Shrinking the bitmaps runmax is furthest over the minimum on turns
+/// up shapes like this one, where the mesh spends four areas on a shape
+/// worth three:
+///
+/// ```text
+///     .##.        .bc.        .aa.
+///     ####   ->   abcd   vs   bbbb
+///     .#..        .b..        .c..
+///                 covered     fewest
+/// ```
+///
+/// The mesh seeds on the row of four, which is right -- and then covers
+/// under it, which cuts that row into four areas because the columns
+/// below it disagree. Taking the run whole leaves the row, a domino
+/// above it and a single cell, which is the minimum.
+///
+/// An area one cell thick is thinner than anything covering leaves, so
+/// the rewriting pass gets more to work with rather than less: merging
+/// goes from reclaiming 86.8 areas a bitmap to 259.4. Over 540 bitmaps
+/// the partition lands 1.925% over the minimum where covering landed
+/// 3.213%, for 1.7% more instructions per active cell.
+///
+/// The figures that settled it the other way -- 84.27 areas a bitmap
+/// against 76.06, 74.66 against 75.19 after rewriting -- were taken on
+/// a hand-drawn corpus that no longer exists, against a mesher that
+/// went with it, and were never retaken when the generated corpus
+/// replaced it.
 pub(crate) fn take_all_area(
     crossing: &Runs,
     run: Run,
@@ -122,32 +145,14 @@ pub(crate) fn take_all_area(
     run_is_column: bool,
     out: &mut List<Area, { bounds::PLAN }>,
 ) {
-    let emit = |out: &mut List<Area, { bounds::PLAN }>, from: u8, to: u8, across: Run| {
-        out.push(if run_is_column {
-            Area { x0: across.start, y0: from, x1: across.end, y1: to }
-        } else {
-            Area { x0: from, y0: across.start, x1: to, y1: across.end }
-        });
-    };
-
-    let mut open: Option<(u8, Run)> = None;
-    for pos in run.start..=run.end {
-        let across = crossing
-            .run_at(pos, line)
-            .expect("a cell still standing belongs to a run of either kind");
-        match open {
-            Some((from, current)) if current != across => {
-                emit(out, from, pos - 1, current);
-                open = Some((pos, across));
-            }
-            None => open = Some((pos, across)),
-            _ => {}
-        }
-    }
-
-    if let Some((from, current)) = open {
-        emit(out, from, run.end, current);
-    }
+    // The crossing runs settle nothing now: what is taken is the seed
+    // run itself, and what stands under it is left for the next seed.
+    let _ = crossing;
+    out.push(if run_is_column {
+        Area { x0: line, y0: run.start, x1: line, y1: run.end }
+    } else {
+        Area { x0: run.start, y0: line, x1: run.end, y1: line }
+    });
 }
 
 /// How much area stands in the runs crossing a seed run: the lengths of all
