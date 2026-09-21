@@ -5,7 +5,7 @@
 //! what matters here and it is the same either way. The metrics live in
 //! the `cost` example.
 
-use bitmatrix::{accurate, samples, BitMatrix, Far, RunmaxClipnmerge};
+use bitmatrix::{accurate, samples, BitMatrix, RunmaxClipnmerge, Stop};
 use std::time::{Duration, Instant};
 
 fn main() {
@@ -24,8 +24,8 @@ fn report(label: &str, maps: Vec<BitMatrix>) {
     let mut work = RunmaxClipnmerge::new();
     for (label, far) in [
         ("the mesh", None),
-        ("growing", Some(Far::Growing)),
-        ("merging", Some(Far::Merging)),
+        ("growing", Some(Stop::AfterGrowing)),
+        ("merging", Some(Stop::AfterMerging)),
     ] {
         let mut areas = 0;
         let mut fastest = Duration::MAX;

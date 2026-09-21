@@ -1,46 +1,60 @@
-//! The rewriting pass: the clip-and-merge half of the algorithm.
+//! Rewriting: the moves that put the mesh back together.
 //!
-//! [`Pass`] holds every buffer the two moves work in, so that they are
-//! found once rather than once a bitmap, and [`Pass::compact_to`] runs
-//! them in the order that pays: growing first, since it takes nearly
+//! A module of functions over data handed in, rather than a type with
+//! methods. [`Buffers`] is every list the two moves work in and nothing
+//! else -- it decides nothing, and it exists only so the room is found
+//! once per workspace rather than once per bitmap. [`rewrite`] is the
+//! order the moves pay in: growing first, since it takes nearly
 //! everything there is to take, then merging what is left.
+//!
+//! Splitting it this way is the same split the crate makes everywhere:
+//! data that answers questions, and free functions that decide. It also
+//! means a caller can run one move without the other by calling it,
+//! rather than by asking a type to please stop early.
 //!
 //! A third move used to run after those two. Clipping cut a neighbour
 //! clean across to unblock a merge that was not free, which broke even
-//! in rectangles and was worth making when it opened one. On the
-//! hand-drawn corpus it looked cheap: a fifth of the run for a tenth of
-//! a rectangle a bitmap. On generated bitmaps, which run to thousands
-//! of rectangles rather than seventy, it was 94ms of a 105ms bitmap for
-//! two percent of the rectangles -- and with it the algorithm lost to
-//! [`crate::accurate`] on both count and time. It is gone. Growing
-//! still clips: it cuts every neighbour it only partly covers. What
-//! went is clipping as a move of its own.
+//! in areas and was worth making when it opened one. On the hand-drawn
+//! corpus it looked cheap: a fifth of the run for a tenth of an area a
+//! bitmap. On generated bitmaps, which run to thousands of areas rather
+//! than seventy, it was 94ms of a 105ms bitmap for two percent of the
+//! areas -- and with it the algorithm lost to [`crate::accurate`] on
+//! both count and time. It is gone. Growing still clips: it cuts every
+//! neighbour it only partly covers. What went is clipping as a move of
+//! its own.
 
 use crate::data::{bounds, AreaMap, List};
 use crate::runmax::grow::{grow, Growing};
 use crate::runmax::merge::{merge, Work};
-use crate::{BitMatrix, Area};
+use crate::{Area, BitMatrix};
 
-/// How far [`Pass::compact_to`] goes, for weighing each move against
-/// its cost.
+/// The areas a rewriting move works on.
+pub(crate) type Areas = List<Area, { bounds::AREAS }>;
+
+/// Which moves [`rewrite`] makes, for weighing each against its cost.
 #[doc(hidden)]
 #[derive(Clone, Copy, PartialEq, Eq)]
-pub enum Far {
-    Growing,
-    Merging,
+pub enum Stop {
+    /// Grow, and leave merging undone.
+    AfterGrowing,
+    /// Grow and then merge, which is the whole rewriting step.
+    AfterMerging,
 }
 
-/// Every buffer the rewriting pass works in, kept so that it is found
-/// once rather than once a bitmap.
-pub(crate) struct Pass {
+/// Every list the two moves work in, found once per workspace.
+///
+/// Data only. Nothing here decides anything -- which is why it has no
+/// methods beyond being built, and why the moves below take it as an
+/// argument rather than hanging off it.
+pub(crate) struct Buffers {
     pub(crate) owners: AreaMap,
     pub(crate) gone: List<bool, { bounds::AREAS }>,
     pub(crate) growing: Growing,
-    work: Work,
+    pub(crate) work: Work,
 }
 
-impl Pass {
-    /// Every buffer empty. One is built per workspace and reused.
+impl Buffers {
+    /// Every list empty, with its room already found.
     pub(crate) fn new() -> Self {
         Self {
             owners: AreaMap::new(),
@@ -49,33 +63,33 @@ impl Pass {
             work: Work::new(),
         }
     }
+}
 
-    /// How many rectangles growing reclaims on its own, before anything
-    /// else has run. For measuring what the move is worth.
-    pub(crate) fn grow_only(&mut self, standing: &BitMatrix, areas: &mut List<Area, { bounds::AREAS }>) -> usize {
-        grow(standing, areas, self)
-    }
+/// How many areas growing reclaims on its own, before anything else has
+/// run. For measuring what the move is worth.
+pub(crate) fn grow_only(standing: &BitMatrix, areas: &mut Areas, buffers: &mut Buffers) -> usize {
+    grow(standing, areas, buffers)
+}
 
-    /// Merging on its own, for the same reason.
-    pub(crate) fn merge_only(&mut self, areas: &mut List<Area, { bounds::AREAS }>) -> usize {
-        merge(areas, &mut self.work)
-    }
+/// Merging on its own, for the same reason.
+pub(crate) fn merge_only(areas: &mut Areas, buffers: &mut Buffers) -> usize {
+    merge(areas, &mut buffers.work)
+}
 
-    /// Rewrites the partition in place and answers how many rectangles
-    /// that reclaimed, stopping after whichever move `far` names.
-    pub(crate) fn compact_to(
-        &mut self,
-        standing: &BitMatrix,
-        areas: &mut List<Area, { bounds::AREAS }>,
-        far: Far,
-    ) -> usize {
-        let started = areas.len();
-        grow(standing, areas, self);
-        if far == Far::Merging {
-            merge(areas, &mut self.work);
-        }
-        started - areas.len()
+/// Rewrites the partition in place and answers how many areas that
+/// reclaimed, stopping where `stop` says.
+pub(crate) fn rewrite(
+    standing: &BitMatrix,
+    areas: &mut Areas,
+    buffers: &mut Buffers,
+    stop: Stop,
+) -> usize {
+    let started = areas.len();
+    grow(standing, areas, buffers);
+    if stop == Stop::AfterMerging {
+        merge(areas, &mut buffers.work);
     }
+    started - areas.len()
 }
 
 #[cfg(test)]
@@ -96,14 +110,14 @@ mod tests {
     }
 
     /// The areas a case starts from, in the list the moves work in.
-    fn listed(areas: &[Area]) -> List<Area, { bounds::AREAS }> {
+    fn listed(areas: &[Area]) -> Areas {
         let mut list = List::new();
         list.extend_from_slice(areas);
         list
     }
 
     /// Only the free moves, without the break-even ones.
-    fn free(areas: &mut List<Area, { bounds::AREAS }>) -> usize {
+    fn free(areas: &mut Areas) -> usize {
         merge(areas, &mut Work::new())
     }
 
@@ -123,7 +137,7 @@ mod tests {
         }
 
         assert_eq!(free(&mut listed(&areas)), 10, "merging gets there too");
-        assert_eq!(Pass::new().grow_only(&standing(&areas), &mut areas), 10);
+        assert_eq!(grow_only(&standing(&areas), &mut areas, &mut Buffers::new()), 10);
         assert_eq!(&*areas, &[r(0, 0, 9, 1)]);
     }
 
@@ -132,7 +146,7 @@ mod tests {
     #[test]
     fn a_neighbour_hanging_over_the_side_is_left_alone() {
         let mut areas = listed(&[r(1, 0, 2, 0), r(0, 1, 3, 1)]);
-        assert_eq!(Pass::new().grow_only(&standing(&areas), &mut areas), 0);
+        assert_eq!(grow_only(&standing(&areas), &mut areas, &mut Buffers::new()), 0);
     }
 
     /// Something straddling the far edge is cut there for nothing: the
@@ -146,7 +160,7 @@ mod tests {
     #[test]
     fn a_neighbour_straddling_the_far_edge_is_cut_for_nothing() {
         let mut areas = listed(&[r(0, 0, 1, 0), r(0, 1, 1, 1), r(0, 2, 0, 3), r(1, 2, 1, 2)]);
-        assert_eq!(Pass::new().grow_only(&standing(&areas), &mut areas), 2, "the row and the single cell");
+        assert_eq!(grow_only(&standing(&areas), &mut areas, &mut Buffers::new()), 2, "the row and the single cell");
         assert_eq!(areas.len(), 2);
         assert!(areas.contains(&r(0, 0, 1, 2)));
         assert!(areas.contains(&r(0, 3, 0, 3)));

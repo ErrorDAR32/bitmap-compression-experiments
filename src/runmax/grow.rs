@@ -18,7 +18,7 @@
 //! could have reached, which two 256-bit masks settle in a handful of
 //! word operations. Both are explained where they happen.
 
-use crate::runmax::pass::Pass;
+use crate::runmax::rewrite::{Areas, Buffers};
 use crate::data::bits::{range_mask, LINE_WORDS};
 use crate::data::{bounds, AreaMap, List};
 use crate::{BitMatrix, Area};
@@ -281,7 +281,7 @@ fn reach(
 /// own slot and the rest appended, which is why the list grows even as
 /// the count falls.
 fn take_band(
-    areas: &mut List<Area, { bounds::AREAS }>,
+    areas: &mut Areas,
     owners: &mut AreaMap,
     gone: &mut List<bool, { bounds::AREAS }>,
     a: usize,
@@ -391,7 +391,7 @@ const PIECES: usize = 3;
 
 /// Drops the dead slots, so that the surviving areas are numbered from
 /// zero again with nothing in between.
-fn compact(areas: &mut List<Area, { bounds::AREAS }>, gone: &mut List<bool, { bounds::AREAS }>) {
+fn compact(areas: &mut Areas, gone: &mut List<bool, { bounds::AREAS }>) {
     areas.retain(|index, _| !gone[index]);
     gone.clear();
     gone.resize(areas.len(), false);
@@ -399,8 +399,8 @@ fn compact(areas: &mut List<Area, { bounds::AREAS }>, gone: &mut List<bool, { bo
 
 /// Grows every rectangle that can grow, until none can, and answers how
 /// many were swallowed.
-pub(crate) fn grow(standing: &BitMatrix, areas: &mut List<Area, { bounds::AREAS }>, pass: &mut Pass) -> usize {
-    let Pass { owners, gone, growing: scratch, .. } = pass;
+pub(crate) fn grow(standing: &BitMatrix, areas: &mut Areas, buffers: &mut Buffers) -> usize {
+    let Buffers { owners, gone, growing: scratch, .. } = buffers;
     owners.paint(standing, areas);
     gone.clear();
     gone.resize(areas.len(), false);

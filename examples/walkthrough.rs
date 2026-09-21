@@ -2,7 +2,7 @@
 //! that the document can be checked against the code rather than
 //! trusted. Any change here that moves a number moves it in both.
 
-use bitmatrix::{BitMatrix, Far, RunmaxClipnmerge};
+use bitmatrix::{BitMatrix, RunmaxClipnmerge, Stop};
 
 fn from_rows(rows: &[&str]) -> BitMatrix {
     let mut bits = BitMatrix::new();
@@ -21,7 +21,7 @@ fn show(label: &str, rows: &[&str]) {
     let mut work = RunmaxClipnmerge::new();
 
     let meshed: Vec<_> = work.mesh(&bits).to_vec();
-    let grown: Vec<_> = work.partition_to(&bits, Some(Far::Growing)).to_vec();
+    let grown: Vec<_> = work.partition_to(&bits, Some(Stop::AfterGrowing)).to_vec();
     let whole: Vec<_> = work.partition(&bits).to_vec();
 
     println!("\n{label}");

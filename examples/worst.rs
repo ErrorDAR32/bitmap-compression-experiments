@@ -23,7 +23,7 @@
 //!
 //! Run it with a seed count: `cargo run --release --example worst 400`.
 
-use bitmatrix::{accurate, samples, BitMatrix, Far, Area, RunmaxClipnmerge};
+use bitmatrix::{accurate, samples, Area, BitMatrix, RunmaxClipnmerge, Stop};
 
 /// How many seeds each full-size shape is searched over by default.
 const SEEDS: u64 = 60;
@@ -196,7 +196,7 @@ fn painted(areas: &[Area], bits: &BitMatrix, side: usize) -> Vec<String> {
 fn show(work: &mut RunmaxClipnmerge, bits: &BitMatrix, side: usize, found_at: &str) {
     let stages: Vec<(&str, Vec<Area>)> = vec![
         ("meshed", work.mesh(bits).to_vec()),
-        ("grown", work.partition_to(bits, Some(Far::Growing)).to_vec()),
+        ("grown", work.partition_to(bits, Some(Stop::AfterGrowing)).to_vec()),
         ("merged", work.partition(bits).to_vec()),
         ("fewest", accurate::partition(bits)),
     ];
@@ -277,7 +277,7 @@ fn full_size(work: &mut RunmaxClipnmerge, from: u64, seeds: u64) {
             .expect("the row came from the shape list");
         let bits = samples::one_grown(*at, shape.density, shape.cluster);
         let meshed = work.mesh(&bits).len();
-        let grown = work.partition_to(&bits, Some(Far::Growing)).len();
+        let grown = work.partition_to(&bits, Some(Stop::AfterGrowing)).len();
         let merged = work.partition(&bits).len();
         println!(
             "  {name:<20} {meshed:>9} {grown:>9} {merged:>9} {:>9} {:>10} {:>10}",

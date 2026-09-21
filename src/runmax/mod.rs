@@ -19,14 +19,14 @@ mod edges;
 mod grow;
 mod merge;
 mod mesh;
-mod pass;
+mod rewrite;
 
 pub use mesh::mesh_by_scanning;
-pub use pass::Far;
+pub use rewrite::Stop;
 
 use crate::data::{bounds, BitmapAreas, List, Run, Runs};
 use crate::runmax::mesh::{take_all_area, AreaRunSeed, Level, Queue};
-use crate::runmax::pass::Pass;
+use crate::runmax::rewrite::Buffers;
 use crate::{BitMatrix, Area};
 
 /// The whole algorithm, and every buffer it works in.
@@ -59,7 +59,7 @@ pub struct RunmaxClipnmerge {
     plan: List<Area, { bounds::PLAN }>,
     cut_rows: List<(u8, Run), { bounds::CUT }>,
     cut_cols: List<(u8, Run), { bounds::CUT }>,
-    pass: Pass,
+    buffers: Buffers,
 }
 
 impl Default for RunmaxClipnmerge {
@@ -94,7 +94,7 @@ impl RunmaxClipnmerge {
             plan: List::new(),
             cut_rows: List::new(),
             cut_cols: List::new(),
-            pass: Pass::new(),
+            buffers: Buffers::new(),
         }
     }
 
@@ -103,7 +103,7 @@ impl RunmaxClipnmerge {
     /// They are disjoint and cover every set bit exactly once. The slice
     /// belongs to the workspace and lasts until the next bitmap.
     pub fn partition(&mut self, source: &BitMatrix) -> &[Area] {
-        self.partition_to(source, Some(crate::Far::Merging))
+        self.partition_to(source, Some(crate::Stop::AfterMerging))
     }
 
     /// The mesh alone, with no rewriting at all. A valid partition, and
@@ -117,12 +117,12 @@ impl RunmaxClipnmerge {
     /// its moves, or not run at all. For weighing each move against what
     /// it costs.
     #[doc(hidden)]
-    pub fn partition_to(&mut self, source: &BitMatrix, far: Option<crate::Far>) -> &[Area] {
+    pub fn partition_to(&mut self, source: &BitMatrix, stop: Option<crate::Stop>) -> &[Area] {
         self.mesh_into(source);
-        if let Some(far) = far {
+        if let Some(stop) = stop {
             // Only the working areas: the cells standing alone are in a
             // list of their own that no pass can reach.
-            self.pass.compact_to(&self.rest, self.areas.working(), far);
+            rewrite::rewrite(&self.rest, self.areas.working(), &mut self.buffers, stop);
         }
         self.areas.all()
     }
@@ -132,7 +132,7 @@ impl RunmaxClipnmerge {
     #[doc(hidden)]
     pub fn grow_only(&mut self, source: &BitMatrix) -> usize {
         self.mesh_into(source);
-        self.pass.grow_only(&self.rest, self.areas.working())
+        rewrite::grow_only(&self.rest, self.areas.working(), &mut self.buffers)
     }
 
     /// Only the free half of the pass, which reclaims nothing on its
@@ -140,7 +140,7 @@ impl RunmaxClipnmerge {
     #[doc(hidden)]
     pub fn merge_only(&mut self, source: &BitMatrix) -> usize {
         self.mesh_into(source);
-        self.pass.merge_only(self.areas.working())
+        rewrite::merge_only(self.areas.working(), &mut self.buffers)
     }
 
     /// Meshes the set bits, working the runs longest first and keeping
