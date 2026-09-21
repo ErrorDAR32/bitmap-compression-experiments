@@ -96,29 +96,22 @@ pub(crate) struct Face {
 /// binary searches. Rebuilt whenever the partition changes under it.
 pub(crate) struct Edges {
     /// Every face, grouped by edge line: the faces of line `slot` are
-    /// `faces[start[slot] .. start[slot] + len[slot]]`, ordered by
-    /// where they start.
+    /// `faces[at[slot]..at[slot + 1]]`, ordered by where they start.
     ///
     /// One array rather than a vector per line. There are 1024 lines,
     /// and a vector apiece meant 1024 heap blocks to find, fill, clear
-    /// and hold -- for a partition that typically touches a few dozen.
+    /// and hold -- for a partition that typically touches a few dozen
+    /// of them. Grouping them into one run of memory needs no more work
+    /// than the buckets did, because the rebuild was already a counting
+    /// pass: the counts that used to say which bucket to push into now
+    /// say where each line's group begins.
     faces: Box<[Face; bounds::FACES]>,
-    /// Where each line's group begins, and how long it is. Two arrays
-    /// rather than one running total, so that building the index costs
-    /// what the areas cost and not what the matrix costs: a running
-    /// total has to be swept across all 1024 lines, and the lines a
-    /// partition uses are the only ones that matter.
-    ///
-    /// That mattered once a preview search started merging twenty areas
-    /// eighteen million times. Merging four areas cost the same 1.2us
-    /// as merging ten, because the fixed sweep dwarfed both.
-    start: Box<[u32; bounds::EDGE_LINES]>,
-    len: Box<[u32; bounds::EDGE_LINES]>,
-    /// Where the next face of each line goes while one is being built.
-    cursor: Box<[u32; bounds::EDGE_LINES]>,
-    /// The lines this partition puts anything on, so a rebuild clears
-    /// those rather than all of them.
-    used: List<u32, { bounds::EDGE_LINES }>,
+    /// Where each line's group starts, with a final entry for the end
+    /// of the last, so a group is always `at[slot]..at[slot + 1]`.
+    at: Box<[u32; bounds::EDGE_LINES + 1]>,
+    /// How many faces each line holds, which the rebuild turns into
+    /// `at` and then spends as a cursor per line.
+    counts: Box<[u32; bounds::EDGE_LINES + 1]>,
     /// The areas in order of where their faces start, which is how a
     /// line's group comes out sorted without sorting it.
     order: List<u32, { bounds::AREAS }>,
@@ -128,20 +121,14 @@ impl Edges {
     /// How many edge lines there are per axis and side.
     const LINES: usize = 256;
 
-    /// Up to this many areas, tracking which lines are used beats
-    /// sweeping all of them.
-    const SMALL: usize = 256;
-
     /// A blank index, with room for every line of both axes and both
     /// sides. Built once per workspace and rebuilt in place.
     pub(crate) fn new() -> Self {
         let faces = vec![Face { start: 0, end: 0, area: 0 }; bounds::FACES].into_boxed_slice();
         Self {
             faces: faces.try_into().unwrap_or_else(|_| unreachable!("built with FACES slots")),
-            start: Box::new([0; bounds::EDGE_LINES]),
-            len: Box::new([0; bounds::EDGE_LINES]),
-            cursor: Box::new([0; bounds::EDGE_LINES]),
-            used: List::new(),
+            at: Box::new([0; bounds::EDGE_LINES + 1]),
+            counts: Box::new([0; bounds::EDGE_LINES + 1]),
             order: List::new(),
         }
     }
@@ -157,68 +144,28 @@ impl Edges {
     /// Each line's group has to come out ordered by where its faces
     /// start, so that the ones overlapping a stretch are a contiguous
     /// slice. Rather than sort each group, every face is counted first,
-    /// the counts are turned into starting offsets, and the areas are
+    /// the counts are summed into starting offsets, and the areas are
     /// then walked in order of the coordinate in question and dropped
     /// at the next free slot of their line -- which leaves every group
     /// sorted for nothing. Positions only run to 255, so putting the
     /// areas in that order is itself a counting pass rather than a sort.
-    ///
-    /// Nothing here touches a line the partition does not use, which is
-    /// what keeps a small merge cheap.
     pub(crate) fn rebuild(&mut self, areas: &[Area]) {
-        // Clear whatever the last build filled, by the same route it
-        // was filled: a tracked list if there was one, a sweep if not.
-        if self.used.is_empty() {
-            self.len.fill(0);
-        } else {
-            for &line in self.used.iter() {
-                self.len[line as usize] = 0;
-            }
-            self.used.clear();
-        }
-
-        // A partition small enough to touch few lines is worth tracking
-        // which ones; one large enough to touch nearly all of them is
-        // not, and the bookkeeping costs more than the sweep it saves.
-        // Measured on the main pipeline: tracking unconditionally was
-        // 2.1% dearer over a bitmap of five thousand areas.
-        let tracking = areas.len() <= Self::SMALL;
-
-        // How many faces each line gets, and which lines get any.
-        //
-        // One loop with the test inside it, which reads worse than two
-        // loops and measures better: splitting them was 238.7M
-        // instructions on the main pipeline against 234.4M here, which
-        // is code layout and not arithmetic. Not worth chasing further
-        // in either direction.
+        // Which line each face belongs to, and how many each line gets.
+        self.counts.fill(0);
         for area in areas {
             for slot in Self::slots_of(area) {
-                if tracking && self.len[slot] == 0 {
-                    self.used.push(slot as u32);
-                }
-                self.len[slot] += 1;
+                self.counts[slot + 1] += 1;
             }
         }
-
-        // Group starts. The order between groups does not matter, only
-        // that each is contiguous and none overlap, so a tracked build
-        // lays them out in the order the lines were first seen.
         let mut running = 0;
-        if tracking {
-            for index in 0..self.used.len() {
-                let slot = self.used[index] as usize;
-                self.start[slot] = running;
-                self.cursor[slot] = running;
-                running += self.len[slot];
-            }
-        } else {
-            for slot in 0..bounds::EDGE_LINES {
-                if self.len[slot] > 0 {
-                    self.start[slot] = running;
-                    self.cursor[slot] = running;
-                    running += self.len[slot];
-                }
-            }
+        for slot in 0..=bounds::EDGE_LINES {
+            running += self.counts[slot];
+            self.at[slot] = running;
+        }
+        // `counts` now becomes the per-line cursor, starting where each
+        // line's group does.
+        for slot in 0..bounds::EDGE_LINES {
+            self.counts[slot] = self.at[slot];
         }
 
         // Faces across a horizontal edge line are keyed by x, faces down
@@ -229,7 +176,7 @@ impl Edges {
         }
     }
 
-    /// The four edge lines an area presents a face on, two per axis.
+    /// The two edge lines an area presents a face on, for each axis.
     fn slots_of(area: &Area) -> [usize; 4] {
         [
             Self::slot(0, 0, area.y1),
@@ -240,7 +187,7 @@ impl Edges {
     }
 
     /// Drops one axis's faces into their lines, in order of where they
-    /// start.
+    /// start, and marks the positions they cover.
     fn place(&mut self, areas: &[Area], across: bool) {
         let key = |a: &Area| if across { a.x0 } else { a.y0 } as usize;
 
@@ -274,8 +221,10 @@ impl Edges {
                 [Self::slot(1, 0, area.x1), Self::slot(1, 1, area.x0)]
             };
             for slot in slots {
-                self.faces[self.cursor[slot] as usize] = face;
-                self.cursor[slot] += 1;
+                let at = self.counts[slot] as usize;
+                self.faces[at] = face;
+                self.counts[slot] += 1;
+
             }
         }
     }
@@ -291,8 +240,7 @@ impl Edges {
     /// Every face on one edge line, in order of where it starts.
     pub(crate) fn at(&self, axis: Axis, side: usize, line: u8) -> &[Face] {
         let slot = Self::slot(Self::axis_index(axis), side, line);
-        let from = self.start[slot] as usize;
-        &self.faces[from..from + self.len[slot] as usize]
+        &self.faces[self.at[slot] as usize..self.at[slot + 1] as usize]
     }
 
     /// The axis as the number [`Edges::slot`] wants.
