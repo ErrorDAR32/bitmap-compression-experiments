@@ -15,6 +15,7 @@
 //! order they seed run in -- and the story of the third move that used to
 //! seed run after them.
 
+mod clip;
 mod edges;
 mod grow;
 pub(crate) mod merge;
@@ -22,6 +23,19 @@ mod mesh;
 pub(crate) mod rewrite;
 
 pub use mesh::mesh_by_scanning;
+
+/// The clips worth offering for a partition, for experiments deciding
+/// what the rule should be. See [`crate::runmax::clip`].
+#[doc(hidden)]
+pub fn clip_candidates(areas: &[Area]) -> Vec<Area> {
+    clip::candidates(areas)
+}
+
+/// A partition with one rectangle stamped onto it as an area.
+#[doc(hidden)]
+pub fn clip_with(areas: &[Area], r: Area) -> Vec<Area> {
+    clip::clip(areas, r)
+}
 
 /// Merges a list of areas to a fixed point, for experiments that want
 /// the move on its own without a bitmap or a workspace around it.
