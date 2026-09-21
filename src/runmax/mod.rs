@@ -106,6 +106,22 @@ impl RunmaxClipnmerge {
         self.partition_to(source, Some(crate::Stop::AfterMerging))
     }
 
+    /// The rewriting pass over a partition that came from somewhere
+    /// else, for asking whether some other mesh is a better start than
+    /// this one's.
+    ///
+    /// `areas` has to partition `source` exactly, which is what the
+    /// pass assumes of anything it is handed.
+    #[doc(hidden)]
+    pub fn rewrite_areas(&mut self, source: &BitMatrix, areas: &[Area]) -> &[Area] {
+        self.areas.clear();
+        for &a in areas {
+            self.areas.push(a);
+        }
+        rewrite::rewrite(source, self.areas.working(), &mut self.buffers, crate::Stop::AfterMerging);
+        self.areas.all()
+    }
+
     /// The mesh alone, with no rewriting at all. A valid partition, and
     /// a worse one: the mesh leaves thin rectangles on purpose.
     #[doc(hidden)]
