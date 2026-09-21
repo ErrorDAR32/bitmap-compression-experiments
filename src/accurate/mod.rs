@@ -32,73 +32,10 @@
 //! already drawn. The faces are then all rectangles, and there are as few
 //! as there can be.
 
-use crate::data::bits::{next_clear, next_set, LINE_WORDS};
+use crate::chords::{Chord, Chords, CORNERS, CORNER_WORDS};
+use crate::data::bits::LINE_WORDS;
 use crate::data::Runs;
 use crate::{Area, BitMatrix, HEIGHT, WIDTH};
-
-/// Lattice points run one past the cells in each direction.
-const CORNERS: usize = WIDTH + 1;
-
-/// Words to hold one lattice row: 257 points needs one more than a row
-/// of 256 cells does.
-const CORNER_WORDS: usize = LINE_WORDS + 1;
-
-/// A bit per lattice point, set where three of the four cells around it
-/// are filled -- the corners a partition is forced to cut.
-///
-/// A word at a time rather than a point at a time. The construction
-/// asks this of all 65,000 interior points, and asking one point costs
-/// four bounds-checked cell reads; asking a whole row costs a dozen
-/// word operations. `Region::filled` was 16% of the run and this is
-/// most of what called it.
-///
-/// The four cells around point `(cx, cy)` are the two above it, in row
-/// `cy - 1`, and the two below, in row `cy`, at columns `cx - 1` and
-/// `cx`. Shifting a row left by one puts cell `cx - 1` at bit `cx`, so
-/// all four fall in the same bit position and the test is arithmetic.
-/// A point on the far edge has its outer two cells off the matrix and
-/// so can never have three, which the shift gives for nothing.
-fn reflex_mask(bits: &BitMatrix, out: &mut Vec<u64>) {
-    const NONE: [u64; LINE_WORDS] = [0; LINE_WORDS];
-    out.clear();
-    out.resize(CORNERS * CORNER_WORDS, 0);
-
-    for cy in 0..CORNERS {
-        let above = if cy == 0 { &NONE[..] } else { bits.row(cy as u8 - 1) };
-        let below = if cy == HEIGHT { &NONE[..] } else { bits.row(cy as u8) };
-        let (mut carry_up, mut carry_down) = (0u64, 0u64);
-
-        for word in 0..CORNER_WORDS {
-            let (up, down) = if word < LINE_WORDS {
-                (above[word], below[word])
-            } else {
-                (0, 0)
-            };
-            // Cell `cx - 1` moved to bit `cx`, carrying the top bit of
-            // the word before it.
-            let upper_left = (up << 1) | carry_up;
-            let lower_left = (down << 1) | carry_down;
-            carry_up = up >> 63;
-            carry_down = down >> 63;
-            let (upper_right, lower_right) = (up, down);
-
-            out[cy * CORNER_WORDS + word] = (upper_left & upper_right & lower_left & !lower_right)
-                | (upper_left & upper_right & !lower_left & lower_right)
-                | (upper_left & !upper_right & lower_left & lower_right)
-                | (!upper_left & upper_right & lower_left & lower_right);
-        }
-    }
-}
-
-/// An axis-parallel segment between two reflex corners, lying inside the
-/// region. `line` is the coordinate it sits on and `from`..`to` its
-/// extent along the other axis, in lattice points.
-#[derive(Clone, Copy)]
-struct Chord {
-    line: u16,
-    from: u16,
-    to: u16,
-}
 
 /// The bitmap read as a region of the plane rather than a grid of
 /// cells, so that a lattice point outside the matrix can be asked about
@@ -127,226 +64,6 @@ impl Region<'_> {
     /// decides which way an unpaired corner's cut has to run.
     fn empty_above(&self, cx: i32, cy: i32) -> bool {
         !self.filled(cx - 1, cy - 1) || !self.filled(cx, cy - 1)
-    }
-}
-
-/// Chords across the region in both directions.
-///
-/// A run of interior segments along one line can only be a chord end to
-/// end: a lattice point strictly inside such a run has all four of its
-/// cells filled, so it is not a corner at all and cannot be a chord's
-/// endpoint. That makes the chords easy to find and few.
-fn chords(work: &mut Work) {
-    let Work { rows, cols, reflex, horizontal, vertical, .. } = work;
-    horizontal.clear();
-    vertical.clear();
-
-    // A chord lies on a lattice line and runs between two corners on
-    // it, through cells filled on both sides. "Filled on both sides"
-    // for a whole line at once is one line of the bitmap anded with the
-    // next -- and for the other axis, one line of its transpose anded
-    // with the next, which is why the column side is built at all.
-    const NONE: [u64; LINE_WORDS] = [0; LINE_WORDS];
-    let mut inside = [0u64; LINE_WORDS];
-
-    for line in 0..CORNERS {
-        for across in [true, false] {
-            let side: &Runs = if across { rows } else { cols };
-            // One size up before the cast: at the far lattice line
-            // there is no line after it, and `256 as u8` is zero.
-            let before = if line == 0 { &NONE } else { side.line((line - 1) as u8) };
-            let after = if line == WIDTH { &NONE } else { side.line(line as u8) };
-            for word in 0..LINE_WORDS {
-                inside[word] = before[word] & after[word];
-            }
-
-            let mut pos = 0;
-            while pos < WIDTH {
-                // `next_set` reads the word `pos` falls in, so it is
-                // never asked about a position past the line.
-                let Some(start) = next_set(&inside, pos) else { break };
-                let to = next_clear(&inside, start);
-                pos = to;
-                // Both ends have to be corners the partition must cut.
-                // The mask is indexed by lattice point, so a horizontal
-                // chord reads along its line and a vertical one reads
-                // down the column its line names.
-                let ends_are_corners = if across {
-                    at_corner(reflex, start, line) && at_corner(reflex, to, line)
-                } else {
-                    at_corner(reflex, line, start) && at_corner(reflex, line, to)
-                };
-                if ends_are_corners {
-                    let chord =
-                        Chord { line: line as u16, from: start as u16, to: to as u16 };
-                    if across {
-                        horizontal.push(chord);
-                    } else {
-                        vertical.push(chord);
-                    }
-                }
-            }
-        }
-    }
-}
-
-/// Whether the lattice point is one of the corners [`reflex_mask`]
-/// found.
-fn at_corner(reflex: &[u64], cx: usize, cy: usize) -> bool {
-    reflex[cy * CORNER_WORDS + cx / 64] >> (cx % 64) & 1 != 0
-}
-
-/// Which vertical chords each horizontal one crosses, as one run of
-/// indices per chord laid end to end.
-///
-/// Two things it no longer does. It does not allocate a vector per
-/// horizontal chord -- that was a third of the whole construction --
-/// and it does not compare every pair. A horizontal chord can only be
-/// crossed by a vertical one standing on a line it spans, so the
-/// verticals are bucketed by their line and a chord looks only at the
-/// lines between its ends.
-fn crossings(work: &mut Work) {
-    let Work { horizontal, vertical, crosses, at, by_line, lines_at, cursor, .. } = work;
-
-    // Verticals in order of the line they stand on, by counting.
-    lines_at.clear();
-    lines_at.resize(CORNERS + 2, 0);
-    for v in vertical.iter() {
-        lines_at[v.line as usize + 1] += 1;
-    }
-    for index in 1..lines_at.len() {
-        lines_at[index] += lines_at[index - 1];
-    }
-    cursor.clear();
-    cursor.extend_from_slice(lines_at);
-    by_line.clear();
-    by_line.resize(vertical.len(), 0);
-    for (index, v) in vertical.iter().enumerate() {
-        let slot = &mut cursor[v.line as usize];
-        by_line[*slot as usize] = index as u32;
-        *slot += 1;
-    }
-
-    crosses.clear();
-    at.clear();
-    for h in horizontal.iter() {
-        at.push(crosses.len() as u32);
-        for line in h.from..=h.to {
-            let (from, to) = (lines_at[line as usize] as usize, lines_at[line as usize + 1] as usize);
-            for &index in &by_line[from..to] {
-                let v = vertical[index as usize];
-                if (v.from..=v.to).contains(&h.line) {
-                    crosses.push(index);
-                }
-            }
-        }
-    }
-    at.push(crosses.len() as u32);
-}
-
-/// A maximum matching between chords that cross, by repeatedly finding an
-/// augmenting path from each unmatched horizontal chord.
-fn matching(work: &mut Work) {
-    let Work { crosses, at, left, right, seen, horizontal, vertical, .. } = work;
-    let (chords, verticals) = (horizontal.len(), vertical.len());
-    left.clear();
-    left.resize(chords, None);
-    right.clear();
-    right.resize(verticals, None);
-
-    // A greedy pass first: every pair it takes is one the search below
-    // never has to look for.
-    for h in 0..chords {
-        let run = &crosses[at[h] as usize..at[h + 1] as usize];
-        if let Some(&v) = run.iter().find(|&&v| right[v as usize].is_none()) {
-            left[h] = Some(v);
-            right[v as usize] = Some(h as u32);
-        }
-    }
-
-    seen.clear();
-    seen.resize(verticals, 0);
-    let mut stamp = 0u32;
-    for h in 0..chords {
-        if left[h].is_none() {
-            stamp += 1;
-            augment(h, crosses, at, left, right, seen, stamp);
-        }
-    }
-}
-
-/// One round of Hungarian augmentation: tries to match horizontal
-/// chord `h`, taking a vertical chord from whatever already holds it
-/// if that one can be re-matched elsewhere.
-///
-/// `seen` and `stamp` stand in for clearing a visited array per round,
-/// which matters because a round runs per horizontal chord and there
-/// can be thousands of them.
-fn augment(
-    h: usize,
-    crosses: &[u32],
-    at: &[u32],
-    left: &mut [Option<u32>],
-    right: &mut [Option<u32>],
-    seen: &mut [u32],
-    stamp: u32,
-) -> bool {
-    for index in at[h] as usize..at[h + 1] as usize {
-        let v = crosses[index];
-        if seen[v as usize] == stamp {
-            continue;
-        }
-        seen[v as usize] = stamp;
-        let free = match right[v as usize] {
-            None => true,
-            Some(other) => augment(other as usize, crosses, at, left, right, seen, stamp),
-        };
-        if free {
-            left[h] = Some(v);
-            right[v as usize] = Some(h as u32);
-            return true;
-        }
-    }
-    false
-}
-
-/// The largest set of chords no two of which cross.
-///
-/// By Koenig's theorem a minimum vertex cover of a bipartite graph is the
-/// size of a maximum matching, and the complement of a vertex cover is an
-/// independent set. The cover is found by marking everything an unmatched
-/// horizontal chord can reach along alternating paths.
-fn independent(work: &mut Work) {
-    matching(work);
-    let Work { crosses, at, left, right, reached_h, reached_v, stack, horizontal, vertical, .. } =
-        work;
-
-    reached_h.clear();
-    reached_h.resize(horizontal.len(), false);
-    reached_v.clear();
-    reached_v.resize(vertical.len(), false);
-    stack.clear();
-    for h in 0..horizontal.len() {
-        if left[h].is_none() {
-            reached_h[h] = true;
-            stack.push(h);
-        }
-    }
-
-    while let Some(h) = stack.pop() {
-        for index in at[h] as usize..at[h + 1] as usize {
-            let v = crosses[index];
-            if reached_v[v as usize] || left[h] == Some(v) {
-                continue;
-            }
-            reached_v[v as usize] = true;
-            if let Some(next) = right[v as usize] {
-                if !reached_h[next as usize] {
-                    reached_h[next as usize] = true;
-                    stack.push(next as usize);
-                }
-            }
-        }
     }
 }
 
@@ -383,31 +100,12 @@ impl Cuts {
 /// None of it depends on the bitmap, so all of it is found once and
 /// cleared between.
 struct Work {
-    horizontal: Vec<Chord>,
-    vertical: Vec<Chord>,
-    /// Which vertical chords each horizontal one crosses, as one run of
-    /// indices with the `at` array saying where each chord's run
-    /// begins. A vector per chord meant an allocation per chord.
-    crosses: Vec<u32>,
-    at: Vec<u32>,
-    /// The vertical chords in order of the line they sit on, and where
-    /// each line's run begins, so a horizontal chord only looks at the
-    /// lines it actually spans.
-    by_line: Vec<u32>,
-    lines_at: Vec<u32>,
-    cursor: Vec<u32>,
-    /// The matching, and the alternating search that turns it into an
-    /// independent set.
-    left: Vec<Option<u32>>,
-    right: Vec<Option<u32>>,
-    seen: Vec<u32>,
-    reached_h: Vec<bool>,
-    reached_v: Vec<bool>,
-    stack: Vec<usize>,
-    /// Which lattice points already have a cut through them, and which
-    /// are corners at all.
+    /// Every chord of the region and which of them to draw, which is
+    /// the whole of the construction's reasoning and is shared with
+    /// [`crate::RunmaxClipnmerge`].
+    chords: Chords,
+    /// Which lattice points already have a cut through them.
     served: Vec<bool>,
-    reflex: Vec<u64>,
     /// The bitmap and its transpose, so a chord scan along either axis
     /// is the same word operation.
     rows: Runs,
@@ -422,21 +120,8 @@ struct Work {
 impl Default for Work {
     fn default() -> Self {
         Self {
-            horizontal: Vec::new(),
-            vertical: Vec::new(),
-            crosses: Vec::new(),
-            at: Vec::new(),
-            by_line: Vec::new(),
-            lines_at: Vec::new(),
-            cursor: Vec::new(),
-            left: Vec::new(),
-            right: Vec::new(),
-            seen: Vec::new(),
-            reached_h: Vec::new(),
-            reached_v: Vec::new(),
-            stack: Vec::new(),
+            chords: Chords::default(),
             served: Vec::new(),
-            reflex: Vec::new(),
             rows: Runs::blank(),
             cols: Runs::blank(),
             cuts: Cuts::default(),
@@ -501,7 +186,7 @@ impl Accurate {
     ) -> (usize, Vec<(u16, u16, u16, bool)>, Vec<(u16, u16, u16, bool)>) {
         bits.split_single_cells_into(&mut self.lone, &mut self.rest);
         partition_into(&self.rest, &mut self.work);
-        let corners = self.work.reflex.iter().map(|w| w.count_ones() as usize).sum();
+        let corners = self.work.chords.reflex.iter().map(|w| w.count_ones() as usize).sum();
         let listed = |chords: &[Chord], keep: &[bool], taken_when: bool| {
             chords
                 .iter()
@@ -511,8 +196,8 @@ impl Accurate {
         };
         (
             corners,
-            listed(&self.work.horizontal, &self.work.reached_h, true),
-            listed(&self.work.vertical, &self.work.reached_v, false),
+            listed(&self.work.chords.horizontal, &self.work.chords.reached_h, true),
+            listed(&self.work.chords.vertical, &self.work.chords.reached_v, false),
         )
     }
 
@@ -555,33 +240,31 @@ fn partition_into(bits: &BitMatrix, work: &mut Work) {
     let region = Region { bits };
     // The corners first: the chords are the segments between them, so
     // finding them once serves both.
-    reflex_mask(bits, &mut work.reflex);
     Runs::rebuild(bits, &mut work.rows, &mut work.cols);
-    chords(work);
-    crossings(work);
-    independent(work);
+    work.chords.rebuild(bits, &work.rows, &work.cols);
 
     work.cuts.reset();
     work.served.clear();
     work.served.resize(CORNERS * CORNERS, false);
 
-    let Work { horizontal, vertical, reached_h, reached_v, cuts, served, reflex, .. } = work;
-    for (chord, _) in horizontal.iter().zip(reached_h.iter()).filter(|(_, t)| **t) {
+    let Work { chords, cuts, served, .. } = work;
+    for (chord, across) in chords.drawn() {
         let (line, from, to) = (chord.line as usize, chord.from as usize, chord.to as usize);
-        for x in from..to {
-            cuts.across[Cuts::at(line, x)] = true;
+        if across {
+            for x in from..to {
+                cuts.across[Cuts::at(line, x)] = true;
+            }
+            served[Cuts::at(line, from)] = true;
+            served[Cuts::at(line, to)] = true;
+        } else {
+            for y in from..to {
+                cuts.down[Cuts::at(y, line)] = true;
+            }
+            served[Cuts::at(from, line)] = true;
+            served[Cuts::at(to, line)] = true;
         }
-        served[Cuts::at(line, from)] = true;
-        served[Cuts::at(line, to)] = true;
     }
-    for (chord, _) in vertical.iter().zip(reached_v.iter()).filter(|(_, t)| !**t) {
-        let (line, from, to) = (chord.line as usize, chord.from as usize, chord.to as usize);
-        for y in from..to {
-            cuts.down[Cuts::at(y, line)] = true;
-        }
-        served[Cuts::at(from, line)] = true;
-        served[Cuts::at(to, line)] = true;
-    }
+    let reflex = &chords.reflex;
 
     // A corner off the edge of the grid has an empty quadrant there and
     // so can never have three filled, which is why the mask can be

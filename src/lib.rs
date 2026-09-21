@@ -3,14 +3,11 @@
 //!
 //! - [`RunmaxClipnmerge`] is the fast one. It reduces the bitmap to the
 //!   cells standing in both orientations, meshes it into deliberately
-//!   thin rectangles stopping wherever a chord crosses them, and then
-//!   grows them back over each other. Over the 168 generated bitmaps of
-//!   the corpus it lands 0.61% over the minimum, and costs more than
-//!   [`accurate`] does on all nine of the shapes. It used to win on
-//!   sparse scattered content by 4.02M instructions to 4.30M; setting
-//!   the lone cells aside in the exact algorithm too, which runmax had
-//!   been doing on its own, took 14.8% off that 4.30M and the win
-//!   with it.
+//!   thin rectangles stopping wherever one of the chords in
+//!   [`crate::chords`] crosses them, and then grows them back over each
+//!   other. Over the 168 generated bitmaps of the corpus it lands
+//!   0.025% over the minimum -- 126 areas of 513,520 -- and costs more
+//!   than [`accurate`] does on all nine of the shapes.
 //! - [`accurate`] is the minimum, by the construction of Lipski and of
 //!   Ohtsuki. It is what runmax-clipnmerge is measured against.
 //! - Exhaustive search, the ground truth, lives in the `ground_truth`
@@ -46,6 +43,7 @@
 //! | `partition` | what an algorithm is, from outside |
 //! | [`runmax`] | the fast algorithm: the mesh and the moves that rewrite it |
 //! | [`accurate`] | the minimum partition, which is the benchmark |
+//! | [`chords`] | what makes a minimum partition minimal, which both use |
 //! | [`samples`] | the one source of test bitmaps |
 //!
 //! The split that matters is `data` against the rest. Every structure
@@ -65,18 +63,19 @@
 //!
 //! A workspace holds no shared state, so one per worker thread is all
 //! that parallelism needs; the test suite asserts it is [`Send`]. On
-//! one core a middling ragged bitmap takes around 3.0ms, so a billion
-//! bits -- 15,259 bitmaps of them -- is about three quarters of a
-//! minute, and a million is about 46ms. Spread that over cores and a
-//! billion bits is seconds.
+//! one core a middling ragged bitmap takes around 2.6ms, so a billion
+//! bits -- 15,259 bitmaps of them -- is about forty seconds, and a
+//! million is about 40ms. Spread that over cores and a billion bits is
+//! seconds.
 //!
 //! Content shapes the cost more than size does, though less wildly than
 //! the hand-drawn corpus once suggested. Per set cell the spread across
-//! the nine shapes is about sixfold, from 317 instructions on sparse
-//! scattered content to 1791 on dense scattered: see the `cost`
+//! the nine shapes is about fivefold, from 323 instructions on sparse
+//! scattered content to 1670 on dense scattered: see the `cost`
 //! example, which counts them under callgrind.
 
 pub mod accurate;
+pub mod chords;
 mod data;
 mod partition;
 pub mod runmax;
