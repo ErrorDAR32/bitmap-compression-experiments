@@ -5,7 +5,7 @@
 //! and comparing the two algorithms piece by piece isolates the mistake
 //! to something small enough to print.
 
-use bitmatrix::{accurate, samples, Area, BitMatrix, RunmaxClipnmerge};
+use bitmatrix::{accurate, samples, Area, BitMatrix, Runmax};
 use bitmatrix::{HEIGHT, WIDTH};
 
 /// Labels the pieces of the region, one number each, by flooding.
@@ -72,7 +72,7 @@ fn draw(areas: &[Area], label: &[i32], piece: i32, box_: (usize, usize, usize, u
 }
 
 fn main() {
-    let mut work = RunmaxClipnmerge::new();
+    let mut work = Runmax::new();
     let mut best: Option<(usize, Vec<Vec<String>>, u32, u32, &str)> = None;
     let mut losing = 0usize;
 
@@ -128,8 +128,8 @@ fn main() {
     };
     println!(
         "  {losing} connected pieces of region are still given more areas by\n  \
-         runmax-clipnmerge than by accurate. The smallest holds {cells} cells,\n  \
-         on {name} content: runmax-clipnmerge gives it {mine} areas where\n  \
+         runmax than by accurate. The smallest holds {cells} cells,\n  \
+         on {name} content: runmax gives it {mine} areas where\n  \
          accurate gives it {least}.\n"
     );
     let wide = stages[0][0].len().max(7) + 4;
@@ -141,7 +141,7 @@ fn main() {
         println!("{}", out.trim_end());
     }
     let mut names = String::from("      ");
-    for label in ["runmax-clipnmerge", "accurate"] {
+    for label in ["runmax", "accurate"] {
         names.push_str(&format!("{label:<wide$}"));
     }
     println!("{}", names.trim_end());

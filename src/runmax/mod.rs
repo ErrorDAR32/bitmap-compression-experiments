@@ -44,12 +44,12 @@ use crate::{BitMatrix, Area};
 /// and is meant to be built once and fed bitmap after bitmap.
 ///
 /// ```ignore
-/// let mut work = RunmaxClipnmerge::new();
+/// let mut work = Runmax::new();
 /// for bits in &bitmaps {
 ///     let areas = work.partition(bits);
 /// }
 /// ```
-pub struct RunmaxClipnmerge {
+pub struct Runmax {
     /// The cells standing alone, and everything else. Cells standing
     /// alone are forced to be 1x1, so they are set aside rather than
     /// queued, seeded, carved and then checked against every neighbour
@@ -79,24 +79,24 @@ pub struct RunmaxClipnmerge {
     cut_cols: List<(u8, Run), { bounds::CUT }>,
 }
 
-impl Default for RunmaxClipnmerge {
-    /// The same as [`RunmaxClipnmerge::new`].
+impl Default for Runmax {
+    /// The same as [`Runmax::new`].
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl crate::Partition for RunmaxClipnmerge {
+impl crate::Partition for Runmax {
     fn name(&self) -> &'static str {
         "runmax"
     }
 
     fn partition(&mut self, bits: &BitMatrix) -> &[Area] {
-        RunmaxClipnmerge::partition(self, bits)
+        Runmax::partition(self, bits)
     }
 }
 
-impl RunmaxClipnmerge {
+impl Runmax {
     /// Builds the workspace. A few hundred kilobytes, found once, and
     /// then never allocated again however many bitmaps go through it.
     pub fn new() -> Self {
@@ -197,7 +197,7 @@ mod tests {
     /// ever false.
     #[test]
     fn every_shape_comes_back_an_exact_partition() {
-        let mut work = RunmaxClipnmerge::new();
+        let mut work = Runmax::new();
         for shape in samples::SHAPES {
             for bits in shape.tested() {
                 let meshed = work.mesh(&bits).to_vec();
@@ -224,7 +224,7 @@ mod tests {
     /// room to run where the region is smallest.
     #[test]
     fn the_mesh_is_the_minimum_and_keeps_nothing() {
-        let mut work = RunmaxClipnmerge::new();
+        let mut work = Runmax::new();
         let mut cases: Vec<BitMatrix> = vec![BitMatrix::new()];
         for shape in samples::SHAPES {
             cases.extend(shape.tested());
@@ -245,7 +245,7 @@ mod tests {
         // And the workspace has to give the same answer whichever
         // bitmap it looked at last, which is the whole risk of keeping
         // it: nothing may survive from one bitmap into the next.
-        let mut reused = RunmaxClipnmerge::new();
+        let mut reused = Runmax::new();
         let wanted: Vec<Vec<Area>> =
             cases.iter().map(|bits| work.partition(bits).to_vec()).collect();
         for (bits, want) in cases.iter().zip(&wanted).rev() {
@@ -257,7 +257,7 @@ mod tests {
     /// answers the algorithm can give without looking at anything.
     #[test]
     fn empty_and_full() {
-        let mut work = RunmaxClipnmerge::new();
+        let mut work = Runmax::new();
         let empty = samples::one_grown(0, 0.0, 0.0);
         assert_eq!(empty.count_set(), 0);
         assert_eq!(work.partition(&empty).len(), 0);
@@ -272,7 +272,7 @@ mod tests {
     /// whole of the seed run machinery has nothing to do.
     #[test]
     fn scattered_cells_are_all_forced_alone() {
-        let mut work = RunmaxClipnmerge::new();
+        let mut work = Runmax::new();
         let bits = samples::one_grown(0, 0.05, 0.0);
         let areas = work.partition(&bits).to_vec();
         assert_exact_partition(&bits, &areas);
@@ -294,7 +294,7 @@ mod tests {
     /// what the shape itself says.
     #[test]
     fn blobs_compact_much_further_than_they_mesh() {
-        let mut work = RunmaxClipnmerge::new();
+        let mut work = Runmax::new();
         let bits = samples::one_grown(0, 0.20, 0.95);
         let whole = work.partition(&bits).len();
         assert!(
@@ -309,7 +309,7 @@ mod tests {
     #[test]
     fn a_workspace_can_be_sent_to_another_thread() {
         fn assert_send<T: Send>() {}
-        assert_send::<RunmaxClipnmerge>();
+        assert_send::<Runmax>();
         assert_send::<BitMatrix>();
         assert_send::<Area>();
     }

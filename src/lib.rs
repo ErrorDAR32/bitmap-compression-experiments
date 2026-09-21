@@ -1,7 +1,7 @@
 //! A fixed-size 256x256 bit matrix, and three ways to split its set
 //! bits into disjoint rectangles.
 //!
-//! - [`RunmaxClipnmerge`] is the fast one. It reduces the bitmap to the
+//! - [`Runmax`] is the fast one. It reduces the bitmap to the
 //!   cells standing in both orientations and takes each run still
 //!   standing, in reading order, as a rectangle bounded on every side
 //!   by the chords in [`crate::chords`]. Over the 168 generated bitmaps
@@ -10,7 +10,7 @@
 //!   is -- which is not a proof that it always does, only that nothing
 //!   has found otherwise.
 //! - [`accurate`] is the minimum, by the construction of Lipski and of
-//!   Ohtsuki. It is what runmax-clipnmerge is measured against.
+//!   Ohtsuki. It is what runmax is measured against.
 //! - Exhaustive search, the ground truth, lives in the `ground_truth`
 //!   example. It is what the exact algorithm is measured against, on
 //!   grids small enough to survive it.
@@ -21,13 +21,13 @@
 //! once and fed bitmap after bitmap:
 //!
 //! ```
-//! use bitmatrix::{BitMatrix, RunmaxClipnmerge};
+//! use bitmatrix::{BitMatrix, Runmax};
 //!
 //! let mut bits = BitMatrix::new();
 //! bits.set_rect(10, 10, 40, 30);
 //! bits.set_circle(180, 180, 25);
 //!
-//! let mut work = RunmaxClipnmerge::new();
+//! let mut work = Runmax::new();
 //! let areas = work.partition(&bits);
 //! assert!(areas.iter().map(|r| r.cells()).sum::<u32>() == bits.count_set());
 //! ```
@@ -84,7 +84,7 @@ pub mod samples;
 
 pub use data::{BitMatrix, Area};
 pub use partition::{assert_partition, Partition};
-pub use runmax::RunmaxClipnmerge;
+pub use runmax::Runmax;
 
 /// The matrix is always this wide and this tall. Nothing is sized at
 /// run time, which is what lets a workspace be built once and reused.

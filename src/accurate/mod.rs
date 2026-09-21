@@ -1,7 +1,7 @@
 //! The exact algorithm: the minimum partition, worked out rather than
 //! approached.
 //!
-//! Against it runmax-clipnmerge in [`crate::RunmaxClipnmerge`] is measured,
+//! Against it runmax in [`crate::Runmax`] is measured,
 //! and against exhaustive search, the ground truth algorithm, this one
 //! is measured in turn.
 //!
@@ -102,7 +102,7 @@ impl Cuts {
 struct Work {
     /// Every chord of the region and which of them to draw, which is
     /// the whole of the construction's reasoning and is shared with
-    /// [`crate::RunmaxClipnmerge`].
+    /// [`crate::Runmax`].
     chords: Chords,
     /// Which lattice points already have a cut through them.
     served: Vec<bool>,
@@ -135,7 +135,7 @@ impl Default for Work {
 /// The minimum partition, and the room it works in.
 ///
 /// A workspace rather than a free function, for the same reason
-/// [`crate::RunmaxClipnmerge`] is one: a bitmap costs the better part
+/// [`crate::Runmax`] is one: a bitmap costs the better part
 /// of a megabyte of scratch, and a caller with layers to get through
 /// wants that found once.
 #[derive(Default)]
@@ -147,7 +147,7 @@ pub struct Accurate {
     /// left plus one for each of them, and the construction never has
     /// to see them.
     ///
-    /// It is also what [`crate::RunmaxClipnmerge`] does, and doing it
+    /// It is also what [`crate::Runmax`] does, and doing it
     /// in only one of the two would have made every comparison between
     /// them a comparison of that. Lone cells are 41.5% of the areas the
     /// corpus needs.
@@ -462,7 +462,7 @@ mod tests {
     /// algorithm is that it is the floor.
     #[test]
     fn never_worse_than_runmax() {
-        let mut work = crate::RunmaxClipnmerge::new();
+        let mut work = crate::Runmax::new();
         for shape in samples::SHAPES {
             let corners = shape.take_in(7, 40);
             for bits in corners.chain(shape.tested()) {

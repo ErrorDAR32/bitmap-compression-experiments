@@ -2,7 +2,7 @@
 //! word on what the minimum is and far too slow to be anything else.
 //!
 //! It is here to check the exact algorithm, which in turn is what the
-//! runmax-clipnmerge algorithm is measured against.
+//! runmax algorithm is measured against.
 //!
 //! The construction is a theorem, so in principle it needs no checking:
 //! if it is right, a second algorithm agreeing with it proves nothing

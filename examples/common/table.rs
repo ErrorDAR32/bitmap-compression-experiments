@@ -5,7 +5,7 @@
 //! under the headings, a bar between columns, and a heading that names
 //! the whole of what the column holds. A column of instruction counts
 //! headed "runmax" says neither what is counted nor per what; a column
-//! headed "runmax-clipnmerge instructions per active cell" does, and
+//! headed "runmax instructions per active cell" does, and
 //! it is not the table's business to make that shorter.
 //!
 //! A heading with newlines in it stacks, so a long name costs height

@@ -2,7 +2,7 @@
 //! that the document can be checked against the code rather than
 //! trusted. Any change here that moves a number moves it in both.
 
-use bitmatrix::{BitMatrix, RunmaxClipnmerge};
+use bitmatrix::{BitMatrix, Runmax};
 
 fn from_rows(rows: &[&str]) -> BitMatrix {
     let mut bits = BitMatrix::new();
@@ -18,7 +18,7 @@ fn from_rows(rows: &[&str]) -> BitMatrix {
 
 fn show(label: &str, rows: &[&str]) {
     let bits = from_rows(rows);
-    let mut work = RunmaxClipnmerge::new();
+    let mut work = Runmax::new();
 
     let whole: Vec<_> = work.partition(&bits).to_vec();
 
@@ -26,7 +26,7 @@ fn show(label: &str, rows: &[&str]) {
     for row in rows {
         println!("    {row}");
     }
-    print!("  runmax-clipnmerge {:>2}:", whole.len());
+    print!("  runmax {:>2}:", whole.len());
     for r in whole.iter() {
         print!(" ({},{})-({},{})", r.x0, r.y0, r.x1, r.y1);
     }

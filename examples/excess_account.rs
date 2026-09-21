@@ -36,7 +36,7 @@
 //! not losing chords when it merges slivers away, it is clearing the
 //! meetings that those slivers' edges made.
 
-use bitmatrix::{accurate, samples, Area, BitMatrix, RunmaxClipnmerge};
+use bitmatrix::{accurate, samples, Area, BitMatrix, Runmax};
 
 #[path = "common/table.rs"]
 mod table;
@@ -117,14 +117,14 @@ impl Cuts {
 
 fn main() {
     println!(
-        "what runmax-clipnmerge's excess areas are made of, over the whole corpus.\n\n  \
+        "what runmax's excess areas are made of, over the whole corpus.\n\n  \
          A partition saves the chords it holds, less the pairs of them that meet,\n  \
          because a meeting hands one chord's saving back. So its areas over the\n  \
          minimum should be the chords the minimum chose, less that saving.\n"
     );
 
     let mut exact = accurate::Accurate::new();
-    let mut work = RunmaxClipnmerge::new();
+    let mut work = Runmax::new();
     let (mut all_excess, mut all_accounted) = (0i64, 0i64);
     let mut table = Table::new(&[
         "shape",
@@ -132,9 +132,9 @@ fn main() {
         "chords held\nby the mesh",
         "meeting pairs\namong those",
         "net saved\nby the mesh",
-        "chords held by\nrunmax-clipnmerge",
+        "chords held by\nrunmax",
         "meeting pairs\namong those",
-        "net saved by\nrunmax-clipnmerge",
+        "net saved by\nrunmax",
         "areas over\nthe minimum",
     ]);
 
@@ -180,7 +180,7 @@ fn main() {
     table.print();
 
     println!(
-        "\n  runmax-clipnmerge wastes {all_excess} areas over the corpus, and the chords it\n  \
+        "\n  runmax wastes {all_excess} areas over the corpus, and the chords it\n  \
          did not draw or drew across each other account for {all_accounted} of them."
     );
 }

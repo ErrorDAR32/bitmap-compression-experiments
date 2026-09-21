@@ -1,7 +1,7 @@
 //! Runmax against the minimum on every four by four bitmap.
-use bitmatrix::{accurate, assert_partition, BitMatrix, RunmaxClipnmerge};
+use bitmatrix::{accurate, assert_partition, BitMatrix, Runmax};
 fn main() {
-    let mut work = RunmaxClipnmerge::new();
+    let mut work = Runmax::new();
     let side = 4usize;
     let (mut over, mut worst) = (0usize, 0usize);
     for pattern in 0..1u64 << (side * side) {

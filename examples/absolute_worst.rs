@@ -1,4 +1,4 @@
-//! Where runmax-clipnmerge lands furthest from the minimum.
+//! Where runmax lands furthest from the minimum.
 //!
 //! The average is a poor teacher. Runmax is a percent or two over the
 //! minimum across the corpus, and a percent spread thinly over five
@@ -24,7 +24,7 @@
 //! Run it with a seed count, and optionally a seed base:
 //! `cargo run --release --example absolute_worst 400 1000`.
 
-use bitmatrix::{accurate, samples, Area, BitMatrix, RunmaxClipnmerge};
+use bitmatrix::{accurate, samples, Area, BitMatrix, Runmax};
 
 #[path = "common/table.rs"]
 mod table;
@@ -64,7 +64,7 @@ impl Verdict {
 }
 
 /// Runs both algorithms on one bitmap.
-fn judge(work: &mut RunmaxClipnmerge, bits: &BitMatrix) -> Verdict {
+fn judge(work: &mut Runmax, bits: &BitMatrix) -> Verdict {
     let ours = work.partition(bits).len();
     let fewest = accurate::partition(bits).len();
     Verdict { ours, fewest }
@@ -149,7 +149,7 @@ fn canonical(grid: &[Vec<bool>]) -> String {
 /// successful removal restarts the sweep, so this is quadratic in the
 /// cells. On a twelve by twelve that is a few thousand partitions,
 /// which is nothing, and it is why the hunt is kept to small grids.
-fn shrink(work: &mut RunmaxClipnmerge, bits: &BitMatrix, side: usize) -> BitMatrix {
+fn shrink(work: &mut Runmax, bits: &BitMatrix, side: usize) -> BitMatrix {
     let mut best = bits.clone();
     loop {
         let mut removed = false;
@@ -201,7 +201,7 @@ fn painted(areas: &[Area], bits: &BitMatrix, side: usize) -> Vec<String> {
 /// recovers is a mesh problem; a mesh that is three over and comes down
 /// to one is a rewriting problem. They want different fixes, and the
 /// only way to tell them apart is to look at every stage.
-fn show(work: &mut RunmaxClipnmerge, bits: &BitMatrix, side: usize, found_at: &str) {
+fn show(work: &mut Runmax, bits: &BitMatrix, side: usize, found_at: &str) {
     let stages: Vec<(&str, Vec<Area>)> = vec![
         ("meshed", work.mesh(bits).to_vec()),
         ("merged", work.partition(bits).to_vec()),
@@ -225,7 +225,7 @@ fn show(work: &mut RunmaxClipnmerge, bits: &BitMatrix, side: usize, found_at: &s
 }
 
 /// The full-size sweep: which content defeats it, and by how much.
-fn full_size(work: &mut RunmaxClipnmerge, from: u64, seeds: u64) {
+fn full_size(work: &mut Runmax, from: u64, seeds: u64) {
     println!(
         "worst of {seeds} seeds a shape from {from}, full 256x256, ranked by how far over the minimum:\n"
     );
@@ -255,7 +255,7 @@ fn full_size(work: &mut RunmaxClipnmerge, from: u64, seeds: u64) {
     let mut table = Table::new(&[
         "shape",
         "worst\nseed",
-        "areas given by\nrunmax-clipnmerge",
+        "areas given by\nrunmax",
         "areas given by\naccurate",
         "areas over\nthe minimum",
         "per cent over\nthe minimum",
@@ -309,7 +309,7 @@ fn full_size(work: &mut RunmaxClipnmerge, from: u64, seeds: u64) {
 
 /// The small hunt: every disagreement found, shrunk to a minimal
 /// witness and deduplicated under symmetry.
-fn witnesses(work: &mut RunmaxClipnmerge, from: u64, seeds: u64) {
+fn witnesses(work: &mut Runmax, from: u64, seeds: u64) {
     let mut seen: Vec<(String, usize, usize, usize, String)> = Vec::new();
     let mut hits = 0u64;
     let mut tried = 0u64;
@@ -383,7 +383,7 @@ fn main() {
         .and_then(|arg| arg.parse().ok())
         .unwrap_or(samples::SAMPLE_SEED);
 
-    let mut work = RunmaxClipnmerge::new();
+    let mut work = Runmax::new();
     full_size(&mut work, from, seeds);
     witnesses(&mut work, from, seeds);
 }

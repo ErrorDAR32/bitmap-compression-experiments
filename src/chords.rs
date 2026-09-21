@@ -23,7 +23,7 @@
 //! This is the whole of what makes a minimum partition minimal, so
 //! both algorithms in the crate use it and neither has its own copy:
 //! [`crate::accurate`] draws exactly this set and is done, and
-//! [`crate::RunmaxClipnmerge`] stops its seed runs where one of these
+//! [`crate::Runmax`] stops its seed runs where one of these
 //! chords crosses them.
 
 use crate::data::bits::{next_clear, next_set, LINE_WORDS};
@@ -100,7 +100,7 @@ impl Default for Chords {
 ///
 /// Neither can do less than this, so it is the floor a comparison
 /// between them sits on, and it is measured rather than reasoned about
-/// -- [`crate::RunmaxClipnmerge`] and [`crate::accurate`] each run
+/// -- [`crate::Runmax`] and [`crate::accurate`] each run
 /// exactly these steps, in this order, on exactly this content.
 ///
 /// Answers the chords drawn, so that nothing here can be optimised

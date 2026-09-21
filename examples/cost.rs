@@ -35,7 +35,7 @@
 //! about the algorithms or about those bitmaps. It needs `valgrind` on
 //! the path.
 
-use bitmatrix::{accurate, samples, RunmaxClipnmerge};
+use bitmatrix::{accurate, samples, Runmax};
 
 #[path = "common/table.rs"]
 mod table;
@@ -85,7 +85,7 @@ fn run(density: f64, cluster: f64, from: u64, doing: Doing) {
     let areas: usize = match doing {
         Doing::Building => 0,
         Doing::Partitioning => {
-            let mut work = RunmaxClipnmerge::new();
+            let mut work = Runmax::new();
             maps.iter().map(|bits| work.partition(bits).len()).sum()
         }
         Doing::Reading => maps.iter().map(|bits| bitmatrix::chords::runs_and_chords(bits)).sum(),
@@ -173,7 +173,7 @@ fn main() {
         "active\ncells",
         "cells\nstanding\nalone",
         "cells the\nalgorithms\nwork on",
-        "areas given by\nrunmax-clipnmerge",
+        "areas given by\nrunmax",
         "areas given by\naccurate",
     ]);
     for &(name, cells, lone, areas, fewest, ..) in &measured {
@@ -202,9 +202,9 @@ fn main() {
         "shape",
         "cells the\nalgorithms\nwork on",
         "runs and chords\ninstructions\nper worked cell",
-        "runmax-clipnmerge\ninstructions\nper worked cell",
+        "runmax\ninstructions\nper worked cell",
         "accurate\ninstructions\nper worked cell",
-        "runmax-clipnmerge\nbeyond runs and chords\nper worked cell",
+        "runmax\nbeyond runs and chords\nper worked cell",
         "accurate\nbeyond runs and chords\nper worked cell",
     ]);
     let per = |count: u64, cells: u64| format!("{:.1}", count as f64 / cells.max(1) as f64);

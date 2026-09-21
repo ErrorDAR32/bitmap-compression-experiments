@@ -45,7 +45,7 @@
 //! measuring, so the two algorithms alternate on every bitmap and the
 //! ratio between them is what to trust.
 
-use bitmatrix::{accurate, assert_partition, samples, BitMatrix, RunmaxClipnmerge};
+use bitmatrix::{accurate, assert_partition, samples, BitMatrix, Runmax};
 
 #[path = "common/table.rs"]
 mod table;
@@ -54,7 +54,7 @@ use std::time::{Duration, Instant};
 
 const REPEATS: usize = 5;
 
-fn greedy(work: &mut RunmaxClipnmerge, bits: &BitMatrix) -> usize {
+fn greedy(work: &mut Runmax, bits: &BitMatrix) -> usize {
     work.partition(bits).len()
 }
 
@@ -101,7 +101,7 @@ impl Measured {
 fn race(maps: &[BitMatrix]) -> (Measured, Measured, Vec<f64>) {
     // The workspace is stood up once, outside every measurement, which
     // is how it is meant to be used.
-    let mut work = RunmaxClipnmerge::new();
+    let mut work = Runmax::new();
     let mut greedy_out = Measured { count: 0, times: Vec::new() };
     let mut exact_out = Measured { count: 0, times: Vec::new() };
     let mut ratios = Vec::new();
@@ -166,7 +166,7 @@ fn main() {
     let maps: Vec<BitMatrix> = shape.timed().collect();
 
     // Correctness once, outside the timing.
-    let mut work = RunmaxClipnmerge::new();
+    let mut work = Runmax::new();
     for bits in &maps {
         assert_partition(bits, work.partition(bits), "runmax");
         assert_partition(bits, &accurate::partition(bits), "accurate");
@@ -203,11 +203,11 @@ fn main() {
     );
     let mut table = Table::new(&[
         "shape",
-        "areas given by\nrunmax-clipnmerge",
+        "areas given by\nrunmax",
         "areas given by\naccurate",
-        "runmax-clipnmerge\ntime a bitmap",
+        "runmax\ntime a bitmap",
         "accurate\ntime a bitmap",
-        "runmax-clipnmerge\ntime-optimal bias",
+        "runmax\ntime-optimal bias",
         "accurate\ntime-optimal bias",
     ]);
     for shape in samples::SHAPES {
