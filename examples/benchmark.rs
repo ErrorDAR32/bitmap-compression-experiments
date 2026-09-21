@@ -25,10 +25,11 @@
 //! what else the machine is doing.
 //!
 //! Time-optimal bias is here: the time an algorithm takes multiplied by
-//! one more than how many rectangles it gives over the fewest
-//! possible, as a bare
-//! number rather than a duration, lower being better. The accurate
-//! algorithm's is its time alone, since it is never over the fewest.
+//! `w.pow(w)` for `w` one more than how many rectangles it gives over
+//! the fewest possible. It is reported as a power of ten, because it
+//! fits in nothing otherwise, and lower is better. The accurate
+//! algorithm's is its time alone, since it is never over the fewest --
+//! `w` is one there, and one to the first is one.
 //!
 //! It is the same formula as instruction-optimal bias in the `cost`
 //! example, in the other currency, and the two answer different
@@ -53,12 +54,12 @@ fn minimum(bits: &BitMatrix) -> usize {
     accurate::partition(bits).len()
 }
 
-/// Time-optimal bias: the time taken by one more than the areas given
-/// over the fewest possible, as a bare number of microseconds rather
-/// than a
-/// duration.
-fn bias(took: Duration, over: f64) -> f64 {
-    took.as_secs_f64() * 1e6 * over
+/// Time-optimal bias: the base ten logarithm of the microseconds taken
+/// by `w.pow(w)`, for `w` one more than the areas given over the
+/// fewest. A logarithm because the bias itself overflows anything it
+/// could be held in; `w.pow(w)` in logarithms is `w * log(w)`.
+fn bias(took: Duration, waste: f64) -> f64 {
+    (took.as_secs_f64() * 1e6).max(1.0).log10() + waste * waste.log10()
 }
 
 /// One line of a report, header and data alike.
@@ -204,8 +205,8 @@ fn main() {
     );
 
     println!(
-        "\ntime-optimal bias, time by one more than the areas over fewest, \
-         best of {REPEATS}:\n"
+        "\ntime-optimal bias, time by w.pow(w) for w one more than the areas over fewest,\n\
+         as a power of ten, best of {REPEATS}:\n"
     );
     println!(
         "{}",
@@ -223,8 +224,8 @@ fn main() {
         let maps: Vec<BitMatrix> = shape.timed().collect();
         let n = maps.len() as u32;
         let (got, best, _) = race(&maps);
-        let over = (got.count.saturating_sub(best.count) + 1) as f64;
-        let (ours, theirs) = (bias(got.best() / n, over), bias(best.best() / n, 1.0));
+        let waste = (got.count.saturating_sub(best.count) + 1) as f64;
+        let (ours, theirs) = (bias(got.best() / n, waste), bias(best.best() / n, 1.0));
         println!(
             "{}",
             row([

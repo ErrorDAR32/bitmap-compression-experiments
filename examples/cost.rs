@@ -9,13 +9,24 @@
 //!   content of a bitmap rather than on the bitmap. It compares across
 //!   bitmaps holding wildly different amounts.
 //! - **Instruction-optimal bias** is the instructions taken multiplied
-//!   by one more than how many rectangles were given over the fewest
-//!   possible. One more, so that a partition that is never over the
-//!   fewest is priced at its instructions and nothing is multiplied by
-//!   zero. Counting the excess rather than the ratio is deliberate: an
-//!   answer within 1% of the minimum is within 1% by the ratio however
-//!   many areas it wastes, which made the metric read as instructions
-//!   alone and say nothing about the waste. An
+//!   by `w.pow(w)`, where `w` is one more than how many rectangles were
+//!   given over the fewest possible. One more, so that a partition
+//!   that is never over the fewest is priced at its instructions and
+//!   nothing is raised to the zeroth power. Counting the excess rather
+//!   than the ratio is deliberate: an answer within 1% of the minimum
+//!   is within 1% by the ratio however many areas it wastes, which made
+//!   the metric read as instructions alone and say nothing about the
+//!   waste.
+//!
+//!   It is reported as a power of ten, because it does not fit in a
+//!   `f64` otherwise, or in the universe: 722 areas wasted prices at
+//!   `10^2067`. Read what that means before reading the numbers. The
+//!   instructions reach `10^9` and the waste reaches `10^2000`, so the
+//!   instructions are not a tie-break, they are nothing at all; and one
+//!   area saved is worth a factor of `w`, which past a hundred wasted
+//!   areas no amount of speed can answer. It is a waste metric with an
+//!   instruction count attached, and the ranking it gives is the
+//!   ranking of `w` alone unless two answers waste the same. An
 //!   algorithm can lose by being slow or by being wasteful and the two
 //!   trade against each other, so neither alone says which is better.
 //!   The accurate algorithm's bias is its instructions alone, since it
@@ -169,22 +180,29 @@ fn main() {
     }
 
     println!(
-        "\ninstruction-optimal bias, instructions by one more than the areas over fewest, \
-         same run:\n"
+        "\ninstruction-optimal bias, instructions by w.pow(w) for w one more than the areas \
+         over fewest,\nas a power of ten, same run:\n"
     );
-    println!("{}", row(["shape", "runmax-clipnmerge", "accurate", "ratio", "winner"]));
+    println!("{}", row(["shape", "runmax-clipnmerge", "accurate", "apart by", "winner"]));
     for &(name, _, areas, fewest, ours, theirs) in &measured {
-        let over = (areas.saturating_sub(fewest) + 1) as f64;
-        let (ours, theirs) = (ours as f64 * over, theirs as f64);
+        let (ours, theirs) = (log_bias(ours, areas, fewest), log_bias(theirs, fewest, fewest));
         println!(
             "{}",
             row([
                 name,
-                &format!("{ours:.0}"),
-                &format!("{theirs:.0}"),
-                &format!("{:.2}x", ours / theirs),
+                &format!("10^{ours:.1}"),
+                &format!("10^{theirs:.1}"),
+                &format!("10^{:.1}", (ours - theirs).abs()),
                 if ours < theirs { "runmax wins" } else { "accurate wins" },
             ])
         );
     }
+}
+
+/// The base ten logarithm of the bias, since the bias itself does not
+/// fit in anything. `w.pow(w)` in logarithms is `w * log(w)`, which is
+/// why the metric can be reported at all.
+fn log_bias(instructions: u64, areas: u64, fewest: u64) -> f64 {
+    let w = (areas.saturating_sub(fewest) + 1) as f64;
+    (instructions.max(1) as f64).log10() + w * w.log10()
 }
