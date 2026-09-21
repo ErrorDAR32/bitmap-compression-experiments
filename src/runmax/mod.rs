@@ -49,6 +49,21 @@ pub struct RunmaxClipnmerge {
     /// alone are forced to be 1x1, so they are set aside rather than
     /// queued, seeded, carved and then checked against every neighbour
     /// they do not have.
+    ///
+    /// They are 41.5% of the areas the corpus needs -- 213,199 of
+    /// 513,520 -- and meshing them costs 41.9M instructions, 14.2% of
+    /// the run, for a partition identical area for area on every shape.
+    /// Sparse scattered content, which is almost nothing else, takes
+    /// 5.8 times as long when they are left in.
+    ///
+    /// Setting them aside loses no chords either, which is what makes
+    /// it safe to find the chords on what is left rather than on the
+    /// bitmap. A reflex corner has three of the four cells round a
+    /// lattice point filled, and any three of those four hold a pair
+    /// that touch, so none of them stands alone; a chord's two side
+    /// cells at each position touch each other for the same reason.
+    /// A cell standing alone is in neither, and the corpus agrees:
+    /// same chords on all 168 bitmaps, peeled or whole.
     single_cells: BitMatrix,
     rest: BitMatrix,
     rows: Runs,
