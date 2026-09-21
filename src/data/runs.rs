@@ -118,6 +118,13 @@ impl Runs {
     }
 
     /// Stands `[lo, hi]` up on one line.
+    /// One line's bits, as words: for rows, the columns standing in
+    /// that row; for columns, the rows. The transpose falls out of
+    /// asking the column side for a line.
+    pub(crate) fn line(&self, at: u8) -> &[u64; LINE_WORDS] {
+        &self.lines[at as usize]
+    }
+
     pub(crate) fn fill(&mut self, line: u8, lo: u8, hi: u8) {
         let words = &mut self.lines[line as usize];
         for (index, word) in words.iter_mut().enumerate() {

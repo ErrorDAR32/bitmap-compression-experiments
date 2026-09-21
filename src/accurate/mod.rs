@@ -32,7 +32,8 @@
 //! already drawn. The faces are then all rectangles, and there are as few
 //! as there can be.
 
-use crate::data::bits::LINE_WORDS;
+use crate::data::bits::{next_clear, next_set, LINE_WORDS};
+use crate::data::Runs;
 use crate::{Area, BitMatrix, HEIGHT, WIDTH};
 
 /// Lattice points run one past the cells in each direction.
@@ -122,18 +123,6 @@ impl Region<'_> {
             && self.bits.get(x as u8, y as u8)
     }
 
-    /// Whether three of the four cells around this lattice point are
-    /// filled, which is what makes it a corner the partition must cut.
-    fn is_reflex(&self, cx: i32, cy: i32) -> bool {
-        // Added rather than collected and counted: the array and its
-        // iterator were 5% of the construction on their own.
-        let filled = self.filled(cx - 1, cy - 1) as u8
-            + self.filled(cx, cy - 1) as u8
-            + self.filled(cx - 1, cy) as u8
-            + self.filled(cx, cy) as u8;
-        filled == 3
-    }
-
     /// Whether the lattice point has its empty quadrant above it, which
     /// decides which way an unpaired corner's cut has to run.
     fn empty_above(&self, cx: i32, cy: i32) -> bool {
@@ -147,47 +136,64 @@ impl Region<'_> {
 /// end: a lattice point strictly inside such a run has all four of its
 /// cells filled, so it is not a corner at all and cannot be a chord's
 /// endpoint. That makes the chords easy to find and few.
-fn chords(region: &Region, horizontal: &mut Vec<Chord>, vertical: &mut Vec<Chord>) {
+fn chords(work: &mut Work) {
+    let Work { rows, cols, reflex, horizontal, vertical, .. } = work;
     horizontal.clear();
     vertical.clear();
 
-    for line in 0..=WIDTH as i32 {
-        let mut pos = 0i32;
-        while pos < WIDTH as i32 {
-            if !(region.filled(pos, line - 1) && region.filled(pos, line)) {
-                pos += 1;
-                continue;
-            }
-            let start = pos;
-            while pos < WIDTH as i32
-                && region.filled(pos, line - 1)
-                && region.filled(pos, line)
-            {
-                pos += 1;
-            }
-            if region.is_reflex(start, line) && region.is_reflex(pos, line) {
-                horizontal.push(Chord { line: line as u16, from: start as u16, to: pos as u16 });
-            }
-        }
+    // A chord lies on a lattice line and runs between two corners on
+    // it, through cells filled on both sides. "Filled on both sides"
+    // for a whole line at once is one line of the bitmap anded with the
+    // next -- and for the other axis, one line of its transpose anded
+    // with the next, which is why the column side is built at all.
+    const NONE: [u64; LINE_WORDS] = [0; LINE_WORDS];
+    let mut inside = [0u64; LINE_WORDS];
 
-        let mut pos = 0i32;
-        while pos < HEIGHT as i32 {
-            if !(region.filled(line - 1, pos) && region.filled(line, pos)) {
-                pos += 1;
-                continue;
+    for line in 0..CORNERS {
+        for across in [true, false] {
+            let side: &Runs = if across { rows } else { cols };
+            // One size up before the cast: at the far lattice line
+            // there is no line after it, and `256 as u8` is zero.
+            let before = if line == 0 { &NONE } else { side.line((line - 1) as u8) };
+            let after = if line == WIDTH { &NONE } else { side.line(line as u8) };
+            for word in 0..LINE_WORDS {
+                inside[word] = before[word] & after[word];
             }
-            let start = pos;
-            while pos < HEIGHT as i32
-                && region.filled(line - 1, pos)
-                && region.filled(line, pos)
-            {
-                pos += 1;
-            }
-            if region.is_reflex(line, start) && region.is_reflex(line, pos) {
-                vertical.push(Chord { line: line as u16, from: start as u16, to: pos as u16 });
+
+            let mut pos = 0;
+            while pos < WIDTH {
+                // `next_set` reads the word `pos` falls in, so it is
+                // never asked about a position past the line.
+                let Some(start) = next_set(&inside, pos) else { break };
+                let to = next_clear(&inside, start);
+                pos = to;
+                // Both ends have to be corners the partition must cut.
+                // The mask is indexed by lattice point, so a horizontal
+                // chord reads along its line and a vertical one reads
+                // down the column its line names.
+                let ends_are_corners = if across {
+                    at_corner(reflex, start, line) && at_corner(reflex, to, line)
+                } else {
+                    at_corner(reflex, line, start) && at_corner(reflex, line, to)
+                };
+                if ends_are_corners {
+                    let chord =
+                        Chord { line: line as u16, from: start as u16, to: to as u16 };
+                    if across {
+                        horizontal.push(chord);
+                    } else {
+                        vertical.push(chord);
+                    }
+                }
             }
         }
     }
+}
+
+/// Whether the lattice point is one of the corners [`reflex_mask`]
+/// found.
+fn at_corner(reflex: &[u64], cx: usize, cy: usize) -> bool {
+    reflex[cy * CORNER_WORDS + cx / 64] >> (cx % 64) & 1 != 0
 }
 
 /// Which vertical chords each horizontal one crosses, as one run of
@@ -376,7 +382,6 @@ impl Cuts {
 /// horizontal chord, two lattice grids, a union-find over every cell.
 /// None of it depends on the bitmap, so all of it is found once and
 /// cleared between.
-#[derive(Default)]
 struct Work {
     horizontal: Vec<Chord>,
     vertical: Vec<Chord>,
@@ -403,11 +408,43 @@ struct Work {
     /// are corners at all.
     served: Vec<bool>,
     reflex: Vec<u64>,
+    /// The bitmap and its transpose, so a chord scan along either axis
+    /// is the same word operation.
+    rows: Runs,
+    cols: Runs,
     cuts: Cuts,
     /// The union-find the faces are read out of.
     parent: Vec<u32>,
     corner: Vec<u32>,
     areas: Vec<Area>,
+}
+
+impl Default for Work {
+    fn default() -> Self {
+        Self {
+            horizontal: Vec::new(),
+            vertical: Vec::new(),
+            crosses: Vec::new(),
+            at: Vec::new(),
+            by_line: Vec::new(),
+            lines_at: Vec::new(),
+            cursor: Vec::new(),
+            left: Vec::new(),
+            right: Vec::new(),
+            seen: Vec::new(),
+            reached_h: Vec::new(),
+            reached_v: Vec::new(),
+            stack: Vec::new(),
+            served: Vec::new(),
+            reflex: Vec::new(),
+            rows: Runs::blank(),
+            cols: Runs::blank(),
+            cuts: Cuts::default(),
+            parent: Vec::new(),
+            corner: Vec::new(),
+            areas: Vec::new(),
+        }
+    }
 }
 
 /// The minimum partition, and the room it works in.
@@ -462,7 +499,11 @@ pub fn partition(bits: &BitMatrix) -> Vec<Area> {
 /// ones it did not.
 fn partition_into(bits: &BitMatrix, work: &mut Work) {
     let region = Region { bits };
-    chords(&region, &mut work.horizontal, &mut work.vertical);
+    // The corners first: the chords are the segments between them, so
+    // finding them once serves both.
+    reflex_mask(bits, &mut work.reflex);
+    Runs::rebuild(bits, &mut work.rows, &mut work.cols);
+    chords(work);
     crossings(work);
     independent(work);
 
@@ -491,7 +532,6 @@ fn partition_into(bits: &BitMatrix, work: &mut Work) {
     // A corner off the edge of the grid has an empty quadrant there and
     // so can never have three filled, which is why the mask can be
     // walked without testing the bounds again.
-    reflex_mask(bits, reflex);
     for cy in 1..CORNERS - 1 {
         for word in 0..CORNER_WORDS {
             let mut points = reflex[cy * CORNER_WORDS + word];
