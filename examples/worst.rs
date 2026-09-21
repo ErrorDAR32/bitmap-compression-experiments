@@ -36,6 +36,27 @@ const SIDES: [usize; 8] = [5, 6, 7, 8, 9, 10, 11, 12];
 /// How many shrunk witnesses to print. They repeat quickly.
 const SHOWN: usize = 8;
 
+/// One line of a report, header and data alike.
+///
+/// Both go through here, so a column cannot be labelled at one width
+/// and filled at another. Hand-rolled format strings in two places is
+/// how every crooked table in this repository has happened.
+fn row(fields: [&str; 7]) -> String {
+    const WIDTHS: [usize; 7] = [20, 11, 10, 9, 9, 10, 10];
+    let mut out = String::from("  ");
+    for (index, (field, width)) in fields.iter().zip(WIDTHS).enumerate() {
+        if index > 0 {
+            out.push(' ');
+        }
+        if index == 0 {
+            out.push_str(&format!("{field:<width$}"));
+        } else {
+            out.push_str(&format!("{field:>width$}"));
+        }
+    }
+    out.trim_end().to_string()
+}
+
 /// One bitmap's verdict: what runmax gave, and what the minimum is.
 struct Verdict {
     ours: usize,
@@ -246,18 +267,23 @@ fn full_size(work: &mut RunmaxClipnmerge, from: u64, seeds: u64) {
         (all_ours as f64 / all_fewest as f64 - 1.0) * 100.0
     );
     println!(
-        "  {:<20} {:>10} {:>10} {:>9} {:>8} {:>9}",
-        "shape", "worst seed", "runmax", "fewest", "excess", "over"
+        "{}",
+        row(["shape", "worst seed", "runmax", "fewest", "excess", "over", ""])
     );
     rows.sort_by(|a, b| b.2.over().total_cmp(&a.2.over()));
 
     for (name, at, worst) in &rows {
         println!(
-            "  {name:<20} {at:>10} {:>10} {:>9} {:>8} {:>8.2}%",
-            worst.ours,
-            worst.fewest,
-            worst.excess(),
-            (worst.over() - 1.0) * 100.0
+            "{}",
+            row([
+                name,
+                &at.to_string(),
+                &worst.ours.to_string(),
+                &worst.fewest.to_string(),
+                &worst.excess().to_string(),
+                &format!("{:.2}%", (worst.over() - 1.0) * 100.0),
+                "",
+            ])
         );
     }
 
@@ -267,8 +293,8 @@ fn full_size(work: &mut RunmaxClipnmerge, from: u64, seeds: u64) {
     // two questions have to be asked separately.
     println!("\n  the same worst seeds, stage by stage:\n");
     println!(
-        "  {:<20} {:>9} {:>9} {:>9} {:>9} {:>10} {:>10}",
-        "shape", "meshed", "grown", "merged", "fewest", "grow cut", "merge cut"
+        "{}",
+        row(["shape", "meshed", "grown", "merged", "fewest", "grow cut", "merge cut"])
     );
     for (name, at, worst) in &rows {
         let shape = samples::SHAPES
@@ -280,10 +306,16 @@ fn full_size(work: &mut RunmaxClipnmerge, from: u64, seeds: u64) {
         let grown = work.partition_to(&bits, Some(Stop::AfterGrowing)).len();
         let merged = work.partition(&bits).len();
         println!(
-            "  {name:<20} {meshed:>9} {grown:>9} {merged:>9} {:>9} {:>10} {:>10}",
-            worst.fewest,
-            meshed - grown,
-            grown - merged,
+            "{}",
+            row([
+                name,
+                &meshed.to_string(),
+                &grown.to_string(),
+                &merged.to_string(),
+                &worst.fewest.to_string(),
+                &(meshed - grown).to_string(),
+                &(grown - merged).to_string(),
+            ])
         );
     }
 }
