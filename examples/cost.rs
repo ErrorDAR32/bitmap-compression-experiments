@@ -55,8 +55,9 @@ const EACH: u64 = 4;
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Doing {
     Building,
-    /// The runs and the chords, which both algorithms build before
-    /// they do anything of their own. Neither can cost less.
+    /// Setting the lone cells aside, building the runs and finding
+    /// the chords: everything both algorithms do before either does
+    /// anything of its own. Neither can cost less.
     Reading,
     Partitioning,
     Solving,
@@ -87,7 +88,7 @@ fn run(density: f64, cluster: f64, from: u64, doing: Doing) {
             let mut work = RunmaxClipnmerge::new();
             maps.iter().map(|bits| work.partition(bits).len()).sum()
         }
-        Doing::Reading => maps.iter().map(|bits| bitmatrix::chords::floor(bits)).sum(),
+        Doing::Reading => maps.iter().map(|bits| bitmatrix::chords::runs_and_chords(bits)).sum(),
         Doing::Solving => maps.iter().map(|bits| accurate::partition(bits).len()).sum(),
     };
     println!("{cells} {lone} {areas}");
@@ -191,18 +192,20 @@ fn main() {
         "\n  A cell with no neighbour it touches is its own rectangle in any partition,\n  \
          and both algorithms set those aside by the same method before they start, so\n  \
          instructions are priced per cell that is actually partitioned.\n\n  \
-         The floor is the runs and the chords, which both build before they do anything\n  \
-         of their own, so it is the part neither can drop.\n"
+         Runs and chords is what both algorithms do before either does anything of\n  \
+         its own: set the lone cells aside, build the runs and their transpose, find\n  \
+         every chord and settle which to draw. Neither can do less, so the last two\n  \
+         columns are what each spends on work of its own.\n"
     );
 
     let mut table = Table::new(&[
         "shape",
         "cells the\nalgorithms\nwork on",
-        "floor\ninstructions\nper worked cell",
+        "runs and chords\ninstructions\nper worked cell",
         "runmax-clipnmerge\ninstructions\nper worked cell",
         "accurate\ninstructions\nper worked cell",
-        "runmax-clipnmerge\nabove the floor\nper worked cell",
-        "accurate\nabove the floor\nper worked cell",
+        "runmax-clipnmerge\nbeyond runs and chords\nper worked cell",
+        "accurate\nbeyond runs and chords\nper worked cell",
     ]);
     let per = |count: u64, cells: u64| format!("{:.1}", count as f64 / cells.max(1) as f64);
     let (mut all_worked, mut all_ours, mut all_theirs, mut all_floor) = (0u64, 0u64, 0u64, 0u64);

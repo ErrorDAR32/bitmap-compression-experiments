@@ -94,18 +94,27 @@ impl Default for Chords {
     }
 }
 
-/// What finding the chords of a bitmap costs, for reading under
-/// callgrind: the runs both algorithms build, and the chords both of
-/// them draw. Neither can do less than this, so it is the floor any
-/// comparison between them sits on.
+/// What both algorithms do before either does anything of its own:
+/// set the lone cells aside, build the runs and their transpose, find
+/// every chord and settle which to draw.
+///
+/// Neither can do less than this, so it is the floor a comparison
+/// between them sits on, and it is measured rather than reasoned about
+/// -- [`crate::RunmaxClipnmerge`] and [`crate::accurate`] each run
+/// exactly these steps, in this order, on exactly this content.
 ///
 /// Answers the chords drawn, so that nothing here can be optimised
 /// away as unused.
 #[doc(hidden)]
-pub fn floor(bits: &BitMatrix) -> usize {
-    let (rows, cols) = Runs::of(bits);
+pub fn runs_and_chords(bits: &BitMatrix) -> usize {
+    // Peeled first, as both algorithms peel: a cell with no neighbour
+    // is its own rectangle and never reaches the runs. Measuring this
+    // on the whole bitmap instead counted work neither does and made
+    // the floor look bigger than it is.
+    let (_lone, rest) = bits.split_isolated();
+    let (rows, cols) = Runs::of(&rest);
     let mut chords = Chords::default();
-    chords.rebuild(bits, &rows, &cols);
+    chords.rebuild(&rest, &rows, &cols);
     chords.drawn().count()
 }
 
