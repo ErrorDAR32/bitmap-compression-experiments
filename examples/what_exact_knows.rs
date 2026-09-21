@@ -90,9 +90,9 @@ fn main() {
     );
     println!(
         "{}",
-        row(["shape", "corners", "chords", "most", "runmax", "short", "over by"])
+        row(["shape", "chords", "most", "mesh", "grown", "runmax", "over by"])
     );
-    println!("{}", row(["", "reflex", "there are", "possible", "draws", "by", ""]));
+    println!("{}", row(["", "there are", "possible", "draws", "draws", "draws", ""]));
 
     let mut exact = accurate::Accurate::new();
     let mut work = RunmaxClipnmerge::new();
@@ -101,7 +101,8 @@ fn main() {
     for shape in samples::SHAPES {
         let maps: Vec<BitMatrix> = shape.timed().collect();
         let n = maps.len();
-        let (mut corners, mut all, mut most, mut held, mut over) = (0, 0, 0, 0, 0usize);
+        let (mut all, mut most, mut held, mut over) = (0, 0, 0, 0usize);
+        let (mut meshed, mut grown) = (0usize, 0usize);
 
         for bits in &maps {
             let (reflex, horizontal, vertical) = exact.reasoning(bits);
@@ -109,14 +110,23 @@ fn main() {
             let areas = work.partition(bits).to_vec();
             let cuts = Cuts::of(&areas);
 
-            corners += reflex;
+            let _ = reflex;
             all += horizontal.len() + vertical.len();
             // How many the minimum drew, and how many of all the chords
             // there are runmax's partition happens to have.
             most += horizontal.iter().filter(|c| c.3).count()
                 + vertical.iter().filter(|c| c.3).count();
-            held += horizontal.iter().filter(|&&c| cuts.holds(c, true)).count()
-                + vertical.iter().filter(|&&c| cuts.holds(c, false)).count();
+            let drawn = |cuts: &Cuts| {
+                horizontal.iter().filter(|&&c| cuts.holds(c, true)).count()
+                    + vertical.iter().filter(|&&c| cuts.holds(c, false)).count()
+            };
+            held += drawn(&cuts);
+            // Where the chords are lost: does the mesh never draw them,
+            // or does the rewriting pass cut across them afterwards?
+            meshed += drawn(&Cuts::of(&work.mesh(bits).to_vec()));
+            grown += drawn(&Cuts::of(
+                &work.partition_to(bits, Some(bitmatrix::Stop::AfterGrowing)).to_vec(),
+            ));
             over += areas.len() - fewest;
         }
 
@@ -128,11 +138,11 @@ fn main() {
             "{}",
             row([
                 shape.name,
-                &(corners / n).to_string(),
                 &(all / n).to_string(),
                 &(most / n).to_string(),
+                &(meshed / n).to_string(),
+                &(grown / n).to_string(),
                 &(held / n).to_string(),
-                &(short / n).to_string(),
                 &(over / n).to_string(),
             ])
         );
