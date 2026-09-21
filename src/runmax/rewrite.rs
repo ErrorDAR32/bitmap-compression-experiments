@@ -43,10 +43,8 @@
 //! its own.
 
 use crate::data::{bounds, AreaMap, List};
-use crate::runmax::grow::{Strips, PIECES};
-use crate::runmax::edges::{Axis, Edges};
-use crate::runmax::grow::{grow, grow_one, Growing};
-use crate::runmax::merge::{merge, merge_one, Work};
+use crate::runmax::grow::{grow, Growing};
+use crate::runmax::merge::{merge, Work};
 use crate::{Area, BitMatrix};
 
 /// The areas a rewriting move works on.
@@ -97,188 +95,6 @@ pub(crate) fn merge_only(areas: &mut Areas, buffers: &mut Buffers) -> usize {
     merge(areas, &mut buffers.work)
 }
 
-/// Whether the two moves run as one pass or as one pass each.
-const FUSED: bool = true;
-
-/// Growing and merging as two moves in one pass, rather than one pass
-/// each.
-///
-/// The two are offered to every area in turn, merging first because it
-/// is free -- it takes an area away and adds nothing -- where growing
-/// cuts whoever it only partly covers. An area opened up by its
-/// neighbour merging away is grown in the same sweep rather than in the
-/// next pass, and the reverse likewise.
-///
-/// What each move needs is what makes this awkward. Growing reads an
-/// owner grid, which it keeps current itself as it cuts and swallows.
-/// Merging reads an edge index, which is rebuilt once a sweep and is
-/// stale the moment anything moves. So every area either move disturbs
-/// is marked, and no marked area is offered a merge until the next
-/// sweep rebuilds the index under it. Growing has no such problem and
-/// is offered regardless.
-///
-/// Merging also has to repaint what it took, or growing would walk an
-/// owner grid still naming an area that has been given away.
-pub(crate) fn fused(standing: &BitMatrix, areas: &mut Areas, buffers: &mut Buffers) -> usize {
-    let Buffers { owners, gone, growing, work } = buffers;
-    let started = areas.len();
-    owners.paint(standing, areas);
-
-    // The same skip both moves want, kept once for both. An area is
-    // worth offering a move only if something has changed in the rows
-    // or columns it spans since it was last weighed up -- for growing
-    // because its reach runs down those strips, for merging because an
-    // area becomes givable when its own shape changes or a
-    // neighbour's, and a neighbour shares a strip with it.
-    //
-    // Dropping this was what made the first fused version cost 63%
-    // more than two passes: sweeping everything every sweep doubled
-    // `reach` and quadrupled the edge lookups, which is the whole of
-    // what the two separate drivers were avoiding.
-    let mut earlier = Strips::ALL;
-    let mut sweep = Strips::NONE;
-
-    // Merging wants a different filter from growing, which is the one
-    // thing the two drivers never shared. Growing's reach runs down an
-    // area's rows and columns, so a strip mask fits it exactly. Merging
-    // depends on immediate neighbours -- an area becomes givable when
-    // its own shape changes or one it touches does -- and a strip is
-    // far too coarse for that: on a 256-wide row nearly everything
-    // shares a strip with nearly everything.
-    //
-    // So the cascade is kept as well, as a flag per area, and merging
-    // is offered only to areas something has actually happened next to.
-    let mut live: List<bool, { bounds::AREAS }> = List::new();
-    let mut next_live: List<bool, { bounds::AREAS }> = List::new();
-    live.resize(areas.len(), true);
-
-    loop {
-        // A sweep cannot outgrow what a cell can name, and growing
-        // leaves up to three pieces behind each time it cuts.
-        if areas.len() + PIECES > AreaMap::FULL {
-            break;
-        }
-
-        work.edges.rebuild(areas);
-        gone.clear();
-        gone.resize(areas.len(), false);
-        work.touched.clear();
-        work.touched.resize(areas.len(), false);
-        growing.reset(areas.len());
-
-        let mut moved = false;
-        let upto = areas.len();
-        for a in 0..upto {
-            if gone[a] || !sweep.reaches(&earlier, &areas[a]) {
-                continue;
-            }
-
-            // Merging first: free, and only against an index that still
-            // describes what it is looking at.
-            // Only an area that was actually offered the move loses its
-            // flag. One the index could not describe was never asked,
-            // so it stays awake for the sweep that can ask it.
-            let offer_merge = live[a] && !work.touched[a];
-            if offer_merge {
-                live[a] = false;
-            }
-            if offer_merge
-                && merge_one(areas, &work.edges, a, &mut work.touched, &mut work.scratch)
-            {
-                gone[a] = true;
-                moved = true;
-                // The takers hold cells the giver held, and growing
-                // reads that from the owner grid.
-                sweep.mark(&areas[a]);
-                for index in 0..work.scratch.takers.len() {
-                    let taker = work.scratch.takers[index];
-                    owners.give(&areas[taker], taker);
-                    sweep.mark(&areas[taker]);
-                    wake(areas, &work.edges, taker, &mut live);
-                }
-                continue;
-            }
-
-            if areas.len() + PIECES > AreaMap::FULL {
-                break;
-            }
-            if let Some((band, _, standing)) = grow_one(areas, owners, gone, a, growing) {
-                moved = true;
-                sweep.mark(&band);
-                for piece in &areas[standing..] {
-                    sweep.mark(piece);
-                }
-                wake(areas, &work.edges, a, &mut live);
-                // The index still describes the grower's old shape, and
-                // everyone it swallowed or cut as though they were
-                // still there. Those are exactly what the growth met,
-                // which it leaves behind rather than making the driver
-                // go looking.
-                work.touched[a] = true;
-                // A growth can meet a piece another growth appended
-                // this same sweep. The index never knew those, so they
-                // need no marking -- and there is no slot to mark.
-                let known = work.touched.len();
-                for &other in growing.taken.iter() {
-                    if other < known {
-                        work.touched[other] = true;
-                    }
-                }
-                for &(other, _) in growing.cut.iter() {
-                    if other < known {
-                        work.touched[other] = true;
-                    }
-                }
-            }
-        }
-
-        // Growing marks what it swallowed and merging what it gave
-        // away; both leave dead slots behind.
-        // The flags are by slot and the retain below renumbers, so they
-        // are carried across by walking the survivors in order.
-        next_live.clear();
-        for index in 0..areas.len() {
-            if index >= gone.len() || !gone[index] {
-                // Anything appended this sweep is new and worth a look.
-                next_live.push(index >= live.len() || live[index]);
-            }
-        }
-        areas.retain(|index, _| index >= gone.len() || !gone[index]);
-        live.clear();
-        live.extend_from_slice(&next_live);
-        earlier = sweep;
-        sweep = Strips::NONE;
-        if !moved {
-            break;
-        }
-        owners.paint(standing, areas);
-    }
-
-    started - areas.len()
-}
-
-/// Marks an area and everything touching it as worth offering a merge.
-///
-/// The index is the sweep's snapshot, so it names only slots the sweep
-/// began with; anything appended since is new and already awake.
-fn wake(areas: &Areas, edges: &Edges, of: usize, live: &mut List<bool, { bounds::AREAS }>) {
-    if of < live.len() {
-        live[of] = true;
-    }
-    for axis in [Axis::Vertical, Axis::Horizontal] {
-        let (lo, hi) = axis.span(&areas[of]);
-        for (side, line) in axis.faces(&areas[of]).into_iter().enumerate() {
-            let Some(line) = line else { continue };
-            for face in edges.overlapping(axis, side, line, lo, hi) {
-                let near = face.area as usize;
-                if near < live.len() {
-                    live[near] = true;
-                }
-            }
-        }
-    }
-}
-
 /// Rewrites the partition in place and answers how many areas that
 /// reclaimed, stopping where `stop` says.
 pub(crate) fn rewrite(
@@ -287,9 +103,6 @@ pub(crate) fn rewrite(
     buffers: &mut Buffers,
     stop: Stop,
 ) -> usize {
-    if FUSED && stop == Stop::AfterMerging {
-        return fused(standing, areas, buffers);
-    }
     let started = areas.len();
     grow(standing, areas, buffers);
     if stop == Stop::AfterMerging {
