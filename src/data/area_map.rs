@@ -33,11 +33,15 @@
 //! its changes went with it. If another one wants a fallback, this is
 //! where it belongs.
 
-use crate::{BitMatrix, Area};
+use crate::data::bounds;
+use crate::{Area, BitMatrix};
 
 /// Which area owns each cell.
 pub(crate) struct AreaMap {
-    of: Vec<u16>,
+    /// One id per cell, found once. A fixed array rather than a `Vec`
+    /// because the matrix settles its size: there are 65536 cells and
+    /// there will never be any other number of them.
+    of: Box<[u16; bounds::CELLS]>,
     /// The cells an area can be painted on. Read before `of`, so that
     /// `of` needs no value meaning "nobody".
     standing: BitMatrix,
@@ -48,11 +52,11 @@ impl AreaMap {
 
     /// One past the largest area a cell can name. A list longer than
     /// this has to be compacted before it is painted.
-    pub(crate) const FULL: usize = 1 << 16;
+    pub(crate) const FULL: usize = bounds::AREAS;
 
     /// A grid with nothing standing anywhere.
     pub(crate) fn new() -> Self {
-        Self { of: vec![0; Self::SIDE * Self::SIDE], standing: BitMatrix::new() }
+        Self { of: Box::new([0; bounds::CELLS]), standing: BitMatrix::new() }
     }
 
     /// Paints a set of areas over the cells they cover.

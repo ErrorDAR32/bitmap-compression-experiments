@@ -11,6 +11,7 @@
 //! cleared by the slots it filled rather than by walking all thousand.
 
 use crate::data::bits::{range_mask, LINE_WORDS};
+use crate::data::{bounds, List};
 use crate::Area;
 
 /// Which way a rectangle is cut when it merges. Cutting across its
@@ -81,10 +82,20 @@ pub(crate) struct Face {
 /// start, which is what lets an overlapping stretch be found by two
 /// binary searches. Rebuilt whenever the partition changes under it.
 pub(crate) struct Edges {
-    /// Indexed as `[axis][side][line]`: for a vertical cut the sides are
-    /// the rectangles whose bottom edge, then whose top edge, lies on
-    /// `line`; for a horizontal cut, their right then their left edge.
-    buckets: Vec<Vec<Face>>,
+    /// Every face, grouped by edge line: the faces of line `slot` are
+    /// `faces[at[slot]..at[slot + 1]]`, ordered by where they start.
+    ///
+    /// One array rather than a vector per line. There are 1024 lines,
+    /// and a vector apiece meant 1024 heap blocks to find, fill, clear
+    /// and hold -- for a partition that typically touches a few dozen
+    /// of them. Grouping them into one run of memory needs no more work
+    /// than the buckets did, because the rebuild was already a counting
+    /// pass: the counts that used to say which bucket to push into now
+    /// say where each line's group begins.
+    faces: Box<[Face; bounds::FACES]>,
+    /// Where each line's group starts, with a final entry for the end
+    /// of the last, so a group is always `at[slot]..at[slot + 1]`.
+    at: Box<[u32; bounds::EDGE_LINES + 1]>,
     /// Which positions on each edge line any face covers, four words to
     /// a line.
     ///
@@ -92,15 +103,17 @@ pub(crate) struct Edges {
     /// bitmap of scattered single cells every query is. Testing the
     /// stretch against this settles those in a few instructions instead
     /// of a search, and searching for nothing was a fifth of the work.
-    covered: Vec<u64>,
-    /// The slots last filled, so a rebuild clears those rather than
+    covered: Box<[u64; bounds::EDGE_LINES * LINE_WORDS]>,
+    /// The lines last filled, so a rebuild clears those rather than
     /// walking all thousand-odd of them. A partition of a few dozen
-    /// rectangles touches a few dozen slots.
-    filled: Vec<usize>,
-    /// Rectangles in order of where their faces start, and the counters
-    /// that put them there. See [`Edges::rebuild`].
-    order: Vec<u32>,
-    counts: Vec<u32>,
+    /// areas touches a few dozen lines.
+    filled: List<u32, { bounds::EDGE_LINES }>,
+    /// How many faces each line holds, which the rebuild turns into
+    /// `at` and then spends as a cursor per line.
+    counts: Box<[u32; bounds::EDGE_LINES + 1]>,
+    /// The areas in order of where their faces start, which is how a
+    /// line's group comes out sorted without sorting it.
+    order: List<u32, { bounds::AREAS }>,
 }
 
 impl Edges {
@@ -110,88 +123,125 @@ impl Edges {
     /// A blank index, with room for every line of both axes and both
     /// sides. Built once per workspace and rebuilt in place.
     pub(crate) fn new() -> Self {
+        let faces = vec![Face { start: 0, end: 0, area: 0 }; bounds::FACES].into_boxed_slice();
         Self {
-            buckets: vec![Vec::new(); 4 * Self::LINES],
-            covered: vec![0; 4 * Self::LINES * LINE_WORDS],
-            filled: Vec::new(),
-            order: Vec::new(),
-            counts: Vec::new(),
+            faces: faces.try_into().unwrap_or_else(|_| unreachable!("built with FACES slots")),
+            at: Box::new([0; bounds::EDGE_LINES + 1]),
+            covered: Box::new([0; bounds::EDGE_LINES * LINE_WORDS]),
+            filled: List::new(),
+            counts: Box::new([0; bounds::EDGE_LINES + 1]),
+            order: List::new(),
         }
     }
 
-    /// Where one edge line's bucket sits: the four `[axis][side]`
-    /// halves laid end to end, 256 lines apiece.
+    /// Where one edge line's group sits: the four `[axis][side]` halves
+    /// laid end to end, 256 lines apiece.
     pub(crate) fn slot(axis: usize, side: usize, line: u8) -> usize {
         (axis * 2 + side) * Self::LINES + line as usize
     }
 
     /// Rebuilds the index.
     ///
-    /// Each bucket has to come out ordered by where its faces start, so
-    /// that the ones overlapping a stretch are a contiguous slice. Rather
-    /// than sort each bucket, the rectangles are walked in order of the
-    /// coordinate in question and pushed as they come, which leaves every
-    /// bucket sorted for free. Positions only run to 255, so that order
-    /// is a counting pass rather than a sort.
+    /// Each line's group has to come out ordered by where its faces
+    /// start, so that the ones overlapping a stretch are a contiguous
+    /// slice. Rather than sort each group, every face is counted first,
+    /// the counts are summed into starting offsets, and the areas are
+    /// then walked in order of the coordinate in question and dropped
+    /// at the next free slot of their line -- which leaves every group
+    /// sorted for nothing. Positions only run to 255, so putting the
+    /// areas in that order is itself a counting pass rather than a sort.
     pub(crate) fn rebuild(&mut self, areas: &[Area]) {
-        for &slot in &self.filled {
-            self.buckets[slot].clear();
+        for &line in self.filled.iter() {
+            let slot = line as usize;
             self.covered[slot * LINE_WORDS..(slot + 1) * LINE_WORDS].fill(0);
         }
         self.filled.clear();
 
-        // Faces across a horizontal edge line are keyed by x, faces down
-        // a vertical one by y.
-        for across in [true, false] {
-            self.sort_by_start(areas, across);
-            for index in 0..self.order.len() {
-                let area = areas[self.order[index] as usize];
-                let face = if across {
-                    Face { start: area.x0, end: area.x1, area: self.order[index] }
-                } else {
-                    Face { start: area.y0, end: area.y1, area: self.order[index] }
-                };
-                let slots = if across {
-                    [Self::slot(0, 0, area.y1), Self::slot(0, 1, area.y0)]
-                } else {
-                    [Self::slot(1, 0, area.x1), Self::slot(1, 1, area.x0)]
-                };
-                for slot in slots {
-                    if self.buckets[slot].is_empty() {
-                        self.filled.push(slot);
-                    }
-                    self.buckets[slot].push(face);
-
-                    let first = face.start as usize / 64;
-                    let last = face.end as usize / 64;
-                    let words = &mut self.covered[slot * LINE_WORDS + first..slot * LINE_WORDS + last + 1];
-                    for (offset, word) in words.iter_mut().enumerate() {
-                        *word |= range_mask(first + offset, face.start, face.end);
-                    }
-                }
+        // Which line each face belongs to, and how many each line gets.
+        self.counts.fill(0);
+        for area in areas {
+            for slot in Self::slots_of(area) {
+                self.counts[slot + 1] += 1;
             }
+        }
+        let mut running = 0;
+        for slot in 0..=bounds::EDGE_LINES {
+            running += self.counts[slot];
+            self.at[slot] = running;
+        }
+        // `counts` now becomes the per-line cursor, starting where each
+        // line's group does.
+        for slot in 0..bounds::EDGE_LINES {
+            if self.at[slot + 1] > self.at[slot] {
+                self.filled.push(slot as u32);
+            }
+            self.counts[slot] = self.at[slot];
+        }
+
+        // Faces across a horizontal edge line are keyed by x, faces down
+        // a vertical one by y. Walking the areas in that order is what
+        // leaves each group sorted by where its faces start.
+        for across in [true, false] {
+            self.place(areas, across);
         }
     }
 
-    /// Fills `order` with the rectangles by where their faces start.
-    fn sort_by_start(&mut self, areas: &[Area], across: bool) {
-        let key = |r: &Area| if across { r.x0 } else { r.y0 } as usize;
+    /// The two edge lines an area presents a face on, for each axis.
+    fn slots_of(area: &Area) -> [usize; 4] {
+        [
+            Self::slot(0, 0, area.y1),
+            Self::slot(0, 1, area.y0),
+            Self::slot(1, 0, area.x1),
+            Self::slot(1, 1, area.x0),
+        ]
+    }
 
-        self.counts.clear();
-        self.counts.resize(Self::LINES + 1, 0);
+    /// Drops one axis's faces into their lines, in order of where they
+    /// start, and marks the positions they cover.
+    fn place(&mut self, areas: &[Area], across: bool) {
+        let key = |a: &Area| if across { a.x0 } else { a.y0 } as usize;
+
+        // Counting sort on the starting coordinate, 256 buckets.
+        let mut starts = [0u32; 257];
         for area in areas {
-            self.counts[key(area) + 1] += 1;
+            starts[key(area) + 1] += 1;
         }
-        for i in 1..self.counts.len() {
-            self.counts[i] += self.counts[i - 1];
+        for pos in 1..starts.len() {
+            starts[pos] += starts[pos - 1];
         }
 
-        self.order.clear();
         self.order.resize(areas.len(), 0);
         for (index, area) in areas.iter().enumerate() {
-            let slot = &mut self.counts[key(area)];
-            self.order[*slot as usize] = index as u32;
-            *slot += 1;
+            let cursor = &mut starts[key(area)];
+            self.order[*cursor as usize] = index as u32;
+            *cursor += 1;
+        }
+
+        for at in 0..self.order.len() {
+            let index = self.order[at];
+            let area = areas[index as usize];
+            let face = if across {
+                Face { start: area.x0, end: area.x1, area: index }
+            } else {
+                Face { start: area.y0, end: area.y1, area: index }
+            };
+            let slots = if across {
+                [Self::slot(0, 0, area.y1), Self::slot(0, 1, area.y0)]
+            } else {
+                [Self::slot(1, 0, area.x1), Self::slot(1, 1, area.x0)]
+            };
+            for slot in slots {
+                let at = self.counts[slot] as usize;
+                self.faces[at] = face;
+                self.counts[slot] += 1;
+
+                let first = face.start as usize / 64;
+                let last = face.end as usize / 64;
+                for offset in first..=last {
+                    self.covered[slot * LINE_WORDS + offset] |=
+                        range_mask(offset, face.start, face.end);
+                }
+            }
         }
     }
 
@@ -205,15 +255,16 @@ impl Edges {
             return &[];
         }
 
-        let bucket = self.at(axis, side, line);
-        let first = bucket.partition_point(|f| f.end < lo);
-        let last = bucket.partition_point(|f| f.start <= hi);
-        &bucket[first..last.max(first)]
+        let group = self.at(axis, side, line);
+        let first = group.partition_point(|f| f.end < lo);
+        let last = group.partition_point(|f| f.start <= hi);
+        &group[first..last.max(first)]
     }
 
     /// Every face on one edge line, in order of where it starts.
     pub(crate) fn at(&self, axis: Axis, side: usize, line: u8) -> &[Face] {
-        &self.buckets[Self::slot(Self::axis_index(axis), side, line)]
+        let slot = Self::slot(Self::axis_index(axis), side, line);
+        &self.faces[self.at[slot] as usize..self.at[slot + 1] as usize]
     }
 
     /// The axis as the number [`Edges::slot`] wants.

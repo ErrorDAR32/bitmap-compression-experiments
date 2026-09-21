@@ -18,19 +18,24 @@
 //! | [`BitmapAreas`] | the answer: the areas, and the 1x1s kept apart |
 //! | [`AreaMap`] | which area owns each cell |
 //! | [`Runs`] | which cells are still standing, both orientations |
+//! | [`List`] | a working list with its room found once |
 //! | `bits` | the word operations all of them are read with |
+//! | `bounds` | how large every list can get, and the argument for it |
 
 pub(crate) mod bits;
+pub(crate) mod bounds;
 
+mod area;
 mod area_map;
 mod areas;
+mod list;
 mod matrix;
-mod area;
 mod runs;
 
+pub use area::Area;
+pub use matrix::BitMatrix;
 pub(crate) use area_map::AreaMap;
 pub(crate) use areas::BitmapAreas;
-pub use matrix::BitMatrix;
-pub use area::Area;
-pub(crate) use runs::{Runs, Run};
+pub(crate) use list::List;
+pub(crate) use runs::{Run, Runs};
 
