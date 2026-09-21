@@ -24,10 +24,10 @@ mod pass;
 pub use mesh::mesh_by_scanning;
 pub use pass::Far;
 
-use crate::data::{Areas, Runs, Run};
+use crate::data::{BitmapAreas, Runs, Run};
 use crate::runmax::mesh::{take_all_area, AreaRunSeed, Level, Queue};
 use crate::runmax::pass::Pass;
-use crate::{BitMatrix, Rect};
+use crate::{BitMatrix, Area};
 
 /// The whole algorithm, and every buffer it works in.
 ///
@@ -41,7 +41,7 @@ use crate::{BitMatrix, Rect};
 /// ```ignore
 /// let mut work = RunmaxClipnmerge::new();
 /// for bits in &bitmaps {
-///     let rects = work.partition(bits);
+///     let areas = work.partition(bits);
 /// }
 /// ```
 pub struct RunmaxClipnmerge {
@@ -49,14 +49,14 @@ pub struct RunmaxClipnmerge {
     /// alone are forced to be 1x1, so they are set aside rather than
     /// queued, seeded, carved and then checked against every neighbour
     /// they do not have.
-    alone: BitMatrix,
+    single_cells: BitMatrix,
     rest: BitMatrix,
     rows: Runs,
     cols: Runs,
     queue: Queue,
     level: Level,
-    areas: Areas,
-    plan: Vec<Rect>,
+    areas: BitmapAreas,
+    plan: Vec<Area>,
     cut_rows: Vec<(u8, Run)>,
     cut_cols: Vec<(u8, Run)>,
     pass: Pass,
@@ -74,7 +74,7 @@ impl crate::Partition for RunmaxClipnmerge {
         "runmax"
     }
 
-    fn partition(&mut self, bits: &BitMatrix) -> &[Rect] {
+    fn partition(&mut self, bits: &BitMatrix) -> &[Area] {
         RunmaxClipnmerge::partition(self, bits)
     }
 }
@@ -84,13 +84,13 @@ impl RunmaxClipnmerge {
     /// then never allocated again however many bitmaps go through it.
     pub fn new() -> Self {
         Self {
-            alone: BitMatrix::new(),
+            single_cells: BitMatrix::new(),
             rest: BitMatrix::new(),
             rows: Runs::blank(),
             cols: Runs::blank(),
             queue: Queue::new(),
             level: Level::new(),
-            areas: Areas::new(),
+            areas: BitmapAreas::new(),
             plan: Vec::new(),
             cut_rows: Vec::new(),
             cut_cols: Vec::new(),
@@ -102,14 +102,14 @@ impl RunmaxClipnmerge {
     ///
     /// They are disjoint and cover every set bit exactly once. The slice
     /// belongs to the workspace and lasts until the next bitmap.
-    pub fn partition(&mut self, source: &BitMatrix) -> &[Rect] {
+    pub fn partition(&mut self, source: &BitMatrix) -> &[Area] {
         self.partition_to(source, Some(crate::Far::Merging))
     }
 
     /// The mesh alone, with no rewriting at all. A valid partition, and
     /// a worse one: the mesh leaves thin rectangles on purpose.
     #[doc(hidden)]
-    pub fn mesh(&mut self, source: &BitMatrix) -> &[Rect] {
+    pub fn mesh(&mut self, source: &BitMatrix) -> &[Area] {
         self.partition_to(source, None)
     }
 
@@ -117,7 +117,7 @@ impl RunmaxClipnmerge {
     /// its moves, or not seed run at all. For weighing each move against what
     /// it costs.
     #[doc(hidden)]
-    pub fn partition_to(&mut self, source: &BitMatrix, far: Option<crate::Far>) -> &[Rect] {
+    pub fn partition_to(&mut self, source: &BitMatrix, far: Option<crate::Far>) -> &[Area] {
         self.mesh_into(source);
         if let Some(far) = far {
             // Only the working areas: the cells standing alone are in a
@@ -147,7 +147,7 @@ impl RunmaxClipnmerge {
     /// the ties in a queue rather than finding them by scanning every
     /// seed run each step.
     fn mesh_into(&mut self, source: &BitMatrix) {
-        source.split_isolated_into(&mut self.alone, &mut self.rest);
+        source.split_single_cells_into(&mut self.single_cells, &mut self.rest);
 
         let Self { rows, cols, queue, level, areas, plan, cut_rows, cut_cols, .. } = self;
         Runs::rebuild(&self.rest, rows, cols);
@@ -174,13 +174,13 @@ impl RunmaxClipnmerge {
             plan.clear();
             take_all_area(crossing, seed_run.span(), seed_run.line, seed_run.is_column, plan);
 
-            for rect in plan.drain(..) {
+            for area in plan.drain(..) {
                 cut_rows.clear();
                 cut_cols.clear();
-                rows.carve((rect.y0, rect.y1), rect.x0, rect.x1, cut_rows);
-                cols.carve((rect.x0, rect.x1), rect.y0, rect.y1, cut_cols);
+                rows.carve((area.y0, area.y1), area.x0, area.x1, cut_rows);
+                cols.carve((area.x0, area.x1), area.y0, area.y1, cut_cols);
 
-                areas.push(rect);
+                areas.push(area);
 
                 // Whatever a carve leaves behind is a seed run in its own
                 // right, and shorter than the one it came from, so it
@@ -194,7 +194,7 @@ impl RunmaxClipnmerge {
             }
         }
 
-        self.alone.for_each_set(|x, y| self.areas.push_alone(x, y));
+        self.single_cells.for_each_set(|x, y| self.areas.push_single_cell(x, y));
     }
 }
 
@@ -218,9 +218,9 @@ mod tests {
     /// Overlap then falls out of arithmetic rather than comparing every
     /// pair: if the areas sum to more than the cells painted, two
     /// rectangles covered the same cell.
-    fn assert_exact_partition(bits: &BitMatrix, rects: &[Rect]) {
+    fn assert_exact_partition(bits: &BitMatrix, areas: &[Area]) {
         let mut painted = BitMatrix::new();
-        for r in rects {
+        for r in areas {
             painted.set_rect(r.x0 as i64, r.y0 as i64, r.x1 as i64, r.y1 as i64);
         }
 
@@ -230,7 +230,7 @@ mod tests {
             }
         }
 
-        let total: u32 = rects.iter().map(|r| r.area()).sum();
+        let total: u32 = areas.iter().map(|r| r.cells()).sum();
         assert_eq!(total, painted.count_set(), "rectangles overlap");
     }
 
@@ -282,7 +282,7 @@ mod tests {
         // bitmap it looked at last, which is the whole risk of keeping
         // it: nothing may survive from one bitmap into the next.
         let mut reused = RunmaxClipnmerge::new();
-        let wanted: Vec<Vec<Rect>> =
+        let wanted: Vec<Vec<Area>> =
             cases.iter().map(|bits| work.partition(bits).to_vec()).collect();
         for (bits, want) in cases.iter().zip(&wanted).rev() {
             assert_eq!(reused.partition(bits), want.as_slice(), "the workspace kept something");
@@ -300,7 +300,7 @@ mod tests {
 
         let full = samples::one_grown(0, 1.0, 0.0);
         assert_eq!(full.count_set(), 65536);
-        assert_eq!(work.partition(&full), &[Rect { x0: 0, y0: 0, x1: 255, y1: 255 }]);
+        assert_eq!(work.partition(&full), &[Area { x0: 0, y0: 0, x1: 255, y1: 255 }]);
     }
 
     /// Scattered cells are the worst case, and the cheapest: no two
@@ -310,14 +310,14 @@ mod tests {
     fn scattered_cells_are_all_forced_alone() {
         let mut work = RunmaxClipnmerge::new();
         let bits = samples::one_grown(0, 0.05, 0.0);
-        let rects = work.partition(&bits).to_vec();
-        assert_exact_partition(&bits, &rects);
+        let areas = work.partition(&bits).to_vec();
+        assert_exact_partition(&bits, &areas);
 
-        let alone = rects.iter().filter(|r| r.area() == 1).count();
+        let single_cells = areas.iter().filter(|r| r.cells() == 1).count();
         assert!(
-            alone * 5 > rects.len() * 4,
-            "cluster 0 should leave nearly all of them alone, got {alone} of {}",
-            rects.len()
+            single_cells * 5 > areas.len() * 4,
+            "cluster 0 should leave nearly all of them alone, got {single_cells} of {}",
+            areas.len()
         );
     }
 
@@ -344,6 +344,6 @@ mod tests {
         fn assert_send<T: Send>() {}
         assert_send::<RunmaxClipnmerge>();
         assert_send::<BitMatrix>();
-        assert_send::<Rect>();
+        assert_send::<Area>();
     }
 }

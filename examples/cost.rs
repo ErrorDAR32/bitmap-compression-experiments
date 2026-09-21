@@ -81,7 +81,7 @@ impl Doing {
 fn run(density: f64, cluster: f64, from: u64, doing: Doing) {
     let maps: Vec<_> = samples::grown(from, density, cluster, EACH).collect();
     let cells: u32 = maps.iter().map(|b| b.count_set()).sum();
-    let rects: usize = match doing {
+    let areas: usize = match doing {
         Doing::Building => 0,
         Doing::Partitioning => {
             let mut work = RunmaxClipnmerge::new();
@@ -89,7 +89,7 @@ fn run(density: f64, cluster: f64, from: u64, doing: Doing) {
         }
         Doing::Solving => maps.iter().map(|bits| accurate::partition(bits).len()).sum(),
     };
-    println!("{cells} {rects}");
+    println!("{cells} {areas}");
 }
 
 /// Runs one pass under callgrind and answers its instructions, set
@@ -111,8 +111,8 @@ fn count(density: f64, cluster: f64, from: u64, doing: Doing) -> Option<(u64, u6
     let stdout = String::from_utf8_lossy(&out.stdout);
     let mut fields = stdout.split_whitespace();
     let cells = fields.next()?.parse().ok()?;
-    let rects = fields.next()?.parse().ok()?;
-    Some((took, cells, rects))
+    let areas = fields.next()?.parse().ok()?;
+    Some((took, cells, areas))
 }
 
 fn main() {

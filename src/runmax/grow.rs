@@ -21,7 +21,7 @@
 use crate::runmax::pass::Pass;
 use crate::data::bits::{range_mask, LINE_WORDS};
 use crate::data::AreaMap;
-use crate::{BitMatrix, Rect};
+use crate::{BitMatrix, Area};
 
 /// Which way a rectangle grows.
 #[derive(Clone, Copy)]
@@ -33,7 +33,7 @@ enum Side {
 }
 
 /// The band a rectangle covers once it has grown out to a line.
-fn band_to(grown: Rect, side: Side, edge: u8) -> Rect {
+fn band_to(grown: Area, side: Side, edge: u8) -> Area {
     let mut band = grown;
     match side {
         Side::Down => band.y1 = edge,
@@ -46,7 +46,7 @@ fn band_to(grown: Rect, side: Side, edge: u8) -> Rect {
 
 /// Where a rectangle's own far edge lies, looking the way the growth
 /// goes: the last line of it the band has to cover to swallow it whole.
-fn far_edge(r: &Rect, side: Side) -> u8 {
+fn far_edge(r: &Area, side: Side) -> u8 {
     match side {
         Side::Down => r.y1,
         Side::Up => r.y0,
@@ -72,7 +72,7 @@ fn far_edge(r: &Rect, side: Side) -> u8 {
 /// growth is only taken on a line whose total is positive, which one
 /// corner cut needs two whole neighbours swallowed to pay for. The
 /// arithmetic allows it; the content does not seem to offer it.
-fn pieces_left(other: &Rect, band: &Rect, side: Side) -> u8 {
+fn pieces_left(other: &Area, band: &Area, side: Side) -> u8 {
     let (olo, ohi, blo, bhi) = match side {
         Side::Up | Side::Down => (other.x0, other.x1, band.x0, band.x1),
         Side::Left | Side::Right => (other.y0, other.y1, band.y0, band.y1),
@@ -89,7 +89,7 @@ fn pieces_left(other: &Rect, band: &Rect, side: Side) -> u8 {
 /// A settled growth: the band the rectangle takes, and what that does
 /// to everyone it runs into.
 struct Band<'a> {
-    band: Rect,
+    band: Area,
     /// Neighbours swallowed whole, each one a rectangle reclaimed.
     taken: &'a [usize],
     /// Neighbours cut, and the pieces each one is left in.
@@ -99,9 +99,9 @@ struct Band<'a> {
 /// Sorts the neighbours a growth meets into the ones it swallows whole
 /// and the ones it cuts, once the band is settled.
 fn split_met(
-    rects: &[Rect],
+    areas: &[Area],
     met: &[usize],
-    band: &Rect,
+    band: &Area,
     side: Side,
     taken: &mut Vec<usize>,
     cut: &mut Vec<(usize, u8)>,
@@ -109,7 +109,7 @@ fn split_met(
     taken.clear();
     cut.clear();
     for &other in met {
-        let pieces = pieces_left(&rects[other], band, side);
+        let pieces = pieces_left(&areas[other], band, side);
         if pieces == 0 {
             taken.push(other);
         } else {
@@ -151,12 +151,12 @@ impl Growing {
     /// Stands the scratch up for a fresh partition. The stamps are
     /// blanked rather than carried over, since the slots they name
     /// belong to the partition before.
-    fn reset(&mut self, rects: usize) {
+    fn reset(&mut self, areas: usize) {
         self.met.clear();
         self.taken.clear();
         self.cut.clear();
         self.seen.clear();
-        self.seen.resize(rects, 0);
+        self.seen.resize(areas, 0);
         self.visit = 0;
         self.settles = [0; 256];
     }
@@ -188,13 +188,13 @@ impl Growing {
 /// so the whole score moves by one there. That leaves nothing to
 /// recount per line: a band is walked, not re-scored.
 fn reach(
-    rects: &[Rect],
+    areas: &[Area],
     owners: &AreaMap,
     a: usize,
     side: Side,
     scratch: &mut Growing,
 ) -> Option<(u8, i32)> {
-    let grown = rects[a];
+    let grown = areas[a];
     let (from, to) = match side {
         Side::Up | Side::Down => (grown.x0, grown.x1),
         Side::Left | Side::Right => (grown.y0, grown.y1),
@@ -231,7 +231,7 @@ fn reach(
                 standing = false;
                 break;
             };
-            let other = &rects[owner];
+            let other = &areas[owner];
             if seen[owner] != visit {
                 seen[owner] = visit;
                 met.push(owner);
@@ -266,7 +266,7 @@ fn reach(
     }
 
     for &other in met.iter() {
-        settles[far_edge(&rects[other], side) as usize] = 0;
+        settles[far_edge(&areas[other], side) as usize] = 0;
     }
 
     let (edge, gain, reached) = best?;
@@ -281,7 +281,7 @@ fn reach(
 /// own slot and the rest appended, which is why the list grows even as
 /// the count falls.
 fn take_band(
-    rects: &mut Vec<Rect>,
+    areas: &mut Vec<Area>,
     owners: &mut AreaMap,
     gone: &mut Vec<bool>,
     a: usize,
@@ -294,16 +294,16 @@ fn take_band(
     }
 
     for &(other, _) in reach.cut {
-        let whole = rects[other];
-        let mut leftovers = [Rect { x0: 0, y0: 0, x1: 0, y1: 0 }; 3];
+        let whole = areas[other];
+        let mut leftovers = [Area { x0: 0, y0: 0, x1: 0, y1: 0 }; 3];
         let mut pieces = 0;
 
         // Past the far end, across the neighbour's whole width.
         let past = match side {
-            Side::Down if whole.y1 > band.y1 => Some(Rect { y0: band.y1 + 1, ..whole }),
-            Side::Up if whole.y0 < band.y0 => Some(Rect { y1: band.y0 - 1, ..whole }),
-            Side::Right if whole.x1 > band.x1 => Some(Rect { x0: band.x1 + 1, ..whole }),
-            Side::Left if whole.x0 < band.x0 => Some(Rect { x1: band.x0 - 1, ..whole }),
+            Side::Down if whole.y1 > band.y1 => Some(Area { y0: band.y1 + 1, ..whole }),
+            Side::Up if whole.y0 < band.y0 => Some(Area { y1: band.y0 - 1, ..whole }),
+            Side::Right if whole.x1 > band.x1 => Some(Area { x0: band.x1 + 1, ..whole }),
+            Side::Left if whole.x0 < band.x0 => Some(Area { x1: band.x0 - 1, ..whole }),
             _ => None,
         };
         if let Some(piece) = past {
@@ -321,12 +321,12 @@ fn take_band(
         }
         let (lo, hi) = match side {
             Side::Up | Side::Down => (
-                (beside.x0 < band.x0).then(|| Rect { x1: band.x0 - 1, ..beside }),
-                (beside.x1 > band.x1).then(|| Rect { x0: band.x1 + 1, ..beside }),
+                (beside.x0 < band.x0).then(|| Area { x1: band.x0 - 1, ..beside }),
+                (beside.x1 > band.x1).then(|| Area { x0: band.x1 + 1, ..beside }),
             ),
             Side::Left | Side::Right => (
-                (beside.y0 < band.y0).then(|| Rect { y1: band.y0 - 1, ..beside }),
-                (beside.y1 > band.y1).then(|| Rect { y0: band.y1 + 1, ..beside }),
+                (beside.y0 < band.y0).then(|| Area { y1: band.y0 - 1, ..beside }),
+                (beside.y1 > band.y1).then(|| Area { y0: band.y1 + 1, ..beside }),
             ),
         };
         for piece in [lo, hi].into_iter().flatten() {
@@ -336,13 +336,13 @@ fn take_band(
 
         gone[other] = true;
         for &piece in &leftovers[..pieces] {
-            rects.push(piece);
+            areas.push(piece);
             gone.push(false);
-            owners.give(&piece, rects.len() - 1);
+            owners.give(&piece, areas.len() - 1);
         }
     }
 
-    rects[a] = band;
+    areas[a] = band;
     owners.give(&band, a);
 }
 
@@ -369,7 +369,7 @@ impl Strips {
     const ALL: Self = Self { cols: [u64::MAX; LINE_WORDS], rows: [u64::MAX; LINE_WORDS] };
 
     /// Records that a rectangle's cells have changed hands.
-    fn mark(&mut self, r: &Rect) {
+    fn mark(&mut self, r: &Area) {
         for index in 0..LINE_WORDS {
             self.cols[index] |= range_mask(index, r.x0, r.x1);
             self.rows[index] |= range_mask(index, r.y0, r.y1);
@@ -378,7 +378,7 @@ impl Strips {
 
     /// Whether anything marked here or in `also` lies in either of a
     /// rectangle's strips.
-    fn reaches(&self, also: &Self, r: &Rect) -> bool {
+    fn reaches(&self, also: &Self, r: &Area) -> bool {
         (0..LINE_WORDS).any(|index| {
             (self.cols[index] | also.cols[index]) & range_mask(index, r.x0, r.x1) != 0
                 || (self.rows[index] | also.rows[index]) & range_mask(index, r.y0, r.y1) != 0
@@ -391,24 +391,24 @@ const PIECES: usize = 3;
 
 /// Drops the dead slots, so that the surviving areas are numbered from
 /// zero again with nothing in between.
-fn compact(rects: &mut Vec<Rect>, gone: &mut Vec<bool>) {
+fn compact(areas: &mut Vec<Area>, gone: &mut Vec<bool>) {
     let mut index = 0;
-    rects.retain(|_| {
+    areas.retain(|_| {
         index += 1;
         !gone[index - 1]
     });
     gone.clear();
-    gone.resize(rects.len(), false);
+    gone.resize(areas.len(), false);
 }
 
 /// Grows every rectangle that can grow, until none can, and answers how
 /// many were swallowed.
-pub(crate) fn grow(standing: &BitMatrix, rects: &mut Vec<Rect>, pass: &mut Pass) -> usize {
+pub(crate) fn grow(standing: &BitMatrix, areas: &mut Vec<Area>, pass: &mut Pass) -> usize {
     let Pass { owners, gone, growing: scratch, .. } = pass;
-    owners.paint(standing, rects);
+    owners.paint(standing, areas);
     gone.clear();
-    gone.resize(rects.len(), false);
-    scratch.reset(rects.len());
+    gone.resize(areas.len(), false);
+    scratch.reset(areas.len());
     let mut swallowed = 0;
 
     // Nothing has been looked at yet, so the first sweep skips nothing.
@@ -428,51 +428,51 @@ pub(crate) fn grow(standing: &BitMatrix, rects: &mut Vec<Rect>, pass: &mut Pass)
         // enforced rather than assumed. Dropping the dead slots
         // renumbers the survivors, so everything that holds a slot
         // number starts again with them.
-        if rects.len() + PIECES > AreaMap::FULL {
-            let before = rects.len();
-            compact(rects, gone);
-            if rects.len() == before {
+        if areas.len() + PIECES > AreaMap::FULL {
+            let before = areas.len();
+            compact(areas, gone);
+            if areas.len() == before {
                 // Nothing was dead, so there is no room to win and no
                 // sweep that could be finished. Every area standing is
                 // already an area, which is a partition.
                 break;
             }
-            owners.paint(standing, rects);
-            scratch.reset(rects.len());
+            owners.paint(standing, areas);
+            scratch.reset(areas.len());
             earlier = Strips::ALL;
             sweep = Strips::NONE;
         }
 
         again = false;
-        for a in 0..rects.len() {
-            if gone[a] || !sweep.reaches(&earlier, &rects[a]) {
+        for a in 0..areas.len() {
+            if gone[a] || !sweep.reaches(&earlier, &areas[a]) {
                 continue;
             }
             // Leave the sweep rather than overrun the slots. Something
             // has been applied already, so another sweep is coming, and
             // it starts by making room.
-            if rects.len() + PIECES > AreaMap::FULL {
+            if areas.len() + PIECES > AreaMap::FULL {
                 again = true;
                 break;
             }
 
             for side in [Side::Down, Side::Up, Side::Right, Side::Left] {
-                scratch.seen.resize(rects.len(), 0);
-                let Some((edge, gain)) = reach(rects, owners, a, side, scratch) else {
+                scratch.seen.resize(areas.len(), 0);
+                let Some((edge, gain)) = reach(areas, owners, a, side, scratch) else {
                     continue;
                 };
-                let band = band_to(rects[a], side, edge);
+                let band = band_to(areas[a], side, edge);
                 let Growing { met, taken, cut, .. } = &mut *scratch;
-                split_met(rects, met, &band, side, taken, cut);
-                let standing = rects.len();
-                take_band(rects, owners, gone, a, side, Band { band, taken, cut });
+                split_met(areas, met, &band, side, taken, cut);
+                let standing = areas.len();
+                take_band(areas, owners, gone, a, side, Band { band, taken, cut });
 
                 // Everything that changed hands is the band, which
                 // covers whoever was swallowed, and the pieces of
                 // whoever was cut, which are the rectangles just
                 // appended.
                 sweep.mark(&band);
-                for piece in &rects[standing..] {
+                for piece in &areas[standing..] {
                     sweep.mark(piece);
                 }
 
@@ -485,6 +485,6 @@ pub(crate) fn grow(standing: &BitMatrix, rects: &mut Vec<Rect>, pass: &mut Pass)
         sweep = Strips::NONE;
     }
 
-    compact(rects, gone);
+    compact(areas, gone);
     swallowed
 }

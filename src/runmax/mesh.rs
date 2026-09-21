@@ -27,7 +27,7 @@
 //! too much; the measurements are in their own docs.
 
 use crate::data::{Runs, Run};
-use crate::{BitMatrix, Rect};
+use crate::{BitMatrix, Area};
 
 /// A run waiting to be seeded: the run itself, in whichever
 /// orientation it lies, plus the ranking the queue sorts it by.
@@ -120,13 +120,13 @@ pub(crate) fn take_all_area(
     run: Run,
     line: u8,
     run_is_column: bool,
-    out: &mut Vec<Rect>,
+    out: &mut Vec<Area>,
 ) {
-    let emit = |out: &mut Vec<Rect>, from: u8, to: u8, across: Run| {
+    let emit = |out: &mut Vec<Area>, from: u8, to: u8, across: Run| {
         out.push(if run_is_column {
-            Rect { x0: across.start, y0: from, x1: across.end, y1: to }
+            Area { x0: across.start, y0: from, x1: across.end, y1: to }
         } else {
-            Rect { x0: from, y0: across.start, x1: to, y1: across.end }
+            Area { x0: from, y0: across.start, x1: to, y1: across.end }
         });
     };
 
@@ -154,13 +154,13 @@ pub(crate) fn take_all_area(
 /// of them added up, not the longest of them.
 fn crossing_area(seed_run: &AreaRunSeed, rows: &Runs, cols: &Runs) -> u32 {
     let crossing = if seed_run.is_column { rows } else { cols };
-    let mut area = 0;
+    let mut crossing_cells = 0;
     for pos in seed_run.start..=seed_run.end {
         if let Some(across) = crossing.run_at(pos, seed_run.line) {
-            area += across.len() as u32;
+            crossing_cells += across.len() as u32;
         }
     }
-    area
+    crossing_cells
 }
 
 /// No seed run sits in this slot.
@@ -394,12 +394,12 @@ impl Level {
 /// each time it draws, and shares nothing with the fast path but the
 /// rule it is spelling out.
 #[doc(hidden)]
-pub fn mesh_by_scanning(source: &BitMatrix) -> Vec<Rect> {
-    let (alone, source) = source.split_isolated();
+pub fn mesh_by_scanning(source: &BitMatrix) -> Vec<Area> {
+    let (single_cells, source) = source.split_isolated();
     let source = &source;
 
     let (mut rows, mut cols) = Runs::of(source);
-    let mut rects = Vec::new();
+    let mut areas = Vec::new();
     let (mut plan, mut bin) = (Vec::new(), Vec::new());
     let mut level = Vec::new();
 
@@ -414,17 +414,17 @@ pub fn mesh_by_scanning(source: &BitMatrix) -> Vec<Rect> {
             plan.clear();
             take_all_area(crossing, seed_run.span(), seed_run.line, seed_run.is_column, &mut plan);
 
-            for rect in plan.drain(..) {
-                rows.carve((rect.y0, rect.y1), rect.x0, rect.x1, &mut bin);
-                cols.carve((rect.x0, rect.x1), rect.y0, rect.y1, &mut bin);
+            for area in plan.drain(..) {
+                rows.carve((area.y0, area.y1), area.x0, area.x1, &mut bin);
+                cols.carve((area.x0, area.x1), area.y0, area.y1, &mut bin);
                 bin.clear();
-                rects.push(rect);
+                areas.push(area);
             }
         }
     }
 
-    alone.for_each_set(|x, y| rects.push(Rect { x0: x, y0: y, x1: x, y1: y }));
-    rects
+    single_cells.for_each_set(|x, y| areas.push(Area { x0: x, y0: y, x1: x, y1: y }));
+    areas
 }
 
 /// Every seed run standing at the longest length left, in the order they are

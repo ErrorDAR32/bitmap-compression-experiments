@@ -28,10 +28,10 @@ fn show(label: &str, rows: &[&str]) {
     for row in rows {
         println!("    {row}");
     }
-    for (stage, rects) in [("mesh", &meshed), ("after growing", &grown), ("after merging", &whole)]
+    for (stage, areas) in [("mesh", &meshed), ("after growing", &grown), ("after merging", &whole)]
     {
-        print!("  {stage:<16} {:>2}:", rects.len());
-        for r in rects.iter() {
+        print!("  {stage:<16} {:>2}:", areas.len());
+        for r in areas.iter() {
             print!(" ({},{})-({},{})", r.x0, r.y0, r.x1, r.y1);
         }
         println!();

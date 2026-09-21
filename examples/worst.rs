@@ -23,7 +23,7 @@
 //!
 //! Run it with a seed count: `cargo run --release --example worst 400`.
 
-use bitmatrix::{accurate, samples, BitMatrix, Far, Rect, RunmaxClipnmerge};
+use bitmatrix::{accurate, samples, BitMatrix, Far, Area, RunmaxClipnmerge};
 
 /// How many seeds each full-size shape is searched over by default.
 const SEEDS: u64 = 60;
@@ -166,14 +166,14 @@ fn shrink(work: &mut RunmaxClipnmerge, bits: &BitMatrix, side: usize) -> BitMatr
 
 /// A partition drawn as one letter per rectangle, so two answers to
 /// the same bitmap can be read against each other.
-fn painted(rects: &[Rect], bits: &BitMatrix, side: usize) -> Vec<String> {
+fn painted(areas: &[Area], bits: &BitMatrix, side: usize) -> Vec<String> {
     const ALPHABET: &[u8] = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
     let Some((x0, y0, x1, y1)) = bounds(bits, side) else { return Vec::new() };
     (y0..=y1)
         .map(|y| {
             (x0..=x1)
                 .map(|x| {
-                    match rects.iter().position(|r| {
+                    match areas.iter().position(|r| {
                         x >= r.x0 && x <= r.x1 && y >= r.y0 && y <= r.y1
                     }) {
                         Some(index) => ALPHABET[index % ALPHABET.len()] as char,
@@ -194,7 +194,7 @@ fn painted(rects: &[Rect], bits: &BitMatrix, side: usize) -> Vec<String> {
 /// to one is a rewriting problem. They want different fixes, and the
 /// only way to tell them apart is to look at every stage.
 fn show(work: &mut RunmaxClipnmerge, bits: &BitMatrix, side: usize, found_at: &str) {
-    let stages: Vec<(&str, Vec<Rect>)> = vec![
+    let stages: Vec<(&str, Vec<Area>)> = vec![
         ("meshed", work.mesh(bits).to_vec()),
         ("grown", work.partition_to(bits, Some(Far::Growing)).to_vec()),
         ("merged", work.partition(bits).to_vec()),
@@ -202,11 +202,11 @@ fn show(work: &mut RunmaxClipnmerge, bits: &BitMatrix, side: usize, found_at: &s
     ];
 
     let counts: Vec<String> =
-        stages.iter().map(|(name, rects)| format!("{name} {}", rects.len())).collect();
+        stages.iter().map(|(name, areas)| format!("{name} {}", areas.len())).collect();
     println!("\n  {} cells: {} ({found_at})", bits.count_set(), counts.join(" -> "));
 
     let drawn: Vec<Vec<String>> =
-        stages.iter().map(|(_, rects)| painted(rects, bits, side)).collect();
+        stages.iter().map(|(_, areas)| painted(areas, bits, side)).collect();
     let width = drawn[0][0].len();
     for line in 0..drawn[0].len() {
         let row: Vec<&str> = drawn.iter().map(|d| d[line].as_str()).collect();

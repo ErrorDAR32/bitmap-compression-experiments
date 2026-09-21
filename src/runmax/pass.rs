@@ -19,7 +19,7 @@
 use crate::data::AreaMap;
 use crate::runmax::grow::{grow, Growing};
 use crate::runmax::merge::{merge, Work};
-use crate::{BitMatrix, Rect};
+use crate::{BitMatrix, Area};
 
 /// How far [`Pass::compact_to`] goes, for weighing each move against
 /// its cost.
@@ -52,13 +52,13 @@ impl Pass {
 
     /// How many rectangles growing reclaims on its own, before anything
     /// else has run. For measuring what the move is worth.
-    pub(crate) fn grow_only(&mut self, standing: &BitMatrix, rects: &mut Vec<Rect>) -> usize {
-        grow(standing, rects, self)
+    pub(crate) fn grow_only(&mut self, standing: &BitMatrix, areas: &mut Vec<Area>) -> usize {
+        grow(standing, areas, self)
     }
 
     /// Merging on its own, for the same reason.
-    pub(crate) fn merge_only(&mut self, rects: &mut Vec<Rect>) -> usize {
-        merge(rects, &mut self.work)
+    pub(crate) fn merge_only(&mut self, areas: &mut Vec<Area>) -> usize {
+        merge(areas, &mut self.work)
     }
 
     /// Rewrites the partition in place and answers how many rectangles
@@ -66,15 +66,15 @@ impl Pass {
     pub(crate) fn compact_to(
         &mut self,
         standing: &BitMatrix,
-        rects: &mut Vec<Rect>,
+        areas: &mut Vec<Area>,
         far: Far,
     ) -> usize {
-        let started = rects.len();
-        grow(standing, rects, self);
+        let started = areas.len();
+        grow(standing, areas, self);
         if far == Far::Merging {
-            merge(rects, &mut self.work);
+            merge(areas, &mut self.work);
         }
-        started - rects.len()
+        started - areas.len()
     }
 }
 
@@ -83,21 +83,21 @@ mod tests {
     use super::*;
     /// The bitmap a list of areas partitions, which is what the area
     /// map is painted on.
-    fn standing(rects: &[Rect]) -> BitMatrix {
+    fn standing(areas: &[Area]) -> BitMatrix {
         let mut bits = BitMatrix::new();
-        for r in rects {
+        for r in areas {
             bits.set_rect(r.x0 as i64, r.y0 as i64, r.x1 as i64, r.y1 as i64);
         }
         bits
     }
 
-    fn r(x0: u8, y0: u8, x1: u8, y1: u8) -> Rect {
-        Rect { x0, y0, x1, y1 }
+    fn r(x0: u8, y0: u8, x1: u8, y1: u8) -> Area {
+        Area { x0, y0, x1, y1 }
     }
 
     /// Only the free moves, without the break-even ones.
-    fn free(rects: &mut Vec<Rect>) -> usize {
-        merge(rects, &mut Work::new())
+    fn free(areas: &mut Vec<Area>) -> usize {
+        merge(areas, &mut Work::new())
     }
 
     /// A wide rectangle sitting on a row of single cells takes all of
@@ -110,22 +110,22 @@ mod tests {
     /// supposed to be the move merging could not make.
     #[test]
     fn a_wide_rectangle_swallows_the_cells_under_it() {
-        let mut rects = vec![r(0, 0, 9, 0)];
+        let mut areas = vec![r(0, 0, 9, 0)];
         for x in 0..=9 {
-            rects.push(r(x, 1, x, 1));
+            areas.push(r(x, 1, x, 1));
         }
 
-        assert_eq!(free(&mut rects.clone()), 10, "merging gets there too");
-        assert_eq!(Pass::new().grow_only(&standing(&rects), &mut rects), 10);
-        assert_eq!(rects, vec![r(0, 0, 9, 1)]);
+        assert_eq!(free(&mut areas.clone()), 10, "merging gets there too");
+        assert_eq!(Pass::new().grow_only(&standing(&areas), &mut areas), 10);
+        assert_eq!(areas, vec![r(0, 0, 9, 1)]);
     }
 
     /// A neighbour reaching past the side cannot be taken, since the
     /// union would not be a rectangle.
     #[test]
     fn a_neighbour_hanging_over_the_side_is_left_alone() {
-        let mut rects = vec![r(1, 0, 2, 0), r(0, 1, 3, 1)];
-        assert_eq!(Pass::new().grow_only(&standing(&rects), &mut rects), 0);
+        let mut areas = vec![r(1, 0, 2, 0), r(0, 1, 3, 1)];
+        assert_eq!(Pass::new().grow_only(&standing(&areas), &mut areas), 0);
     }
 
     /// Something straddling the far edge is cut there for nothing: the
@@ -138,19 +138,19 @@ mod tests {
     ///     C .          C .
     #[test]
     fn a_neighbour_straddling_the_far_edge_is_cut_for_nothing() {
-        let mut rects = vec![r(0, 0, 1, 0), r(0, 1, 1, 1), r(0, 2, 0, 3), r(1, 2, 1, 2)];
-        assert_eq!(Pass::new().grow_only(&standing(&rects), &mut rects), 2, "the row and the single cell");
-        assert_eq!(rects.len(), 2);
-        assert!(rects.contains(&r(0, 0, 1, 2)));
-        assert!(rects.contains(&r(0, 3, 0, 3)));
+        let mut areas = vec![r(0, 0, 1, 0), r(0, 1, 1, 1), r(0, 2, 0, 3), r(1, 2, 1, 2)];
+        assert_eq!(Pass::new().grow_only(&standing(&areas), &mut areas), 2, "the row and the single cell");
+        assert_eq!(areas.len(), 2);
+        assert!(areas.contains(&r(0, 0, 1, 2)));
+        assert!(areas.contains(&r(0, 3, 0, 3)));
     }
 
     /// The `k = 1` case: two rectangles sharing a whole edge.
     #[test]
     fn a_shared_edge_merges() {
-        let mut rects = vec![r(0, 0, 3, 0), r(0, 1, 3, 1)];
-        assert_eq!(free(&mut rects), 1);
-        assert_eq!(rects, vec![r(0, 0, 3, 1)]);
+        let mut areas = vec![r(0, 0, 3, 0), r(0, 1, 3, 1)];
+        assert_eq!(free(&mut areas), 1);
+        assert_eq!(areas, vec![r(0, 0, 3, 1)]);
     }
 
     /// The real move: a rectangle cut across into two stretches, one
@@ -161,26 +161,26 @@ mod tests {
     ///     . C        . C
     #[test]
     fn a_rectangle_splits_between_two_neighbours() {
-        let mut rects = vec![r(0, 0, 0, 0), r(0, 1, 1, 1), r(1, 2, 1, 2)];
-        assert_eq!(free(&mut rects), 1);
-        assert_eq!(rects, vec![r(0, 0, 0, 1), r(1, 1, 1, 2)]);
+        let mut areas = vec![r(0, 0, 0, 0), r(0, 1, 1, 1), r(1, 2, 1, 2)];
+        assert_eq!(free(&mut areas), 1);
+        assert_eq!(areas, vec![r(0, 0, 0, 1), r(1, 1, 1, 2)]);
     }
 
     /// Only part of the rectangle finds a taker, so nothing moves: the
     /// cut would cost as much as it reclaims.
     #[test]
     fn a_partial_merge_is_refused() {
-        let mut rects = vec![r(0, 0, 0, 0), r(0, 1, 1, 1)];
-        assert_eq!(free(&mut rects), 0);
-        assert_eq!(rects, vec![r(0, 0, 0, 0), r(0, 1, 1, 1)]);
+        let mut areas = vec![r(0, 0, 0, 0), r(0, 1, 1, 1)];
+        assert_eq!(free(&mut areas), 0);
+        assert_eq!(areas, vec![r(0, 0, 0, 0), r(0, 1, 1, 1)]);
     }
 
     /// A neighbour wider than the rectangle cannot take a stretch of it:
     /// the union would not be a rectangle.
     #[test]
     fn an_overhanging_neighbour_is_no_taker() {
-        let mut rects = vec![r(0, 0, 3, 0), r(1, 1, 2, 1)];
-        assert_eq!(free(&mut rects), 0);
+        let mut areas = vec![r(0, 0, 3, 0), r(1, 1, 2, 1)];
+        assert_eq!(free(&mut areas), 0);
     }
 
     /// Merging one rectangle can open the way for the next, so the
@@ -191,10 +191,10 @@ mod tests {
     ///     C C C
     #[test]
     fn dissolving_cascades() {
-        let mut rects = vec![r(0, 0, 1, 0), r(1, 1, 2, 1), r(0, 2, 2, 2), r(2, 0, 2, 0), r(0, 1, 0, 1)];
-        let reclaimed = free(&mut rects);
-        assert_eq!(rects.len(), 5 - reclaimed);
-        assert_eq!(rects, vec![r(0, 0, 2, 2)]);
+        let mut areas = vec![r(0, 0, 1, 0), r(1, 1, 2, 1), r(0, 2, 2, 2), r(2, 0, 2, 0), r(0, 1, 0, 1)];
+        let reclaimed = free(&mut areas);
+        assert_eq!(areas.len(), 5 - reclaimed);
+        assert_eq!(areas, vec![r(0, 0, 2, 2)]);
     }
 
     /// A row sitting on two pieces that tile it exactly is given away to
@@ -204,16 +204,16 @@ mod tests {
     ///     A A C   ->   A A A
     #[test]
     fn a_row_merges_into_the_pieces_under_it() {
-        let mut rects = vec![r(0, 0, 2, 0), r(0, 1, 1, 1), r(2, 1, 2, 1)];
-        assert_eq!(free(&mut rects), 2);
-        assert_eq!(rects, vec![r(0, 0, 2, 1)]);
+        let mut areas = vec![r(0, 0, 2, 0), r(0, 1, 1, 1), r(2, 1, 2, 1)];
+        assert_eq!(free(&mut areas), 2);
+        assert_eq!(areas, vec![r(0, 0, 2, 1)]);
     }
 
 
     #[test]
     fn dissolving_across_the_other_axis_works_too() {
-        let mut rects = vec![r(0, 0, 0, 0), r(1, 0, 1, 1), r(2, 1, 2, 1)];
-        assert_eq!(free(&mut rects), 1);
-        assert_eq!(rects, vec![r(0, 0, 1, 0), r(1, 1, 2, 1)]);
+        let mut areas = vec![r(0, 0, 0, 0), r(1, 0, 1, 1), r(2, 1, 2, 1)];
+        assert_eq!(free(&mut areas), 1);
+        assert_eq!(areas, vec![r(0, 0, 1, 0), r(1, 1, 2, 1)]);
     }
 }

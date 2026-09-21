@@ -181,13 +181,13 @@ fn main() {
     let n = maps.len() as u32;
     println!("{n} {} bitmaps, best of {REPEATS}, per bitmap:", shape.name);
     println!(
-        "  runmax  {:>8.2} rects  {:>9.1?}   spread {:.2}x",
+        "  runmax  {:>8.2} areas  {:>9.1?}   spread {:.2}x",
         greedy_all.count as f64 / n as f64,
         greedy_all.best() / n,
         greedy_all.spread()
     );
     println!(
-        "  exact   {:>8.2} rects  {:>9.1?}   spread {:.2}x",
+        "  exact   {:>8.2} areas  {:>9.1?}   spread {:.2}x",
         exact_all.count as f64 / n as f64,
         exact_all.best() / n,
         exact_all.spread()

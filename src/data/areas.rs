@@ -8,25 +8,25 @@
 //! 15807 areas on dense scattered content, and every one of them would
 //! otherwise be looked at by every pass.
 //!
-//! Keeping them apart also keeps [`Areas::working`] honest. It hands
+//! Keeping them apart also keeps [`BitmapAreas::working`] honest. It hands
 //! out exactly the areas a rewriting pass may touch, so a pass cannot
 //! reach a forced 1x1 by accident, and there is no index arithmetic at
 //! the boundary between the two.
 
-use crate::Rect;
+use crate::Area;
 
-/// Areas, and the forced 1x1s that were set aside from them.
+/// BitmapAreas, and the forced 1x1s that were set aside from them.
 #[derive(Default)]
-pub(crate) struct Areas {
+pub(crate) struct BitmapAreas {
     /// Everything a pass may rewrite.
-    working: Vec<Rect>,
+    working: Vec<Area>,
     /// Cells standing alone. Nothing can be done with them.
-    alone: Vec<Rect>,
+    single_cells: Vec<Area>,
     /// Somewhere to hand out the two joined, built only when asked.
-    joined: Vec<Rect>,
+    joined: Vec<Area>,
 }
 
-impl Areas {
+impl BitmapAreas {
     /// Empty, ready for a bitmap.
     pub(crate) fn new() -> Self {
         Self::default()
@@ -35,22 +35,22 @@ impl Areas {
     /// Forgets the last bitmap's answer, keeping the room it used.
     pub(crate) fn clear(&mut self) {
         self.working.clear();
-        self.alone.clear();
+        self.single_cells.clear();
         self.joined.clear();
     }
 
     /// Records an area a pass may rewrite.
-    pub(crate) fn push(&mut self, area: Rect) {
+    pub(crate) fn push(&mut self, area: Area) {
         self.working.push(area);
     }
 
     /// Records a cell standing alone, which no pass may touch.
-    pub(crate) fn push_alone(&mut self, x: u8, y: u8) {
-        self.alone.push(Rect { x0: x, y0: y, x1: x, y1: y });
+    pub(crate) fn push_single_cell(&mut self, x: u8, y: u8) {
+        self.single_cells.push(Area { x0: x, y0: y, x1: x, y1: y });
     }
 
     /// The areas a pass may rewrite, to rewrite in place.
-    pub(crate) fn working(&mut self) -> &mut Vec<Rect> {
+    pub(crate) fn working(&mut self) -> &mut Vec<Area> {
         &mut self.working
     }
 
@@ -58,10 +58,10 @@ impl Areas {
     ///
     /// Joined only here, and only when a caller asks for the answer, so
     /// that nothing inside the crate pays for the join.
-    pub(crate) fn all(&mut self) -> &[Rect] {
+    pub(crate) fn all(&mut self) -> &[Area] {
         self.joined.clear();
         self.joined.extend_from_slice(&self.working);
-        self.joined.extend_from_slice(&self.alone);
+        self.joined.extend_from_slice(&self.single_cells);
         &self.joined
     }
 }

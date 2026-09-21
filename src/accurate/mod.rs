@@ -32,7 +32,7 @@
 //! already drawn. The faces are then all rectangles, and there are as few
 //! as there can be.
 
-use crate::{BitMatrix, Rect, HEIGHT, WIDTH};
+use crate::{BitMatrix, Area, HEIGHT, WIDTH};
 
 /// Lattice points run one past the cells in each direction.
 const CORNERS: usize = WIDTH + 1;
@@ -278,7 +278,7 @@ impl Cuts {
 /// wants that found once.
 #[derive(Default)]
 pub struct Accurate {
-    rects: Vec<Rect>,
+    areas: Vec<Area>,
 }
 
 impl Accurate {
@@ -288,9 +288,9 @@ impl Accurate {
     }
 
     /// The fewest rectangles the set bits can be split into.
-    pub fn partition(&mut self, bits: &BitMatrix) -> &[Rect] {
-        self.rects = partition(bits);
-        &self.rects
+    pub fn partition(&mut self, bits: &BitMatrix) -> &[Area] {
+        self.areas = partition(bits);
+        &self.areas
     }
 }
 
@@ -299,14 +299,14 @@ impl crate::Partition for Accurate {
         "accurate"
     }
 
-    fn partition(&mut self, bits: &BitMatrix) -> &[Rect] {
+    fn partition(&mut self, bits: &BitMatrix) -> &[Area] {
         Accurate::partition(self, bits)
     }
 }
 
 /// The fewest rectangles the set bits can be split into, and the
 /// rectangles themselves.
-pub fn partition(bits: &BitMatrix) -> Vec<Rect> {
+pub fn partition(bits: &BitMatrix) -> Vec<Area> {
     let region = Region { bits };
     let (horizontal, vertical) = chords(&region);
     let crosses = crossings(&horizontal, &vertical);
@@ -372,7 +372,7 @@ fn run_cut(region: &Region, cuts: &mut Cuts, cx: usize, cy: usize) {
 
 /// Groups cells that no cut separates. Every face left by the
 /// construction is a rectangle, so its bounding box is the rectangle.
-fn faces(region: &Region, cuts: &Cuts) -> Vec<Rect> {
+fn faces(region: &Region, cuts: &Cuts) -> Vec<Area> {
     let mut parent: Vec<u32> = (0..(WIDTH * HEIGHT) as u32).collect();
 
     /// The group a cell belongs to, flattening the chain on the way up
@@ -413,7 +413,7 @@ fn faces(region: &Region, cuts: &Cuts) -> Vec<Rect> {
         }
     }
 
-    let mut boxes: Vec<Option<Rect>> = vec![None; WIDTH * HEIGHT];
+    let mut boxes: Vec<Option<Area>> = vec![None; WIDTH * HEIGHT];
     let mut roots = Vec::new();
     for y in 0..HEIGHT {
         for x in 0..WIDTH {
@@ -423,7 +423,7 @@ fn faces(region: &Region, cuts: &Cuts) -> Vec<Rect> {
             let root = find(&mut parent, (y * WIDTH + x) as u32) as usize;
             match &mut boxes[root] {
                 None => {
-                    boxes[root] = Some(Rect {
+                    boxes[root] = Some(Area {
                         x0: x as u8,
                         y0: y as u8,
                         x1: x as u8,
@@ -451,9 +451,9 @@ mod tests {
 
 
     /// The rectangles cover exactly the set bits, once each.
-    fn assert_partitions(bits: &BitMatrix, rects: &[Rect]) {
+    fn assert_partitions(bits: &BitMatrix, areas: &[Area]) {
         let mut painted = BitMatrix::new();
-        for r in rects {
+        for r in areas {
             painted.set_rect(r.x0 as i64, r.y0 as i64, r.x1 as i64, r.y1 as i64);
         }
         for y in 0..=u8::MAX {
@@ -461,8 +461,8 @@ mod tests {
                 assert_eq!(bits.get(x, y), painted.get(x, y), "mismatch at ({x}, {y})");
             }
         }
-        let area: u32 = rects.iter().map(|r| r.area()).sum();
-        assert_eq!(area, painted.count_set(), "rectangles overlap");
+        let covered: u32 = areas.iter().map(|r| r.cells()).sum();
+        assert_eq!(covered, painted.count_set(), "rectangles overlap");
     }
 
     /// The two ends of the density range.
@@ -471,7 +471,7 @@ mod tests {
         assert!(partition(&samples::one_grown(0, 0.0, 0.0)).is_empty());
 
         let full = samples::one_grown(0, 1.0, 0.0);
-        assert_eq!(partition(&full), vec![Rect { x0: 0, y0: 0, x1: 255, y1: 255 }]);
+        assert_eq!(partition(&full), vec![Area { x0: 0, y0: 0, x1: 255, y1: 255 }]);
     }
 
     /// Every shape has to come back an exact partition. The count being
@@ -492,13 +492,13 @@ mod tests {
     #[test]
     fn scattered_cells_come_back_one_apiece() {
         let bits = samples::one_grown(0, 0.02, 0.0);
-        let rects = partition(&bits);
-        assert_partitions(&bits, &rects);
-        let alone = rects.iter().filter(|r| r.area() == 1).count();
+        let areas = partition(&bits);
+        assert_partitions(&bits, &areas);
+        let single_cells = areas.iter().filter(|r| r.cells() == 1).count();
         assert!(
-            alone * 5 > rects.len() * 4,
-            "cluster 0 should leave nearly all of them alone, got {alone} of {}",
-            rects.len()
+            single_cells * 5 > areas.len() * 4,
+            "cluster 0 should leave nearly all of them alone, got {single_cells} of {}",
+            areas.len()
         );
     }
 
@@ -511,10 +511,10 @@ mod tests {
         for shape in samples::SHAPES {
             let corners = shape.take_in(7, 40);
             for bits in corners.chain(shape.tested()) {
-                let rects = partition(&bits);
-                assert_partitions(&bits, &rects);
+                let areas = partition(&bits);
+                assert_partitions(&bits, &areas);
                 assert!(
-                    rects.len() <= work.partition(&bits).len(),
+                    areas.len() <= work.partition(&bits).len(),
                     "the minimum partition came out bigger than the greedy one"
                 );
             }

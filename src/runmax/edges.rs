@@ -11,7 +11,7 @@
 //! cleared by the slots it filled rather than by walking all thousand.
 
 use crate::data::bits::{range_mask, LINE_WORDS};
-use crate::Rect;
+use crate::Area;
 
 /// Which way a rectangle is cut when it merges. Cutting across its
 /// width hands stretches to neighbours above and below; cutting across
@@ -24,7 +24,7 @@ pub(crate) enum Axis {
 
 impl Axis {
     /// The extent a stretch is measured along.
-    pub(crate) fn span(self, r: &Rect) -> (u8, u8) {
+    pub(crate) fn span(self, r: &Area) -> (u8, u8) {
         match self {
             Axis::Vertical => (r.x0, r.x1),
             Axis::Horizontal => (r.y0, r.y1),
@@ -34,7 +34,7 @@ impl Axis {
     /// The two lines a neighbour must sit on to touch this rectangle's
     /// faces, `None` where the rectangle is already against the edge of
     /// the matrix.
-    pub(crate) fn faces(self, r: &Rect) -> [Option<u8>; 2] {
+    pub(crate) fn faces(self, r: &Area) -> [Option<u8>; 2] {
         match self {
             Axis::Vertical => [r.y0.checked_sub(1), r.y1.checked_add(1)],
             Axis::Horizontal => [r.x0.checked_sub(1), r.x1.checked_add(1)],
@@ -44,7 +44,7 @@ impl Axis {
     /// Grows `taker` to swallow `given`. The two already agree along this
     /// axis and sit against each other across it, so the union is a
     /// rectangle and only the far extents move.
-    pub(crate) fn take_in(self, taker: &mut Rect, given: &Rect) {
+    pub(crate) fn take_in(self, taker: &mut Area, given: &Area) {
         match self {
             Axis::Vertical => {
                 taker.y0 = taker.y0.min(given.y0);
@@ -69,7 +69,7 @@ impl Axis {
 pub(crate) struct Face {
     pub(crate) start: u8,
     pub(crate) end: u8,
-    pub(crate) rect: u32,
+    pub(crate) area: u32,
 }
 
 /// Which rectangles present a face on each edge line, so that "what
@@ -133,7 +133,7 @@ impl Edges {
     /// coordinate in question and pushed as they come, which leaves every
     /// bucket sorted for free. Positions only run to 255, so that order
     /// is a counting pass rather than a sort.
-    pub(crate) fn rebuild(&mut self, rects: &[Rect]) {
+    pub(crate) fn rebuild(&mut self, areas: &[Area]) {
         for &slot in &self.filled {
             self.buckets[slot].clear();
             self.covered[slot * LINE_WORDS..(slot + 1) * LINE_WORDS].fill(0);
@@ -143,18 +143,18 @@ impl Edges {
         // Faces across a horizontal edge line are keyed by x, faces down
         // a vertical one by y.
         for across in [true, false] {
-            self.sort_by_start(rects, across);
+            self.sort_by_start(areas, across);
             for index in 0..self.order.len() {
-                let rect = rects[self.order[index] as usize];
+                let area = areas[self.order[index] as usize];
                 let face = if across {
-                    Face { start: rect.x0, end: rect.x1, rect: self.order[index] }
+                    Face { start: area.x0, end: area.x1, area: self.order[index] }
                 } else {
-                    Face { start: rect.y0, end: rect.y1, rect: self.order[index] }
+                    Face { start: area.y0, end: area.y1, area: self.order[index] }
                 };
                 let slots = if across {
-                    [Self::slot(0, 0, rect.y1), Self::slot(0, 1, rect.y0)]
+                    [Self::slot(0, 0, area.y1), Self::slot(0, 1, area.y0)]
                 } else {
-                    [Self::slot(1, 0, rect.x1), Self::slot(1, 1, rect.x0)]
+                    [Self::slot(1, 0, area.x1), Self::slot(1, 1, area.x0)]
                 };
                 for slot in slots {
                     if self.buckets[slot].is_empty() {
@@ -174,22 +174,22 @@ impl Edges {
     }
 
     /// Fills `order` with the rectangles by where their faces start.
-    fn sort_by_start(&mut self, rects: &[Rect], across: bool) {
-        let key = |r: &Rect| if across { r.x0 } else { r.y0 } as usize;
+    fn sort_by_start(&mut self, areas: &[Area], across: bool) {
+        let key = |r: &Area| if across { r.x0 } else { r.y0 } as usize;
 
         self.counts.clear();
         self.counts.resize(Self::LINES + 1, 0);
-        for rect in rects {
-            self.counts[key(rect) + 1] += 1;
+        for area in areas {
+            self.counts[key(area) + 1] += 1;
         }
         for i in 1..self.counts.len() {
             self.counts[i] += self.counts[i - 1];
         }
 
         self.order.clear();
-        self.order.resize(rects.len(), 0);
-        for (index, rect) in rects.iter().enumerate() {
-            let slot = &mut self.counts[key(rect)];
+        self.order.resize(areas.len(), 0);
+        for (index, area) in areas.iter().enumerate() {
+            let slot = &mut self.counts[key(area)];
             self.order[*slot as usize] = index as u32;
             *slot += 1;
         }

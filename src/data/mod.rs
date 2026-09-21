@@ -14,8 +14,8 @@
 //! | structure | what it holds |
 //! |---|---|
 //! | [`BitMatrix`] | the 65536 cells, packed four words to a row |
-//! | [`Rect`] | one area, as inclusive bounds |
-//! | [`Areas`] | the answer: the areas, and the 1x1s kept apart |
+//! | [`Area`] | one area, as inclusive bounds |
+//! | [`BitmapAreas`] | the answer: the areas, and the 1x1s kept apart |
 //! | [`AreaMap`] | which area owns each cell |
 //! | [`Runs`] | which cells are still standing, both orientations |
 //! | `bits` | the word operations all of them are read with |
@@ -25,12 +25,12 @@ pub(crate) mod bits;
 mod area_map;
 mod areas;
 mod matrix;
-mod rect;
+mod area;
 mod runs;
 
 pub(crate) use area_map::AreaMap;
-pub(crate) use areas::Areas;
+pub(crate) use areas::BitmapAreas;
 pub use matrix::BitMatrix;
-pub use rect::Rect;
+pub use area::Area;
 pub(crate) use runs::{Runs, Run};
 

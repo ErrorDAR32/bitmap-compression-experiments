@@ -25,7 +25,7 @@
 //! kept for that, and because it is cheap beside growing.
 
 use crate::runmax::edges::{Axis, Edges};
-use crate::Rect;
+use crate::Area;
 
 /// Buffers reused across the whole pass. Rebuilding the edge index is
 /// what the search spends its time on, so it is built once and cleared
@@ -61,8 +61,8 @@ impl Work {
 
 /// Merges everywhere, looking at every rectangle. See [`merge_from`],
 /// which is the same thing told where to look.
-pub(crate) fn merge(rects: &mut Vec<Rect>, work: &mut Work) -> usize {
-    merge_from(rects, work, None)
+pub(crate) fn merge(areas: &mut Vec<Area>, work: &mut Work) -> usize {
+    merge_from(areas, work, None)
 }
 
 /// Merges rectangles into their neighbours until none is left that
@@ -80,7 +80,7 @@ pub(crate) fn merge(rects: &mut Vec<Rect>, work: &mut Work) -> usize {
 /// the cascade reaches has anything to find, and looking anyway is what
 /// mattered when a third move used to call this after every change it
 /// made: looking everywhere anyway spent 47.5ms of a bitmap's 88ms.
-pub(crate) fn merge_from(rects: &mut Vec<Rect>, work: &mut Work, start: Option<&[usize]>) -> usize {
+pub(crate) fn merge_from(areas: &mut Vec<Area>, work: &mut Work, start: Option<&[usize]>) -> usize {
     let Work { edges, scratch, touched, gone, live, grew, moved } = work;
     let mut reclaimed = 0;
 
@@ -90,18 +90,18 @@ pub(crate) fn merge_from(rects: &mut Vec<Rect>, work: &mut Work, start: Option<&
     }
 
     loop {
-        edges.rebuild(rects);
+        edges.rebuild(areas);
         // A rectangle that has already changed shape this pass is left
         // alone until the index is rebuilt, so every plan is drawn up
         // against rectangles that still look the way the index says.
         touched.clear();
-        touched.resize(rects.len(), false);
+        touched.resize(areas.len(), false);
         gone.clear();
-        gone.resize(rects.len(), false);
+        gone.resize(areas.len(), false);
 
         if start.is_none() {
             live.clear();
-            live.extend(0..rects.len());
+            live.extend(0..areas.len());
         } else {
             // A rectangle's neighbours are candidates too, since a
             // rectangle becomes givable when a neighbour changes shape
@@ -109,11 +109,11 @@ pub(crate) fn merge_from(rects: &mut Vec<Rect>, work: &mut Work, start: Option<&
             for index in 0..live.len() {
                 let c = live[index];
                 for axis in [Axis::Vertical, Axis::Horizontal] {
-                    let (lo, hi) = axis.span(&rects[c]);
-                    for (side, line) in axis.faces(&rects[c]).into_iter().enumerate() {
+                    let (lo, hi) = axis.span(&areas[c]);
+                    for (side, line) in axis.faces(&areas[c]).into_iter().enumerate() {
                         let Some(line) = line else { continue };
                         for face in edges.overlapping(axis, side, line, lo, hi) {
-                            live.push(face.rect as usize);
+                            live.push(face.area as usize);
                         }
                     }
                 }
@@ -132,14 +132,14 @@ pub(crate) fn merge_from(rects: &mut Vec<Rect>, work: &mut Work, start: Option<&
             }
             let Some(axis) = [Axis::Vertical, Axis::Horizontal]
                 .into_iter()
-                .find(|&axis| plan(rects, edges, a, axis, touched, scratch))
+                .find(|&axis| plan(areas, edges, a, axis, touched, scratch))
             else {
                 continue;
             };
 
-            let given = rects[a];
+            let given = areas[a];
             for &taker in &scratch.takers {
-                axis.take_in(&mut rects[taker], &given);
+                axis.take_in(&mut areas[taker], &given);
                 touched[taker] = true;
                 grew.push(taker);
             }
@@ -164,7 +164,7 @@ pub(crate) fn merge_from(rects: &mut Vec<Rect>, work: &mut Work, start: Option<&
             lands += usize::from(!away);
         }
         let mut i = 0;
-        rects.retain(|_| {
+        areas.retain(|_| {
             i += 1;
             !gone[i - 1]
         });
@@ -200,21 +200,21 @@ pub(crate) struct Covering {
 /// over its extent: a position is reachable when some neighbour's face
 /// ends just before it and that face's start is itself reachable.
 fn plan(
-    rects: &[Rect],
+    areas: &[Area],
     edges: &Edges,
     a: usize,
     axis: Axis,
     touched: &[bool],
     scratch: &mut Covering,
 ) -> bool {
-    let (lo, hi) = axis.span(&rects[a]);
+    let (lo, hi) = axis.span(&areas[a]);
     let width = hi as usize - lo as usize + 1;
 
     scratch.faces.clear();
-    for (side, line) in axis.faces(&rects[a]).into_iter().enumerate() {
+    for (side, line) in axis.faces(&areas[a]).into_iter().enumerate() {
         let Some(line) = line else { continue };
         for face in edges.overlapping(axis, side, line, lo, hi) {
-            let b = face.rect as usize;
+            let b = face.area as usize;
             if touched[b] || face.start < lo || face.end > hi {
                 continue;
             }
@@ -254,7 +254,7 @@ fn plan(
     while pos > 0 {
         let b = scratch.reached[pos].expect("reached positions carry the face that reached them");
         scratch.takers.push(b);
-        pos = axis.span(&rects[b]).0 as usize - lo as usize;
+        pos = axis.span(&areas[b]).0 as usize - lo as usize;
     }
     true
 }

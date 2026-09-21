@@ -166,17 +166,17 @@ impl BitMatrix {
     /// boundary; above and below are the neighbouring rows unshifted.
     #[doc(hidden)]
     pub fn split_isolated(&self) -> (Self, Self) {
-        let (mut alone, mut rest) = (Self::new(), Self::new());
-        self.split_isolated_into(&mut alone, &mut rest);
-        (alone, rest)
+        let (mut single_cells, mut rest) = (Self::new(), Self::new());
+        self.split_single_cells_into(&mut single_cells, &mut rest);
+        (single_cells, rest)
     }
 
     /// The same, into bitmaps that already exist. Whatever they held is
     /// overwritten.
-    pub(crate) fn split_isolated_into(&self, alone: &mut Self, rest: &mut Self) {
+    pub(crate) fn split_single_cells_into(&self, single_cells: &mut Self, rest: &mut Self) {
         const PER_ROW: usize = WIDTH / BITS_PER_WORD;
 
-        alone.words.fill(0);
+        single_cells.words.fill(0);
         rest.words.copy_from_slice(&*self.words);
         for y in 0..HEIGHT {
             let row = y * PER_ROW;
@@ -193,7 +193,7 @@ impl BitMatrix {
                 let below = if y + 1 < HEIGHT { self.words[row + PER_ROW + i] } else { 0 };
 
                 let solo = word & !(left | right | above | below);
-                alone.words[row + i] = solo;
+                single_cells.words[row + i] = solo;
                 rest.words[row + i] = word & !solo;
             }
         }

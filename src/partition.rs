@@ -12,7 +12,7 @@
 //! layers to get through wants that found once rather than once a
 //! bitmap; see the throughput note on [`crate`].
 
-use crate::{BitMatrix, Rect};
+use crate::{BitMatrix, Area};
 
 /// Splits a bitmap's set bits into disjoint rectangles.
 ///
@@ -23,7 +23,7 @@ pub trait Partition {
     fn name(&self) -> &'static str;
 
     /// The rectangles, for the bitmap given.
-    fn partition(&mut self, bits: &BitMatrix) -> &[Rect];
+    fn partition(&mut self, bits: &BitMatrix) -> &[Area];
 }
 
 /// Panics unless the rectangles cover exactly the set bits, once each.
@@ -31,12 +31,12 @@ pub trait Partition {
 /// Overlap falls out of arithmetic rather than comparing every pair: if
 /// the areas sum to more than the cells painted, two rectangles covered
 /// the same cell.
-pub fn assert_partition(bits: &BitMatrix, rects: &[Rect], label: &str) {
+pub fn assert_partition(bits: &BitMatrix, areas: &[Area], label: &str) {
     let mut painted = BitMatrix::new();
-    for r in rects {
+    for r in areas {
         painted.set_rect(r.x0 as i64, r.y0 as i64, r.x1 as i64, r.y1 as i64);
     }
     assert_eq!(painted.count_set(), bits.count_set(), "{label}: wrong coverage");
-    let area: u32 = rects.iter().map(|r| r.area()).sum();
-    assert_eq!(area, painted.count_set(), "{label}: rectangles overlap");
+    let covered: u32 = areas.iter().map(|r| r.cells()).sum();
+    assert_eq!(covered, painted.count_set(), "{label}: rectangles overlap");
 }

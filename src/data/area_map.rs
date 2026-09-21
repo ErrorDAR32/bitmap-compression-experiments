@@ -33,7 +33,7 @@
 //! its changes went with it. If another one wants a fallback, this is
 //! where it belongs.
 
-use crate::{BitMatrix, Rect};
+use crate::{BitMatrix, Area};
 
 /// Which area owns each cell.
 pub(crate) struct AreaMap {
@@ -61,7 +61,7 @@ impl AreaMap {
     /// already. Taking it rather than rebuilding it from the areas is
     /// the difference between a copy of eight kilobytes and 32,768
     /// separate cell writes.
-    pub(crate) fn paint(&mut self, standing: &BitMatrix, areas: &[Rect]) {
+    pub(crate) fn paint(&mut self, standing: &BitMatrix, areas: &[Area]) {
         assert!(areas.len() <= Self::FULL, "more areas than a cell can name");
         self.standing.copy_from(standing);
         for (index, area) in areas.iter().enumerate() {
@@ -78,7 +78,7 @@ impl AreaMap {
 
     /// Hands every cell of an area to a slot, a row at a time so that
     /// each row is one contiguous fill.
-    pub(crate) fn give(&mut self, area: &Rect, to: usize) {
+    pub(crate) fn give(&mut self, area: &Area, to: usize) {
         debug_assert!(to < Self::FULL, "an area outgrew its room");
         let held = to as u16;
         for y in area.y0..=area.y1 {

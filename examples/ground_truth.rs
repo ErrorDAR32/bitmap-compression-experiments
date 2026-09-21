@@ -125,7 +125,7 @@ impl Report {
         for r in &got {
             painted.set_rect(r.x0 as i64, r.y0 as i64, r.x1 as i64, r.y1 as i64);
         }
-        let area: u32 = got.iter().map(|r| r.area()).sum();
+        let area: u32 = got.iter().map(|r| r.cells()).sum();
         let covers = (0..n).all(|y| (0..n).all(|x| {
             bits.get(x as u8, y as u8) == painted.get(x as u8, y as u8)
         }));

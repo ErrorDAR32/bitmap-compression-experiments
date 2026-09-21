@@ -19,7 +19,7 @@ fn report(label: &str, maps: Vec<BitMatrix>) {
     let each = maps.len() as u32;
 
     println!("\n{} {label} bitmaps, best of 5, per bitmap:", maps.len());
-    println!("  {:<24} {:>8} {:>10} {:>14}", "stopping after", "rects", "time", "over the fewest");
+    println!("  {:<24} {:>8} {:>10} {:>14}", "stopping after", "areas", "time", "over the fewest");
 
     let mut work = RunmaxClipnmerge::new();
     for (label, far) in [
@@ -27,21 +27,21 @@ fn report(label: &str, maps: Vec<BitMatrix>) {
         ("growing", Some(Far::Growing)),
         ("merging", Some(Far::Merging)),
     ] {
-        let mut rects = 0;
+        let mut areas = 0;
         let mut fastest = Duration::MAX;
         for _ in 0..5 {
             let start = Instant::now();
-            rects = 0;
+            areas = 0;
             for bits in &maps {
-                rects += std::hint::black_box(work.partition_to(bits, far).len());
+                areas += std::hint::black_box(work.partition_to(bits, far).len());
             }
             fastest = fastest.min(start.elapsed());
         }
         let per = fastest / each;
-        let over = rects as f64 / minimum as f64;
+        let over = areas as f64 / minimum as f64;
         println!(
             "  {label:<24} {:>8.2} {:>10.1?} {:>14.2}%",
-            rects as f64 / each as f64,
+            areas as f64 / each as f64,
             per,
             100.0 * (over - 1.0)
         );

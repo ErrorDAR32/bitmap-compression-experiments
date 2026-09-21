@@ -26,8 +26,8 @@
 //! bits.set_circle(180, 180, 25);
 //!
 //! let mut work = RunmaxClipnmerge::new();
-//! let rects = work.partition(&bits);
-//! assert!(rects.iter().map(|r| r.area()).sum::<u32>() == bits.count_set());
+//! let areas = work.partition(&bits);
+//! assert!(areas.iter().map(|r| r.cells()).sum::<u32>() == bits.count_set());
 //! ```
 //!
 //! # How the crate is laid out
@@ -76,7 +76,7 @@ mod partition;
 pub mod runmax;
 pub mod samples;
 
-pub use data::{BitMatrix, Rect};
+pub use data::{BitMatrix, Area};
 pub use partition::{assert_partition, Partition};
 pub use runmax::{mesh_by_scanning, Far, RunmaxClipnmerge};
 
