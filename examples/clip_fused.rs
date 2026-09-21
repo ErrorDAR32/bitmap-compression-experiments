@@ -27,7 +27,7 @@
 //! clip_fused <shape> [seed]
 //! ```
 
-use bitmatrix::{accurate, merge_areas, samples, ClipScratch};
+use bitmatrix::{accurate, clip_cuts, merge_areas, samples, ClipScratch};
 use bitmatrix::{Area, BitMatrix, RunmaxClipnmerge, Shape};
 use std::time::Instant;
 
@@ -101,6 +101,12 @@ fn clips_for(areas: &[Area], at: usize, out: &mut Vec<Area>) {
     out.dedup();
 }
 
+/// Whether a clip may only cut one area in two, or may stamp across
+/// several. The second is a sequence of the first, so nothing is out of
+/// reach either way -- it is the greedy search that may not find it in
+/// one step.
+const SINGLE_AREA: bool = true;
+
 struct Counts {
     clips: usize,
     tried: usize,
@@ -128,7 +134,11 @@ fn fused(start: &[Area], counts: &mut Counts) -> Vec<Area> {
         let mut at = 0;
         while at < areas.len() {
             counts.looked += 1;
-            clips_for(&areas, at, &mut offers);
+            if SINGLE_AREA {
+                clip_cuts(&areas, at, &mut offers);
+            } else {
+                clips_for(&areas, at, &mut offers);
+            }
 
             let mut took = false;
             for &r in &offers {

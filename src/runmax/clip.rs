@@ -143,6 +143,50 @@ pub(crate) fn from_pairs(areas: &[Area], out: &mut Vec<Area>) {
     }
 }
 
+/// The simplest clip there is: cut one area in two, and touch nothing
+/// else.
+///
+/// A clip that stamps across several areas is a sequence of these, so
+/// nothing is out of reach by restricting to them -- it only takes more
+/// steps. What is gained is that the move is trivial to reason about
+/// and to price: it costs exactly one area, every time, and the only
+/// thing it can affect is the area it cuts.
+///
+/// Where to cut is the only question, and the neighbours answer it.
+/// Merging rejects a neighbour whose face does not line up with the
+/// span it must cover, so a cut is worth making exactly where some
+/// neighbour has an edge. That gives O(neighbours) cuts an area rather
+/// than one per position inside it.
+pub(crate) fn from_cuts(areas: &[Area], at: usize, out: &mut Vec<Area>) {
+    let a = areas[at];
+    for (index, b) in areas.iter().enumerate() {
+        if index == at {
+            continue;
+        }
+        // Above or below: its left and right edges say where to cut
+        // `a` across its width.
+        if touching(&a, b, true) {
+            // One size up: an edge at 255 has no position after it, and
+            // a cut there would wrap to zero and cut the wrong end.
+            for x in [b.x0 as u16, b.x1 as u16 + 1] {
+                if x > a.x0 as u16 && x <= a.x1 as u16 {
+                    out.push(Area { x1: (x - 1) as u8, ..a });
+                }
+            }
+        }
+        // Beside it: its top and bottom edges cut across the height.
+        if touching(&a, b, false) {
+            for y in [b.y0 as u16, b.y1 as u16 + 1] {
+                if y > a.y0 as u16 && y <= a.y1 as u16 {
+                    out.push(Area { y1: (y - 1) as u8, ..a });
+                }
+            }
+        }
+    }
+    out.sort_unstable_by_key(|r| (r.y1, r.x1));
+    out.dedup();
+}
+
 /// Every clip worth offering for a partition, without repeats.
 pub(crate) fn candidates(areas: &[Area]) -> Vec<Area> {
     let mut out = Vec::new();

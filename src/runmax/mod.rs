@@ -38,6 +38,14 @@ pub fn clip_with(areas: &[Area], r: Area) -> (Vec<Area>, Vec<usize>) {
     clip::clip(areas, r)
 }
 
+/// The single-area cuts worth offering for one area: split it in two
+/// wherever a neighbour has an edge. See [`crate::runmax::clip`].
+#[doc(hidden)]
+pub fn clip_cuts(areas: &[Area], at: usize, out: &mut Vec<Area>) {
+    out.clear();
+    clip::from_cuts(areas, at, out);
+}
+
 /// Room to score a clip in, found once.
 ///
 /// Scoring means stamping a rectangle onto a partition and merging what
@@ -60,6 +68,20 @@ impl Default for ClipScratch {
 impl ClipScratch {
     pub fn new() -> Self {
         Self { list: crate::data::List::new(), work: merge::Work::new() }
+    }
+
+    /// Merges a small set of areas to a fixed point without allocating.
+    ///
+    /// For a preview: a search that tries a sequence of cuts on a
+    /// handful of areas needs to merge after each one, and building a
+    /// workspace per try costs more than the try.
+    pub fn merge_into(&mut self, areas: &[Area], out: &mut Vec<Area>) -> usize {
+        self.list.clear();
+        self.list.extend_from_slice(areas);
+        merge::merge(&mut self.list, &mut self.work);
+        out.clear();
+        out.extend_from_slice(&self.list);
+        self.list.len()
     }
 
     /// Stamps `r` onto `areas`, merges only what that disturbed, and

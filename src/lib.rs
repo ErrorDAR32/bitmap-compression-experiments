@@ -84,7 +84,7 @@ pub use partition::{assert_partition, Partition};
 pub use samples::Shape;
 pub use halving::Halving;
 pub use runmax::{
-    clip_candidates, clip_with, merge_areas, merge_areas_from, mesh_by_scanning,
+    clip_candidates, clip_cuts, clip_with, merge_areas, merge_areas_from, mesh_by_scanning,
     ClipScratch, RunmaxClipnmerge, Stop,
 };
 
