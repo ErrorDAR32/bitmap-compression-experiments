@@ -84,18 +84,35 @@ impl<T: Copy + Default, const N: usize> List<T, N> {
         }
     }
 
-    /// Takes the last value, or `None` when there is none.
-    pub(crate) fn pop(&mut self) -> Option<T> {
-        (self.len > 0).then(|| {
-            self.len -= 1;
-            self.slots[self.len]
-        })
+    /// Drops everything past `len`, and does nothing if the list is
+    /// already that short or shorter.
+    pub(crate) fn truncate(&mut self, len: usize) {
+        self.len = self.len.min(len);
     }
 
-    /// How many more values would fit.
-    pub(crate) fn room(&self) -> usize {
-        N - self.len
+    /// Adds every value the iterator yields.
+    pub(crate) fn extend(&mut self, values: impl IntoIterator<Item = T>) {
+        for value in values {
+            self.push(value);
+        }
     }
+
+    /// Drops the values equal to the one before them, which after a
+    /// sort is every repeat.
+    pub(crate) fn dedup(&mut self)
+    where
+        T: PartialEq,
+    {
+        let mut kept = 0;
+        for index in 0..self.len {
+            if kept == 0 || self.slots[index] != self.slots[kept - 1] {
+                self.slots[kept] = self.slots[index];
+                kept += 1;
+            }
+        }
+        self.len = kept;
+    }
+
 }
 
 /// Reading a list is reading its slice, so every slice method -- `iter`,
@@ -122,8 +139,8 @@ mod tests {
         let mut list: List<u8, 4> = List::new();
         list.extend_from_slice(&[1, 2, 3]);
         assert_eq!(&*list, &[1, 2, 3]);
-        assert_eq!(list.room(), 1);
-        assert_eq!(list.pop(), Some(3));
+        list.truncate(2);
+        assert_eq!(&*list, &[1, 2]);
         list.clear();
         assert!(list.is_empty());
     }

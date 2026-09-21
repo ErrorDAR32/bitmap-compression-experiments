@@ -24,7 +24,7 @@ mod pass;
 pub use mesh::mesh_by_scanning;
 pub use pass::Far;
 
-use crate::data::{BitmapAreas, Runs, Run};
+use crate::data::{bounds, BitmapAreas, List, Run, Runs};
 use crate::runmax::mesh::{take_all_area, AreaRunSeed, Level, Queue};
 use crate::runmax::pass::Pass;
 use crate::{BitMatrix, Area};
@@ -56,9 +56,9 @@ pub struct RunmaxClipnmerge {
     queue: Queue,
     level: Level,
     areas: BitmapAreas,
-    plan: Vec<Area>,
-    cut_rows: Vec<(u8, Run)>,
-    cut_cols: Vec<(u8, Run)>,
+    plan: List<Area, { bounds::PLAN }>,
+    cut_rows: List<(u8, Run), { bounds::CUT }>,
+    cut_cols: List<(u8, Run), { bounds::CUT }>,
     pass: Pass,
 }
 
@@ -91,9 +91,9 @@ impl RunmaxClipnmerge {
             queue: Queue::new(),
             level: Level::new(),
             areas: BitmapAreas::new(),
-            plan: Vec::new(),
-            cut_rows: Vec::new(),
-            cut_cols: Vec::new(),
+            plan: List::new(),
+            cut_rows: List::new(),
+            cut_cols: List::new(),
             pass: Pass::new(),
         }
     }
@@ -174,7 +174,8 @@ impl RunmaxClipnmerge {
             plan.clear();
             take_all_area(crossing, seed_run.span(), seed_run.line, seed_run.is_column, plan);
 
-            for area in plan.drain(..) {
+            for index in 0..plan.len() {
+                let area = plan[index];
                 cut_rows.clear();
                 cut_cols.clear();
                 rows.carve((area.y0, area.y1), area.x0, area.x1, cut_rows);
@@ -187,7 +188,7 @@ impl RunmaxClipnmerge {
                 // belongs in the queue rather than the level being
                 // worked through.
                 for (pieces, is_column) in [(&*cut_rows, false), (&*cut_cols, true)] {
-                    for &(line, span) in pieces {
+                    for &(line, span) in pieces.iter() {
                         queue.push(AreaRunSeed::new(line, span, is_column));
                     }
                 }

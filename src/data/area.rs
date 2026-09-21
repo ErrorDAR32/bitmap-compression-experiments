@@ -2,7 +2,7 @@
 
 /// An inclusive axis-aligned rectangle over the matrix's `u8` coordinate
 /// space.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Area {
     pub x0: u8,
     pub y0: u8,

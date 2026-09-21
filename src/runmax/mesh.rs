@@ -26,7 +26,7 @@
 //! one is there because a plainer version of it was measured and cost
 //! too much; the measurements are in their own docs.
 
-use crate::data::{Runs, Run};
+use crate::data::{bounds, List, Run, Runs};
 use crate::{BitMatrix, Area};
 
 /// A run waiting to be seeded: the run itself, in whichever
@@ -53,7 +53,7 @@ use crate::{BitMatrix, Area};
 /// of it and settling that only among the runs actually tied on length
 /// sidesteps the question, and costs nothing: the tie is the only place
 /// the area was ever consulted.
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) struct AreaRunSeed {
     order: u32,
     pub(crate) line: u8,
@@ -120,9 +120,9 @@ pub(crate) fn take_all_area(
     run: Run,
     line: u8,
     run_is_column: bool,
-    out: &mut Vec<Area>,
+    out: &mut List<Area, { bounds::PLAN }>,
 ) {
-    let emit = |out: &mut Vec<Area>, from: u8, to: u8, across: Run| {
+    let emit = |out: &mut List<Area, { bounds::PLAN }>, from: u8, to: u8, across: Run| {
         out.push(if run_is_column {
             Area { x0: across.start, y0: from, x1: across.end, y1: to }
         } else {
@@ -182,25 +182,22 @@ const NO_SEED: u32 = u32::MAX;
 /// twelve bytes and a twelve-byte push is a call to memcpy.
 pub(crate) struct Queue {
     /// Every seed run pushed, in the order they were pushed.
-    runs: Vec<AreaRunSeed>,
+    runs: List<AreaRunSeed, { bounds::QUEUE }>,
     /// For each of those, the slot of the next seed run in its bucket.
-    next: Vec<u32>,
+    next: List<u32, { bounds::QUEUE }>,
     /// The seed run pushed most recently at each length.
     heads: Box<[u32; 257]>,
     longest: usize,
 }
 
 impl Queue {
-    /// Enough room for the runs a realistic bitmap goes through without
-    /// the arena having to find more.
-    const EXPECTED: usize = 8192;
 
     /// An empty queue, with room already found for the runs a
     /// realistic bitmap will put through it.
     pub(crate) fn new() -> Self {
         Self {
-            runs: Vec::with_capacity(Self::EXPECTED),
-            next: Vec::with_capacity(Self::EXPECTED),
+            runs: List::new(),
+            next: List::new(),
             heads: Box::new([NO_SEED; 257]),
             longest: 256,
         }
@@ -231,7 +228,7 @@ impl Queue {
 
     /// Empties the bucket at the longest length that has anything in it
     /// into `out`, and answers that length.
-    fn drain_longest(&mut self, out: &mut Vec<AreaRunSeed>) -> Option<u16> {
+    fn drain_longest(&mut self, out: &mut List<AreaRunSeed, { bounds::LEVEL }>) -> Option<u16> {
         loop {
             let head = self.heads[self.longest];
             if head != NO_SEED {
@@ -280,17 +277,17 @@ pub(crate) struct Level {
     /// and never reranked: one sort of a few dozen entries beats a push
     /// and a pop apiece, and the cursor below is the whole of what
     /// popping used to mean.
-    ranked: Vec<(u64, AreaRunSeed)>,
+    ranked: List<(u64, AreaRunSeed), { bounds::LEVEL }>,
     /// How far through `ranked` [`Level::take_best`] has got.
     at: usize,
     /// The bucket the queue last handed over, standing or not.
-    drawn: Vec<AreaRunSeed>,
+    drawn: List<AreaRunSeed, { bounds::LEVEL }>,
 }
 
 impl Level {
     /// An empty level. One is built per workspace and reused.
     pub(crate) fn new() -> Self {
-        Self { ranked: Vec::new(), at: 0, drawn: Vec::new() }
+        Self { ranked: List::new(), at: 0, drawn: List::new() }
     }
 
     /// Empties the level, ready for another bitmap.
@@ -382,6 +379,12 @@ impl Level {
 /// keeping a queue. Slow, obviously right, and what the fast path is
 /// checked against.
 ///
+/// Allocates freely, unlike everything it checks: the fast path keeps
+/// every list in a workspace found once, and this builds what it needs
+/// each time it needs it. That is the right trade for a reference --
+/// the one thing it must not share with the code it checks is the
+/// cleverness.
+///
 /// It has to model the level, because the level is part of what the
 /// mesh means and not merely how it is computed: the crossing areas
 /// that order a level are the ones in force when the level was drawn,
@@ -400,7 +403,8 @@ pub fn mesh_by_scanning(source: &BitMatrix) -> Vec<Area> {
 
     let (mut rows, mut cols) = Runs::of(source);
     let mut areas = Vec::new();
-    let (mut plan, mut bin) = (Vec::new(), Vec::new());
+    let mut plan: List<Area, { bounds::PLAN }> = List::new();
+    let mut bin: List<(u8, Run), { bounds::CUT }> = List::new();
     let mut level = Vec::new();
 
     while scan_for_level(&rows, &cols, &mut level) {
@@ -414,7 +418,8 @@ pub fn mesh_by_scanning(source: &BitMatrix) -> Vec<Area> {
             plan.clear();
             take_all_area(crossing, seed_run.span(), seed_run.line, seed_run.is_column, &mut plan);
 
-            for area in plan.drain(..) {
+            for index in 0..plan.len() {
+                let area = plan[index];
                 rows.carve((area.y0, area.y1), area.x0, area.x1, &mut bin);
                 cols.carve((area.x0, area.x1), area.y0, area.y1, &mut bin);
                 bin.clear();

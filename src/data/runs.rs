@@ -6,11 +6,12 @@
 //! runs are and takes cells away when told to.
 
 use crate::data::bits::{next_clear, next_set, prev_clear, range_mask, LINE_WORDS};
+use crate::data::{bounds, List};
 use crate::{BitMatrix, WIDTH};
 
 /// One run, as the inclusive positions it covers. Storing the end rather
 /// than a length keeps a run spanning all 256 positions representable.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct Run {
     pub(crate) start: u8,
     pub(crate) end: u8,
@@ -149,7 +150,13 @@ impl Runs {
     /// whatever lay strictly inside is gone, so at most one piece
     /// survives on each side. Both are read off the bits outside the
     /// range, which clearing the range cannot disturb.
-    pub(crate) fn carve(&mut self, lines: (u8, u8), lo: u8, hi: u8, created: &mut Vec<(u8, Run)>) {
+    pub(crate) fn carve(
+        &mut self,
+        lines: (u8, u8),
+        lo: u8,
+        hi: u8,
+        created: &mut List<(u8, Run), { bounds::CUT }>,
+    ) {
         for line in lines.0..=lines.1 {
             if !self.any_standing(line, lo, hi) {
                 continue;

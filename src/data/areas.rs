@@ -13,23 +13,23 @@
 //! reach a forced 1x1 by accident, and there is no index arithmetic at
 //! the boundary between the two.
 
+use crate::data::{bounds, List};
 use crate::Area;
 
 /// BitmapAreas, and the forced 1x1s that were set aside from them.
-#[derive(Default)]
 pub(crate) struct BitmapAreas {
     /// Everything a pass may rewrite.
-    working: Vec<Area>,
+    working: List<Area, { bounds::AREAS }>,
     /// Cells standing alone. Nothing can be done with them.
-    single_cells: Vec<Area>,
+    single_cells: List<Area, { bounds::SINGLE_CELLS }>,
     /// Somewhere to hand out the two joined, built only when asked.
-    joined: Vec<Area>,
+    joined: List<Area, { bounds::AREAS + bounds::SINGLE_CELLS }>,
 }
 
 impl BitmapAreas {
     /// Empty, ready for a bitmap.
     pub(crate) fn new() -> Self {
-        Self::default()
+        Self { working: List::new(), single_cells: List::new(), joined: List::new() }
     }
 
     /// Forgets the last bitmap's answer, keeping the room it used.
@@ -50,7 +50,7 @@ impl BitmapAreas {
     }
 
     /// The areas a pass may rewrite, to rewrite in place.
-    pub(crate) fn working(&mut self) -> &mut Vec<Area> {
+    pub(crate) fn working(&mut self) -> &mut List<Area, { bounds::AREAS }> {
         &mut self.working
     }
 

@@ -24,6 +24,7 @@
 //! nearly everything merging finds is something growing did not. It is
 //! kept for that, and because it is cheap beside growing.
 
+use crate::data::{bounds, List};
 use crate::runmax::edges::{Axis, Edges};
 use crate::Area;
 
@@ -33,15 +34,15 @@ use crate::Area;
 pub(crate) struct Work {
     edges: Edges,
     scratch: Covering,
-    touched: Vec<bool>,
-    gone: Vec<bool>,
+    touched: List<bool, { bounds::AREAS }>,
+    gone: List<bool, { bounds::AREAS }>,
     /// The rectangles to try this round.
-    live: Vec<usize>,
+    live: List<usize, { bounds::AREAS }>,
     /// The rectangles a merge changed the shape of, which are what
     /// the round after it has to try.
-    grew: Vec<usize>,
+    grew: List<usize, { bounds::AREAS }>,
     /// Where each rectangle lands once the merged-away ones are dropped.
-    moved: Vec<usize>,
+    moved: List<usize, { bounds::AREAS }>,
 }
 
 impl Work {
@@ -49,19 +50,19 @@ impl Work {
     pub(crate) fn new() -> Self {
         Self {
             edges: Edges::new(),
-            scratch: Covering::default(),
-            touched: Vec::new(),
-            gone: Vec::new(),
-            live: Vec::new(),
-            grew: Vec::new(),
-            moved: Vec::new(),
+            scratch: Covering::new(),
+            touched: List::new(),
+            gone: List::new(),
+            live: List::new(),
+            grew: List::new(),
+            moved: List::new(),
         }
     }
 }
 
 /// Merges everywhere, looking at every rectangle. See [`merge_from`],
 /// which is the same thing told where to look.
-pub(crate) fn merge(areas: &mut Vec<Area>, work: &mut Work) -> usize {
+pub(crate) fn merge(areas: &mut List<Area, { bounds::AREAS }>, work: &mut Work) -> usize {
     merge_from(areas, work, None)
 }
 
@@ -80,7 +81,7 @@ pub(crate) fn merge(areas: &mut Vec<Area>, work: &mut Work) -> usize {
 /// the cascade reaches has anything to find, and looking anyway is what
 /// mattered when a third move used to call this after every change it
 /// made: looking everywhere anyway spent 47.5ms of a bitmap's 88ms.
-pub(crate) fn merge_from(areas: &mut Vec<Area>, work: &mut Work, start: Option<&[usize]>) -> usize {
+pub(crate) fn merge_from(areas: &mut List<Area, { bounds::AREAS }>, work: &mut Work, start: Option<&[usize]>) -> usize {
     let Work { edges, scratch, touched, gone, live, grew, moved } = work;
     let mut reclaimed = 0;
 
@@ -138,7 +139,7 @@ pub(crate) fn merge_from(areas: &mut Vec<Area>, work: &mut Work, start: Option<&
             };
 
             let given = areas[a];
-            for &taker in &scratch.takers {
+            for &taker in scratch.takers.iter() {
                 axis.take_in(&mut areas[taker], &given);
                 touched[taker] = true;
                 grew.push(taker);
@@ -163,11 +164,7 @@ pub(crate) fn merge_from(areas: &mut Vec<Area>, work: &mut Work, start: Option<&
             moved.push(lands);
             lands += usize::from(!away);
         }
-        let mut i = 0;
-        areas.retain(|_| {
-            i += 1;
-            !gone[i - 1]
-        });
+        areas.retain(|index, _| !gone[index]);
 
         live.clear();
         for &changed in grew.iter() {
@@ -178,18 +175,29 @@ pub(crate) fn merge_from(areas: &mut Vec<Area>, work: &mut Work, start: Option<&
 
 /// Working room for one attempt at giving a rectangle away, laid out
 /// as an interval cover over the rectangle's own span.
-#[derive(Default)]
 pub(crate) struct Covering {
     /// Candidate faces as `(start, end + 1, index)`, offset from the
     /// merging rectangle's own start.
-    faces: Vec<(usize, usize, usize)>,
+    faces: List<(usize, usize, usize), { bounds::AREAS }>,
     /// For each position along the span, which face got the cover that
     /// far, so the chain of takers can be read back from the end.
-    reached: Vec<Option<usize>>,
+    reached: List<Option<usize>, { crate::WIDTH + 1 }>,
     /// Which positions the cover has reached at all.
-    open: Vec<bool>,
+    open: List<bool, { crate::WIDTH + 1 }>,
     /// The chain that covered the whole span, once one did.
-    takers: Vec<usize>,
+    takers: List<usize, { bounds::AREAS }>,
+}
+
+impl Covering {
+    /// Every list empty, with its room already found.
+    fn new() -> Self {
+        Self {
+            faces: List::new(),
+            reached: List::new(),
+            open: List::new(),
+            takers: List::new(),
+        }
+    }
 }
 
 /// Works out whether `a` can be cut across `axis` into stretches that
@@ -230,7 +238,7 @@ fn plan(
     }
 
     scratch.reached.clear();
-    scratch.reached.resize(width + 1, None);
+    scratch.reached.resize(width + 1, None::<usize>);
     scratch.open.clear();
     scratch.open.resize(width + 1, false);
     scratch.open[0] = true;
@@ -238,7 +246,7 @@ fn plan(
         if !scratch.open[pos] {
             continue;
         }
-        for &(start, end, b) in &scratch.faces {
+        for &(start, end, b) in scratch.faces.iter() {
             if start == pos && scratch.reached[end].is_none() {
                 scratch.reached[end] = Some(b);
                 scratch.open[end] = true;

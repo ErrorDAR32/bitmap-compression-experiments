@@ -20,7 +20,7 @@
 
 use crate::runmax::pass::Pass;
 use crate::data::bits::{range_mask, LINE_WORDS};
-use crate::data::AreaMap;
+use crate::data::{bounds, AreaMap, List};
 use crate::{BitMatrix, Area};
 
 /// Which way a rectangle grows.
@@ -103,8 +103,8 @@ fn split_met(
     met: &[usize],
     band: &Area,
     side: Side,
-    taken: &mut Vec<usize>,
-    cut: &mut Vec<(usize, u8)>,
+    taken: &mut List<usize, { bounds::MET }>,
+    cut: &mut List<(usize, u8), { bounds::MET }>,
 ) {
     taken.clear();
     cut.clear();
@@ -122,12 +122,12 @@ fn split_met(
 /// allocation at all.
 pub(crate) struct Growing {
     /// The neighbours the band has run into, in the order it met them.
-    met: Vec<usize>,
-    taken: Vec<usize>,
-    cut: Vec<(usize, u8)>,
+    met: List<usize, { bounds::MET }>,
+    taken: List<usize, { bounds::MET }>,
+    cut: List<(usize, u8), { bounds::MET }>,
     /// Which visit last saw each rectangle, so that "have I met this
     /// one already" is a compare rather than a search.
-    seen: Vec<u32>,
+    seen: List<u32, { bounds::AREAS }>,
     /// Which walk is under way, raised once per walk so that the whole
     /// of `seen` goes stale at once rather than being blanked.
     visit: u32,
@@ -139,10 +139,10 @@ impl Growing {
     /// Empty scratch. One is built per workspace and reused.
     pub(crate) fn new() -> Self {
         Self {
-            met: Vec::new(),
-            taken: Vec::new(),
-            cut: Vec::new(),
-            seen: Vec::new(),
+            met: List::new(),
+            taken: List::new(),
+            cut: List::new(),
+            seen: List::new(),
             visit: 0,
             settles: [0; 256],
         }
@@ -281,9 +281,9 @@ fn reach(
 /// own slot and the rest appended, which is why the list grows even as
 /// the count falls.
 fn take_band(
-    areas: &mut Vec<Area>,
+    areas: &mut List<Area, { bounds::AREAS }>,
     owners: &mut AreaMap,
-    gone: &mut Vec<bool>,
+    gone: &mut List<bool, { bounds::AREAS }>,
     a: usize,
     side: Side,
     reach: Band<'_>,
@@ -391,19 +391,15 @@ const PIECES: usize = 3;
 
 /// Drops the dead slots, so that the surviving areas are numbered from
 /// zero again with nothing in between.
-fn compact(areas: &mut Vec<Area>, gone: &mut Vec<bool>) {
-    let mut index = 0;
-    areas.retain(|_| {
-        index += 1;
-        !gone[index - 1]
-    });
+fn compact(areas: &mut List<Area, { bounds::AREAS }>, gone: &mut List<bool, { bounds::AREAS }>) {
+    areas.retain(|index, _| !gone[index]);
     gone.clear();
     gone.resize(areas.len(), false);
 }
 
 /// Grows every rectangle that can grow, until none can, and answers how
 /// many were swallowed.
-pub(crate) fn grow(standing: &BitMatrix, areas: &mut Vec<Area>, pass: &mut Pass) -> usize {
+pub(crate) fn grow(standing: &BitMatrix, areas: &mut List<Area, { bounds::AREAS }>, pass: &mut Pass) -> usize {
     let Pass { owners, gone, growing: scratch, .. } = pass;
     owners.paint(standing, areas);
     gone.clear();
