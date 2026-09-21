@@ -67,7 +67,12 @@ impl Table {
                 out.push_str(&format!("{field:>width$}"));
             }
         }
-        out.trim_end().to_string()
+        // Right hand padding goes, but never a column bar: a heading
+        // line that ends in blank cells still has to show where its
+        // columns are.
+        let cut = out.rfind('|').map_or(0, |at| at + 1);
+        let (bars, tail) = out.split_at(cut);
+        format!("{bars}{}", tail.trim_end())
     }
 
     fn rule_line(&self, widths: &[usize]) -> String {
@@ -81,11 +86,17 @@ impl Table {
         out
     }
 
-    /// Prints the table, headings first and a rule under them.
+    /// Prints the table: the headings in a ruled block, then the rows.
+    ///
+    /// A rule above the headings as well as below them, because a tall
+    /// heading leaves blank cells over the short columns and without
+    /// something to close the top they read as empty rows of the table
+    /// rather than as part of its head.
     pub fn print(&self) {
         let widths = self.widths();
         let tall = self.headings.iter().map(Vec::len).max().unwrap_or(1);
 
+        println!("{}", self.rule_line(&widths));
         // Headings sit at the bottom of their stack, so a one line
         // heading lines up with the last line of a taller one.
         for line in 0..tall {
