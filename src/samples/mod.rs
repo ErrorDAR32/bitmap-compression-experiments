@@ -17,7 +17,10 @@
 //! them. The worst motif cost 13,057 instructions per set cell, where
 //! `grown(_, 0.50, 0.00)` costs 124,610.
 //!
-//! `generate` holds the drawing itself.
+//! `generate` holds the drawing itself, and `docs/protocol.md` holds
+//! the rule for using it: fix with the seed held still, then check on a
+//! seed never seen. A change measured only on the corpus it was tuned
+//! on has not been measured.
 
 mod generate;
 

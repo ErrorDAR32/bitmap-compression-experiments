@@ -40,7 +40,11 @@
 
 use crate::data::bits::{range_mask, LINE_WORDS};
 use crate::data::{bounds, List};
+use crate::runmax::rewrite::{self, Buffers, Stop};
 use crate::{Area, BitMatrix};
+
+/// The node every tree starts from: the whole matrix.
+const WHOLE: Area = Area { x0: 0, y0: 0, x1: 255, y1: 255 };
 
 /// The most leaves a tree can have: every cell its own.
 const LEAVES: usize = bounds::CELLS;
@@ -70,6 +74,12 @@ pub struct Halving {
     content: List<bool, LEAVES>,
     /// The full leaves, which are the partition.
     areas: List<Area, { bounds::AREAS }>,
+    /// Room for the rewriting pass, for [`Halving::partition_rewritten`].
+    buffers: Buffers,
+    /// The cells standing alone and everything else, so the rewriting
+    /// pass never sees a forced 1x1.
+    single_cells: BitMatrix,
+    rest: BitMatrix,
 }
 
 impl Default for Halving {
@@ -91,7 +101,14 @@ impl crate::Partition for Halving {
 impl Halving {
     /// Builds the workspace, with room for the worst tree there is.
     pub fn new() -> Self {
-        Self { shape: List::new(), content: List::new(), areas: List::new() }
+        Self {
+            shape: List::new(),
+            content: List::new(),
+            areas: List::new(),
+            buffers: Buffers::new(),
+            single_cells: BitMatrix::new(),
+            rest: BitMatrix::new(),
+        }
     }
 
     /// Splits the bitmap's set bits into the full leaves of its halving
@@ -100,9 +117,34 @@ impl Halving {
         self.shape.clear();
         self.content.clear();
         self.areas.clear();
-        let whole = Area { x0: 0, y0: 0, x1: 255, y1: 255 };
-        self.cut(bits, whole);
+        cut(bits, WHOLE, &mut self.shape, &mut self.content, &mut self.areas);
         &self.areas
+    }
+
+    /// The halving tree used as a mesh, with [`crate::runmax`]'s
+    /// rewriting pass run over its leaves.
+    ///
+    /// The tree is a worse partition than runmax's mesh and a much
+    /// cheaper one, and the rewriting pass does not care where its
+    /// areas came from -- it takes a bitmap and a partition of it and
+    /// makes that partition smaller. So the two compose.
+    /// A cell standing alone is forced to be 1x1 whatever anyone does
+    /// with it, so it is set aside before the tree is built and put
+    /// back afterwards. That keeps it out of the rewriting pass, which
+    /// is what the pass costs most on: it is priced by the areas handed
+    /// to it, and on scattered content most of them would be these.
+    #[doc(hidden)]
+    pub fn partition_rewritten(&mut self, bits: &BitMatrix, stop: Stop) -> &[Area] {
+        let Self { shape, content, areas, buffers, single_cells, rest } = self;
+        bits.split_single_cells_into(single_cells, rest);
+
+        shape.clear();
+        content.clear();
+        areas.clear();
+        cut(rest, WHOLE, shape, content, areas);
+        rewrite::rewrite(rest, areas, buffers, stop);
+        single_cells.for_each_set(|x, y| areas.push(Area { x0: x, y0: y, x1: x, y1: y }));
+        areas
     }
 
     /// How many bits the two sequences come to, which is what the
@@ -116,28 +158,39 @@ impl Halving {
         (&self.shape, &self.content)
     }
 
-    /// Cuts one node, depth first, and records what it found.
-    ///
-    /// Recursion rather than a stack of its own, because the depth is
-    /// fixed and small: each cut halves the longer side, and a 256 by
-    /// 256 matrix reaches a single cell in sixteen of them.
-    fn cut(&mut self, bits: &BitMatrix, node: Area) {
-        match uniform(bits, &node) {
-            Uniform::Full => {
-                self.shape.push(false);
-                self.content.push(true);
-                self.areas.push(node);
-            }
-            Uniform::Empty => {
-                self.shape.push(false);
-                self.content.push(false);
-            }
-            Uniform::Mixed => {
-                self.shape.push(true);
-                let (near, far) = halve(node);
-                self.cut(bits, near);
-                self.cut(bits, far);
-            }
+}
+
+/// Cuts one node, depth first, and records what it found.
+///
+/// A free function over the lists rather than a method, so that the
+/// bitmap being read can live in the same workspace the lists do
+/// without the two borrows meeting.
+///
+/// Recursion rather than a stack of its own, because the depth is fixed
+/// and small: each cut halves the longer side, and a 256 by 256 matrix
+/// reaches a single cell in sixteen of them.
+fn cut(
+    bits: &BitMatrix,
+    node: Area,
+    shape: &mut List<bool, NODES>,
+    content: &mut List<bool, LEAVES>,
+    areas: &mut List<Area, { bounds::AREAS }>,
+) {
+    match uniform(bits, &node) {
+        Uniform::Full => {
+            shape.push(false);
+            content.push(true);
+            areas.push(node);
+        }
+        Uniform::Empty => {
+            shape.push(false);
+            content.push(false);
+        }
+        Uniform::Mixed => {
+            shape.push(true);
+            let (near, far) = halve(node);
+            cut(bits, near, shape, content, areas);
+            cut(bits, far, shape, content, areas);
         }
     }
 }

@@ -19,7 +19,7 @@ mod edges;
 mod grow;
 mod merge;
 mod mesh;
-mod rewrite;
+pub(crate) mod rewrite;
 
 pub use mesh::mesh_by_scanning;
 pub use rewrite::Stop;

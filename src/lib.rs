@@ -54,6 +54,8 @@
 //!
 //! `docs/walkthrough.md` works the hardest parts through by hand, one
 //! line at a time, on bitmaps small enough to print.
+//! `docs/protocol.md` is how a change to any of it gets measured, and
+//! is worth reading before trusting a number in these comments.
 //!
 //! # Throughput
 //!
