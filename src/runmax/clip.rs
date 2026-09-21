@@ -16,6 +16,7 @@
 //! only from the experiments that are still deciding what the rule
 //! should be.
 
+use crate::runmax::edges::{Axis, Edges};
 use crate::Area;
 
 /// Whether two areas share no cell.
@@ -195,4 +196,73 @@ pub(crate) fn candidates(areas: &[Area]) -> Vec<Area> {
     out.sort_unstable_by_key(|a| (a.y0, a.x0, a.y1, a.x1));
     out.dedup();
     out
+}
+
+
+/// Which areas touch which, answered by the edge index rather than by
+/// asking every area.
+///
+/// A preview needs the areas near the one it is about to cut, and
+/// finding them by testing every area against it is O(all of them) for
+/// a question whose answer is a handful. The edge index already holds
+/// exactly that answer -- it buckets every area's four faces by the
+/// line they lie on, so the areas against one side of an area are a
+/// slice of it.
+///
+/// Rebuilt when the partition changes, which for a preview search is
+/// once per plan committed rather than once per candidate tried.
+pub(crate) struct Adjacency {
+    edges: Edges,
+}
+
+impl Adjacency {
+    pub(crate) fn new() -> Self {
+        Self { edges: Edges::new() }
+    }
+
+    /// Reads the partition. Everything below is a lookup against this.
+    pub(crate) fn rebuild(&mut self, areas: &[Area]) {
+        self.edges.rebuild(areas);
+    }
+
+    /// The areas touching `of`, appended to `out`.
+    ///
+    /// Four queries, one per side: for each axis, the two lines a
+    /// neighbour must sit on, and the faces there that overlap this
+    /// area's span.
+    pub(crate) fn touching(&self, areas: &[Area], of: usize, out: &mut Vec<usize>) {
+        let a = areas[of];
+        for axis in [Axis::Vertical, Axis::Horizontal] {
+            let (lo, hi) = axis.span(&a);
+            for (side, line) in axis.faces(&a).into_iter().enumerate() {
+                let Some(line) = line else { continue };
+                for face in self.edges.overlapping(axis, side, line, lo, hi) {
+                    let near = face.area as usize;
+                    if near != of && !out.contains(&near) {
+                        out.push(near);
+                    }
+                }
+            }
+        }
+    }
+
+    /// The areas within `rings` steps of `of`, itself first.
+    pub(crate) fn near(&self, areas: &[Area], of: usize, rings: usize, out: &mut Vec<usize>) {
+        out.clear();
+        out.push(of);
+        let mut from = 0;
+        for _ in 0..rings {
+            let to = out.len();
+            for index in from..to {
+                let at = out[index];
+                // `touching` skips what is already there, so the rings
+                // never revisit each other.
+                self.touching(areas, at, out);
+            }
+            if out.len() == to {
+                break;
+            }
+            from = to;
+        }
+    }
 }

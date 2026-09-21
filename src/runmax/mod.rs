@@ -46,6 +46,34 @@ pub fn clip_cuts(areas: &[Area], at: usize, out: &mut Vec<Area>) {
     clip::from_cuts(areas, at, out);
 }
 
+/// Which areas touch which, for a search that needs the neighbourhood
+/// of an area rather than all of them. See [`crate::runmax::clip`].
+#[doc(hidden)]
+pub struct Adjacency(clip::Adjacency);
+
+impl Default for Adjacency {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Adjacency {
+    pub fn new() -> Self {
+        Self(clip::Adjacency::new())
+    }
+
+    /// Reads the partition. Call it when the partition changes, not
+    /// when a question is asked of it.
+    pub fn rebuild(&mut self, areas: &[Area]) {
+        self.0.rebuild(areas);
+    }
+
+    /// The areas within `rings` steps of `of`, itself first.
+    pub fn near(&self, areas: &[Area], of: usize, rings: usize, out: &mut Vec<usize>) {
+        self.0.near(areas, of, rings, out);
+    }
+}
+
 /// Room to score a clip in, found once.
 ///
 /// Scoring means stamping a rectangle onto a partition and merging what

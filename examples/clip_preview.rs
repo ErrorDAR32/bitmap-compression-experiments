@@ -27,7 +27,7 @@
 //! clip_preview <shape> [seed] [depth]
 //! ```
 
-use bitmatrix::{accurate, clip_cuts, merge_areas, samples};
+use bitmatrix::{accurate, clip_cuts, merge_areas, samples, Adjacency};
 use bitmatrix::{Area, BitMatrix, ClipScratch, RunmaxClipnmerge, Shape};
 use std::time::Instant;
 
@@ -45,45 +45,32 @@ fn pick(name: &str) -> &'static Shape {
     samples::SHAPES.iter().find(|s| s.name == name).expect("no shape by that name")
 }
 
-/// Whether two areas share a stretch of edge.
-fn touching(a: &Area, b: &Area) -> bool {
-    let across = (a.x1 as i32 + 1 == b.x0 as i32 || b.x1 as i32 + 1 == a.x0 as i32)
-        && a.y0 <= b.y1
-        && b.y0 <= a.y1;
-    let down = (a.y1 as i32 + 1 == b.y0 as i32 || b.y1 as i32 + 1 == a.y0 as i32)
-        && a.x0 <= b.x1
-        && b.x0 <= a.x1;
-    across || down
-}
-
-/// The areas within `RINGS` steps of `at`, itself included.
-fn neighbourhood(areas: &[Area], at: usize, out: &mut Vec<usize>) {
-    out.clear();
-    out.push(at);
-    let mut ring = 0;
-    let mut from = 0;
-    while ring < RINGS {
-        let to = out.len();
-        for index in from..to {
-            let a = areas[out[index]];
-            for (other, b) in areas.iter().enumerate() {
-                if !out.contains(&other) && touching(&a, b) {
-                    out.push(other);
-                }
-            }
-        }
-        from = to;
-        ring += 1;
-        if out.len() == to {
-            break;
-        }
-    }
-}
-
 struct Counts {
     plans: usize,
     cuts_tried: usize,
     previews: usize,
+}
+
+/// Room for the search, one set of lists per level of it.
+///
+/// The recursion allocated three vectors a level and cloned the
+/// partition it was working on for every cut it tried. At eighteen
+/// million cuts that is the search's whole cost, and none of it is
+/// search.
+struct Bench {
+    merged: Vec<Vec<Area>>,
+    cuts: Vec<Vec<Area>>,
+    after: Vec<Vec<Area>>,
+}
+
+impl Bench {
+    fn deep(depth: usize) -> Self {
+        Self {
+            merged: vec![Vec::new(); depth + 1],
+            cuts: vec![Vec::new(); depth + 1],
+            after: vec![Vec::new(); depth + 1],
+        }
+    }
 }
 
 /// The best the preview can do with these areas in `depth` cuts or
@@ -97,40 +84,56 @@ fn plan(
     target: usize,
     depth: usize,
     scratch: &mut ClipScratch,
+    bench: &mut Bench,
     counts: &mut Counts,
 ) -> Option<Vec<Area>> {
-    let mut merged = Vec::new();
+    // Taken out and put back, so each level owns its lists for the
+    // length of the call without the borrow checker having to see
+    // several levels at once.
+    let mut merged = std::mem::take(&mut bench.merged[depth]);
     scratch.merge_into(local, &mut merged);
     if merged.len() < target {
-        return Some(merged);
+        let found = merged.clone();
+        bench.merged[depth] = merged;
+        return Some(found);
     }
     if depth == 0 {
+        bench.merged[depth] = merged;
         return None;
     }
 
-    let mut cuts = Vec::new();
-    for at in 0..merged.len() {
+    let mut cuts = std::mem::take(&mut bench.cuts[depth]);
+    let mut after = std::mem::take(&mut bench.after[depth]);
+    let mut found = None;
+
+    'outer: for at in 0..merged.len() {
         clip_cuts(&merged, at, &mut cuts);
         for &piece in &cuts {
             counts.cuts_tried += 1;
-            // The cut: `piece` stays, the rest of the area it came from
-            // becomes the other half.
+            // The cut: `piece` stays and the rest of the area it came
+            // from becomes the other half.
             let whole = merged[at];
             let rest = if piece.x1 < whole.x1 {
                 Area { x0: piece.x1 + 1, ..whole }
             } else {
                 Area { y0: piece.y1 + 1, ..whole }
             };
-            let mut after = merged.clone();
+            after.clear();
+            after.extend_from_slice(&merged);
             after[at] = piece;
             after.push(rest);
 
-            if let Some(found) = plan(&after, target, depth - 1, scratch, counts) {
-                return Some(found);
+            if let Some(better) = plan(&after, target, depth - 1, scratch, bench, counts) {
+                found = Some(better);
+                break 'outer;
             }
         }
     }
-    None
+
+    bench.merged[depth] = merged;
+    bench.cuts[depth] = cuts;
+    bench.after[depth] = after;
+    found
 }
 
 fn main() {
@@ -150,20 +153,23 @@ fn main() {
     let mut areas = start.clone();
     let mut counts = Counts { plans: 0, cuts_tried: 0, previews: 0 };
     let mut scratch = ClipScratch::new();
+    let mut bench = Bench::deep(depth);
     let mut near = Vec::new();
     let mut local = Vec::new();
+    let mut adjacency = Adjacency::new();
+    adjacency.rebuild(&areas);
     let at_start = Instant::now();
 
     loop {
         let mut took_any = false;
         let mut at = 0;
         while at < areas.len() {
-            neighbourhood(&areas, at, &mut near);
+            adjacency.near(&areas, at, RINGS, &mut near);
             local.clear();
             local.extend(near.iter().map(|&i| areas[i]));
             counts.previews += 1;
 
-            match plan(&local, local.len(), depth, &mut scratch, &mut counts) {
+            match plan(&local, local.len(), depth, &mut scratch, &mut bench, &mut counts) {
                 Some(better) => {
                     counts.plans += 1;
                     took_any = true;
@@ -181,6 +187,10 @@ fn main() {
                     }
                     keep.extend(better);
                     areas = keep;
+                    // The index describes a partition that no longer
+                    // exists, so it is read again -- once per plan
+                    // taken, not once per candidate tried.
+                    adjacency.rebuild(&areas);
                     at = 0;
                 }
                 None => at += 1,

@@ -85,7 +85,7 @@ pub use samples::Shape;
 pub use halving::Halving;
 pub use runmax::{
     clip_candidates, clip_cuts, clip_with, merge_areas, merge_areas_from, mesh_by_scanning,
-    ClipScratch, RunmaxClipnmerge, Stop,
+    Adjacency, ClipScratch, RunmaxClipnmerge, Stop,
 };
 
 /// The matrix is always this wide and this tall. Nothing is sized at
