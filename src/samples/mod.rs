@@ -32,7 +32,7 @@ use crate::BitMatrix;
 /// Move it to ask whether a result was about an algorithm or about
 /// those particular bitmaps. It has been zero for every measurement in
 /// this repository, which is what makes them reproducible and is not
-/// what makes them representative -- `examples/worst.rs` takes a seed
+/// what makes them representative -- `examples/absolute_worst.rs` takes a seed
 /// base as an argument so a change can be checked on bitmaps it was
 /// not tuned on.
 pub const SAMPLE_SEED: u64 = 0;

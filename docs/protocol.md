@@ -21,7 +21,7 @@ So the protocol is two-phase, and the phases must not be mixed.
 Pick a seed base and leave it alone. While it is held:
 
 - Find what the algorithm does badly on that corpus. `cargo run
-  --release --example worst` ranks the full-size bitmaps by how far over
+  --release --example absolute_worst` ranks the full-size bitmaps by how far over
   the minimum the answer lands, and shrinks the small disagreements to
   witnesses no cell can leave.
 - Change things, and measure each change against the same bitmaps.
@@ -38,9 +38,9 @@ When the problems that corpus showed are solved, move the seed and
 re-run. `worst` takes a seed base as its second argument:
 
 ```
-cargo run --release --example worst 60 0        # what was tuned on
-cargo run --release --example worst 60 1000     # never seen
-cargo run --release --example worst 60 50000    # never seen either
+cargo run --release --example absolute_worst 60 0        # what was tuned on
+cargo run --release --example absolute_worst 60 1000     # never seen
+cargo run --release --example absolute_worst 60 50000    # never seen either
 ```
 
 A change that is real holds its size on all three. A change that shrinks

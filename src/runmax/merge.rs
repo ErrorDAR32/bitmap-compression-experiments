@@ -18,6 +18,32 @@
 //! had a neighbour whose face fitted inside their span, but only 3.6%
 //! had one lining up with an end of it.
 //!
+//! A cheaper prepass for the easy half of this was tried and does not
+//! pay, which is worth writing down because the reasoning for it was
+//! sound.
+//!
+//! The `k = 1` case -- two areas agreeing exactly along one axis and
+//! touching along the other -- needs no edge index, no cascade and no
+//! fixed point. Sort the areas by the extent that has to match and the
+//! pairs land next to each other; two sorts and two linear scans find
+//! every one of them. On the halving tree, whose leaves are all
+//! power-of-two aligned blocks, that removes 35.1% of them, and on
+//! runmax's own mesh 20.8%.
+//!
+//! It still loses, and the numbers say why. On middling ragged content,
+//! net of everything else: the prepass costs 47.2M instructions and the
+//! rewriting pass it feeds gets 19.5M cheaper. Handing the passes 35%
+//! fewer areas made them 12% cheaper, not 35%.
+//!
+//! So "the rewriting pass is priced by the areas handed to it" is too
+//! simple, and it was the reasoning behind trying this. The pass is
+//! priced by the *hard* areas handed to it, and the ones a sort can
+//! pair off are exactly the ones it disposes of cheaply anyway. A
+//! cheaper sort would close some of the gap -- the keys are all bytes,
+//! so a radix pass would beat the comparison sort several times over --
+//! but the ceiling is the 19.5M, seven percent, and only for the mesh
+//! that is already the slower of the two.
+//!
 //! What growing leaves for this one is little. On middling ragged
 //! content growing alone reclaims 195.7 rectangles a bitmap and merging
 //! alone 86.8, but the two together reclaim 280.9 rather than 282.4, so

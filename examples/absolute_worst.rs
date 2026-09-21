@@ -21,7 +21,8 @@
 //!   eight reflections and rotations, since a witness and its mirror
 //!   are the same lesson.
 //!
-//! Run it with a seed count: `cargo run --release --example worst 400`.
+//! Run it with a seed count, and optionally a seed base:
+//! `cargo run --release --example absolute_worst 400 1000`.
 
 use bitmatrix::{accurate, samples, Area, BitMatrix, RunmaxClipnmerge, Stop};
 
