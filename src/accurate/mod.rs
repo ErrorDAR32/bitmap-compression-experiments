@@ -464,6 +464,45 @@ impl Accurate {
         Self::default()
     }
 
+    /// What the construction knew on the way to its answer: every
+    /// reflex corner of the region, and every chord it chose to draw.
+    ///
+    /// A reflex corner is a place the partition is *forced* to cut. A
+    /// chord is a cut that serves two of them at once, which is the
+    /// only way a partition saves a rectangle. So this is the whole of
+    /// what makes the minimum minimal, and anything else that wants to
+    /// be minimal has to draw the same chords.
+    ///
+    /// Answers the corner count and every chord there is, each as
+    /// `(line, from, to, taken)` in lattice points -- `taken` marking
+    /// the ones the independent set chose.
+    ///
+    /// Every chord, not only the chosen ones, because a maximum
+    /// independent set is not unique: another partition can draw a
+    /// different set of the same size and be just as minimal. What
+    /// matters is how many non-crossing chords a partition draws, not
+    /// which.
+    #[doc(hidden)]
+    pub fn reasoning(
+        &mut self,
+        bits: &BitMatrix,
+    ) -> (usize, Vec<(u16, u16, u16, bool)>, Vec<(u16, u16, u16, bool)>) {
+        partition_into(bits, &mut self.work);
+        let corners = self.work.reflex.iter().map(|w| w.count_ones() as usize).sum();
+        let listed = |chords: &[Chord], keep: &[bool], taken_when: bool| {
+            chords
+                .iter()
+                .zip(keep.iter())
+                .map(|(c, &k)| (c.line, c.from, c.to, k == taken_when))
+                .collect::<Vec<_>>()
+        };
+        (
+            corners,
+            listed(&self.work.horizontal, &self.work.reached_h, true),
+            listed(&self.work.vertical, &self.work.reached_v, false),
+        )
+    }
+
     /// The fewest rectangles the set bits can be split into.
     pub fn partition(&mut self, bits: &BitMatrix) -> &[Area] {
         partition_into(bits, &mut self.work);
