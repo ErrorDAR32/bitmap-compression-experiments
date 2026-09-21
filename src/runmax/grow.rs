@@ -67,11 +67,29 @@ fn far_edge(r: &Area, side: Side) -> u8 {
 /// The three-piece case is real and has to be handled, and it is worth
 /// knowing that it never happens. Counted over 168 generated bitmaps:
 /// 16,759 neighbours cut into one piece, 142 into two, and none at all
-/// into three. That follows from the pricing rather than from luck -- a
-/// neighbour is worth `1 - pieces`, so a corner cut is worth -2, and a
-/// growth is only taken on a line whose total is positive, which one
-/// corner cut needs two whole neighbours swallowed to pay for. The
-/// arithmetic allows it; the content does not seem to offer it.
+/// into three.
+///
+/// The obvious explanation is the pricing -- a neighbour is worth
+/// `1 - pieces`, so a corner cut is worth -2 and needs two whole
+/// neighbours swallowed on the same line to pay for itself -- and the
+/// obvious remedy is to price it as though a later move would take some
+/// of the three pieces back. Both were tested and both are wrong.
+///
+/// A corner is genuinely available: 50,024 times over those bitmaps a
+/// neighbour overhung both sides of the growing area and reached past
+/// the band. But crediting the cut anything from one piece up to all
+/// three leaves the partition identical to the bit, and counting the
+/// decisions directly says why: of 1,042,612 lines scored, the credit
+/// flips the sign of 79, and changes which line the walk picks zero
+/// times. Every corner that could be afforded loses to a better line
+/// anyway.
+///
+/// So this does not want lookahead. Lookahead would be for a move the
+/// scoring rejects on price, and the scoring is not what rejects it.
+/// Crediting a corner more than its three pieces -- pricing it as a
+/// reward rather than a discount -- does change the answer: growth
+/// becomes unboundedly profitable and the partition runs past the
+/// 65536 areas a cell can name, which the list bound catches.
 fn pieces_left(other: &Area, band: &Area, side: Side) -> u8 {
     let (olo, ohi, blo, bhi) = match side {
         Side::Up | Side::Down => (other.x0, other.x1, band.x0, band.x1),
