@@ -211,7 +211,7 @@ mod tests {
     ///     . B B   ->   C C C
     ///     C C C
     #[test]
-    fn dissolving_cascades() {
+    fn merging_cascades() {
         let mut areas = listed(&[r(0, 0, 1, 0), r(1, 1, 2, 1), r(0, 2, 2, 2), r(2, 0, 2, 0), r(0, 1, 0, 1)]);
         let reclaimed = free(&mut areas);
         assert_eq!(areas.len(), 5 - reclaimed);
@@ -232,7 +232,7 @@ mod tests {
 
 
     #[test]
-    fn dissolving_across_the_other_axis_works_too() {
+    fn merging_across_the_other_axis_works_too() {
         let mut areas = listed(&[r(0, 0, 0, 0), r(1, 0, 1, 1), r(2, 1, 2, 1)]);
         assert_eq!(free(&mut areas), 1);
         assert_eq!(&*areas, &[r(0, 0, 1, 0), r(1, 1, 2, 1)]);
