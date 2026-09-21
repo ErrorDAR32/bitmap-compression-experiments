@@ -2,13 +2,13 @@
 //! bits into disjoint rectangles.
 //!
 //! - [`RunmaxClipnmerge`] is the fast one. It reduces the bitmap to the
-//!   cells standing in both orientations and takes the longest run left
-//!   as a rectangle, bounded on every side by the chords in
-//!   [`crate::chords`]. Over the 168 generated bitmaps of the corpus it
-//!   lands on the minimum exactly, and over 180 bitmaps of twenty seeds
-//!   a shape, and over every 4x4 bitmap there is -- which is not a
-//!   proof that it always does, only that nothing has found otherwise.
-//!   It costs about a third more than [`accurate`].
+//!   cells standing in both orientations and takes each run still
+//!   standing, in reading order, as a rectangle bounded on every side
+//!   by the chords in [`crate::chords`]. Over the 168 generated bitmaps
+//!   of the corpus it lands on the minimum exactly, and over 108
+//!   bitmaps of twelve seeds a shape, and over every 4x4 bitmap there
+//!   is -- which is not a proof that it always does, only that nothing
+//!   has found otherwise.
 //! - [`accurate`] is the minimum, by the construction of Lipski and of
 //!   Ohtsuki. It is what runmax-clipnmerge is measured against.
 //! - Exhaustive search, the ground truth, lives in the `ground_truth`
@@ -84,7 +84,7 @@ pub mod samples;
 
 pub use data::{BitMatrix, Area};
 pub use partition::{assert_partition, Partition};
-pub use runmax::{mesh_by_scanning, RunmaxClipnmerge};
+pub use runmax::RunmaxClipnmerge;
 
 /// The matrix is always this wide and this tall. Nothing is sized at
 /// run time, which is what lets a workspace be built once and reused.

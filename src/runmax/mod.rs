@@ -2,31 +2,36 @@
 //! public face.
 //!
 //! One pass now, in `mesh`. The bitmap is reduced to the cells standing
-//! in both orientations, and each step takes the longest seed run left
-//! as a rectangle: cut back to the stretch of it no chord crosses, and
-//! then as thick as the standing cells allow and the chords permit.
-//! Whatever stood under it is still standing and will be some later
-//! step's seed.
+//! in both orientations, its chords are found once, and each run still
+//! standing is taken in reading order as a rectangle: cut back to the
+//! stretch of it no chord crosses, and then as thick as the standing
+//! cells allow and the chords permit.
 //!
-//! There used to be a second half, which put the mesh back together.
-//! The mesh took each seed run one cell thick, on purpose, and left
-//! growing and merging to reassemble the slivers: growing reached out
+//! Three things used to stand between the mesh and the answer, and the
+//! chords took all three away.
+//!
+//! The mesh took each seed run one cell thick on purpose, and growing
+//! and merging put the slivers back together -- growing reaching out
 //! over the standing cells, swallowing whoever it covered whole and
-//! clipping whoever it covered in part, and merging joined pairs that
-//! agreed along one axis. A third move, clipping, went before them.
+//! clipping whoever it covered in part, merging joining pairs that
+//! agreed along one axis, and clipping, before them, cutting a
+//! neighbour clean across to unblock a merge. Once the mesh knew where
+//! the partition meant to cut it could take the whole rectangle at
+//! once, and all of that had nothing left to do: each in turn measured
+//! zero areas reclaimed on all nine shapes of the corpus.
 //!
-//! All of it is gone, and the chords are why. Once the mesh knew where
-//! the partition meant to cut, it could take the whole rectangle at
-//! once rather than a sliver of it, and the reassembly had nothing
-//! left to reassemble: growing reclaimed zero areas on all nine shapes
-//! of the corpus, as merging had before it. Between them they were 44%
-//! of the run.
+//! The mesh also took the longest run left in either orientation,
+//! breaking ties by the area standing across it, which needed a queue
+//! bucketed by length and a level of the runs tied at the longest. With
+//! the chords deciding where each rectangle ends, order stopped
+//! mattering too: reading order gives the same partition, area for
+//! area, everywhere it has been asked.
+
 mod mesh;
 
-pub use mesh::mesh_by_scanning;
 
 use crate::data::{bounds, BitmapAreas, List, Run, Runs};
-use crate::runmax::mesh::{take_all_area, AreaRunSeed, Corners, Level, Queue};
+use crate::runmax::mesh::Corners;
 use crate::{BitMatrix, Area};
 
 /// The whole algorithm, and every buffer it works in.
@@ -68,11 +73,8 @@ pub struct RunmaxClipnmerge {
     rest: BitMatrix,
     rows: Runs,
     cols: Runs,
-    queue: Queue,
-    level: Level,
     corners: Corners,
     areas: BitmapAreas,
-    plan: List<Area, { bounds::PLAN }>,
     cut_rows: List<(u8, Run), { bounds::CUT }>,
     cut_cols: List<(u8, Run), { bounds::CUT }>,
 }
@@ -103,11 +105,8 @@ impl RunmaxClipnmerge {
             rest: BitMatrix::new(),
             rows: Runs::blank(),
             cols: Runs::blank(),
-            queue: Queue::new(),
-            level: Level::new(),
             corners: Corners::blank(),
             areas: BitmapAreas::new(),
-            plan: List::new(),
             cut_rows: List::new(),
             cut_cols: List::new(),
         }
@@ -135,58 +134,28 @@ impl RunmaxClipnmerge {
     fn mesh_into(&mut self, source: &BitMatrix) {
         source.split_single_cells_into(&mut self.single_cells, &mut self.rest);
 
-        let Self { rows, cols, queue, level, corners, areas, plan, cut_rows, cut_cols, .. } =
-            self;
+        let Self { rows, cols, corners, areas, cut_rows, cut_cols, .. } = self;
         Runs::rebuild(&self.rest, rows, cols);
         corners.rebuild(&self.rest, rows, cols);
-        queue.reset();
         areas.clear();
-        for (is_column, side) in [(false, &*rows), (true, &*cols)] {
-            side.for_each_run(|line, span| queue.push(AreaRunSeed::new(line, span, is_column)));
-        }
-        level.reset();
 
-        loop {
-            let seed_run = match level.take_best(rows, cols) {
-                Some(seed_run) => seed_run,
-                None => {
-                    level.draw(queue, rows, cols);
-                    match level.take_best(rows, cols) {
-                        Some(seed_run) => seed_run,
-                        None => break,
-                    }
-                }
-            };
+        // Reading order: the first run still standing, then the next.
+        // Nothing behind the scan can come back, because carving only
+        // takes cells away, so the walk never turns round.
+        let mut at = (0u8, 0u8);
+        while let Some((line, run)) = crate::runmax::mesh::next_run(rows, &mut at) {
+            // Cut back to the stretch no chord crosses, then taken as
+            // thick as the chords allow. The rest stays standing and is
+            // seeded in its own right.
+            let span = corners.trim(line, run);
+            let (lo, hi) = corners.band(line, span, rows);
+            let area = Area { x0: span.start, y0: lo, x1: span.end, y1: hi };
 
-            // The seed run is cut back to the longest stretch of it
-            // that no chord crosses, and then taken as thick as the
-            // chords allow. The rest stays standing and is seeded in
-            // its own right.
-            let span = corners.trim(&seed_run);
-            let along = if seed_run.is_column { &*cols } else { &*rows };
-            let across = corners.band(&seed_run, span, along);
-            plan.clear();
-            take_all_area(span, across, seed_run.is_column, plan);
-
-            for index in 0..plan.len() {
-                let area = plan[index];
-                cut_rows.clear();
-                cut_cols.clear();
-                rows.carve((area.y0, area.y1), area.x0, area.x1, cut_rows);
-                cols.carve((area.x0, area.x1), area.y0, area.y1, cut_cols);
-
-                areas.push(area);
-
-                // Whatever a carve leaves behind is a seed run in its own
-                // right, and shorter than the one it came from, so it
-                // belongs in the queue rather than the level being
-                // worked through.
-                for (pieces, is_column) in [(&*cut_rows, false), (&*cut_cols, true)] {
-                    for &(line, span) in pieces.iter() {
-                        queue.push(AreaRunSeed::new(line, span, is_column));
-                    }
-                }
-            }
+            cut_rows.clear();
+            cut_cols.clear();
+            rows.carve((area.y0, area.y1), area.x0, area.x1, cut_rows);
+            cols.carve((area.x0, area.x1), area.y0, area.y1, cut_cols);
+            areas.push(area);
         }
 
         self.single_cells.for_each_set(|x, y| self.areas.push_single_cell(x, y));
@@ -194,15 +163,9 @@ impl RunmaxClipnmerge {
 }
 
 // ---------------------------------------------------------------------
-// The same answer, worked out by scanning every run each step instead of
-// keeping a queue. Slow, obviously right, and what the fast path is
-// checked against.
-// ---------------------------------------------------------------------
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::runmax::mesh::mesh_by_scanning;
     use crate::samples;
 
 
@@ -249,15 +212,18 @@ mod tests {
         }
     }
 
-    /// The queue has to reach the same partition as scanning every run
-    /// each step. This is the whole justification for the queue: it is
-    /// only worth keeping if it is the same answer, arrived at faster.
+    /// The answer is the minimum, and a workspace never carries
+    /// anything from one bitmap into the next.
     ///
-    /// Small corners as well as full bitmaps, because ties on length are
-    /// thickest where there is least room, and a tie is the only place
-    /// the two could part company.
+    /// This used to check the queue against a mesher that scanned every
+    /// run each step, which was the whole justification for keeping the
+    /// queue. There is no queue and no ordering left to justify, so
+    /// what is worth checking is the answer itself.
+    ///
+    /// Small corners as well as full bitmaps, because a chord has least
+    /// room to run where the region is smallest.
     #[test]
-    fn the_queue_agrees_with_scanning_every_run() {
+    fn the_mesh_is_the_minimum_and_keeps_nothing() {
         let mut work = RunmaxClipnmerge::new();
         let mut cases: Vec<BitMatrix> = vec![BitMatrix::new()];
         for shape in samples::SHAPES {
@@ -267,10 +233,13 @@ mod tests {
         cases.extend(samples::grown(0, 1.0, 0.0, 1));
 
         for bits in &cases {
-            let slow = mesh_by_scanning(bits);
-            let quick = work.mesh(bits);
-            assert_eq!(quick, slow.as_slice(), "the queue and the scan disagree");
-            assert_exact_partition(bits, quick);
+            let ours = work.partition(bits).to_vec();
+            assert_exact_partition(bits, &ours);
+            assert_eq!(
+                ours.len(),
+                crate::accurate::partition(bits).len(),
+                "the mesh is over the minimum"
+            );
         }
 
         // And the workspace has to give the same answer whichever

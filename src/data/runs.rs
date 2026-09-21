@@ -5,9 +5,9 @@
 //! [`crate::runmax::mesh`]'s business, and this only answers where the
 //! runs are and takes cells away when told to.
 
-use crate::data::bits::{next_clear, next_set, prev_clear, range_mask, LINE_WORDS};
+use crate::data::bits::{next_clear, prev_clear, range_mask, LINE_WORDS};
 use crate::data::{bounds, List};
-use crate::{BitMatrix, WIDTH};
+use crate::BitMatrix;
 
 /// One run, as the inclusive positions it covers. Storing the end rather
 /// than a length keeps a run spanning all 256 positions representable.
@@ -141,14 +141,6 @@ impl Runs {
             .any(|(index, &word)| word & range_mask(index, lo, hi) != 0)
     }
 
-    /// The run covering `pos`, if any.
-    ///
-    /// A run is the stretch of set bits around the position, so its ends
-    /// are the nearest clear bit each way. Nothing is searched and
-    /// nothing is stored: the answer is read off the line.
-    pub(crate) fn run_at(&self, line: u8, pos: u8) -> Option<Run> {
-        Run::around(&self.lines[line as usize], pos)
-    }
 
     /// Removes `[lo, hi]` from every line in `lines`, and reports the
     /// runs that leaves behind.
@@ -187,19 +179,4 @@ impl Runs {
         }
     }
 
-    /// Every run standing, line by line and left to right.
-    pub(crate) fn for_each_run(&self, mut f: impl FnMut(u8, Run)) {
-        for line in 0..=u8::MAX {
-            let words = &self.lines[line as usize];
-            let mut pos = 0;
-            while let Some(start) = next_set(words, pos) {
-                let end = next_clear(words, start) - 1;
-                f(line, Run { start: start as u8, end: end as u8 });
-                pos = end + 1;
-                if pos >= WIDTH {
-                    break;
-                }
-            }
-        }
-    }
 }
