@@ -82,7 +82,7 @@ pub mod samples;
 pub use data::{BitMatrix, Area};
 pub use partition::{assert_partition, Partition};
 pub use halving::Halving;
-pub use runmax::{mesh_by_scanning, RunmaxClipnmerge, Stop};
+pub use runmax::{merge_areas, mesh_by_scanning, RunmaxClipnmerge, Stop};
 
 /// The matrix is always this wide and this tall. Nothing is sized at
 /// run time, which is what lets a workspace be built once and reused.

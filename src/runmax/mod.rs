@@ -17,11 +17,25 @@
 
 mod edges;
 mod grow;
-mod merge;
+pub(crate) mod merge;
 mod mesh;
 pub(crate) mod rewrite;
 
 pub use mesh::mesh_by_scanning;
+
+/// Merges a list of areas to a fixed point, for experiments that want
+/// the move on its own without a bitmap or a workspace around it.
+///
+/// Allocates on every call. That is deliberate: this exists so a search
+/// can try thousands of hypothetical partitions, and none of them are
+/// the ones throughput is measured on.
+#[doc(hidden)]
+pub fn merge_areas(areas: &[Area]) -> Vec<Area> {
+    let mut list = crate::data::List::new();
+    list.extend_from_slice(areas);
+    merge::merge(&mut list, &mut merge::Work::new());
+    list.to_vec()
+}
 pub use rewrite::Stop;
 
 use crate::data::{bounds, BitmapAreas, List, Run, Runs};
