@@ -50,14 +50,27 @@ pub(crate) fn without(a: Area, r: Area, out: &mut Vec<Area>) {
     }
 }
 
-/// The partition with `r` stamped onto it as one area.
-pub(crate) fn clip(areas: &[Area], r: Area) -> Vec<Area> {
+/// The partition with `r` stamped onto it as one area, and the slots
+/// that changed -- the pieces the cut areas were left in, and the stamp
+/// itself.
+///
+/// The slots are what a seeded merge starts from. Everything else in
+/// the list is exactly where it was and cannot have become givable.
+pub(crate) fn clip(areas: &[Area], r: Area) -> (Vec<Area>, Vec<usize>) {
     let mut out = Vec::with_capacity(areas.len() + 4);
+    let mut touched = Vec::new();
     for &a in areas {
+        if apart(&a, &r) {
+            out.push(a);
+            continue;
+        }
+        let was = out.len();
         without(a, r, &mut out);
+        touched.extend(was..out.len());
     }
+    touched.push(out.len());
     out.push(r);
-    out
+    (out, touched)
 }
 
 /// Whether `b` touches `a` along the axis `vertical` names, so that

@@ -41,13 +41,8 @@ fn disturbance(areas: &[Area], r: Area) -> (usize, usize) {
             continue;
         }
         cut += 1;
-        let mut left = Vec::new();
-        bitmatrix::clip_with(&[*a], r).iter().for_each(|p| {
-            if *p != r {
-                left.push(*p)
-            }
-        });
-        pieces += left.len();
+        let (after, _) = bitmatrix::clip_with(&[*a], r);
+        pieces += after.iter().filter(|p| **p != r).count();
     }
     (cut, pieces)
 }
@@ -83,7 +78,7 @@ fn main() {
 
     // What a single scoring pass would cost, from one measured merge.
     let at = Instant::now();
-    let merged = merge_areas(&clip_with(&start, offers[0]));
+    let merged = merge_areas(&clip_with(&start, offers[0]).0);
     let one_score = at.elapsed();
     println!("  one candidate scored in {one_score:.1?}, leaving {} areas", merged.len());
     println!(
@@ -113,7 +108,7 @@ fn main() {
         let mut best: Option<(Area, Vec<Area>)> = None;
         let mut fewest_seen = areas.len();
         for &r in &offers {
-            let after = merge_areas(&clip_with(&areas, r));
+            let after = merge_areas(&clip_with(&areas, r).0);
             if after.len() < fewest_seen {
                 fewest_seen = after.len();
                 best = Some((r, after));

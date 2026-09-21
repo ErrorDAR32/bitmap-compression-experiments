@@ -31,10 +31,67 @@ pub fn clip_candidates(areas: &[Area]) -> Vec<Area> {
     clip::candidates(areas)
 }
 
-/// A partition with one rectangle stamped onto it as an area.
+/// A partition with one rectangle stamped onto it as an area, and the
+/// slots that changed, for a merge to start from.
 #[doc(hidden)]
-pub fn clip_with(areas: &[Area], r: Area) -> Vec<Area> {
+pub fn clip_with(areas: &[Area], r: Area) -> (Vec<Area>, Vec<usize>) {
     clip::clip(areas, r)
+}
+
+/// Room to score a clip in, found once.
+///
+/// Scoring means stamping a rectangle onto a partition and merging what
+/// that disturbed, and the merge needs an edge index and half a dozen
+/// lists. Building those per candidate costs about three megabytes of
+/// allocation and dwarfs the work: with them built once, the scoring
+/// itself is what gets measured.
+#[doc(hidden)]
+pub struct ClipScratch {
+    list: crate::data::List<Area, { crate::data::bounds::AREAS }>,
+    work: merge::Work,
+}
+
+impl Default for ClipScratch {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl ClipScratch {
+    pub fn new() -> Self {
+        Self { list: crate::data::List::new(), work: merge::Work::new() }
+    }
+
+    /// Stamps `r` onto `areas`, merges only what that disturbed, and
+    /// answers how many areas are left. `out` receives them.
+    pub fn score(&mut self, areas: &[Area], r: Area, out: &mut Vec<Area>) -> usize {
+        let (after, touched) = clip::clip(areas, r);
+        self.list.clear();
+        self.list.extend_from_slice(&after);
+        merge::merge_from(&mut self.list, &mut self.work, Some(&touched));
+        out.clear();
+        out.extend_from_slice(&self.list);
+        self.list.len()
+    }
+}
+
+/// Merges only what a change disturbed: the areas named by `from`,
+/// their neighbours, and whatever the cascade reaches from there.
+///
+/// This is what makes a clip affordable to score. Merging everywhere
+/// costs a pass over every area; merging from the two or three areas a
+/// clip touched costs the cascade, and the cascade is local because a
+/// area can only become givable when its own shape changes or a
+/// neighbour's does.
+///
+/// Sound only on a partition already merged to exhaustion, which is
+/// what the rewriting pass always leaves behind.
+#[doc(hidden)]
+pub fn merge_areas_from(areas: &[Area], from: &[usize]) -> Vec<Area> {
+    let mut list = crate::data::List::new();
+    list.extend_from_slice(areas);
+    merge::merge_from(&mut list, &mut merge::Work::new(), Some(from));
+    list.to_vec()
 }
 
 /// Merges a list of areas to a fixed point, for experiments that want
