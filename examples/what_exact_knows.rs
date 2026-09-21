@@ -68,8 +68,8 @@ impl Cuts {
     }
 }
 
-fn row(fields: [&str; 7]) -> String {
-    const WIDTHS: [usize; 7] = [20, 9, 8, 8, 8, 9, 9];
+fn row(fields: [&str; 9]) -> String {
+    const WIDTHS: [usize; 9] = [20, 9, 8, 8, 8, 9, 9, 9, 9];
     let mut out = String::from("  ");
     for (index, (field, width)) in fields.iter().zip(WIDTHS).enumerate() {
         if index > 0 {
@@ -90,9 +90,14 @@ fn main() {
     );
     println!(
         "{}",
-        row(["shape", "chords", "most", "mesh", "grown", "runmax", "over by"])
+        row([
+            "shape", "chords", "most", "mesh", "grown", "runmax", "over by", "mesh", "rewrite",
+        ])
     );
-    println!("{}", row(["", "there are", "possible", "draws", "draws", "draws", ""]));
+    println!(
+        "{}",
+        row(["", "there are", "possible", "draws", "draws", "draws", "", "blocked", "lost"])
+    );
 
     let mut exact = accurate::Accurate::new();
     let mut work = RunmaxClipnmerge::new();
@@ -103,6 +108,10 @@ fn main() {
         let n = maps.len();
         let (mut all, mut most, mut held, mut over) = (0, 0, 0, 0usize);
         let (mut meshed, mut grown) = (0usize, 0usize);
+        // The chords still missing at the end, split by who lost them:
+        // ones the mesh already blocked, and ones the mesh held and the
+        // rewriting pass then cut across.
+        let (mut still, mut undone) = (0usize, 0usize);
 
         for bits in &maps {
             let (reflex, horizontal, vertical) = exact.reasoning(bits);
@@ -123,10 +132,27 @@ fn main() {
             held += drawn(&cuts);
             // Where the chords are lost: does the mesh never draw them,
             // or does the rewriting pass cut across them afterwards?
-            meshed += drawn(&Cuts::of(&work.mesh(bits).to_vec()));
+            let mesh_cuts = Cuts::of(&work.mesh(bits).to_vec());
+            meshed += drawn(&mesh_cuts);
             grown += drawn(&Cuts::of(
                 &work.partition_to(bits, Some(bitmatrix::Stop::AfterGrowing)).to_vec(),
             ));
+            // Of the chords the minimum could draw and runmax does not,
+            // which ones never survived the mesh.
+            let mut blame = |chords: &[(u16, u16, u16, bool)], across: bool| {
+                for &chord in chords {
+                    if cuts.holds(chord, across) {
+                        continue;
+                    }
+                    if mesh_cuts.holds(chord, across) {
+                        undone += 1;
+                    } else {
+                        still += 1;
+                    }
+                }
+            };
+            blame(&horizontal, true);
+            blame(&vertical, false);
             over += areas.len() - fewest;
         }
 
@@ -144,6 +170,8 @@ fn main() {
                 &(grown / n).to_string(),
                 &(held / n).to_string(),
                 &(over / n).to_string(),
+                &(still / n).to_string(),
+                &(undone / n).to_string(),
             ])
         );
     }
