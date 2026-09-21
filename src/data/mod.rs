@@ -32,5 +32,5 @@ pub(crate) use area_map::AreaMap;
 pub(crate) use areas::Areas;
 pub use matrix::BitMatrix;
 pub use rect::Rect;
-pub(crate) use runs::{Runs, Span};
+pub(crate) use runs::{Runs, Run};
 

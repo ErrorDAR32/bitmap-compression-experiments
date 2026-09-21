@@ -2,10 +2,10 @@
 //!
 //! The bitmap is reduced to the cells still standing in both
 //! orientations, and every step afterwards works on those rather than
-//! on cells. Each step takes the longest run still standing, in either
+//! on cells. Each step takes the longest seed run still standing, in either
 //! orientation, and covers every cell under it: one rectangle per
 //! stretch of the seed run whose crossing runs agree, each carried down as
-//! far as that run reaches. Both sides are then carved to exclude what
+//! far as that seed run reaches. Both sides are then carved to exclude what
 //! was taken.
 //!
 //! Covering meshes worse than taking the seed run whole, deliberately, and
@@ -26,7 +26,7 @@
 //! one is there because a plainer version of it was measured and cost
 //! too much; the measurements are in their own docs.
 
-use crate::data::{Runs, Span};
+use crate::data::{Runs, Run};
 use crate::{BitMatrix, Rect};
 
 /// A run waiting to be seeded: the run itself, in whichever
@@ -37,14 +37,14 @@ use crate::{BitMatrix, Rect};
 /// starts a merge from a list of them, and none of the three is the
 /// others. This is the one that is a run.
 ///
-/// The ranking packed into `order` is the run's length, then a row run
+/// The ranking packed into `order` is the seed run's length, then a row run
 /// over a column run, then the upper-left-most, so the queue compares
 /// seed runs with a single instruction rather than walking a chain of
 /// fields. The crossing area is deliberately not in it.
 ///
-/// Leaving it out is what makes the queue safe to leave stale. A run's
-/// length never changes: carving either takes a run away or leaves it
-/// alone, and what it leaves behind is a new run, queued in its own
+/// Leaving it out is what makes the queue safe to leave stale. A seed run's
+/// length never changes: carving either takes a seed run away or leaves it
+/// alone, and what it leaves behind is a new seed run, queued in its own
 /// right. So a seed run sitting in the queue is either exactly what it says
 /// it is or gone, and one lookup tells which. Crossing area is not like
 /// that -- it falls as the bitmap is carved -- so a seed run sitting in the
@@ -63,15 +63,15 @@ pub(crate) struct AreaRunSeed {
 }
 
 impl AreaRunSeed {
-    /// Packs the ranking as the run is named, so that the queue never
+    /// Packs the ranking as the seed run is named, so that the queue never
     /// has to look at anything but `order` to compare two runs.
     ///
-    /// The bits, from the top: fifteen of length, one set when the run
+    /// The bits, from the top: fifteen of length, one set when the seed run
     /// is a row, then the row and the column of its first cell, each
     /// stored as `255 - v` so that a smaller coordinate sorts higher.
     /// Reading the whole thing as one `u32` therefore orders by longest
     /// first, then a row run over a column run, then upper-left-most.
-    pub(crate) fn new(line: u8, span: Span, is_column: bool) -> Self {
+    pub(crate) fn new(line: u8, span: Run, is_column: bool) -> Self {
         let (y, x) = if is_column { (span.start, line) } else { (line, span.start) };
         Self {
             order: ((span.len() as u32) << 17)
@@ -85,20 +85,20 @@ impl AreaRunSeed {
         }
     }
 
-    /// How many positions the run covers.
+    /// How many positions the seed run covers.
     pub(crate) fn len(&self) -> u16 {
         self.end as u16 - self.start as u16 + 1
     }
 
-    /// The run without the line it sits on.
-    pub(crate) fn span(&self) -> Span {
-        Span { start: self.start, end: self.end }
+    /// The seed run without the line it sits on.
+    pub(crate) fn span(&self) -> Run {
+        Run { start: self.start, end: self.end }
     }
 
-    /// Whether the run this names is still standing, unchanged.
+    /// Whether the seed run this names is still standing, unchanged.
     pub(crate) fn standing(&self, rows: &Runs, cols: &Runs) -> bool {
         let side = if self.is_column { cols } else { rows };
-        side.span_at(self.line, self.start) == Some(self.span())
+        side.run_at(self.line, self.start) == Some(self.span())
     }
 
 }
@@ -117,12 +117,12 @@ impl AreaRunSeed {
 /// rewriting pass can do something with.
 pub(crate) fn take_all_area(
     crossing: &Runs,
-    run: Span,
+    run: Run,
     line: u8,
     run_is_column: bool,
     out: &mut Vec<Rect>,
 ) {
-    let emit = |out: &mut Vec<Rect>, from: u8, to: u8, across: Span| {
+    let emit = |out: &mut Vec<Rect>, from: u8, to: u8, across: Run| {
         out.push(if run_is_column {
             Rect { x0: across.start, y0: from, x1: across.end, y1: to }
         } else {
@@ -130,10 +130,10 @@ pub(crate) fn take_all_area(
         });
     };
 
-    let mut open: Option<(u8, Span)> = None;
+    let mut open: Option<(u8, Run)> = None;
     for pos in run.start..=run.end {
         let across = crossing
-            .span_at(pos, line)
+            .run_at(pos, line)
             .expect("a cell still standing belongs to a run of either kind");
         match open {
             Some((from, current)) if current != across => {
@@ -152,26 +152,26 @@ pub(crate) fn take_all_area(
 
 /// How much area stands in the runs crossing a seed run: the lengths of all
 /// of them added up, not the longest of them.
-fn crossing_area(run: &AreaRunSeed, rows: &Runs, cols: &Runs) -> u32 {
-    let crossing = if run.is_column { rows } else { cols };
+fn crossing_area(seed_run: &AreaRunSeed, rows: &Runs, cols: &Runs) -> u32 {
+    let crossing = if seed_run.is_column { rows } else { cols };
     let mut area = 0;
-    for pos in run.start..=run.end {
-        if let Some(across) = crossing.span_at(pos, run.line) {
+    for pos in seed_run.start..=seed_run.end {
+        if let Some(across) = crossing.run_at(pos, seed_run.line) {
             area += across.len() as u32;
         }
     }
     area
 }
 
-/// No run sits in this slot.
+/// No seed run sits in this slot.
 const NO_SEED: u32 = u32::MAX;
 
 /// The runs waiting to be seeded, bucketed by length.
 ///
-/// The only thing the queue is ever asked for is every run at the
+/// The only thing the queue is ever asked for is every seed run at the
 /// longest length left, and a length is 1 to 256, so the order is an
-/// array index rather than a comparison. Carving a run leaves pieces
-/// strictly shorter than it, and no run longer than the level's length
+/// array index rather than a comparison. Carving a seed run leaves pieces
+/// strictly shorter than it, and no seed run longer than the level's length
 /// is standing to be carved, so nothing can ever land in a bucket the
 /// cursor has already passed. The cursor only descends, every push is
 /// two writes, and drawing a level is a walk down one chain.
@@ -181,11 +181,11 @@ const NO_SEED: u32 = u32::MAX;
 /// are kept side by side rather than paired, because a pair of them is
 /// twelve bytes and a twelve-byte push is a call to memcpy.
 pub(crate) struct Queue {
-    /// Every run pushed, in the order they were pushed.
+    /// Every seed run pushed, in the order they were pushed.
     runs: Vec<AreaRunSeed>,
-    /// For each of those, the slot of the next run in its bucket.
+    /// For each of those, the slot of the next seed run in its bucket.
     next: Vec<u32>,
-    /// The run pushed most recently at each length.
+    /// The seed run pushed most recently at each length.
     heads: Box<[u32; 257]>,
     longest: usize,
 }
@@ -214,17 +214,17 @@ impl Queue {
         self.longest = 256;
     }
 
-    /// Files a run under its length: two writes and no comparison.
+    /// Files a seed run under its length: two writes and no comparison.
     ///
-    /// Safe to do at any point in the mesh because a run's length never
-    /// changes. Carving either takes a run away or leaves it alone, and
-    /// what it leaves behind is a new run pushed in its own right, so a
-    /// run sitting in a bucket is either exactly what it says it is or
+    /// Safe to do at any point in the mesh because a seed run's length never
+    /// changes. Carving either takes a seed run away or leaves it alone, and
+    /// what it leaves behind is a new seed run pushed in its own right, so a
+    /// seed run sitting in a bucket is either exactly what it says it is or
     /// gone, and one lookup tells which.
-    pub(crate) fn push(&mut self, run: AreaRunSeed) {
-        let length = run.len() as usize;
+    pub(crate) fn push(&mut self, seed_run: AreaRunSeed) {
+        let length = seed_run.len() as usize;
         let slot = self.runs.len() as u32;
-        self.runs.push(run);
+        self.runs.push(seed_run);
         self.next.push(self.heads[length]);
         self.heads[length] = slot;
     }
@@ -256,7 +256,7 @@ impl Queue {
 ///
 /// Held apart from the queue because the two are ordered by figures
 /// that behave differently. Length never changes, so the queue can be
-/// left stale: a seed run in it either names a run that is still exactly
+/// left stale: a seed run in it either names a seed run that is still exactly
 /// what it says, or names one that is gone, and one lookup tells which.
 /// Crossing area is not like that -- a carve makes it fall. So the area
 /// is settled only among the runs actually tied on length, which is the
@@ -265,18 +265,18 @@ impl Queue {
 /// Within a level the area is measured once, when the level is drawn,
 /// and the order it gives is not revisited as carves eat into the runs
 /// still waiting. That is a decision and not an oversight. The level
-/// used to recount every run a carve could have reached and push it
+/// used to recount every seed run a carve could have reached and push it
 /// again, which is why the runs were bucketed by where they started and
 /// why a superseded ranking had to be recognised on the way out. It
 /// bought nothing: over 540 generated bitmaps the fresh figures were
 /// worth ten rectangles in three million, 0.0003%, and the machinery
-/// that kept them fresh cost 16.6% of the whole run. Measuring once and
+/// that kept them fresh cost 16.6% of the whole seed run. Measuring once and
 /// living with it is the better trade, and it leaves the level a list
 /// with a cursor rather than a heap with an arena beside it.
 pub(crate) struct Level {
     /// The runs of this level with their ranking keys, best first.
     ///
-    /// A sorted list rather than a heap, because a run is ranked once
+    /// A sorted list rather than a heap, because a seed run is ranked once
     /// and never reranked: one sort of a few dozen entries beats a push
     /// and a pop apiece, and the cursor below is the whole of what
     /// popping used to mean.
@@ -300,18 +300,18 @@ impl Level {
         self.drawn.clear();
     }
 
-    /// Ranks a run so that the better one sorts higher: the larger
+    /// Ranks a seed run so that the better one sorts higher: the larger
     /// crossing area, then the earlier position. Seventeen bits hold an
     /// area, which cannot exceed the 65536 cells of the matrix, and the
     /// twenty-six below it hold the seed run's own ranking.
     ///
     /// Larger area, not smaller, and that was worth 8.8% of every
     /// rectangle the algorithm spends over the minimum. The old reading
-    /// was that a run crossed by little does the least damage when it
+    /// was that a seed run crossed by little does the least damage when it
     /// is taken, so take it first. What the corpus says is the
-    /// opposite: a run crossed by a lot stands in thick content, where
+    /// opposite: a seed run crossed by a lot stands in thick content, where
     /// whatever it leaves behind is still wide enough to be covered
-    /// cheaply, while a run crossed by little is in a thin place where
+    /// cheaply, while a seed run crossed by little is in a thin place where
     /// the cells it strands have nowhere to go. Taking the thin ones
     /// last means taking them once the thick ones have already claimed
     /// what would have stranded them.
@@ -319,14 +319,14 @@ impl Level {
     /// Measured over 540 generated bitmaps, nine shapes by sixty
     /// seeds: 3.553% over the minimum before, 3.239% after.
     ///
-    /// No two runs can share a key, since `order` names a run's
+    /// No two runs can share a key, since `order` names a seed run's
     /// orientation and where it starts, so the sort has nothing to
     /// break a tie on and the result does not depend on how it sorts.
-    fn key(run: &AreaRunSeed, area: u32) -> u64 {
-        ((area as u64) << 26) | run.order as u64
+    fn key(seed_run: &AreaRunSeed, area: u32) -> u64 {
+        ((area as u64) << 26) | seed_run.order as u64
     }
 
-    /// Draws every run standing at the longest length left, counts what
+    /// Draws every seed run standing at the longest length left, counts what
     /// crosses each one, and puts them in the order they will be taken
     /// in.
     ///
@@ -342,12 +342,12 @@ impl Level {
             let Some(_length) = queue.drain_longest(&mut self.drawn) else { return };
 
             for index in 0..self.drawn.len() {
-                let run = self.drawn[index];
-                if !run.standing(rows, cols) {
+                let seed_run = self.drawn[index];
+                if !seed_run.standing(rows, cols) {
                     continue;
                 }
-                let area = crossing_area(&run, rows, cols);
-                self.ranked.push((Self::key(&run, area), run));
+                let area = crossing_area(&seed_run, rows, cols);
+                self.ranked.push((Self::key(&seed_run, area), seed_run));
             }
 
             if !self.ranked.is_empty() {
@@ -360,17 +360,17 @@ impl Level {
         }
     }
 
-    /// The best run left in the level, or `None` once it is exhausted.
+    /// The best seed run left in the level, or `None` once it is exhausted.
     ///
-    /// A run ranked when the level was drawn may have been carved away
-    /// since by a run taken ahead of it, so what the cursor hands over
+    /// A seed run ranked when the level was drawn may have been carved away
+    /// since by a seed run taken ahead of it, so what the cursor hands over
     /// is checked against the bitmap before it is answered.
     pub(crate) fn take_best(&mut self, rows: &Runs, cols: &Runs) -> Option<AreaRunSeed> {
         while self.at < self.ranked.len() {
-            let run = self.ranked[self.at].1;
+            let seed_run = self.ranked[self.at].1;
             self.at += 1;
-            if run.standing(rows, cols) {
-                return Some(run);
+            if seed_run.standing(rows, cols) {
+                return Some(seed_run);
             }
         }
         None
@@ -378,19 +378,19 @@ impl Level {
 }
 
 
-/// The same mesh, worked out by scanning every run each step instead of
+/// The same mesh, worked out by scanning every seed run each step instead of
 /// keeping a queue. Slow, obviously right, and what the fast path is
 /// checked against.
 ///
 /// It has to model the level, because the level is part of what the
 /// mesh means and not merely how it is computed: the crossing areas
 /// that order a level are the ones in force when the level was drawn,
-/// not the ones in force when each run is reached. Taking the freshest
+/// not the ones in force when each seed run is reached. Taking the freshest
 /// area each step -- which is what this used to do, and what it would
-/// do if it just scanned for the best run every time -- is a different
-/// and very slightly better algorithm that costs a sixth of the run to
+/// do if it just scanned for the best seed run every time -- is a different
+/// and very slightly better algorithm that costs a sixth of the seed run to
 /// implement. What stays independent is everything else: this keeps no
-/// queue, no cursor and no bitmask, scans every run from the bitmap
+/// queue, no cursor and no bitmask, scans every seed run from the bitmap
 /// each time it draws, and shares nothing with the fast path but the
 /// rule it is spelling out.
 #[doc(hidden)]
@@ -404,15 +404,15 @@ pub fn mesh_by_scanning(source: &BitMatrix) -> Vec<Rect> {
     let mut level = Vec::new();
 
     while scan_for_level(&rows, &cols, &mut level) {
-        for run in level.drain(..) {
+        for seed_run in level.drain(..) {
             // Something taken ahead of it may have carved it away.
-            if !run.standing(&rows, &cols) {
+            if !seed_run.standing(&rows, &cols) {
                 continue;
             }
 
-            let crossing = if run.is_column { &rows } else { &cols };
+            let crossing = if seed_run.is_column { &rows } else { &cols };
             plan.clear();
-            take_all_area(crossing, run.span(), run.line, run.is_column, &mut plan);
+            take_all_area(crossing, seed_run.span(), seed_run.line, seed_run.is_column, &mut plan);
 
             for rect in plan.drain(..) {
                 rows.carve((rect.y0, rect.y1), rect.x0, rect.x1, &mut bin);
@@ -427,14 +427,14 @@ pub fn mesh_by_scanning(source: &BitMatrix) -> Vec<Rect> {
     rects
 }
 
-/// Every run standing at the longest length left, in the order they are
+/// Every seed run standing at the longest length left, in the order they are
 /// to be taken in: the greatest crossing area first, and among those
 /// tied on that, the upper-left-most. Answers whether it found any.
 ///
-/// A carve only ever shortens a run, so once a level has been worked
-/// through no run of that length can still be standing and the next
+/// A carve only ever shortens a seed run, so once a level has been worked
+/// through no seed run of that length can still be standing and the next
 /// scan is bound to find a shorter one. That is what makes drawing a
-/// level at a time the same thing as scanning for the longest run every
+/// level at a time the same thing as scanning for the longest seed run every
 /// step, apart from the areas being older.
 fn scan_for_level(rows: &Runs, cols: &Runs, level: &mut Vec<AreaRunSeed>) -> bool {
     let mut longest = 0;
@@ -451,8 +451,8 @@ fn scan_for_level(rows: &Runs, cols: &Runs, level: &mut Vec<AreaRunSeed>) -> boo
             if span.len() != longest {
                 return;
             }
-            let run = AreaRunSeed::new(line, span, is_column);
-            ranked.push((crossing_area(&run, rows, cols), run));
+            let seed_run = AreaRunSeed::new(line, span, is_column);
+            ranked.push((crossing_area(&seed_run, rows, cols), seed_run));
         });
     }
 
@@ -460,7 +460,7 @@ fn scan_for_level(rows: &Runs, cols: &Runs, level: &mut Vec<AreaRunSeed>) -> boo
     // [`Level::key`] packs into one number and sorts on there.
     ranked.sort_by(|a, b| b.0.cmp(&a.0).then(b.1.order.cmp(&a.1.order)));
     level.clear();
-    level.extend(ranked.into_iter().map(|(_, run)| run));
+    level.extend(ranked.into_iter().map(|(_, seed_run)| seed_run));
     true
 }
 
@@ -470,7 +470,7 @@ mod tests {
 
     /// The straightforward way to find runs: look at every cell. Kept
     /// as the reference the fast one is checked against.
-    fn runs_cell_by_cell(set: impl Fn(u8, u8) -> bool) -> Vec<(u8, Span)> {
+    fn runs_cell_by_cell(set: impl Fn(u8, u8) -> bool) -> Vec<(u8, Run)> {
         let mut found = Vec::new();
         for line in 0..=u8::MAX {
             let mut start: Option<u8> = None;
@@ -478,20 +478,20 @@ mod tests {
                 match (set(line, pos), start) {
                     (true, None) => start = Some(pos),
                     (false, Some(s)) => {
-                        found.push((line, Span { start: s, end: pos - 1 }));
+                        found.push((line, Run { start: s, end: pos - 1 }));
                         start = None;
                     }
                     _ => {}
                 }
             }
             if let Some(s) = start {
-                found.push((line, Span { start: s, end: u8::MAX }));
+                found.push((line, Run { start: s, end: u8::MAX }));
             }
         }
         found
     }
 
-    fn listed(runs: &Runs) -> Vec<(u8, Span)> {
+    fn listed(runs: &Runs) -> Vec<(u8, Run)> {
         let mut found = Vec::new();
         runs.for_each_run(|line, span| found.push((line, span)));
         found
@@ -504,17 +504,17 @@ mod tests {
         assert_eq!(listed(&rows), want_rows, "row runs differ");
         assert_eq!(listed(&cols), want_cols, "column runs differ");
 
-        // Every standing cell has to read back the run it belongs to,
+        // Every standing cell has to read back the seed run it belongs to,
         // and every cleared one has to read back nothing.
         for (line, span) in &want_rows {
             for pos in span.start..=span.end {
-                assert_eq!(rows.span_at(*line, pos), Some(*span), "row {line} pos {pos}");
+                assert_eq!(rows.run_at(*line, pos), Some(*span), "row {line} pos {pos}");
             }
         }
         for line in 0..=u8::MAX {
             for pos in 0..=u8::MAX {
                 if !bits.get(pos, line) {
-                    assert_eq!(rows.span_at(line, pos), None, "row {line} pos {pos}");
+                    assert_eq!(rows.run_at(line, pos), None, "row {line} pos {pos}");
                 }
             }
         }
@@ -522,7 +522,7 @@ mod tests {
 
     /// The word-wise pass has to agree with reading every cell, on
     /// everything from an empty bitmap to a full one, including runs
-    /// that end exactly on a word boundary and ones that run to 255.
+    /// that end exactly on a word boundary and ones that seed run to 255.
     #[test]
     fn the_fast_run_pass_agrees_with_reading_every_cell() {
         assert_same_runs(&BitMatrix::new());

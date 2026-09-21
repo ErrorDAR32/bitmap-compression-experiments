@@ -2,7 +2,7 @@
 //! its whole public face.
 //!
 //! Meshing is `mesh`: the bitmap is reduced to the cells standing in
-//! both orientations, and each step takes the longest run left and
+//! both orientations, and each step takes the longest seed run left and
 //! covers every cell under it. That leaves deliberately thin
 //! rectangles, more of them than taking each seed run whole would.
 //!
@@ -12,8 +12,8 @@
 //! and clipping whoever it only partly covers. `merge` is the second
 //! primitive on its own, for what growing cannot reach. `edges` is
 //! the index it asks, and `pass` holds their shared buffers and the
-//! order they run in -- and the story of the third move that used to
-//! run after them.
+//! order they seed run in -- and the story of the third move that used to
+//! seed run after them.
 
 mod edges;
 mod grow;
@@ -24,7 +24,7 @@ mod pass;
 pub use mesh::mesh_by_scanning;
 pub use pass::Far;
 
-use crate::data::{Areas, Runs, Span};
+use crate::data::{Areas, Runs, Run};
 use crate::runmax::mesh::{take_all_area, AreaRunSeed, Level, Queue};
 use crate::runmax::pass::Pass;
 use crate::{BitMatrix, Rect};
@@ -32,7 +32,7 @@ use crate::{BitMatrix, Rect};
 /// The whole algorithm, and every buffer it works in.
 ///
 /// Meshing and rewriting a bitmap needs a fair amount of room: a grid
-/// saying who owns each cell, run lines for both orientations, a queue
+/// saying who owns each cell, seed run lines for both orientations, a queue
 /// of runs, edge indexes, and a dozen smaller lists. None of it depends
 /// on the bitmap, and all of it has a size the matrix fixes, so it is
 /// found once here and kept. A workspace weighs a few hundred kilobytes
@@ -57,8 +57,8 @@ pub struct RunmaxClipnmerge {
     level: Level,
     areas: Areas,
     plan: Vec<Rect>,
-    cut_rows: Vec<(u8, Span)>,
-    cut_cols: Vec<(u8, Span)>,
+    cut_rows: Vec<(u8, Run)>,
+    cut_cols: Vec<(u8, Run)>,
     pass: Pass,
 }
 
@@ -114,7 +114,7 @@ impl RunmaxClipnmerge {
     }
 
     /// [`Self::partition`] with the rewriting pass stopped after one of
-    /// its moves, or not run at all. For weighing each move against what
+    /// its moves, or not seed run at all. For weighing each move against what
     /// it costs.
     #[doc(hidden)]
     pub fn partition_to(&mut self, source: &BitMatrix, far: Option<crate::Far>) -> &[Rect] {
@@ -128,7 +128,7 @@ impl RunmaxClipnmerge {
     }
 
     /// How many rectangles growing reclaims on its own, before anything
-    /// else has run. For measuring what the move is worth.
+    /// else has seed run. For measuring what the move is worth.
     #[doc(hidden)]
     pub fn grow_only(&mut self, source: &BitMatrix) -> usize {
         self.mesh_into(source);
@@ -145,7 +145,7 @@ impl RunmaxClipnmerge {
 
     /// Meshes the set bits, working the runs longest first and keeping
     /// the ties in a queue rather than finding them by scanning every
-    /// run each step.
+    /// seed run each step.
     fn mesh_into(&mut self, source: &BitMatrix) {
         source.split_isolated_into(&mut self.alone, &mut self.rest);
 
@@ -159,20 +159,20 @@ impl RunmaxClipnmerge {
         level.reset();
 
         loop {
-            let run = match level.take_best(rows, cols) {
-                Some(run) => run,
+            let seed_run = match level.take_best(rows, cols) {
+                Some(seed_run) => seed_run,
                 None => {
                     level.draw(queue, rows, cols);
                     match level.take_best(rows, cols) {
-                        Some(run) => run,
+                        Some(seed_run) => seed_run,
                         None => break,
                     }
                 }
             };
 
-            let crossing = if run.is_column { &*rows } else { &*cols };
+            let crossing = if seed_run.is_column { &*rows } else { &*cols };
             plan.clear();
-            take_all_area(crossing, run.span(), run.line, run.is_column, plan);
+            take_all_area(crossing, seed_run.span(), seed_run.line, seed_run.is_column, plan);
 
             for rect in plan.drain(..) {
                 cut_rows.clear();
@@ -182,7 +182,7 @@ impl RunmaxClipnmerge {
 
                 areas.push(rect);
 
-                // Whatever a carve leaves behind is a run in its own
+                // Whatever a carve leaves behind is a seed run in its own
                 // right, and shorter than the one it came from, so it
                 // belongs in the queue rather than the level being
                 // worked through.
@@ -199,7 +199,7 @@ impl RunmaxClipnmerge {
 }
 
 // ---------------------------------------------------------------------
-// The same answer, worked out by scanning every run each step instead of
+// The same answer, worked out by scanning every seed run each step instead of
 // keeping a queue. Slow, obviously right, and what the fast path is
 // checked against.
 // ---------------------------------------------------------------------
@@ -254,7 +254,7 @@ mod tests {
         }
     }
 
-    /// The queue has to reach the same partition as scanning every run
+    /// The queue has to reach the same partition as scanning every seed run
     /// each step. This is the whole justification for the queue: it is
     /// only worth keeping if it is the same answer, arrived at faster.
     ///
@@ -305,7 +305,7 @@ mod tests {
 
     /// Scattered cells are the worst case, and the cheapest: no two
     /// touch, so every one is forced to be its own rectangle and the
-    /// whole of the run machinery has nothing to do.
+    /// whole of the seed run machinery has nothing to do.
     #[test]
     fn scattered_cells_are_all_forced_alone() {
         let mut work = RunmaxClipnmerge::new();
@@ -338,7 +338,7 @@ mod tests {
 
     /// A workspace holds no globals and no shared state, so one per
     /// worker thread is all that parallelism needs. This is a compile
-    /// time check: it fails to build rather than fails to run.
+    /// time check: it fails to build rather than fails to seed run.
     #[test]
     fn a_workspace_can_be_sent_to_another_thread() {
         fn assert_send<T: Send>() {}

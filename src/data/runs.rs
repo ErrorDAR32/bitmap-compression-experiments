@@ -11,12 +11,12 @@ use crate::{BitMatrix, WIDTH};
 /// One run, as the inclusive positions it covers. Storing the end rather
 /// than a length keeps a run spanning all 256 positions representable.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct Span {
+pub(crate) struct Run {
     pub(crate) start: u8,
     pub(crate) end: u8,
 }
 
-impl Span {
+impl Run {
     /// How many positions the run covers. A `u16`, because a run can
     /// span all 256 of them.
     pub(crate) fn len(&self) -> u16 {
@@ -138,8 +138,8 @@ impl Runs {
     /// A run is the stretch of set bits around the position, so its ends
     /// are the nearest clear bit each way. Nothing is searched and
     /// nothing is stored: the answer is read off the line.
-    pub(crate) fn span_at(&self, line: u8, pos: u8) -> Option<Span> {
-        Span::around(&self.lines[line as usize], pos)
+    pub(crate) fn run_at(&self, line: u8, pos: u8) -> Option<Run> {
+        Run::around(&self.lines[line as usize], pos)
     }
 
     /// Removes `[lo, hi]` from every line in `lines`, and reports the
@@ -149,7 +149,7 @@ impl Runs {
     /// whatever lay strictly inside is gone, so at most one piece
     /// survives on each side. Both are read off the bits outside the
     /// range, which clearing the range cannot disturb.
-    pub(crate) fn carve(&mut self, lines: (u8, u8), lo: u8, hi: u8, created: &mut Vec<(u8, Span)>) {
+    pub(crate) fn carve(&mut self, lines: (u8, u8), lo: u8, hi: u8, created: &mut Vec<(u8, Run)>) {
         for line in lines.0..=lines.1 {
             if !self.any_standing(line, lo, hi) {
                 continue;
@@ -157,13 +157,13 @@ impl Runs {
 
             let words = &mut self.lines[line as usize];
             if lo > 0 {
-                if let Some(head) = Span::around(words, lo - 1) {
-                    created.push((line, Span { start: head.start, end: lo - 1 }));
+                if let Some(head) = Run::around(words, lo - 1) {
+                    created.push((line, Run { start: head.start, end: lo - 1 }));
                 }
             }
             if hi < u8::MAX {
-                if let Some(tail) = Span::around(words, hi + 1) {
-                    created.push((line, Span { start: hi + 1, end: tail.end }));
+                if let Some(tail) = Run::around(words, hi + 1) {
+                    created.push((line, Run { start: hi + 1, end: tail.end }));
                 }
             }
 
@@ -174,13 +174,13 @@ impl Runs {
     }
 
     /// Every run standing, line by line and left to right.
-    pub(crate) fn for_each_run(&self, mut f: impl FnMut(u8, Span)) {
+    pub(crate) fn for_each_run(&self, mut f: impl FnMut(u8, Run)) {
         for line in 0..=u8::MAX {
             let words = &self.lines[line as usize];
             let mut pos = 0;
             while let Some(start) = next_set(words, pos) {
                 let end = next_clear(words, start) - 1;
-                f(line, Span { start: start as u8, end: end as u8 });
+                f(line, Run { start: start as u8, end: end as u8 });
                 pos = end + 1;
                 if pos >= WIDTH {
                     break;
