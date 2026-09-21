@@ -124,6 +124,119 @@ fn clip(areas: &[Area], r: Area) -> Vec<Area> {
     out
 }
 
+/// The clips a failed merge asks for.
+///
+/// Merging gives an area away by cutting it across into stretches, each
+/// matching a neighbour's face exactly. A neighbour whose face reaches
+/// past the span is no use: the union would not be a rectangle. That
+/// rejection names a clip -- square the neighbour off at the span's
+/// edge and its face fits.
+///
+/// So rather than filtering a huge candidate set down, this generates a
+/// small one: for every area, on both axes, every neighbour that
+/// overhangs the span, squared off. That is O(faces), not O(rectangles
+/// in the bitmap), and it is the same question [`merge`] already asks
+/// and throws the answer away.
+fn from_overhangs(areas: &[Area]) -> Vec<Area> {
+    let mut out = Vec::new();
+    for a in areas {
+        // Cutting `a` across its width hands stretches up and down, so
+        // the span that has to be covered is its columns; across its
+        // height, its rows.
+        for vertical in [true, false] {
+            let (lo, hi) = if vertical { (a.x0, a.x1) } else { (a.y0, a.y1) };
+            for b in areas {
+                let touches = if vertical {
+                    (b.y1 as i32 + 1 == a.y0 as i32 || a.y1 as i32 + 1 == b.y0 as i32)
+                        && b.x0 <= a.x1
+                        && a.x0 <= b.x1
+                } else {
+                    (b.x1 as i32 + 1 == a.x0 as i32 || a.x1 as i32 + 1 == b.x0 as i32)
+                        && b.y0 <= a.y1
+                        && a.y0 <= b.y1
+                };
+                if !touches {
+                    continue;
+                }
+                let (start, end) = if vertical { (b.x0, b.x1) } else { (b.y0, b.y1) };
+                // Square the overhanging end off at the span's edge.
+                if start < lo {
+                    out.push(if vertical {
+                        Area { x0: lo, ..*b }
+                    } else {
+                        Area { y0: lo, ..*b }
+                    });
+                }
+                if end > hi {
+                    out.push(if vertical {
+                        Area { x1: hi, ..*b }
+                    } else {
+                        Area { y1: hi, ..*b }
+                    });
+                }
+            }
+        }
+    }
+    out.sort_unstable_by_key(|a| (a.y0, a.x0, a.y1, a.x1));
+    out.dedup();
+    out
+}
+
+/// The largest rectangle inside the union of each pair of areas that
+/// touch.
+///
+/// The overhang rule above only ever proposes cutting one area down, so
+/// every clip it offers lies inside a single area. Half the clips brute
+/// force takes span two. This is where those come from: two areas
+/// sharing part of an edge have exactly one largest rectangle inside
+/// their union -- the whole of both along the direction they touch,
+/// and as much as they agree on across it -- and stamping that is what
+/// squares a pair off so a third area can be given away between them.
+///
+/// The witness that needed it:
+///
+/// ```text
+///     a b . .        a b . .        a a . .
+///     . b c .   clip  . b C .   ->   . b b .
+///     . . c d        . . C C        . . c c
+/// ```
+///
+/// Clipping `c` and `d` into the rectangle they share a row on lets `b`
+/// be given away upward and downward at once, and three areas do what
+/// four did.
+fn from_pairs(areas: &[Area]) -> Vec<Area> {
+    let mut out = Vec::new();
+    for (index, a) in areas.iter().enumerate() {
+        for b in &areas[index + 1..] {
+            // Side by side: joined across their columns, sharing rows.
+            if a.x1 as i32 + 1 == b.x0 as i32 || b.x1 as i32 + 1 == a.x0 as i32 {
+                let (y0, y1) = (a.y0.max(b.y0), a.y1.min(b.y1));
+                if y0 <= y1 {
+                    out.push(Area { x0: a.x0.min(b.x0), x1: a.x1.max(b.x1), y0, y1 });
+                }
+            }
+            // One above the other: joined across their rows.
+            if a.y1 as i32 + 1 == b.y0 as i32 || b.y1 as i32 + 1 == a.y0 as i32 {
+                let (x0, x1) = (a.x0.max(b.x0), a.x1.min(b.x1));
+                if x0 <= x1 {
+                    out.push(Area { x0, x1, y0: a.y0.min(b.y0), y1: a.y1.max(b.y1) });
+                }
+            }
+        }
+    }
+    out
+}
+
+/// Every clip worth offering: the overhangs a failed merge names, and
+/// the rectangles each touching pair shares.
+fn generated(areas: &[Area]) -> Vec<Area> {
+    let mut out = from_overhangs(areas);
+    out.extend(from_pairs(areas));
+    out.sort_unstable_by_key(|a| (a.y0, a.x0, a.y1, a.x1));
+    out.dedup();
+    out
+}
+
 /// The clip that leaves fewest areas once merging has run, if any
 /// leaves fewer than doing nothing.
 fn best_clip(areas: &[Area], offers: &[Area]) -> Option<(Area, Vec<Area>)> {
@@ -209,19 +322,17 @@ struct Run {
 
 fn main() {
     println!(
-        "clip-and-merge from four starting points -- {EACH} bitmaps a shape, sizes {SIDES:?}\n"
+        "brute force against generated clips -- {EACH} bitmaps a shape, sizes {SIDES:?}\n"
     );
     println!(
         "{}",
-        row(["from", "areas in", "clipped", "fewest", "clips", "candidates", "over"])
+        row(["candidates", "areas in", "clipped", "fewest", "clips", "swept", "over"])
     );
 
     let mut work = RunmaxClipnmerge::new();
     let mut runs = [
-        Run { name: "mesh alone", start: 0, clipped: 0, clips: 0, searched: 0 },
-        Run { name: "mesh, merge", start: 0, clipped: 0, clips: 0, searched: 0 },
-        Run { name: "mesh, grow", start: 0, clipped: 0, clips: 0, searched: 0 },
-        Run { name: "mesh, grow, merge", start: 0, clipped: 0, clips: 0, searched: 0 },
+        Run { name: "every rectangle", start: 0, clipped: 0, clips: 0, searched: 0 },
+        Run { name: "generated", start: 0, clipped: 0, clips: 0, searched: 0 },
     ];
     let mut fewest_total = 0usize;
 
@@ -230,28 +341,33 @@ fn main() {
             for bits in
                 samples::grown_in(samples::SAMPLE_SEED, side, shape.density, shape.cluster, EACH)
             {
-                let offered = candidates(&bits, side);
                 fewest_total += accurate::partition(&bits).len();
+                let start: Vec<Area> = work.partition(&bits).to_vec();
+                let every = candidates(&bits, side);
 
-                let starts: [Vec<Area>; 4] = [
-                    work.mesh(&bits).to_vec(),
-                    merge_areas(work.mesh(&bits)),
-                    work.partition_to(&bits, Some(Stop::AfterGrowing)).to_vec(),
-                    work.partition(&bits).to_vec(),
-                ];
-
-                for (run, start) in runs.iter_mut().zip(starts) {
-                    let mut tally =
-                        Tally { clips: 0, aligned: 0, existing: 0, offered: 0, narrow: 0,
-                                shape_of: Vec::new() };
+                for (index, run) in runs.iter_mut().enumerate() {
                     run.start += start.len();
-                    let done = clip_to_fixpoint(&start, &offered, &mut tally);
-                    assert_partition(&bits, &done, run.name);
-                    run.clipped += done.len();
-                    run.clips += tally.clips;
-                    // Every sweep of the candidates, including the last
-                    // one that finds nothing and ends the loop.
-                    run.searched += (tally.clips + 1) * offered.len();
+                    let mut areas = start.clone();
+                    let mut clips = 0;
+                    let mut swept = 0;
+                    loop {
+                        // The generated set is rebuilt each round, since
+                        // what overhangs changes as areas do.
+                        let offers =
+                            if index == 0 { every.clone() } else { generated(&areas) };
+                        swept += offers.len();
+                        match best_clip(&areas, &offers) {
+                            Some((_, merged)) => {
+                                areas = merged;
+                                clips += 1;
+                            }
+                            None => break,
+                        }
+                    }
+                    assert_partition(&bits, &areas, run.name);
+                    run.clipped += areas.len();
+                    run.clips += clips;
+                    run.searched += swept;
                 }
             }
         }
@@ -271,10 +387,4 @@ fn main() {
             ])
         );
     }
-
-    println!(
-        "\n  A clip search is priced by candidates swept, not by clips taken: every\n  \
-         sweep costs a merge pass per candidate, and the last sweep of each run\n  \
-         finds nothing and still has to happen."
-    );
 }
