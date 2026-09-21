@@ -58,10 +58,10 @@ use crate::Area;
 /// what the search spends its time on, so it is built once and cleared
 /// by the slots it filled.
 pub(crate) struct Work {
-    pub(crate) edges: Edges,
-    pub(crate) scratch: Covering,
-    pub(crate) touched: List<bool, { bounds::AREAS }>,
-    pub(crate) gone: List<bool, { bounds::AREAS }>,
+    edges: Edges,
+    scratch: Covering,
+    touched: List<bool, { bounds::AREAS }>,
+    gone: List<bool, { bounds::AREAS }>,
     /// The rectangles to try this round.
     live: List<usize, { bounds::AREAS }>,
     /// The rectangles a merge changed the shape of, which are what
@@ -84,71 +84,6 @@ impl Work {
             moved: List::new(),
         }
     }
-}
-
-/// One area's turn: given away to its neighbours if they can take all
-/// of it, or left alone.
-///
-/// Marks the giver and every taker as touched, since the index no
-/// longer describes any of them, and answers whether it happened. The
-/// takers are left in `scratch.takers` for a driver that has to repaint
-/// an owner grid.
-/// Whether this area can be given away, and along which axis, without
-/// giving it away.
-///
-/// Leaves the takers in `scratch` so that a driver which decides to go
-/// ahead does not have to plan it twice.
-pub(crate) fn can_merge(
-    areas: &List<Area, { bounds::AREAS }>,
-    edges: &Edges,
-    a: usize,
-    touched: &List<bool, { bounds::AREAS }>,
-    scratch: &mut Covering,
-) -> Option<Axis> {
-    [Axis::Vertical, Axis::Horizontal]
-        .into_iter()
-        .find(|&axis| plan(areas, edges, a, axis, touched, scratch))
-}
-
-/// Gives an area away along an axis [`can_merge`] already settled,
-/// using the takers it left behind.
-pub(crate) fn take_merge(
-    areas: &mut List<Area, { bounds::AREAS }>,
-    a: usize,
-    axis: Axis,
-    touched: &mut List<bool, { bounds::AREAS }>,
-    scratch: &Covering,
-) {
-    let given = areas[a];
-    for &taker in scratch.takers.iter() {
-        axis.take_in(&mut areas[taker], &given);
-        touched[taker] = true;
-    }
-    touched[a] = true;
-}
-
-#[allow(dead_code)]
-pub(crate) fn merge_one(
-    areas: &mut List<Area, { bounds::AREAS }>,
-    edges: &Edges,
-    a: usize,
-    touched: &mut List<bool, { bounds::AREAS }>,
-    scratch: &mut Covering,
-) -> bool {
-    let Some(axis) = [Axis::Vertical, Axis::Horizontal]
-        .into_iter()
-        .find(|&axis| plan(areas, edges, a, axis, touched, scratch))
-    else {
-        return false;
-    };
-
-    let given = areas[a];
-    for &taker in scratch.takers.iter() {
-        axis.take_in(&mut areas[taker], &given);
-        touched[taker] = true;
-    }
-    touched[a] = true;
-    true
 }
 
 /// Merges everywhere, looking at every rectangle. See [`merge_from`],
@@ -296,7 +231,7 @@ pub(crate) struct Covering {
     /// Which positions the cover has reached at all.
     open: List<bool, { crate::WIDTH + 1 }>,
     /// The chain that covered the whole span, once one did.
-    pub(crate) takers: List<usize, { bounds::AREAS }>,
+    takers: List<usize, { bounds::AREAS }>,
 }
 
 impl Covering {
