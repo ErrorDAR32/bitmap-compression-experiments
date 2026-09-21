@@ -37,7 +37,7 @@
 //! Small grids only. Every candidate costs a merge pass and there are
 //! O(n^2) rectangles in an n-cell region.
 
-use bitmatrix::{accurate, merge_areas, samples, Area, BitMatrix, RunmaxClipnmerge};
+use bitmatrix::{accurate, merge_areas, samples, Area, BitMatrix, RunmaxClipnmerge, Stop};
 
 /// Grid sizes searched.
 const SIDES: [usize; 4] = [6, 8, 10, 12];
@@ -198,88 +198,83 @@ fn assert_partition(bits: &BitMatrix, areas: &[Area], label: &str) {
     assert_eq!(covered, painted.count_set(), "{label}: overlap");
 }
 
+/// One starting point for the clip search, and what it cost to finish.
+struct Run {
+    name: &'static str,
+    start: usize,
+    clipped: usize,
+    clips: usize,
+    searched: usize,
+}
+
 fn main() {
-    println!("every clip tried, best taken, repeated -- {EACH} bitmaps a shape a size:\n");
+    println!(
+        "clip-and-merge from four starting points -- {EACH} bitmaps a shape, sizes {SIDES:?}\n"
+    );
     println!(
         "{}",
-        row(["shape", "size", "runmax", "clipped", "fewest", "clips", "candidates"])
+        row(["from", "areas in", "clipped", "fewest", "clips", "candidates", "over"])
     );
 
-    let (mut all_runmax, mut all_clipped, mut all_fewest) = (0usize, 0usize, 0usize);
-    let mut tally = Tally { clips: 0, aligned: 0, existing: 0, offered: 0, narrow: 0, shape_of: Vec::new() };
     let mut work = RunmaxClipnmerge::new();
+    let mut runs = [
+        Run { name: "mesh alone", start: 0, clipped: 0, clips: 0, searched: 0 },
+        Run { name: "mesh, merge", start: 0, clipped: 0, clips: 0, searched: 0 },
+        Run { name: "mesh, grow", start: 0, clipped: 0, clips: 0, searched: 0 },
+        Run { name: "mesh, grow, merge", start: 0, clipped: 0, clips: 0, searched: 0 },
+    ];
+    let mut fewest_total = 0usize;
 
     for side in SIDES {
         for shape in samples::SHAPES {
-            let (mut r, mut c, mut f, mut offers) = (0, 0, 0, 0);
-            let before = tally.clips;
             for bits in
                 samples::grown_in(samples::SAMPLE_SEED, side, shape.density, shape.cluster, EACH)
             {
-                let start: Vec<Area> = work.partition(&bits).to_vec();
                 let offered = candidates(&bits, side);
-                offers += offered.len();
-                let clipped = clip_to_fixpoint(&start, &offered, &mut tally);
-                assert_partition(&bits, &clipped, shape.name);
-                r += start.len();
-                c += clipped.len();
-                f += accurate::partition(&bits).len();
-            }
-            all_runmax += r;
-            all_clipped += c;
-            all_fewest += f;
-            if side == 12 {
-                println!(
-                    "{}",
-                    row([
-                        shape.name,
-                        &format!("{side}x{side}"),
-                        &r.to_string(),
-                        &c.to_string(),
-                        &f.to_string(),
-                        &(tally.clips - before).to_string(),
-                        &(offers / EACH as usize).to_string(),
-                    ])
-                );
+                fewest_total += accurate::partition(&bits).len();
+
+                let starts: [Vec<Area>; 4] = [
+                    work.mesh(&bits).to_vec(),
+                    merge_areas(work.mesh(&bits)),
+                    work.partition_to(&bits, Some(Stop::AfterGrowing)).to_vec(),
+                    work.partition(&bits).to_vec(),
+                ];
+
+                for (run, start) in runs.iter_mut().zip(starts) {
+                    let mut tally =
+                        Tally { clips: 0, aligned: 0, existing: 0, offered: 0, narrow: 0,
+                                shape_of: Vec::new() };
+                    run.start += start.len();
+                    let done = clip_to_fixpoint(&start, &offered, &mut tally);
+                    assert_partition(&bits, &done, run.name);
+                    run.clipped += done.len();
+                    run.clips += tally.clips;
+                    // Every sweep of the candidates, including the last
+                    // one that finds nothing and ends the loop.
+                    run.searched += (tally.clips + 1) * offered.len();
+                }
             }
         }
     }
 
+    for run in &runs {
+        println!(
+            "{}",
+            row([
+                run.name,
+                &run.start.to_string(),
+                &run.clipped.to_string(),
+                &fewest_total.to_string(),
+                &run.clips.to_string(),
+                &run.searched.to_string(),
+                &format!("{:.4}x", run.clipped as f64 / fewest_total as f64),
+            ])
+        );
+    }
+
     println!(
-        "\n  every size: {all_runmax} areas from runmax, {all_clipped} after clipping, \
-         {all_fewest} fewest"
-    );
-    println!(
-        "  runmax {:.4}x the fewest, clipped {:.4}x -- {} of the {} excess areas gone",
-        all_runmax as f64 / all_fewest as f64,
-        all_clipped as f64 / all_fewest as f64,
-        all_runmax - all_clipped,
-        all_runmax - all_fewest
-    );
-    println!(
-        "  {} clips taken from {} candidates offered",
-        tally.clips, tally.offered
-    );
-    println!(
-        "  {} of them ({:.1}%) had all four sides on edges the partition already had",
-        tally.aligned,
-        100.0 * tally.aligned as f64 / tally.clips.max(1) as f64
-    );
-    println!(
-        "  {} of them ({:.1}%) were a rectangle some area already was",
-        tally.existing,
-        100.0 * tally.existing as f64 / tally.clips.max(1) as f64
-    );
-    let mut overlaps: Vec<usize> = tally.shape_of.iter().map(|&(n, _, _)| n).collect();
-    overlaps.sort_unstable();
-    let sizes: Vec<String> =
-        tally.shape_of.iter().map(|&(_, w, h)| format!("{w}x{h}")).collect();
-    println!("  areas each clip overlapped: {overlaps:?}");
-    println!("  their shapes: {}", sizes.join(" "));
-    println!(
-        "  the narrow rule would offer {} of those {} candidates ({:.1}%)",
-        tally.narrow,
-        tally.offered,
-        100.0 * tally.narrow as f64 / tally.offered.max(1) as f64
+        "\n  A clip search is priced by candidates swept, not by clips taken: every\n  \
+         sweep costs a merge pass per candidate, and the last sweep of each run\n  \
+         finds nothing and still has to happen."
     );
 }
