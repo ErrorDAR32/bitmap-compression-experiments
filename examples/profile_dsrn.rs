@@ -1,5 +1,6 @@
 //! A DSRN encode under callgrind, beside `profile`.
-use bitmatrix::dsrn::code::{encode, Encoded, Ruleset, Work};
+use bitmatrix::dsrn::passes::{encode, Encoded, Work};
+use bitmatrix::dsrn::rules::Ruleset;
 use bitmatrix::dsrn::Pyramid;
 use bitmatrix::samples;
 fn main() {

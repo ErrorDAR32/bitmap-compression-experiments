@@ -5,7 +5,8 @@
 //! win turns entirely on the size of what it is handed: copying a 16x16
 //! region for four bits beats 256 raw cells, and copying a 2x2 for
 //! four bits beats nothing at all.
-use bitmatrix::dsrn::code::{encode, Encoded, Ruleset, Work};
+use bitmatrix::dsrn::passes::{encode, Encoded, Work};
+use bitmatrix::dsrn::rules::Ruleset;
 use bitmatrix::dsrn::Pyramid;
 use bitmatrix::samples;
 

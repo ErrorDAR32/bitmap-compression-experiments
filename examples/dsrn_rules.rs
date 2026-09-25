@@ -14,7 +14,8 @@
 //! on a handful of bitmaps before being measured on the corpus, and
 //! the ones that do not come back are reported but not ranked.
 
-use bitmatrix::dsrn::code::{decode, encode, Action, Copying, Encoded, Ruleset, Work};
+use bitmatrix::dsrn::passes::{decode, encode, Encoded, Work};
+use bitmatrix::dsrn::rules::{Action, Copying, Ruleset};
 use bitmatrix::dsrn::Pyramid;
 use bitmatrix::{samples, BitMatrix};
 

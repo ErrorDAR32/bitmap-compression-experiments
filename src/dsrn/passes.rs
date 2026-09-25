@@ -1,296 +1,32 @@
-//! The tile passes: the tree delta, the payload, and reading them back.
+//! The tile passes and the 1x1 pass: the encoding as specified.
 //!
 //! A **region** is a square of the quadtree. A **tile** is a square of
 //! the size the pass is working. A pass asks of each region whether
 //! the tiles inside it are homogeneous -- all of them, some of them, or
-//! none -- and labels the region by the answer. A region that binds
-//! emits one value per tile. A pass ends when every region left is
-//! deferred, and those carry into the next pass at the next size down.
+//! none -- and labels the region by the answer, which the [`Ruleset`]
+//! decides. A region that binds emits one value per tile. A pass ends
+//! when every region left is deferred, and those carry into the next
+//! pass at the next size down.
 //!
 //! A region is never smaller than the tile: a region of exactly the
 //! tile's size holds one tile, so for it "some" cannot happen.
 //!
-//! # What the labels do
-//!
-//! The four codes are the specification's. What the decoder does with
-//! them is fixed, and is all it needs to know:
-//!
-//! | code | what becomes of the region |
-//! |---|---|
-//! | `01` bind | emits payload, and is finished |
-//! | `10` defer | carries into the next pass unchanged |
-//! | `00` skip | is dropped, and never described |
-//! | `11` subdivide | follows a label, and carries the region's four children instead of the region |
-//!
-//! A subdivide needs no skip before it and costs two bits: no label is
-//! `11`, so `11` where a label would be can only be a subdivide of the
-//! region just labelled.
-//!
-//! Where the children go is the label's to say, and the two are not
-//! the same move. A region skipped is done with this tile size, so its
-//! children are asked at this size, in this pass. A region deferred is
-//! asked again at the next size down, so its children go to the next
-//! pass. Feeding both to the same pass makes the two rulesets below
-//! one ruleset with two spellings, which is what they were until this
-//! was written down.
-//!
-//! # Which label to give
-//!
-//! That is the encoder's to choose and the decoder never learns it, so
-//! it is a [`Ruleset`] rather than a rule, and they can be measured
-//! against each other.
-//!
-//! # Not here yet
-//!
-//! The 1x1 pass. What the tile passes leave goes out as raw cells, so
-//! the encoding is whole and checkable while the copy codes are still
-//! to come.
+//! What no tile size describes reaches the 1x1 pass, which tries to
+//! copy one of the four neighbours of its own size that the decoder
+//! will already have. That pass has its own code table and its own
+//! stream.
 
+use crate::dsrn::region::{
+    alike, children_of, copies_whole, copy_in, settle, settled, Region, DIRECTIONS,
+};
+use crate::dsrn::rules::{Ruleset, BIND, DEFER, SKIP, SUBDIVIDE};
+use crate::dsrn::stream::Bits;
 use crate::dsrn::{Folds, Pyramid};
 use crate::BitMatrix;
-
-/// The labels a region is given, and the subdivision that may follow
-/// one. Two bits each.
-const SKIP: u64 = 0b00;
-const BIND: u64 = 0b01;
-const DEFER: u64 = 0b10;
-const SUBDIVIDE: u64 = 0b11;
 
 /// The largest tile, and the smallest the tile passes reach.
 const TOP: usize = 8;
 const BOTTOM: usize = 1;
-
-/// What a pass does with a region, which is a label and whether it
-/// subdivides. Every combination the four codes allow.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Action {
-    /// Emit one value per tile, and be done.
-    Bind,
-    /// Ask it again at the next tile size down.
-    Defer,
-    /// Ask its four children at the next tile size down.
-    DeferAndSubdivide,
-    /// Say something else describes it, and name nothing. Lossy unless
-    /// something else really does.
-    Skip,
-    /// Say something else describes it: its four children, at this
-    /// tile size, in this pass.
-    SkipAndSubdivide,
-}
-
-impl Action {
-    /// Every action, for searching the space of rulesets.
-    pub const ALL: [Action; 5] = [
-        Action::Bind,
-        Action::Defer,
-        Action::DeferAndSubdivide,
-        Action::Skip,
-        Action::SkipAndSubdivide,
-    ];
-
-    /// What to call it in a table.
-    pub fn name(self) -> &'static str {
-        match self {
-            Action::Bind => "bind",
-            Action::Defer => "defer",
-            Action::DeferAndSubdivide => "defer+split",
-            Action::Skip => "skip",
-            Action::SkipAndSubdivide => "skip+split",
-        }
-    }
-
-    /// The label and the subdivide. A region of exactly the tile's
-    /// size cannot subdivide, so an action that wants to falls back to
-    /// the one that does not.
-    fn coded(self, may_subdivide: bool) -> (u64, bool) {
-        match self {
-            Action::Bind => (BIND, false),
-            Action::Defer => (DEFER, false),
-            Action::DeferAndSubdivide => (DEFER, may_subdivide),
-            Action::Skip => (SKIP, false),
-            Action::SkipAndSubdivide => (SKIP, may_subdivide),
-        }
-    }
-}
-
-/// Whether a pass tries to copy a region before labelling it.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Copying {
-    /// Only the 1x1 pass copies, which is only ever handed what no
-    /// tile size could describe.
-    AtTheEnd,
-    /// Every pass copies. A region matching a neighbour already
-    /// settled is described by that neighbour whatever its tiles say.
-    EveryPass,
-    /// Every pass copies, but only where a copy would cost less than
-    /// binding the region.
-    ///
-    /// Both costs are the encoding's own, so this is a comparison and
-    /// not a threshold. A copy is the skip label, the bit saying a
-    /// skip is a copy, and two bits of direction: five. A binding is
-    /// its label and one bit a tile: two and the tiles. The decoder
-    /// works the same comparison out from the region and the tile
-    /// size, so the bit saying which is only spent where the answer
-    /// could have gone either way.
-    WhereCheaper,
-}
-
-impl Copying {
-    pub const ALL: [Copying; 3] = [Copying::AtTheEnd, Copying::EveryPass, Copying::WhereCheaper];
-
-    pub fn name(self) -> &'static str {
-        match self {
-            Copying::AtTheEnd => "at the end",
-            Copying::EveryPass => "every pass",
-            Copying::WhereCheaper => "where cheaper",
-        }
-    }
-}
-
-/// What a copy costs: the skip label, the bit that says the skip is a
-/// copy, and the direction.
-const COPY_COST: usize = 2 + 1 + 2;
-
-/// What binding a region of `tiles` tiles costs: the label, and a bit
-/// a tile.
-const fn bind_cost(tiles: usize) -> usize {
-    2 + tiles
-}
-
-/// What a pass does with a region, by how many of its tiles are
-/// homogeneous. The decoder never sees this: it reads the labels.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub struct Ruleset {
-    /// Every tile homogeneous.
-    pub all: Action,
-    /// Some but not all.
-    pub some: Action,
-    /// None.
-    pub none: Action,
-    pub copying: Copying,
-}
-
-impl Ruleset {
-    pub const fn new(all: Action, some: Action, none: Action, copying: Copying) -> Self {
-        Self { all, some, none, copying }
-    }
-
-    /// The ones worth naming. The space is searched by `dsrn_rules`.
-    pub const ALL: [Ruleset; 3] = [
-        Ruleset::new(
-            Action::Bind,
-            Action::SkipAndSubdivide,
-            Action::Defer,
-            Copying::AtTheEnd,
-        ),
-        Ruleset::new(
-            Action::Bind,
-            Action::DeferAndSubdivide,
-            Action::Defer,
-            Copying::AtTheEnd,
-        ),
-        Ruleset::new(
-            Action::Bind,
-            Action::DeferAndSubdivide,
-            Action::Defer,
-            Copying::EveryPass,
-        ),
-    ];
-
-    /// Whether this pass asks a region of this many tiles about
-    /// copying at all. Where it does not, no bit is spent saying so.
-    fn may_copy(self, tiles: usize) -> bool {
-        match self.copying {
-            Copying::AtTheEnd => false,
-            Copying::EveryPass => true,
-            Copying::WhereCheaper => COPY_COST < bind_cost(tiles),
-        }
-    }
-
-    /// The label for a region, and whether it subdivides.
-    fn label(self, all: bool, any: bool, may_subdivide: bool) -> (u64, bool) {
-        let action = if all {
-            self.all
-        } else if any {
-            self.some
-        } else {
-            self.none
-        };
-        action.coded(may_subdivide)
-    }
-}
-
-impl std::fmt::Display for Ruleset {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "all {}, some {}, none {}, copy {}",
-            self.all.name(),
-            self.some.name(),
-            self.none.name(),
-            self.copying.name()
-        )
-    }
-}
-
-/// A square of the quadtree: side `1 << level`, at `(x, y)` in units
-/// of that side.
-#[derive(Clone, Copy)]
-struct Region {
-    level: usize,
-    x: usize,
-    y: usize,
-}
-
-/// A stream of bits, written low end first.
-#[derive(Default)]
-pub struct Bits {
-    words: Vec<u64>,
-    len: usize,
-}
-
-impl Bits {
-    /// How many bits have been written.
-    pub fn len(&self) -> usize {
-        self.len
-    }
-
-    /// Whether nothing has been written.
-    pub fn is_empty(&self) -> bool {
-        self.len == 0
-    }
-
-    fn clear(&mut self) {
-        self.words.clear();
-        self.len = 0;
-    }
-
-    fn push(&mut self, value: u64, width: usize) {
-        let (at, shift) = (self.len / 64, self.len % 64);
-        if at >= self.words.len() {
-            self.words.push(0);
-        }
-        self.words[at] |= value << shift;
-        if shift + width > 64 {
-            self.words.push(value >> (64 - shift));
-        }
-        self.len += width;
-    }
-
-    /// `width` bits from `at`, or `None` past the end of the stream.
-    fn take(&self, at: usize, width: usize) -> Option<u64> {
-        if at + width > self.len {
-            return None;
-        }
-        let (word, shift) = (at / 64, at % 64);
-        let mask = if width == 64 { u64::MAX } else { (1u64 << width) - 1 };
-        let mut got = self.words[word] >> shift;
-        if shift + width > 64 {
-            got |= self.words[word + 1] << (64 - shift);
-        }
-        Some(got & mask)
-    }
-}
 
 /// How many of each label an encode wrote, for asking where the tree
 /// delta's bits go.
@@ -361,18 +97,6 @@ pub struct Work {
     /// Which cells a binding or an earlier region has already settled,
     /// and so may be copied from. Both halves keep it the same way.
     settled: BitMatrix,
-}
-
-/// The four children of a region, in the order a pass takes them:
-/// top left, top right, bottom left, bottom right.
-const CHILDREN: [(usize, usize); 4] = [(0, 0), (1, 0), (0, 1), (1, 1)];
-
-fn children_of(region: Region) -> [Region; 4] {
-    CHILDREN.map(|(dx, dy)| Region {
-        level: region.level - 1,
-        x: region.x * 2 + dx,
-        y: region.y * 2 + dy,
-    })
 }
 
 /// Encodes the bitmap. The pyramid must already hold it.
@@ -570,89 +294,6 @@ const COPY_PART: u64 = 0b01;
 const RAW: u64 = 0b10;
 const SPLIT: u64 = 0b11;
 
-/// Where a region may copy from: the four neighbours of its own size
-/// that reading order has already settled.
-const DIRECTIONS: [(isize, isize); 4] = [(-1, -1), (0, -1), (1, -1), (-1, 0)];
-
-/// Up to a word of one row of a matrix, from `from` onwards.
-fn row_span(bits: &BitMatrix, y: usize, from: usize, take: usize) -> u64 {
-    let row = bits.row(y as u8);
-    let (word, shift) = (from / 64, from % 64);
-    let mask = if take == 64 { u64::MAX } else { (1u64 << take) - 1 };
-    let mut got = row[word] >> shift;
-    if shift + take > 64 && word + 1 < row.len() {
-        got |= row[word + 1] << (64 - shift);
-    }
-    got & mask
-}
-
-/// Whether every cell of a region is already settled, and so may be
-/// copied from.
-///
-/// A word at a time, not a cell at a time. Both this and [`alike`] are
-/// asked once per region per direction, so a cell at a time makes a
-/// region of side `s` cost `s * s` per question and the whole pass
-/// cost the fourth power of the side it starts from. On the rulesets
-/// that leave large regions that was minutes a bitmap.
-fn settled(done: &BitMatrix, level: usize, x: isize, y: isize) -> bool {
-    let side = 1isize << level;
-    if x < 0 || y < 0 || (x + 1) * side > 256 || (y + 1) * side > 256 {
-        return false;
-    }
-    let (side, x, y) = (side as usize, x as usize, y as usize);
-    for row in 0..side {
-        let mut at = 0;
-        while at < side {
-            let take = (side - at).min(64);
-            let want = if take == 64 { u64::MAX } else { (1u64 << take) - 1 };
-            if row_span(done, y * side + row, x * side + at, take) != want {
-                return false;
-            }
-            at += take;
-        }
-    }
-    true
-}
-
-/// Whether two regions of the same size hold the same cells.
-fn alike(bits: &BitMatrix, level: usize, a: (usize, usize), b: (isize, isize)) -> bool {
-    let side = 1usize << level;
-    let (bx, by) = (b.0 as usize, b.1 as usize);
-    for row in 0..side {
-        let mut at = 0;
-        while at < side {
-            let take = (side - at).min(64);
-            if row_span(bits, a.1 * side + row, a.0 * side + at, take)
-                != row_span(bits, by * side + row, bx * side + at, take)
-            {
-                return false;
-            }
-            at += take;
-        }
-    }
-    true
-}
-
-/// Marks every cell of a region settled.
-fn settle(done: &mut BitMatrix, region: Region) {
-    let side = 1usize << region.level;
-    done.set_rect(
-        (region.x * side) as i64,
-        (region.y * side) as i64,
-        (region.x * side + side - 1) as i64,
-        (region.y * side + side - 1) as i64,
-    );
-}
-
-/// Which direction a region copies whole from, if any.
-fn copies_whole(bits: &BitMatrix, done: &BitMatrix, region: Region) -> Option<usize> {
-    DIRECTIONS.iter().position(|&(dx, dy)| {
-        let (nx, ny) = (region.x as isize + dx, region.y as isize + dy);
-        settled(done, region.level, nx, ny)
-            && alike(bits, region.level, (region.x, region.y), (nx, ny))
-    })
-}
-
 /// Describes one region of the 1x1 pass, and its children if it splits.
 ///
 /// Four codes. A region that matches a settled neighbour of its own
@@ -783,23 +424,6 @@ fn undescribe(
                 }
             }
             settle(done, region);
-        }
-    }
-}
-
-/// Copies a settled neighbour into a region.
-fn copy_in(bits: &mut BitMatrix, region: Region, (dx, dy): (isize, isize)) {
-    let side = 1usize << region.level;
-    let (nx, ny) = (region.x as isize + dx, region.y as isize + dy);
-    for y in 0..side {
-        for x in 0..side {
-            let from = bits.get(
-                (nx as usize * side + x) as u8,
-                (ny as usize * side + y) as u8,
-            );
-            if from {
-                bits.set((region.x * side + x) as u8, (region.y * side + y) as u8);
-            }
         }
     }
 }

@@ -12,7 +12,8 @@
 //! and four for each copy. Eight levels of that, plus the one 2x2
 //! written raw, plus the labels the tile passes spend saying nothing.
 
-use bitmatrix::dsrn::code::{decode, encode, Encoded, Ruleset, Work};
+use bitmatrix::dsrn::passes::{decode, encode, Encoded, Work};
+use bitmatrix::dsrn::rules::Ruleset;
 use bitmatrix::dsrn::Pyramid;
 use bitmatrix::BitMatrix;
 

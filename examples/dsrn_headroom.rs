@@ -10,7 +10,8 @@
 //! binding cover part of a region and subdivide for the rest could
 //! claim. If there is no gap there is nothing to claim.
 
-use bitmatrix::dsrn::code::{encode, Encoded, Ruleset, Work};
+use bitmatrix::dsrn::passes::{encode, Encoded, Work};
+use bitmatrix::dsrn::rules::Ruleset;
 use bitmatrix::dsrn::{Pyramid, LEVELS};
 use bitmatrix::{samples, BitMatrix};
 

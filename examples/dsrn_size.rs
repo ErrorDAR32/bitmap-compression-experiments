@@ -1,5 +1,6 @@
 //! What DSRN emits, and how much of it is the part not yet written.
-use bitmatrix::dsrn::code::{decode, encode, Encoded, Ruleset, Work};
+use bitmatrix::dsrn::passes::{decode, encode, Encoded, Work};
+use bitmatrix::dsrn::rules::Ruleset;
 use bitmatrix::dsrn::Pyramid;
 use bitmatrix::{samples, BitMatrix};
 

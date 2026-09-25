@@ -1,5 +1,6 @@
 //! What the 1x1 pass actually emits.
-use bitmatrix::dsrn::code::{encode, Encoded, Ruleset, Work};
+use bitmatrix::dsrn::passes::{encode, Encoded, Work};
+use bitmatrix::dsrn::rules::Ruleset;
 use bitmatrix::dsrn::Pyramid;
 use bitmatrix::{samples, BitMatrix};
 

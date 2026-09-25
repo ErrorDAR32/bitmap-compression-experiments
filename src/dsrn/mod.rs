@@ -19,7 +19,10 @@
 //! built a machine word at a time, so the whole pyramid costs a little
 //! over one pass across the bitmap rather than one pass per level.
 
-pub mod code;
+pub mod passes;
+pub mod region;
+pub mod rules;
+pub mod stream;
 
 use crate::data::bits::LINE_WORDS;
 use crate::{BitMatrix, HEIGHT, WIDTH};
