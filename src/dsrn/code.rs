@@ -302,6 +302,12 @@ pub struct Labels {
     pub subdivide: usize,
     /// Skips that were a copy rather than a subdivision.
     pub copied: usize,
+    /// What the 1x1 pass emitted: whole copies, partial copies with a
+    /// mask, splits, and regions written out raw.
+    pub whole_copies: usize,
+    pub part_copies: usize,
+    pub splits: usize,
+    pub raws: usize,
 }
 
 /// What an encode produces: the tree delta, and the payload in the
@@ -662,12 +668,14 @@ fn describe(bits: &BitMatrix, done: &mut BitMatrix, region: Region, out: &mut En
     if let Some(dir) = copies_whole(bits, done, region) {
         out.copy.push(COPY, 2);
         out.copy.push(dir as u64, 2);
+        out.labels.whole_copies += 1;
         settle(done, region);
         return;
     }
 
     if region.level == BOTTOM {
         out.copy.push(RAW, 2);
+        out.labels.raws += 1;
         let side = 1usize << region.level;
         for y in region.y * side..(region.y + 1) * side {
             for x in region.x * side..(region.x + 1) * side {
@@ -699,6 +707,7 @@ fn describe(bits: &BitMatrix, done: &mut BitMatrix, region: Region, out: &mut En
 
     match best {
         Some((dir, mask)) => {
+            out.labels.part_copies += 1;
             out.copy.push(COPY_PART, 2);
             out.copy.push(dir as u64, 2);
             out.copy.push(mask as u64, 4);
@@ -711,6 +720,7 @@ fn describe(bits: &BitMatrix, done: &mut BitMatrix, region: Region, out: &mut En
             }
         }
         None => {
+            out.labels.splits += 1;
             out.copy.push(SPLIT, 2);
             for kid in kids.iter() {
                 describe(bits, done, *kid, out);
