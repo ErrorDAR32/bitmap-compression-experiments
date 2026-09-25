@@ -215,6 +215,30 @@ impl Pyramid {
         (self.same[at] >> shift) & mask
     }
 
+    /// `take` value bits of one row of a level, starting at `from`.
+    ///
+    /// What a binding emits is exactly this: one value per tile, over
+    /// a block of them, read in reading order. So it is read by the
+    /// word like the homogeneity plane beside it rather than a tile
+    /// at a time, and for the same reason -- a binding of a region of
+    /// side 128 at 2x2 tiles is 4096 tiles, which is 64 loads.
+    ///
+    /// Only meaningful where the homogeneity plane is set, which is
+    /// everywhere a binding reads.
+    ///
+    /// Never straddles a word, by the same argument as [`span`]:
+    /// a block of `s` squares starts on a multiple of `s`, and every
+    /// level's side is either a multiple of 64 or a power of two that
+    /// divides it.
+    ///
+    /// [`span`]: Pyramid::span
+    pub fn held_span(&self, level: usize, row: usize, from: usize, take: usize) -> u64 {
+        let bit = row * Self::side(level) + from;
+        let (at, shift) = (AT[level] + bit / 64, bit % 64);
+        let mask = if take == 64 { u64::MAX } else { (1u64 << take) - 1 };
+        (self.held[at] >> shift) & mask
+    }
+
     /// What a homogeneous square holds, without asking again whether
     /// it is homogeneous.
     pub fn value(&self, level: usize, x: usize, y: usize) -> bool {
