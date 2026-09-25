@@ -19,6 +19,8 @@
 //! built a machine word at a time, so the whole pyramid costs a little
 //! over one pass across the bitmap rather than one pass per level.
 
+pub mod code;
+
 use crate::data::bits::LINE_WORDS;
 use crate::{BitMatrix, HEIGHT, WIDTH};
 
@@ -173,6 +175,47 @@ impl Pyramid {
     pub fn clear(&mut self) {
         self.same.fill(0);
         self.held.fill(0);
+    }
+
+    /// Whether every square of a `s` by `s` block of them is
+    /// homogeneous, and whether any is.
+    ///
+    /// One question per node per pass, and the pass asks it of every
+    /// node, so it is answered over the plane's words rather than
+    /// square by square: a block of 128 squares is two loads.
+    pub fn block(&self, level: usize, tx: usize, ty: usize, s: usize) -> (bool, bool) {
+        let (mut all, mut any) = (true, false);
+        for row in ty..ty + s {
+            let mut done = 0;
+            while done < s {
+                let take = (s - done).min(64);
+                let span = self.span(level, row, tx + done, take);
+                let want = if take == 64 { u64::MAX } else { (1u64 << take) - 1 };
+                all &= span == want;
+                any |= span != 0;
+                done += take;
+            }
+        }
+        (all, any)
+    }
+
+    /// `take` homogeneity bits of one row, starting at `from`.
+    ///
+    /// Never straddles a word: a block of `s` squares starts on a
+    /// multiple of `s`, and every level's side is either a multiple of
+    /// 64 or a power of two that divides it.
+    fn span(&self, level: usize, row: usize, from: usize, take: usize) -> u64 {
+        let bit = row * Self::side(level) + from;
+        let (at, shift) = (AT[level] + bit / 64, bit % 64);
+        let mask = if take == 64 { u64::MAX } else { (1u64 << take) - 1 };
+        (self.same[at] >> shift) & mask
+    }
+
+    /// What a homogeneous square holds, without asking again whether
+    /// it is homogeneous.
+    pub fn value(&self, level: usize, x: usize, y: usize) -> bool {
+        let bit = y * Self::side(level) + x;
+        self.held[AT[level] + bit / 64] >> (bit % 64) & 1 != 0
     }
 }
 
