@@ -152,6 +152,16 @@ pub fn floor_part(bits: &BitMatrix, part: &str) -> usize {
     work.drawn().count()
 }
 
+/// The whole of one algorithm, for putting beside the stages above on
+/// the same baseline.
+#[doc(hidden)]
+pub fn whole(bits: &BitMatrix, which: &str) -> usize {
+    match which {
+        "runmax" => crate::Runmax::new().partition(bits).len(),
+        _ => crate::accurate::partition(bits).len(),
+    }
+}
+
 impl Chords {
     /// Finds every chord of the bitmap and settles which to draw.
     ///
