@@ -23,6 +23,7 @@ pub mod passes;
 pub mod region;
 pub mod rules;
 pub mod stream;
+pub mod unified;
 
 use crate::data::bits::LINE_WORDS;
 use crate::{BitMatrix, HEIGHT, WIDTH};
