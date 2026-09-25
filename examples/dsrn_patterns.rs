@@ -12,7 +12,7 @@
 //! and four for each copy. Eight levels of that, plus the one 2x2
 //! written raw, plus the labels the tile passes spend saying nothing.
 
-use bitmatrix::dsrn::code::{decode, encode, Encoded, Ruleset, Work};
+use bitmatrix::dsrn::code::{decode, encode, Encoded, OnNone, Ruleset, Work};
 use bitmatrix::dsrn::Pyramid;
 use bitmatrix::BitMatrix;
 
@@ -60,7 +60,10 @@ fn main() {
         ("checkerboard of 8", checkerboard(8)),
     ];
 
-    for rule in [Ruleset::SkipWhereMixed, Ruleset::DeferWhereHeterogeneous] {
+    for rule in Ruleset::ALL {
+        if rule.none == OnNone::Skip {
+            continue;
+        }
         println!("\n  {}\n", rule.name());
         let mut t = Table::new(&[
             "pattern",

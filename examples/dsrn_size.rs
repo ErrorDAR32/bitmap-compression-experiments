@@ -59,8 +59,8 @@ fn main() {
     }
     t.print();
 
-    println!("\n  and {}, shape by shape.\n", Ruleset::SkipWhereMixed.name());
-    let rule = Ruleset::SkipWhereMixed;
+    println!("\n  and {}, shape by shape.\n", Ruleset::ALL[0].name());
+    let rule = Ruleset::ALL[0];
     let mut t = Table::new(&[
         "shape",
         "bitmaps",

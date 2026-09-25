@@ -44,7 +44,7 @@ fn fewest_values(pyramid: &Pyramid, bits: &BitMatrix, level: usize, x: usize, y:
 fn main() {
     let (mut pyramid, mut work) = (Pyramid::new(), Work::default());
     let mut out = Encoded::default();
-    let rule = Ruleset::SkipWhereMixed;
+    let rule = Ruleset::ALL[0];
 
     println!("  what the payload costs against what it could, {}.\n", rule.name());
     println!("  The fewest is one value per maximal homogeneous aligned square. The");

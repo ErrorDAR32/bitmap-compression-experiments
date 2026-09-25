@@ -17,7 +17,7 @@ fn main() {
     let (mut pyramid, mut work) = (Pyramid::new(), Work::default());
     let mut out = Encoded::default();
 
-    for rule in [Ruleset::SkipWhereMixed, Ruleset::DeferWhereHeterogeneous] {
+    for rule in [Ruleset::ALL[0], Ruleset::ALL[1]] {
         println!("\n  regions left for the 1x1 pass, {}.\n", rule.name());
         let mut t = Table::new(&[
             "shape",

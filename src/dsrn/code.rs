@@ -60,62 +60,94 @@ const SUBDIVIDE: u64 = 0b11;
 const TOP: usize = 8;
 const BOTTOM: usize = 1;
 
+/// What to do with a region some but not all of whose tiles are
+/// homogeneous.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum OnMixed {
+    /// Done with this tile size: ask the four children at this size,
+    /// in this pass.
+    SkipAndSubdivide,
+    /// Ask the four children at the next size down.
+    DeferAndSubdivide,
+}
+
+/// What to do with a region none of whose tiles are homogeneous.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum OnNone {
+    /// Ask it again at the next size down.
+    Defer,
+    /// Drop it. Nothing describes it afterwards, so an encoding that
+    /// ever does this does not come back the bitmap that went in. Here
+    /// to be measured, not used.
+    Skip,
+}
+
 /// How a region is labelled, given how many of its tiles are
 /// homogeneous. The decoder never sees this: it reads the labels.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Ruleset {
-    /// All homogeneous binds, none defers, some skips and subdivides.
-    SkipWhereMixed,
-    /// All homogeneous binds, some defers and subdivides, none skips.
+pub struct Ruleset {
+    pub mixed: OnMixed,
+    pub none: OnNone,
+    /// The most tiles a binding may emit. A region with more is
+    /// deferred whole instead, which carries it down to the copy pass.
     ///
-    /// Dropping a region whose tiles are all heterogeneous drops
-    /// content no later pass will describe, so this one does not come
-    /// back the bitmap that went in. It is here to be measured, not to
-    /// be used.
-    SkipWhereHeterogeneous,
-    /// All homogeneous binds, some defers and subdivides, none defers.
-    DeferWhereHeterogeneous,
-    /// All homogeneous binds, and anything else skips and subdivides
-    /// as far as it can before deferring. Refines a region at the tile
-    /// size it already failed at, rather than waiting for the next one.
-    SubdivideWhereNotAll,
+    /// Binding is otherwise unconditional, and a binding's payload has
+    /// no repeat detection: a checkerboard of 2x2 blocks binds the
+    /// whole bitmap at the smallest tile size and writes out 16,384
+    /// values, where the copy pass describes the same pattern in about
+    /// a hundred bits. The cap is what lets a region reach the copy
+    /// pass rather than be described expensively here.
+    pub cap: usize,
+    pub called: &'static str,
 }
 
 impl Ruleset {
-    /// Every ruleset, for measuring one against another.
-    pub const ALL: [Ruleset; 4] = [
-        Ruleset::SkipWhereMixed,
-        Ruleset::SkipWhereHeterogeneous,
-        Ruleset::DeferWhereHeterogeneous,
-        Ruleset::SubdivideWhereNotAll,
+    const fn new(mixed: OnMixed, none: OnNone, cap: usize, called: &'static str) -> Self {
+        Self { mixed, none, cap, called }
+    }
+
+    /// The rulesets worth putting beside each other.
+    pub const ALL: [Ruleset; 7] = [
+        Ruleset::new(OnMixed::SkipAndSubdivide, OnNone::Defer, usize::MAX, "skip where mixed"),
+        Ruleset::new(
+            OnMixed::DeferAndSubdivide,
+            OnNone::Defer,
+            usize::MAX,
+            "defer where mixed",
+        ),
+        Ruleset::new(OnMixed::SkipAndSubdivide, OnNone::Skip, usize::MAX, "skip where none"),
+        Ruleset::new(OnMixed::SkipAndSubdivide, OnNone::Defer, 1024, "skip where mixed, cap 1024"),
+        Ruleset::new(OnMixed::SkipAndSubdivide, OnNone::Defer, 64, "skip where mixed, cap 64"),
+        Ruleset::new(OnMixed::SkipAndSubdivide, OnNone::Defer, 16, "skip where mixed, cap 16"),
+        Ruleset::new(OnMixed::SkipAndSubdivide, OnNone::Defer, 4, "skip where mixed, cap 4"),
     ];
 
     /// What to call this ruleset in a table.
     pub fn name(self) -> &'static str {
-        match self {
-            Ruleset::SkipWhereMixed => "skip where mixed",
-            Ruleset::SkipWhereHeterogeneous => "skip where heterogeneous",
-            Ruleset::DeferWhereHeterogeneous => "defer where heterogeneous",
-            Ruleset::SubdivideWhereNotAll => "subdivide where not all",
-        }
+        self.called
     }
 
     /// The label for a region, and whether it subdivides.
     ///
     /// `all` is set when every tile in the region is homogeneous and
-    /// `any` when at least one is, so the three cases are `all`,
-    /// `any` without `all`, and neither.
-    fn label(self, all: bool, any: bool, may_subdivide: bool) -> (u64, bool) {
-        match self {
-            _ if all => (BIND, false),
-            Ruleset::SkipWhereMixed if any => (SKIP, may_subdivide),
-            Ruleset::SkipWhereMixed => (DEFER, false),
-            Ruleset::SkipWhereHeterogeneous if any => (DEFER, may_subdivide),
-            Ruleset::SkipWhereHeterogeneous => (SKIP, false),
-            Ruleset::DeferWhereHeterogeneous if any => (DEFER, may_subdivide),
-            Ruleset::DeferWhereHeterogeneous => (DEFER, false),
-            Ruleset::SubdivideWhereNotAll if may_subdivide => (SKIP, true),
-            Ruleset::SubdivideWhereNotAll => (DEFER, false),
+    /// `any` when at least one is, so the three cases are `all`, `any`
+    /// without `all`, and neither. `tiles` is how many a binding would
+    /// emit.
+    fn label(self, all: bool, any: bool, tiles: usize, may_subdivide: bool) -> (u64, bool) {
+        if all {
+            // Too many to be worth writing out: hand it down whole and
+            // let the copy pass try.
+            return if tiles > self.cap { (DEFER, false) } else { (BIND, false) };
+        }
+        if any {
+            return match self.mixed {
+                OnMixed::SkipAndSubdivide => (SKIP, may_subdivide),
+                OnMixed::DeferAndSubdivide => (DEFER, may_subdivide),
+            };
+        }
+        match self.none {
+            OnNone::Defer => (DEFER, false),
+            OnNone::Skip => (SKIP, false),
         }
     }
 }
@@ -282,7 +314,7 @@ pub fn encode(
             let across = 1 << (region.level - tile);
             let (tx, ty) = (region.x * across, region.y * across);
             let (all, any) = work.folds.at(region.level, region.x, region.y);
-            let (label, subdivide) = rule.label(all, any, region.level > tile);
+            let (label, subdivide) = rule.label(all, any, across * across, region.level > tile);
 
             out.tree.push(label, 2);
             match label {

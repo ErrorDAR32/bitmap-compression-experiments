@@ -23,7 +23,7 @@
 //! let (mut out, mut back) = (Encoded::default(), BitMatrix::new());
 //!
 //! pyramid.rebuild(&bits);
-//! encode(&pyramid, &bits, Ruleset::SkipWhereMixed, &mut work, &mut out);
+//! encode(&pyramid, &bits, Ruleset::ALL[0], &mut work, &mut out);
 //! decode(&out, &mut work, &mut back);
 //! assert_eq!(back.count_set(), bits.count_set());
 //! ```

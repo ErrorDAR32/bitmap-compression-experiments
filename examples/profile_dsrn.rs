@@ -9,7 +9,7 @@ fn main() {
     for bits in samples::typical().timed() {
         pyramid.clear();
         pyramid.rebuild(&bits);
-        encode(&pyramid, &bits, Ruleset::DeferWhereHeterogeneous, &mut work, &mut out);
+        encode(&pyramid, &bits, Ruleset::ALL[1], &mut work, &mut out);
         total += out.bits();
     }
     println!("{total}");
