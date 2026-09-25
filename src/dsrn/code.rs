@@ -179,10 +179,22 @@ impl Bits {
     }
 }
 
+/// How many of each label an encode wrote, for asking where the tree
+/// delta's bits go.
+#[derive(Default, Clone, Copy)]
+pub struct Labels {
+    pub bind: usize,
+    pub defer: usize,
+    pub skip: usize,
+    pub subdivide: usize,
+}
+
 /// What an encode produces: the tree delta, and the payload in the
 /// order the regions were bound.
 #[derive(Default)]
 pub struct Encoded {
+    /// What the tree delta is made of.
+    pub labels: Labels,
     pub tree: Bits,
     pub payload: Bits,
     /// The cells the tile passes did not describe, as raw bits. Stands
@@ -197,6 +209,7 @@ impl Encoded {
     }
 
     fn clear(&mut self) {
+        self.labels = Labels::default();
         self.tree.clear();
         self.payload.clear();
         self.leftover.clear();
@@ -255,8 +268,14 @@ pub fn encode(
             let (label, subdivide) = rule.label(all, any, region.level > tile);
 
             out.tree.push(label, 2);
+            match label {
+                BIND => out.labels.bind += 1,
+                DEFER => out.labels.defer += 1,
+                _ => out.labels.skip += 1,
+            }
             if subdivide {
                 out.tree.push(SUBDIVIDE, 2);
+                out.labels.subdivide += 1;
             }
 
             if label == BIND {
