@@ -105,11 +105,17 @@ pub enum Choosing {
     LargestHomogeneousTile,
     /// The size whose binding costs least.
     CheapestTileSize,
+    /// The coarsest size that covers the whole region: every tile of
+    /// every quadrant homogeneous, so nothing nests.
+    CoversTheWholeRegion,
 }
 
 impl Choosing {
-    pub const ALL: [Choosing; 2] =
-        [Choosing::LargestHomogeneousTile, Choosing::CheapestTileSize];
+    pub const ALL: [Choosing; 3] = [
+        Choosing::LargestHomogeneousTile,
+        Choosing::CheapestTileSize,
+        Choosing::CoversTheWholeRegion,
+    ];
 
     pub fn name(self) -> &'static str {
         match self {
@@ -117,6 +123,7 @@ impl Choosing {
                 "the size that covers the largest homogeneous region inside"
             }
             Choosing::CheapestTileSize => "the size whose binding costs least",
+            Choosing::CoversTheWholeRegion => "the coarsest size that covers the whole region",
         }
     }
 }
@@ -479,6 +486,7 @@ fn minimal_tile_sizes(
         Choosing::CheapestTileSize => (1..=region.level)
             .min_by_key(|&size| binding_cost(work, region, size, bindable(work, region, size)))
             .unwrap_or(1),
+        Choosing::CoversTheWholeRegion => every as usize,
     };
     work.tile_size[region.level][at] = depth as u8;
     let mut cost =
