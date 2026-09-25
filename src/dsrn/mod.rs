@@ -73,7 +73,7 @@ impl Pyramid {
     }
 
     /// The side of a level's plane, in tiles.
-    const fn side(level: usize) -> usize {
+    pub(crate) const fn side(level: usize) -> usize {
         WIDTH >> level
     }
 
@@ -233,6 +233,100 @@ fn even_bits(mut x: u64) -> u32 {
     x as u32
 }
 
+/// For one tile size, whether a region's tiles are all homogeneous
+/// and whether any of them is.
+///
+/// This is the question every pass asks of every region, and asking it
+/// by scanning the region's tiles asks it again at every step of a
+/// descent: a region that subdivides hands its four children exactly
+/// the tiles it just read, and they read them again between them.
+///
+/// It does not need scanning, because it recurs. A region's tiles at
+/// one size are its four children's tiles at that size, all of them
+/// and nothing else, so
+///
+/// ```text
+///     all(region) = all(top left) & all(top right)
+///                 & all(bottom left) & all(bottom right)
+///     any(region) = any(top left) | any(top right)
+///                 | any(bottom left) | any(bottom right)
+/// ```
+///
+/// and a region of exactly the tile's size is one tile, which the
+/// pyramid already answers. So one fold upwards per pass settles every
+/// region at once, four tests each, and the answer is then a bit. It
+/// is the same answer as scanning, not an approximation of it.
+pub struct Folds {
+    all: Box<[u64; WORDS]>,
+    any: Box<[u64; WORDS]>,
+}
+
+impl Default for Folds {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Folds {
+    /// Empty folds, with their room already found.
+    pub fn new() -> Self {
+        Self { all: Box::new([0; WORDS]), any: Box::new([0; WORDS]) }
+    }
+
+    /// Folds the pyramid's homogeneity plane for one tile size, from
+    /// regions of that size up to the whole bitmap.
+    pub fn rebuild(&mut self, pyramid: &Pyramid, tile: usize) {
+        // A region of exactly the tile's size is one tile.
+        let (at, end) = (AT[tile], AT[tile] + PLANE_WORDS[tile]);
+        self.all[at..end].copy_from_slice(&pyramid.same[at..end]);
+        self.any[at..end].copy_from_slice(&pyramid.same[at..end]);
+
+        for level in tile + 1..=LEVELS {
+            let side = Pyramid::side(level);
+            let (at, end) = (AT[level], AT[level] + PLANE_WORDS[level]);
+            self.all[at..end].fill(0);
+            self.any[at..end].fill(0);
+
+            for y in 0..side {
+                let mut done = 0;
+                while done < side {
+                    let (all_top, any_top) = self.rows(level - 1, 2 * y, done * 2);
+                    let (all_bottom, any_bottom) = self.rows(level - 1, 2 * y + 1, done * 2);
+                    let all = all_top & (all_top >> 1) & all_bottom & (all_bottom >> 1);
+                    let any = any_top | (any_top >> 1) | any_bottom | (any_bottom >> 1);
+
+                    let take = (side - done).min(32);
+                    let mask = if take == 64 { u64::MAX } else { (1u64 << take) - 1 };
+                    let bit = y * side + done;
+                    let (word, shift) = (AT[level] + bit / 64, bit % 64);
+                    self.all[word] |= ((even_bits(all) as u64) & mask) << shift;
+                    self.any[word] |= ((even_bits(any) as u64) & mask) << shift;
+                    done += take;
+                }
+            }
+        }
+    }
+
+    /// One row of both folds, masked to the row's own width. A level
+    /// narrower than a word packs several of its rows into one.
+    fn rows(&self, level: usize, row: usize, from: usize) -> (u64, u64) {
+        let width = Pyramid::side(level);
+        let bit = row * width + from;
+        let (at, shift) = (AT[level] + bit / 64, bit % 64);
+        let take = (width - from).min(64 - shift);
+        let mask = if take == 64 { u64::MAX } else { (1u64 << take) - 1 };
+        ((self.all[at] >> shift) & mask, (self.any[at] >> shift) & mask)
+    }
+
+    /// Whether the region's tiles are all homogeneous, and whether any
+    /// of them is.
+    pub fn at(&self, level: usize, x: usize, y: usize) -> (bool, bool) {
+        let bit = y * Pyramid::side(level) + x;
+        let (word, shift) = (AT[level] + bit / 64, bit % 64);
+        (self.all[word] >> shift & 1 != 0, self.any[word] >> shift & 1 != 0)
+    }
+}
+
 /// Everything the pyramid says, worked out from the cells instead.
 ///
 /// Slow, obviously right, and what the fast path is checked against.
@@ -258,6 +352,41 @@ pub fn homogeneous_by_reading(bits: &BitMatrix, level: usize, x: usize, y: usize
 mod tests {
     use super::*;
     use crate::samples;
+
+    /// Folding up from the children has to answer what scanning the
+    /// tiles answers, for every region of every size at every tile
+    /// size. The whole point of the fold is that it is the same
+    /// question, so this is what says it is.
+    #[test]
+    fn folding_from_the_children_agrees_with_scanning_the_tiles() {
+        let (mut pyramid, mut folds) = (Pyramid::new(), Folds::new());
+        let mut cases = vec![BitMatrix::new()];
+        for shape in samples::SHAPES {
+            cases.extend(shape.tested());
+        }
+        cases.extend(samples::grown(0, 1.0, 0.0, 1));
+
+        for bits in &cases {
+            pyramid.clear();
+            pyramid.rebuild(bits);
+            for tile in 1..=LEVELS {
+                folds.rebuild(&pyramid, tile);
+                for level in tile..=LEVELS {
+                    let side = Pyramid::side(level);
+                    let across = 1 << (level - tile);
+                    for y in 0..side {
+                        for x in 0..side {
+                            assert_eq!(
+                                folds.at(level, x, y),
+                                pyramid.block(tile, x * across, y * across, across),
+                                "tile {tile}, region {level} at ({x}, {y})"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     /// Every square of every level, against reading the cells.
     #[test]

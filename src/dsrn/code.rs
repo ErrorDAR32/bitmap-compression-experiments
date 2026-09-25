@@ -46,7 +46,7 @@
 //! the encoding is whole and checkable while the copy codes are still
 //! to come.
 
-use crate::dsrn::Pyramid;
+use crate::dsrn::{Folds, Pyramid};
 use crate::BitMatrix;
 
 /// The labels a region is given, and the subdivision that may follow
@@ -209,6 +209,7 @@ pub struct Work {
     stack: Vec<Region>,
     deferred: Vec<Region>,
     next: Vec<Region>,
+    folds: Folds,
 }
 
 /// The four children of a region, in the order a pass takes them:
@@ -236,6 +237,9 @@ pub fn encode(
     work.deferred.push(Region { level: TOP, x: 0, y: 0 });
 
     for tile in (BOTTOM..=TOP).rev() {
+        // Every region's answer for this tile size at once, folded up
+        // from the children rather than scanned per region.
+        work.folds.rebuild(pyramid, tile);
         work.stack.clear();
         // Depth first, so the stack is filled back to front and the
         // regions come off it in reading order.
@@ -247,7 +251,7 @@ pub fn encode(
         while let Some(region) = work.stack.pop() {
             let across = 1 << (region.level - tile);
             let (tx, ty) = (region.x * across, region.y * across);
-            let (all, any) = pyramid.block(tile, tx, ty, across);
+            let (all, any) = work.folds.at(region.level, region.x, region.y);
             let (label, subdivide) = rule.label(all, any, region.level > tile);
 
             out.tree.push(label, 2);
