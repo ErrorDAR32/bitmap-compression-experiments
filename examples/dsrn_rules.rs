@@ -62,7 +62,7 @@ fn main() {
     let corpus: Vec<BitMatrix> =
         samples::SHAPES.iter().flat_map(|shape| shape.timed()).collect();
 
-    let mut ranked: Vec<(usize, Ruleset)> = Vec::new();
+    let mut ranked: Vec<(usize, usize, Ruleset)> = Vec::new();
     let (mut tried, mut lost) = (0usize, 0usize);
 
     for all in Action::ALL {
@@ -75,20 +75,21 @@ fn main() {
                         lost += 1;
                         continue;
                     }
-                    let mut bits_out = 0usize;
+                    let (mut bits_out, mut bound) = (0usize, 0usize);
                     for bits in &corpus {
                         pyramid.clear();
                         pyramid.rebuild(bits);
                         encode(&pyramid, bits, rule, &mut work, &mut out);
                         bits_out += out.bits();
+                        bound += out.labels.bind;
                     }
-                    ranked.push((bits_out / corpus.len(), rule));
+                    ranked.push((bits_out / corpus.len(), bound / corpus.len(), rule));
                 }
             }
         }
     }
 
-    ranked.sort_by_key(|&(bits, _)| bits);
+    ranked.sort_by_key(|&(bits, _, _)| bits);
     println!(
         "  {tried} rulesets, {lost} of which do not come back the bitmap that went in.\n  \
          The {} that do, best first, over {} bitmaps:\n",
@@ -101,18 +102,29 @@ fn main() {
         "some tiles\nhomogeneous",
         "no tile\nhomogeneous",
         "copying",
+        "bindings\na bitmap",
         "bits\na bitmap",
         "of the 65536\nbits it holds",
     ]);
-    for &(bits, rule) in ranked.iter().take(12) {
+    let row = |t: &mut Table, bits: usize, bound: usize, rule: Ruleset| {
         t.row(&[
             rule.all.name().to_string(),
             rule.some.name().to_string(),
             rule.none.name().to_string(),
             rule.copying.name().to_string(),
+            bound.to_string(),
             bits.to_string(),
             format!("{:.1}%", 100.0 * bits as f64 / 65536.0),
         ]);
+    };
+    for &(bits, bound, rule) in ranked.iter().take(6) {
+        row(&mut t, bits, bound, rule);
+    }
+    t.rule();
+    // The best that actually uses the tile passes, which the ones
+    // above do not: they defer everything and let the copy pass work.
+    for &(bits, bound, rule) in ranked.iter().filter(|&&(_, b, _)| b > 0).take(6) {
+        row(&mut t, bits, bound, rule);
     }
     t.print();
 }
