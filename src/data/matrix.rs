@@ -195,6 +195,14 @@ impl BitMatrix {
         }
     }
 
+    /// Clears one cell.
+    #[doc(hidden)]
+    pub fn clear_cell(&mut self, x: u8, y: u8) {
+        const PER_ROW: usize = WIDTH / BITS_PER_WORD;
+        let at = y as usize * PER_ROW + x as usize / BITS_PER_WORD;
+        self.words[at] &= !(1u64 << (x as usize % BITS_PER_WORD));
+    }
+
     /// The machine words holding one row.
     /// One row's bits, four words of it.
     ///

@@ -22,6 +22,7 @@ fn main() {
         "ruleset",
         "comes back\nthe bitmap",
         "tree delta\nbits a bitmap",
+        "1x1 pass\nbits a bitmap",
         "payload\nbits a bitmap",
         "leftover raw\nbits a bitmap",
         "all of it\nbits a bitmap",
@@ -29,6 +30,7 @@ fn main() {
     ]);
     for rule in Ruleset::ALL {
         let (mut tree, mut payload, mut raw, mut n) = (0usize, 0usize, 0usize, 0usize);
+        let mut copy = 0usize;
         let mut lossless = true;
         for shape in samples::SHAPES {
             for bits in shape.timed() {
@@ -36,17 +38,19 @@ fn main() {
                 pyramid.rebuild(&bits);
                 encode(&pyramid, &bits, rule, &mut work, &mut out);
                 tree += out.tree.len();
+                copy += out.copy.len();
                 payload += out.payload.len();
                 raw += out.leftover.len();
                 n += 1;
                 lossless &= whole(&out, &mut work, &bits, &mut back);
             }
         }
-        let all = tree + payload + raw;
+        let all = tree + copy + payload + raw;
         t.row(&[
             rule.name().to_string(),
             if lossless { "yes" } else { "no" }.to_string(),
             (tree / n).to_string(),
+            (copy / n).to_string(),
             (payload / n).to_string(),
             (raw / n).to_string(),
             (all / n).to_string(),
@@ -61,20 +65,23 @@ fn main() {
         "shape",
         "bitmaps",
         "tree delta\nbits a bitmap",
+        "1x1 pass\nbits a bitmap",
         "payload\nbits a bitmap",
         "leftover raw\nbits a bitmap",
         "all of it\nbits a bitmap",
         "of the 65536\nbits it holds",
     ]);
     let (mut a, mut b, mut c, mut n) = (0usize, 0usize, 0usize, 0usize);
+    let mut d = 0usize;
     for shape in samples::SHAPES {
         let maps: Vec<BitMatrix> = shape.timed().collect();
-        let (mut tree, mut payload, mut raw) = (0usize, 0usize, 0usize);
+        let (mut tree, mut payload, mut raw, mut copy) = (0usize, 0usize, 0usize, 0usize);
         for bits in &maps {
             pyramid.clear();
             pyramid.rebuild(bits);
             encode(&pyramid, bits, rule, &mut work, &mut out);
             tree += out.tree.len();
+            copy += out.copy.len();
             payload += out.payload.len();
             raw += out.leftover.len();
         }
@@ -82,12 +89,14 @@ fn main() {
         a += tree;
         b += payload;
         c += raw;
+        d += copy;
         n += k;
-        let all = tree + payload + raw;
+        let all = tree + copy + payload + raw;
         t.row(&[
             shape.name.to_string(),
             k.to_string(),
             (tree / k).to_string(),
+            (copy / k).to_string(),
             (payload / k).to_string(),
             (raw / k).to_string(),
             (all / k).to_string(),
@@ -95,11 +104,12 @@ fn main() {
         ]);
     }
     t.rule();
-    let all = a + b + c;
+    let all = a + b + c + d;
     t.row(&[
         "every shape".to_string(),
         n.to_string(),
         (a / n).to_string(),
+        (d / n).to_string(),
         (b / n).to_string(),
         (c / n).to_string(),
         (all / n).to_string(),

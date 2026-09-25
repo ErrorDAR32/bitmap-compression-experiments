@@ -196,23 +196,37 @@ pub struct Encoded {
     /// What the tree delta is made of.
     pub labels: Labels,
     pub tree: Bits,
+    /// The 1x1 pass's codes, which are a different table from the tile
+    /// passes' and so are a different stream.
+    ///
+    /// Sharing one stream desynchronises the decoder: a tile pass
+    /// peeks the two bits after a label to see whether a subdivide
+    /// follows, and the 1x1 pass's first code can be `11` as well. The
+    /// tile decoder eats it, reads a split where a region cannot
+    /// split, and descends past the bottom.
+    pub copy: Bits,
     pub payload: Bits,
     /// The cells the tile passes did not describe, as raw bits. Stands
     /// in for the 1x1 pass.
     pub leftover: Bits,
+    /// How many regions of each side the tile passes left, which is
+    /// what the 1x1 pass would be given.
+    pub leftover_sides: [usize; 9],
 }
 
 impl Encoded {
     /// Every bit of the encoding.
     pub fn bits(&self) -> usize {
-        self.tree.len() + self.payload.len() + self.leftover.len()
+        self.tree.len() + self.copy.len() + self.payload.len() + self.leftover.len()
     }
 
     fn clear(&mut self) {
         self.labels = Labels::default();
         self.tree.clear();
+        self.copy.clear();
         self.payload.clear();
         self.leftover.clear();
+        self.leftover_sides = [0; 9];
     }
 }
 
@@ -223,6 +237,9 @@ pub struct Work {
     deferred: Vec<Region>,
     next: Vec<Region>,
     folds: Folds,
+    /// Which cells a binding or an earlier region has already settled,
+    /// and so may be copied from. Both halves keep it the same way.
+    settled: BitMatrix,
 }
 
 /// The four children of a region, in the order a pass takes them:
@@ -307,16 +324,25 @@ pub fn encode(
     }
 
     // Whatever is still deferred after the smallest tile pass is a
-    // region no tile size described. This is where the 1x1 pass
-    // belongs; until it exists the cells go out raw.
+    // region no tile size described, and the 1x1 pass has it. Every
+    // cell not in one of those regions is already settled by a
+    // binding, and so may be copied from.
+    work.settled.words.fill(0);
+    work.settled.set_rect(0, 0, 255, 255);
     for region in &work.deferred {
-        let side = 1 << region.level;
+        out.leftover_sides[region.level] += 1;
+        let side = 1usize << region.level;
         for y in region.y * side..(region.y + 1) * side {
             for x in region.x * side..(region.x + 1) * side {
-                out.leftover.push(u64::from(bits.get(x as u8, y as u8)), 1);
+                work.settled.clear_cell(x as u8, y as u8);
             }
         }
     }
+    let regions = std::mem::take(&mut work.deferred);
+    for region in &regions {
+        describe(bits, &mut work.settled, *region, out);
+    }
+    work.deferred = regions;
 }
 
 /// Reads an encoding back into a bitmap. Follows the labels, so it
@@ -379,15 +405,255 @@ pub fn decode(out: &Encoded, work: &mut Work, bits: &mut BitMatrix) {
         std::mem::swap(&mut work.deferred, &mut work.next);
     }
 
-    let mut raw = 0usize;
+    work.settled.words.fill(0);
+    work.settled.set_rect(0, 0, 255, 255);
     for region in &work.deferred {
-        let side = 1 << region.level;
+        let side = 1usize << region.level;
         for y in region.y * side..(region.y + 1) * side {
             for x in region.x * side..(region.x + 1) * side {
-                if out.leftover.take(raw, 1) == Some(1) {
-                    bits.set(x as u8, y as u8);
+                work.settled.clear_cell(x as u8, y as u8);
+            }
+        }
+    }
+    let (mut copy_at, mut raw_at) = (0usize, 0usize);
+    let regions = std::mem::take(&mut work.deferred);
+    for region in &regions {
+        undescribe(out, &mut work.settled, *region, bits, &mut copy_at, &mut raw_at);
+    }
+    work.deferred = regions;
+}
+
+/// The 1x1 pass has codes of its own, two bits each.
+const COPY: u64 = 0b00;
+const COPY_PART: u64 = 0b01;
+const RAW: u64 = 0b10;
+const SPLIT: u64 = 0b11;
+
+/// Where a region may copy from: the four neighbours of its own size
+/// that reading order has already settled.
+const DIRECTIONS: [(isize, isize); 4] = [(-1, -1), (0, -1), (1, -1), (-1, 0)];
+
+/// Up to a word of one row of a matrix, from `from` onwards.
+fn row_span(bits: &BitMatrix, y: usize, from: usize, take: usize) -> u64 {
+    let row = bits.row(y as u8);
+    let (word, shift) = (from / 64, from % 64);
+    let mask = if take == 64 { u64::MAX } else { (1u64 << take) - 1 };
+    let mut got = row[word] >> shift;
+    if shift + take > 64 && word + 1 < row.len() {
+        got |= row[word + 1] << (64 - shift);
+    }
+    got & mask
+}
+
+/// Whether every cell of a region is already settled, and so may be
+/// copied from.
+///
+/// A word at a time, not a cell at a time. Both this and [`alike`] are
+/// asked once per region per direction, so a cell at a time makes a
+/// region of side `s` cost `s * s` per question and the whole pass
+/// cost the fourth power of the side it starts from. On the rulesets
+/// that leave large regions that was minutes a bitmap.
+fn settled(done: &BitMatrix, level: usize, x: isize, y: isize) -> bool {
+    let side = 1isize << level;
+    if x < 0 || y < 0 || (x + 1) * side > 256 || (y + 1) * side > 256 {
+        return false;
+    }
+    let (side, x, y) = (side as usize, x as usize, y as usize);
+    for row in 0..side {
+        let mut at = 0;
+        while at < side {
+            let take = (side - at).min(64);
+            let want = if take == 64 { u64::MAX } else { (1u64 << take) - 1 };
+            if row_span(done, y * side + row, x * side + at, take) != want {
+                return false;
+            }
+            at += take;
+        }
+    }
+    true
+}
+
+/// Whether two regions of the same size hold the same cells.
+fn alike(bits: &BitMatrix, level: usize, a: (usize, usize), b: (isize, isize)) -> bool {
+    let side = 1usize << level;
+    let (bx, by) = (b.0 as usize, b.1 as usize);
+    for row in 0..side {
+        let mut at = 0;
+        while at < side {
+            let take = (side - at).min(64);
+            if row_span(bits, a.1 * side + row, a.0 * side + at, take)
+                != row_span(bits, by * side + row, bx * side + at, take)
+            {
+                return false;
+            }
+            at += take;
+        }
+    }
+    true
+}
+
+/// Marks every cell of a region settled.
+fn settle(done: &mut BitMatrix, region: Region) {
+    let side = 1usize << region.level;
+    done.set_rect(
+        (region.x * side) as i64,
+        (region.y * side) as i64,
+        (region.x * side + side - 1) as i64,
+        (region.y * side + side - 1) as i64,
+    );
+}
+
+/// Which direction a region copies whole from, if any.
+fn copies_whole(bits: &BitMatrix, done: &BitMatrix, region: Region) -> Option<usize> {
+    DIRECTIONS.iter().position(|&(dx, dy)| {
+        let (nx, ny) = (region.x as isize + dx, region.y as isize + dy);
+        settled(done, region.level, nx, ny)
+            && alike(bits, region.level, (region.x, region.y), (nx, ny))
+    })
+}
+
+/// Describes one region of the 1x1 pass, and its children if it splits.
+///
+/// Four codes. A region that matches a settled neighbour of its own
+/// size copies it whole. One whose children do not all match may still
+/// copy some of them from one direction, which is the masked copy. One
+/// that can copy nothing splits, and its children are described in
+/// turn. One that can copy nothing and cannot split emits its cells.
+///
+/// A region of two cells a side cannot split, so it copies whole or
+/// emits raw, which is the specification's note that a 2x2 only ever
+/// carries a direction.
+fn describe(bits: &BitMatrix, done: &mut BitMatrix, region: Region, out: &mut Encoded) {
+    if let Some(dir) = copies_whole(bits, done, region) {
+        out.copy.push(COPY, 2);
+        out.copy.push(dir as u64, 2);
+        settle(done, region);
+        return;
+    }
+
+    if region.level == BOTTOM {
+        out.copy.push(RAW, 2);
+        let side = 1usize << region.level;
+        for y in region.y * side..(region.y + 1) * side {
+            for x in region.x * side..(region.x + 1) * side {
+                out.leftover.push(u64::from(bits.get(x as u8, y as u8)), 1);
+            }
+        }
+        settle(done, region);
+        return;
+    }
+
+    // Some children may copy from one shared direction. The direction
+    // that carries the most of them is the one worth naming.
+    let kids = children_of(region);
+    let mut best: Option<(usize, u8)> = None;
+    for (dir, &(dx, dy)) in DIRECTIONS.iter().enumerate() {
+        let mut mask = 0u8;
+        for (slot, kid) in kids.iter().enumerate() {
+            let (nx, ny) = (kid.x as isize + dx, kid.y as isize + dy);
+            if settled(done, kid.level, nx, ny)
+                && alike(bits, kid.level, (kid.x, kid.y), (nx, ny))
+            {
+                mask |= 1 << slot;
+            }
+        }
+        if mask != 0 && best.is_none_or(|(_, had)| mask.count_ones() > had.count_ones()) {
+            best = Some((dir, mask));
+        }
+    }
+
+    match best {
+        Some((dir, mask)) => {
+            out.copy.push(COPY_PART, 2);
+            out.copy.push(dir as u64, 2);
+            out.copy.push(mask as u64, 4);
+            for (slot, kid) in kids.iter().enumerate() {
+                if mask >> slot & 1 != 0 {
+                    settle(done, *kid);
+                } else {
+                    describe(bits, done, *kid, out);
                 }
-                raw += 1;
+            }
+        }
+        None => {
+            out.copy.push(SPLIT, 2);
+            for kid in kids.iter() {
+                describe(bits, done, *kid, out);
+            }
+        }
+    }
+}
+
+/// Reads back what [`describe`] wrote.
+fn undescribe(
+    out: &Encoded,
+    done: &mut BitMatrix,
+    region: Region,
+    bits: &mut BitMatrix,
+    tree_at: &mut usize,
+    raw_at: &mut usize,
+) {
+    // A region of the smallest size cannot split, whatever the stream
+    // says, so a desynchronised stream stops here rather than
+    // descending past the bottom.
+    let code = match out.copy.take(*tree_at, 2) {
+        Some(code) if region.level > BOTTOM || code == COPY => code,
+        _ => RAW,
+    };
+    *tree_at += 2;
+    match code {
+        COPY => {
+            let dir = out.copy.take(*tree_at, 2).unwrap_or(0) as usize;
+            *tree_at += 2;
+            copy_in(bits, region, DIRECTIONS[dir]);
+            settle(done, region);
+        }
+        COPY_PART => {
+            let dir = out.copy.take(*tree_at, 2).unwrap_or(0) as usize;
+            *tree_at += 2;
+            let mask = out.copy.take(*tree_at, 4).unwrap_or(0) as u8;
+            *tree_at += 4;
+            for (slot, kid) in children_of(region).iter().enumerate() {
+                if mask >> slot & 1 != 0 {
+                    copy_in(bits, *kid, DIRECTIONS[dir]);
+                    settle(done, *kid);
+                } else {
+                    undescribe(out, done, *kid, bits, tree_at, raw_at);
+                }
+            }
+        }
+        SPLIT => {
+            for kid in children_of(region).iter() {
+                undescribe(out, done, *kid, bits, tree_at, raw_at);
+            }
+        }
+        _ => {
+            let side = 1usize << region.level;
+            for y in region.y * side..(region.y + 1) * side {
+                for x in region.x * side..(region.x + 1) * side {
+                    if out.leftover.take(*raw_at, 1) == Some(1) {
+                        bits.set(x as u8, y as u8);
+                    }
+                    *raw_at += 1;
+                }
+            }
+            settle(done, region);
+        }
+    }
+}
+
+/// Copies a settled neighbour into a region.
+fn copy_in(bits: &mut BitMatrix, region: Region, (dx, dy): (isize, isize)) {
+    let side = 1usize << region.level;
+    let (nx, ny) = (region.x as isize + dx, region.y as isize + dy);
+    for y in 0..side {
+        for x in 0..side {
+            let from = bits.get(
+                (nx as usize * side + x) as u8,
+                (ny as usize * side + y) as u8,
+            );
+            if from {
+                bits.set((region.x * side + x) as u8, (region.y * side + y) as u8);
             }
         }
     }
