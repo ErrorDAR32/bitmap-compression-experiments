@@ -53,7 +53,6 @@ impl BitMatrix {
         self.words[idx / BITS_PER_WORD] &= !(1u64 << (idx % BITS_PER_WORD));
     }
 
-
     /// Clears every bit back to 0.
     pub fn reset(&mut self) {
         for word in self.words.iter_mut() {
@@ -216,17 +215,6 @@ impl BitMatrix {
         &self.words[at..at + PER_ROW]
     }
 
-    /// Calls `visit` with every set cell, in scan order.
-    pub(crate) fn for_each_set(&self, mut visit: impl FnMut(u8, u8)) {
-        for (index, &word) in self.words.iter().enumerate() {
-            let mut bits = word;
-            while bits != 0 {
-                let at = index * BITS_PER_WORD + bits.trailing_zeros() as usize;
-                visit((at % WIDTH) as u8, (at / WIDTH) as u8);
-                bits &= bits - 1;
-            }
-        }
-    }
 }
 
 impl Default for BitMatrix {

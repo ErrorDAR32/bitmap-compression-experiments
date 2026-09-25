@@ -23,17 +23,8 @@
 //! | `bounds` | how large every list can get, and the argument for it |
 
 pub(crate) mod bits;
-pub(crate) mod bounds;
-
-mod area;
-mod areas;
-mod list;
+pub(crate) 
 mod matrix;
-mod runs;
 
-pub use area::Area;
 pub use matrix::BitMatrix;
-pub(crate) use areas::BitmapAreas;
-pub(crate) use list::List;
-pub(crate) use runs::{Run, Runs};
 
