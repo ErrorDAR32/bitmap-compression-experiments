@@ -1,5 +1,5 @@
 //! What DSRN emits, and how much of it is the part not yet written.
-use bitmatrix::dsrn::passes::{decode, encode, Encoded, Work};
+use bitmatrix::dsrn::passes::{decode, encode, Encoded, Workspace};
 use bitmatrix::dsrn::rules::Ruleset;
 use bitmatrix::dsrn::Pyramid;
 use bitmatrix::{samples, BitMatrix};
@@ -9,13 +9,13 @@ mod table;
 use table::Table;
 
 /// Whether an encoding comes back the bitmap that went in.
-fn whole(out: &Encoded, rule: Ruleset, work: &mut Work, bits: &BitMatrix, back: &mut BitMatrix) -> bool {
+fn whole(out: &Encoded, rule: Ruleset, work: &mut Workspace, bits: &BitMatrix, back: &mut BitMatrix) -> bool {
     decode(out, rule, work, back);
     (0..=u8::MAX).all(|y| (0..=u8::MAX).all(|x| bits.get(x, y) == back.get(x, y)))
 }
 
 fn main() {
-    let (mut pyramid, mut work) = (Pyramid::new(), Work::default());
+    let (mut pyramid, mut work) = (Pyramid::new(), Workspace::default());
     let (mut out, mut back) = (Encoded::default(), BitMatrix::new());
 
     println!("  what each ruleset emits, over the whole corpus.\n");

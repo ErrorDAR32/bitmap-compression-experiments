@@ -11,7 +11,7 @@
 //! built once and fed bitmap after bitmap:
 //!
 //! ```
-//! use bitmatrix::dsrn::passes::{decode, encode, Encoded, Work};
+//! use bitmatrix::dsrn::passes::{decode, encode, Encoded, Workspace};
 //! use bitmatrix::dsrn::rules::Ruleset;
 //! use bitmatrix::dsrn::Pyramid;
 //! use bitmatrix::BitMatrix;
@@ -20,7 +20,7 @@
 //! bits.set_rect(10, 10, 40, 30);
 //! bits.set_circle(180, 180, 25);
 //!
-//! let (mut pyramid, mut work) = (Pyramid::new(), Work::default());
+//! let (mut pyramid, mut work) = (Pyramid::new(), Workspace::default());
 //! let (mut out, mut back) = (Encoded::default(), BitMatrix::new());
 //!
 //! pyramid.rebuild(&bits);

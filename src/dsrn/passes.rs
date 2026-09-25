@@ -21,7 +21,7 @@ use crate::dsrn::region::{
 };
 use crate::dsrn::rules::{Ruleset, BIND, DEFER, SKIP, SUBDIVIDE};
 use crate::dsrn::stream::Bits;
-use crate::dsrn::{Folds, Pyramid};
+use crate::dsrn::{Pyramid, TileSizedHomogeneity};
 use crate::BitMatrix;
 
 /// The largest tile, and the smallest the tile passes reach.
@@ -89,11 +89,11 @@ impl Encoded {
 
 /// The room an encode works in, found once and reused.
 #[derive(Default)]
-pub struct Work {
+pub struct Workspace {
     stack: Vec<Region>,
     deferred: Vec<Region>,
     next: Vec<Region>,
-    folds: Folds,
+    tiles_homogeneous: TileSizedHomogeneity,
     /// Which cells a binding or an earlier region has already settled,
     /// and so may be copied from. Both halves keep it the same way.
     settled: BitMatrix,
@@ -104,7 +104,7 @@ pub fn encode(
     pyramid: &Pyramid,
     bits: &BitMatrix,
     rule: Ruleset,
-    work: &mut Work,
+    work: &mut Workspace,
     out: &mut Encoded,
 ) {
     out.clear();
@@ -116,7 +116,7 @@ pub fn encode(
     for tile in (BOTTOM..=TOP).rev() {
         // Every region's answer for this tile size at once, folded up
         // from the children rather than scanned per region.
-        work.folds.rebuild(pyramid, tile);
+        work.tiles_homogeneous.rebuild(pyramid, tile);
         work.stack.clear();
         // Depth first, so the stack is filled back to front and the
         // regions come off it in reading order.
@@ -143,7 +143,7 @@ pub fn encode(
                 }
             }
 
-            let (all, any) = work.folds.at(region.level, region.x, region.y);
+            let (all, any) = work.tiles_homogeneous.at(region.level, region.x, region.y);
             let (label, subdivide) = rule.label(all, any, region.level > tile);
 
             out.tree.push(label, 2);
@@ -205,7 +205,7 @@ pub fn encode(
 
 /// Reads an encoding back into a bitmap. Follows the labels, so it
 /// needs to know nothing about which [`Ruleset`] wrote them.
-pub fn decode(out: &Encoded, rule: Ruleset, work: &mut Work, bits: &mut BitMatrix) {
+pub fn decode(out: &Encoded, rule: Ruleset, work: &mut Workspace, bits: &mut BitMatrix) {
     bits.words.fill(0);
     work.settled.words.fill(0);
     work.deferred.clear();
@@ -444,7 +444,7 @@ mod tests {
 
     /// Whether a ruleset's encoding comes back the bitmap that went in.
     fn round_trips(rule: Ruleset) -> bool {
-        let (mut pyramid, mut work) = (Pyramid::new(), Work::default());
+        let (mut pyramid, mut work) = (Pyramid::new(), Workspace::default());
         let (mut out, mut back) = (Encoded::default(), BitMatrix::new());
         for bits in &cases() {
             pyramid.clear();

@@ -10,7 +10,7 @@
 //! binding cover part of a region and subdivide for the rest could
 //! claim. If there is no gap there is nothing to claim.
 
-use bitmatrix::dsrn::passes::{encode, Encoded, Work};
+use bitmatrix::dsrn::passes::{encode, Encoded, Workspace};
 use bitmatrix::dsrn::rules::Ruleset;
 use bitmatrix::dsrn::{Pyramid, LEVELS};
 use bitmatrix::{samples, BitMatrix};
@@ -43,7 +43,7 @@ fn fewest_values(pyramid: &Pyramid, bits: &BitMatrix, level: usize, x: usize, y:
 }
 
 fn main() {
-    let (mut pyramid, mut work) = (Pyramid::new(), Work::default());
+    let (mut pyramid, mut work) = (Pyramid::new(), Workspace::default());
     let mut out = Encoded::default();
     let rule = Ruleset::ALL[0];
 

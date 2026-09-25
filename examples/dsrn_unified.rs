@@ -59,7 +59,7 @@ struct Both {
 
 struct Rooms {
     pyramid: Pyramid,
-    tile_work: passes::Work,
+    tile_work: passes::Workspace,
     tile_out: passes::Encoded,
     one_work: unified::Workspace,
     one_out: unified::Encoded,
@@ -70,7 +70,7 @@ impl Rooms {
     fn new() -> Self {
         Self {
             pyramid: Pyramid::new(),
-            tile_work: passes::Work::default(),
+            tile_work: passes::Workspace::default(),
             tile_out: passes::Encoded::default(),
             one_work: unified::Workspace::new(),
             one_out: unified::Encoded::default(),

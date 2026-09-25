@@ -5,7 +5,7 @@
 //! win turns entirely on the size of what it is handed: copying a 16x16
 //! region for four bits beats 256 raw cells, and copying a 2x2 for
 //! four bits beats nothing at all.
-use bitmatrix::dsrn::passes::{encode, Encoded, Work};
+use bitmatrix::dsrn::passes::{encode, Encoded, Workspace};
 use bitmatrix::dsrn::rules::Ruleset;
 use bitmatrix::dsrn::Pyramid;
 use bitmatrix::samples;
@@ -15,7 +15,7 @@ mod table;
 use table::Table;
 
 fn main() {
-    let (mut pyramid, mut work) = (Pyramid::new(), Work::default());
+    let (mut pyramid, mut work) = (Pyramid::new(), Workspace::default());
     let mut out = Encoded::default();
 
     for rule in [Ruleset::ALL[0], Ruleset::ALL[1]] {

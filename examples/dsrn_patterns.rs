@@ -12,7 +12,7 @@
 //! and four for each copy. Eight levels of that, plus the one 2x2
 //! written raw, plus the labels the tile passes spend saying nothing.
 
-use bitmatrix::dsrn::passes::{decode, encode, Encoded, Work};
+use bitmatrix::dsrn::passes::{decode, encode, Encoded, Workspace};
 use bitmatrix::dsrn::rules::Ruleset;
 use bitmatrix::dsrn::Pyramid;
 use bitmatrix::BitMatrix;
@@ -49,7 +49,7 @@ fn one_cell() -> BitMatrix {
 }
 
 fn main() {
-    let (mut pyramid, mut work) = (Pyramid::new(), Work::default());
+    let (mut pyramid, mut work) = (Pyramid::new(), Workspace::default());
     let (mut out, mut back) = (Encoded::default(), BitMatrix::new());
 
     let cases: [(&str, BitMatrix); 6] = [

@@ -284,18 +284,18 @@ fn even_bits(mut x: u64) -> u32 {
 /// pyramid already answers. So one fold upwards per pass settles every
 /// region at once, four tests each, and the answer is then a bit. It
 /// is the same answer as scanning, not an approximation of it.
-pub struct Folds {
+pub struct TileSizedHomogeneity {
     all: Box<[u64; WORDS]>,
     any: Box<[u64; WORDS]>,
 }
 
-impl Default for Folds {
+impl Default for TileSizedHomogeneity {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl Folds {
+impl TileSizedHomogeneity {
     /// Empty folds, with their room already found.
     pub fn new() -> Self {
         Self { all: Box::new([0; WORDS]), any: Box::new([0; WORDS]) }
@@ -387,7 +387,7 @@ mod tests {
     /// question, so this is what says it is.
     #[test]
     fn folding_from_the_children_agrees_with_scanning_the_tiles() {
-        let (mut pyramid, mut folds) = (Pyramid::new(), Folds::new());
+        let (mut pyramid, mut folds) = (Pyramid::new(), TileSizedHomogeneity::new());
         let mut cases = vec![BitMatrix::new()];
         for shape in samples::SHAPES {
             cases.extend(shape.tested());

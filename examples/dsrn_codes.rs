@@ -1,5 +1,5 @@
 //! What the 1x1 pass actually emits.
-use bitmatrix::dsrn::passes::{encode, Encoded, Work};
+use bitmatrix::dsrn::passes::{encode, Encoded, Workspace};
 use bitmatrix::dsrn::rules::Ruleset;
 use bitmatrix::dsrn::Pyramid;
 use bitmatrix::{samples, BitMatrix};
@@ -9,7 +9,7 @@ mod table;
 use table::Table;
 
 fn main() {
-    let (mut pyramid, mut work) = (Pyramid::new(), Work::default());
+    let (mut pyramid, mut work) = (Pyramid::new(), Workspace::default());
     let mut out = Encoded::default();
     for rule in [Ruleset::ALL[0], Ruleset::ALL[1]] {
         println!("\n  {rule}\n");

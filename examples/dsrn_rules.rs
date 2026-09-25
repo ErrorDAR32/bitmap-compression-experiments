@@ -14,7 +14,7 @@
 //! on a handful of bitmaps before being measured on the corpus, and
 //! the ones that do not come back are reported but not ranked.
 
-use bitmatrix::dsrn::passes::{decode, encode, Encoded, Work};
+use bitmatrix::dsrn::passes::{decode, encode, Encoded, Workspace};
 use bitmatrix::dsrn::rules::{Action, Copying, Ruleset};
 use bitmatrix::dsrn::Pyramid;
 use bitmatrix::{samples, BitMatrix};
@@ -29,7 +29,7 @@ fn lossless(
     rule: Ruleset,
     proofs: &[BitMatrix],
     pyramid: &mut Pyramid,
-    work: &mut Work,
+    work: &mut Workspace,
     out: &mut Encoded,
     back: &mut BitMatrix,
 ) -> bool {
@@ -50,7 +50,7 @@ fn lossless(
 }
 
 fn main() {
-    let (mut pyramid, mut work) = (Pyramid::new(), Work::default());
+    let (mut pyramid, mut work) = (Pyramid::new(), Workspace::default());
     let (mut out, mut back) = (Encoded::default(), BitMatrix::new());
 
     // Enough shapes to catch a ruleset that only works on one of them.

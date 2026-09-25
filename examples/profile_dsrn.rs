@@ -1,10 +1,10 @@
 //! A DSRN encode under callgrind, beside `profile`.
-use bitmatrix::dsrn::passes::{encode, Encoded, Work};
+use bitmatrix::dsrn::passes::{encode, Encoded, Workspace};
 use bitmatrix::dsrn::rules::Ruleset;
 use bitmatrix::dsrn::Pyramid;
 use bitmatrix::samples;
 fn main() {
-    let (mut pyramid, mut work) = (Pyramid::new(), Work::default());
+    let (mut pyramid, mut work) = (Pyramid::new(), Workspace::default());
     let mut out = Encoded::default();
     let mut total = 0usize;
     for bits in samples::typical().timed() {
