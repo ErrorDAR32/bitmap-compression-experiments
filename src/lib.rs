@@ -77,6 +77,7 @@
 
 pub mod accurate;
 pub mod chords;
+pub mod dsrn;
 mod data;
 mod partition;
 pub mod runmax;
