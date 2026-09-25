@@ -196,8 +196,7 @@ fn main() {
         println!("\n  what the codes are, over the whole corpus.\n");
         let mut t = Table::new(&["code", "a bitmap"]);
         let (mut splits, mut whole, mut nested) = (0usize, 0usize, 0usize);
-        let (mut copies, mut masked_copies, mut nested_tiles, mut masks) =
-            (0usize, 0usize, 0usize, 0usize);
+        let (mut copies, mut masked_copies, mut nested_quadrants) = (0usize, 0usize, 0usize);
         let (mut tree, mut payload, mut n) = (0usize, 0usize, 0usize);
         for shape in samples::SHAPES {
             for bits in shape.timed() {
@@ -216,8 +215,7 @@ fn main() {
                 nested += c.nested_bindings;
                 copies += c.copies;
                 masked_copies += c.masked_copies;
-                nested_tiles += c.nested_tiles;
-                masks += c.nesting_masks;
+                nested_quadrants += c.nested_quadrants;
                 tree += rooms.one_out.tree.len();
                 payload += rooms.one_out.payload.len();
                 n += 1;
@@ -227,8 +225,7 @@ fn main() {
             ("splits", splits),
             ("whole bindings", whole),
             ("nested bindings", nested),
-            ("tiles those left to nest", nested_tiles),
-            ("bits spent saying which", masks),
+            ("quadrants those left to nest", nested_quadrants),
             ("whole copies", copies),
             ("masked copies", masked_copies),
             ("tree bits", tree),

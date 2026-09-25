@@ -1,13 +1,12 @@
 //! A unified DSRN encode under callgrind, beside `profile_dsrn`.
 //!
 //! Takes the tile size rule as its argument, so the same harness
-//! measures each of them: `rule`, `rule-or-split`, or `cheapest`.
+//! measures each of them: `rule` or `cheapest`.
 use bitmatrix::dsrn::unified::{encode, Choosing, Encoded, Workspace};
 use bitmatrix::dsrn::Pyramid;
 use bitmatrix::samples;
 fn main() {
     let choosing = match std::env::args().nth(1).unwrap_or_default().as_str() {
-        "rule-or-split" => Choosing::LargestHomogeneousTileOrSplit,
         "cheapest" => Choosing::CheapestTileSize,
         _ => Choosing::LargestHomogeneousTile,
     };
