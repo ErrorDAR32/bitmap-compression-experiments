@@ -1,5 +1,5 @@
 //! What DSRN emits, and how much of it is the part not yet written.
-use bitmatrix::dsrn::code::{encode, Encoded, Work};
+use bitmatrix::dsrn::code::{decode, encode, Encoded, Ruleset, Work};
 use bitmatrix::dsrn::Pyramid;
 use bitmatrix::{samples, BitMatrix};
 
@@ -7,9 +7,56 @@ use bitmatrix::{samples, BitMatrix};
 mod table;
 use table::Table;
 
+/// Whether an encoding comes back the bitmap that went in.
+fn whole(out: &Encoded, work: &mut Work, bits: &BitMatrix, back: &mut BitMatrix) -> bool {
+    decode(out, work, back);
+    (0..=u8::MAX).all(|y| (0..=u8::MAX).all(|x| bits.get(x, y) == back.get(x, y)))
+}
+
 fn main() {
     let (mut pyramid, mut work) = (Pyramid::new(), Work::default());
-    let mut out = Encoded::default();
+    let (mut out, mut back) = (Encoded::default(), BitMatrix::new());
+
+    println!("  what each ruleset emits, over the whole corpus.\n");
+    let mut t = Table::new(&[
+        "ruleset",
+        "comes back\nthe bitmap",
+        "tree delta\nbits a bitmap",
+        "payload\nbits a bitmap",
+        "leftover raw\nbits a bitmap",
+        "all of it\nbits a bitmap",
+        "of the 65536\nbits it holds",
+    ]);
+    for rule in Ruleset::ALL {
+        let (mut tree, mut payload, mut raw, mut n) = (0usize, 0usize, 0usize, 0usize);
+        let mut lossless = true;
+        for shape in samples::SHAPES {
+            for bits in shape.timed() {
+                pyramid.clear();
+                pyramid.rebuild(&bits);
+                encode(&pyramid, &bits, rule, &mut work, &mut out);
+                tree += out.tree.len();
+                payload += out.payload.len();
+                raw += out.leftover.len();
+                n += 1;
+                lossless &= whole(&out, &mut work, &bits, &mut back);
+            }
+        }
+        let all = tree + payload + raw;
+        t.row(&[
+            rule.name().to_string(),
+            if lossless { "yes" } else { "no" }.to_string(),
+            (tree / n).to_string(),
+            (payload / n).to_string(),
+            (raw / n).to_string(),
+            (all / n).to_string(),
+            format!("{:.1}%", 100.0 * (all / n) as f64 / 65536.0),
+        ]);
+    }
+    t.print();
+
+    println!("\n  and {}, shape by shape.\n", Ruleset::SkipWhereMixed.name());
+    let rule = Ruleset::SkipWhereMixed;
     let mut t = Table::new(&[
         "shape",
         "bitmaps",
@@ -26,7 +73,7 @@ fn main() {
         for bits in &maps {
             pyramid.clear();
             pyramid.rebuild(bits);
-            encode(&pyramid, bits, &mut work, &mut out);
+            encode(&pyramid, bits, rule, &mut work, &mut out);
             tree += out.tree.len();
             payload += out.payload.len();
             raw += out.leftover.len();

@@ -1,5 +1,5 @@
 //! A DSRN encode under callgrind, beside `profile`.
-use bitmatrix::dsrn::code::{encode, Encoded, Work};
+use bitmatrix::dsrn::code::{encode, Encoded, Ruleset, Work};
 use bitmatrix::dsrn::Pyramid;
 use bitmatrix::samples;
 fn main() {
@@ -9,7 +9,7 @@ fn main() {
     for bits in samples::typical().timed() {
         pyramid.clear();
         pyramid.rebuild(&bits);
-        encode(&pyramid, &bits, &mut work, &mut out);
+        encode(&pyramid, &bits, Ruleset::DeferWhereHeterogeneous, &mut work, &mut out);
         total += out.bits();
     }
     println!("{total}");
