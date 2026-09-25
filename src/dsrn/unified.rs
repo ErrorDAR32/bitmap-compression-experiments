@@ -1,110 +1,157 @@
-//! One descent, one code table: binding, copying and splitting decided
-//! region by region rather than tile size by tile size.
+//! One descent, one code table: tile size, binding and copying decided
+//! region by region.
 //!
-//! The tile passes in [`passes`](super::passes) sweep the whole
-//! quadtree once per tile size, and a region that wants to copy has to
-//! wait for the size passes to finish before the 1x1 pass reaches it.
-//! That is the wrong shape for what the encoding is actually doing.
-//!
-//! Delta encoding pays off because a region can be described by one
-//! payload bit per tile, which is as cheap as description gets. What
-//! is left over is the heterogeneous part, which is expensive to
-//! describe as tree and expensive to describe as 2x2 payloads, and
-//! which copying handles well. So the two want to be decided together,
-//! per region: capture as much homogeneous area as binding can, and
-//! hand the rest to copying.
+//! A **region** is a node of the quadtree. A **tile** is an aligned
+//! square of an aligned size; it is not a region, and nothing in the
+//! tree corresponds to one. What the encoding takes advantage of is
+//! that the two line up: a region's tiles at any size are exactly the
+//! regions some number of levels below it, so the pyramid answers a
+//! question about tiles by looking at regions, and a tile that has to
+//! be described separately is already a region that can describe
+//! itself.
 //!
 //! # The codes
 //!
-//! Every node of the quadtree writes two bits, and the decoder always
-//! knows which region it is at, so nothing else has to be said about
-//! where it is or how big it is.
+//! Every region writes two bits, and the decoder always knows which
+//! region it is standing on, so nothing has to say where it is or how
+//! big it is.
 //!
 //! | code | meaning | what follows |
 //! |------|---------|--------------|
 //! | `00` | split | the four children, in reading order |
-//! | `01` | bind | the tile depth, then one payload bit per tile |
+//! | `01` | bind | a tile size, then one payload bit per tile |
 //! | `10` | copy | a direction |
-//! | `11` | masked | a four bit quadrant mask, then a copy or a binding for the quadrants it covers |
+//! | `11` | masked copy | a four bit quadrant mask and a direction |
 //!
-//! The tile depth is how many levels below the region the tiles are,
-//! written in unary: depth 0 is the region itself, one payload bit for
-//! the whole of it. So a region of side 128 whose 2x2 squares are each
-//! homogeneous binds at depth 6 and spends 4096 payload bits plus nine
-//! bits of header, where a plain quadtree would spend 5461 nodes.
+//! # Binding, and what a binding leaves out
 //!
-//! # Masking
+//! A binding names its tile size as a depth below the region, written
+//! in unary, and then says whether it is whole. A whole binding has a
+//! payload bit for every tile and that is all of it.
 //!
-//! A mask is how a description leaves a hole in itself. The four bits
-//! say which quadrants the description covers; the quadrants it does
-//! not cover follow as children, and each of those may mask in turn.
-//! That is what makes the payload of a region exclude the bits a
-//! nested region would have needed: a large region full of small
-//! heterogeneous patches binds over everything but the patches, and
-//! the patches describe themselves.
+//! A binding that is not whole is followed by one mask bit per tile:
+//! nought where the tile is homogeneous and a payload bit describes
+//! it, one where it is not and the tile describes itself as a region
+//! of its own, nested inside the binding. So the payload of a region
+//! does not include the bits a nested region would have needed -- a
+//! wide plain area with a few awkward patches in it binds over
+//! everything but the patches, and each patch is a region.
 //!
-//! Masking works the same way over a copy, which is where it earns the
-//! most: a region that matches its neighbour everywhere except one
-//! corner copies the other three quadrants for eleven bits.
+//! Every nested region is exactly one tile, which is what makes the
+//! region's tile size and the size of the smallest thing nested in it
+//! the same number.
+//!
+//! # Which tile size
+//!
+//! The largest at which any tile of the region is homogeneous. Coarser
+//! than that and the region is one heterogeneous tile, which describes
+//! nothing; finer and every tile the coarser size would have caught
+//! is split into four payload bits instead of one.
+//!
+//! It folds upward in one number. A homogeneous region is one tile at
+//! depth nought, and any other region is one level finer than its
+//! *shallowest* child -- the first child to have something homogeneous
+//! in it settles the size for the whole region, and the awkward ones
+//! nest.
 
 use crate::dsrn::region::{alike, copy_in, row_span, Region, CHILDREN, DIRECTIONS};
 use crate::dsrn::stream::Bits;
 use crate::dsrn::{Pyramid, LEVELS};
 use crate::BitMatrix;
 
-/// The two bit code every node writes.
+/// The two bit code every region writes.
 const SPLIT: u64 = 0b00;
 const BIND: u64 = 0b01;
 const COPY: u64 = 0b10;
-const MASKED: u64 = 0b11;
+const MASKED_COPY: u64 = 0b11;
 
-/// What a mask covers: a copy from a neighbour, or a binding.
-const OF_COPY: u64 = 0;
-const OF_BIND: u64 = 1;
+/// Whether a binding covers all of its region, or leaves nested
+/// regions out of its payload.
+const WHOLE: u64 = 0;
+const NESTED: u64 = 1;
 
-/// A mask with every quadrant covered, which is a description of the
-/// whole region and so never needs a mask to say it.
-const WHOLE: u64 = 0b1111;
+/// A quadrant mask with every quadrant covered, which is the whole
+/// region and needs no mask to say so.
+const EVERY_QUADRANT: u64 = 0b1111;
 
 /// The widths the costs are counted in.
 const CODE: usize = 2;
 const DIRECTION: usize = 2;
-const MASK: usize = 4;
-const KIND: usize = 1;
+const QUADRANTS: usize = 4;
+const NESTING: usize = 1;
 
-/// A tile depth written in unary: `depth` ones and a nought.
+/// A tile size written in unary: `depth` ones and a nought.
 const fn unary(depth: usize) -> usize {
     depth + 1
 }
 
-/// Tiles in a region bound at `depth`.
+/// Tiles in a region whose tiles are `depth` levels below it.
 const fn tiles(depth: usize) -> usize {
     1 << (2 * depth)
 }
 
-/// What a homogeneous region costs: the code, a depth of nought, and
-/// the one bit that says what it holds.
-const UNIT: u32 = (CODE + unary(0) + 1) as u32;
+/// What a homogeneous region costs: the code, a depth of nought, a
+/// whole binding, and the one bit that says what it holds.
+const UNIT: u32 = (CODE + unary(0) + NESTING + 1) as u32;
+
+/// How a region picks its tile size, and what it weighs against
+/// binding. Copying competes under all of them, because a copy
+/// describes a region for four bits whatever is inside it.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Choosing {
+    /// The rule: the largest tile size at which any tile of the
+    /// region is homogeneous, and the region always binds.
+    LargestHomogeneousTile,
+    /// The same tile size, with splitting weighed against binding.
+    LargestHomogeneousTileOrSplit,
+    /// The tile size whose binding costs least, with splitting
+    /// weighed against it.
+    CheapestTileSize,
+}
+
+impl Choosing {
+    pub const ALL: [Choosing; 3] = [
+        Choosing::LargestHomogeneousTile,
+        Choosing::LargestHomogeneousTileOrSplit,
+        Choosing::CheapestTileSize,
+    ];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Choosing::LargestHomogeneousTile => "the largest homogeneous tile size, always binding",
+            Choosing::LargestHomogeneousTileOrSplit => "the largest homogeneous tile size, or a split",
+            Choosing::CheapestTileSize => "the tile size that costs least, or a split",
+        }
+    }
+
+    /// Whether a region may leave itself to its four children.
+    fn may_split(self) -> bool {
+        self != Choosing::LargestHomogeneousTile
+    }
+}
 
 /// How many of each code an encode wrote.
 #[derive(Default, Clone, Copy)]
 pub struct Counts {
     pub splits: usize,
-    pub binds: usize,
+    pub whole_bindings: usize,
+    pub nested_bindings: usize,
     pub copies: usize,
     pub masked_copies: usize,
-    pub masked_binds: usize,
-    /// Payload bits that went to regions the masks left holes in.
-    pub masked_tiles: usize,
+    /// Tiles a binding left to a region of their own.
+    pub nested_tiles: usize,
+    /// Bits spent saying which tiles those were.
+    pub nesting_masks: usize,
 }
 
 /// What an encode produces.
 #[derive(Default)]
 pub struct Encoded {
     pub counts: Counts,
-    /// The codes, masks, directions and depths.
+    /// The codes, tile sizes, nesting masks, quadrant masks and
+    /// directions.
     pub tree: Bits,
-    /// One bit per tile, in the order the regions bound them.
+    /// One bit per tile a binding described, in reading order.
     pub payload: Bits,
 }
 
@@ -121,29 +168,28 @@ impl Encoded {
     }
 }
 
-/// Which regions the decoder will already have, and so may be copied
+/// Which regions the decoder will already hold, and so may be copied
 /// from.
 ///
-/// Everything an encode settles is a whole node of the quadtree,
-/// never part of one, so this is a bit per node rather than a bit per
-/// cell. That turns "is this region settled" from a scan across its
-/// cells into a walk up its ancestors, which on a bitmap with much to
-/// copy is most of an encode.
+/// Everything an encode binds is a whole region, never part of one,
+/// so this is a bit per region rather than a bit per cell. That turns
+/// "does the decoder hold this region yet" from a scan across its
+/// cells into a walk up its ancestors.
 ///
-/// Two ways a node can be covered without its own bit being set, and
-/// both are kept: an ancestor was settled whole, which the walk
-/// upwards finds, and all four children were settled separately,
-/// which [`Settled::mark`] folds upwards as it goes.
-struct Settled {
+/// Two ways a region can be held without its own bit being set, and
+/// both are kept: an ancestor was bound whole, which the walk upwards
+/// finds, and all four children were bound separately, which
+/// [`Bound::bind`] folds upwards as it goes.
+struct Bound {
     plane: [Box<[u64]>; LEVELS + 1],
 }
 
-impl Settled {
+impl Bound {
     fn new() -> Self {
         Self {
             plane: std::array::from_fn(|level| {
-                let side = Pyramid::side(level);
-                vec![0u64; (side * side).div_ceil(64)].into_boxed_slice()
+                let across = Pyramid::side(level);
+                vec![0u64; (across * across).div_ceil(64)].into_boxed_slice()
             }),
         }
     }
@@ -164,8 +210,8 @@ impl Settled {
         self.plane[level][word] >> shift & 1 != 0
     }
 
-    /// Settles a whole node, and every ancestor that this completes.
-    fn mark(&mut self, region: Region) {
+    /// Binds a whole region, and every ancestor that this completes.
+    fn bind(&mut self, region: Region) {
         let (mut level, mut x, mut y) = (region.level, region.x, region.y);
         loop {
             let (word, shift) = Self::bit(level, x, y);
@@ -181,8 +227,8 @@ impl Settled {
         }
     }
 
-    /// Whether a node is settled: itself, or any ancestor of it.
-    /// Outside the bitmap is never settled.
+    /// Whether the decoder holds a region: it, or any ancestor of it.
+    /// Outside the bitmap is never held.
     fn has(&self, level: usize, x: isize, y: isize) -> bool {
         let across = Pyramid::side(level) as isize;
         if x < 0 || y < 0 || x >= across || y >= across {
@@ -201,62 +247,92 @@ impl Settled {
     }
 }
 
-/// Four bits of a node's quadrant matches: which of its children
-/// match the children of the neighbour in one direction.
-fn nibble(quad: u16, dir: usize) -> u64 {
-    (quad >> (CHILDREN.len() * dir)) as u64 & WHOLE
+/// One direction's four bits of a copy mask.
+fn quadrants(mask: u16, dir: usize) -> u64 {
+    (mask >> (CHILDREN.len() * dir)) as u64 & EVERY_QUADRANT
 }
 
 /// The room an encode works in, found once and reused.
-pub struct Work {
-    /// Per node, the shallowest depth at which every tile of it is
-    /// homogeneous. Level 0 is never stored: a cell is always
-    /// homogeneous.
-    depth: [Box<[u8]>; LEVELS + 1],
-    /// Per node, the cheapest description of it that does not copy.
+pub struct Workspace {
+    /// Per region, the largest tile size at which any of its tiles is
+    /// homogeneous, as a depth below the region.
+    tile_size: [Box<[u8]>; LEVELS + 1],
+    /// Per region, the cheapest description of it.
     cost: [Box<[u32]>; LEVELS + 1],
-    settled: Settled,
+    /// Per region and per tile size, what the region's tiles cost
+    /// between them: one payload bit for a homogeneous tile, and a
+    /// whole nested description for one that is not.
+    ///
+    /// It folds, because a region's tiles at one size are its four
+    /// children's tiles at one size finer, all of them and nothing
+    /// else. A region's ancestors never ask for a size finer than the
+    /// region's own, so the run kept per region is as short as its
+    /// level, and the deep regions, of which there are many, are the
+    /// ones with the shortest runs.
+    tiles_cost: [Box<[u32]>; LEVELS + 1],
+    bound: Bound,
 }
 
-impl Default for Work {
+impl Default for Workspace {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl Work {
-    /// A workspace with its room already found: a few bytes per node
-    /// of every level but the cells.
+impl Workspace {
+    /// A workspace with its room already found.
     pub fn new() -> Self {
-        let nodes = |level: usize| Pyramid::side(level) * Pyramid::side(level);
+        let regions = |level: usize| Pyramid::side(level) * Pyramid::side(level);
         Self {
-            depth: std::array::from_fn(|level| vec![0u8; nodes(level.max(1))].into_boxed_slice()),
-            cost: std::array::from_fn(|level| vec![0u32; nodes(level.max(1))].into_boxed_slice()),
-            settled: Settled::new(),
+            tile_size: std::array::from_fn(|level| {
+                vec![0u8; regions(level.max(1))].into_boxed_slice()
+            }),
+            cost: std::array::from_fn(|level| {
+                vec![0u32; regions(level.max(1))].into_boxed_slice()
+            }),
+            tiles_cost: std::array::from_fn(|level| {
+                vec![0u32; regions(level.max(1)) * (level + 1)].into_boxed_slice()
+            }),
+            bound: Bound::new(),
         }
     }
 
-    /// Where a node sits in its level's array.
+    /// Where a region sits in its level's run.
     fn at(level: usize, x: usize, y: usize) -> usize {
         y * Pyramid::side(level) + x
     }
 
-    /// The shallowest depth at which every tile of a node is
-    /// homogeneous, as [`survey`] left it.
-    fn depth_of(&self, region: Region) -> usize {
+    /// The largest tile size at which any of a region's tiles is
+    /// homogeneous, as [`minimal_tile_sizes`] left it.
+    fn tile_size_of(&self, region: Region) -> usize {
         if region.level == 0 {
             return 0;
         }
-        self.depth[region.level][Self::at(region.level, region.x, region.y)] as usize
+        self.tile_size[region.level][Self::at(region.level, region.x, region.y)] as usize
     }
 
-    /// The cheapest description of a node that does not copy, as
-    /// [`survey`] left it.
+    /// The cheapest description of a region, as
+    /// [`minimal_tile_sizes`] left it.
     fn cost_of(&self, region: Region) -> u32 {
         if region.level == 0 {
             return UNIT;
         }
         self.cost[region.level][Self::at(region.level, region.x, region.y)]
+    }
+
+    /// What a region's tiles cost between them at one tile size.
+    fn tiles_cost_of(&self, region: Region, depth: usize) -> u32 {
+        // A cell is homogeneous, so as a tile it is one payload bit.
+        if region.level == 0 {
+            return 1;
+        }
+        let at = Self::at(region.level, region.x, region.y) * (region.level + 1) + depth;
+        self.tiles_cost[region.level][at]
+    }
+
+    fn set_tiles_cost(&mut self, region: Region, depth: usize, cost: u32) {
+        let at = Self::at(region.level, region.x, region.y) * (region.level + 1) + depth;
+        self.tiles_cost[region.level][at] = cost;
     }
 }
 
@@ -269,13 +345,12 @@ fn children_of(region: Region) -> [Region; 4] {
     })
 }
 
-/// Whether two nodes of the same size hold the same cells.
+/// Whether two regions of the same size hold the same cells.
 ///
 /// The pyramid answers it outright whenever either is homogeneous:
-/// two homogeneous nodes agree exactly when they hold the same thing,
-/// and a homogeneous node never equals a heterogeneous one. Only two
-/// heterogeneous nodes have to be read, which on anything with plain
-/// areas in it is the minority of the question.
+/// two homogeneous regions agree exactly when they hold the same
+/// thing, and a homogeneous region never equals a heterogeneous one.
+/// Only two heterogeneous regions have to be read.
 fn matches(
     pyramid: &Pyramid,
     bits: &BitMatrix,
@@ -295,10 +370,10 @@ fn matches(
 /// Whether a region is the same as one of the neighbours it could
 /// copy from.
 ///
-/// The survey asks this of every heterogeneous node, and [`quads`]
-/// only of the few the descent reaches, so this is the one that has
-/// to be cheap: four compares that each stop at the first word that
-/// differs, rather than sixteen.
+/// [`minimal_tile_sizes`] asks this of every heterogeneous region and
+/// [`copy_mask`] only of the few the descent reaches, so this is the
+/// one that has to be cheap: four compares that each stop at the
+/// first word that differs, rather than sixteen.
 fn could_copy(pyramid: &Pyramid, bits: &BitMatrix, region: Region) -> bool {
     let across = Pyramid::side(region.level) as isize;
     DIRECTIONS.iter().any(|&(dx, dy)| {
@@ -311,21 +386,17 @@ fn could_copy(pyramid: &Pyramid, bits: &BitMatrix, region: Region) -> bool {
     })
 }
 
-/// Which of a region's four children match the four of the
-/// neighbour in each direction, packed four bits to a direction.
+/// Which of a region's four quadrants match the four of the
+/// neighbour in each direction, four bits to a direction.
 ///
-/// The offsets are the region's own step measured in children, which
-/// is why this answers the region's question and not its children's:
-/// a region matches its neighbour exactly when all four of these are
-/// set, and when only some are, those are the quadrants a masked copy
-/// covers.
-///
-/// Like [`could_copy`] it asks whether the cells match, not whether
-/// the decoder will have them yet; the descent settles that.
-fn quads(pyramid: &Pyramid, bits: &BitMatrix, region: Region) -> u16 {
+/// The offsets are the region's own step measured in quadrants, so
+/// this answers the region's question and not its quadrants': the
+/// region matches its neighbour when all four bits are set, and when
+/// only some are, those are the quadrants a masked copy covers.
+fn copy_mask(pyramid: &Pyramid, bits: &BitMatrix, region: Region) -> u16 {
     let children = children_of(region);
     let across = Pyramid::side(region.level - 1) as isize;
-    let mut quad = 0u16;
+    let mut mask = 0u16;
     for (dir, &(dx, dy)) in DIRECTIONS.iter().enumerate() {
         for (bit, child) in children.iter().enumerate() {
             let (nx, ny) = (child.x as isize + 2 * dx, child.y as isize + 2 * dy);
@@ -341,74 +412,136 @@ fn quads(pyramid: &Pyramid, bits: &BitMatrix, region: Region) -> u16 {
                     (nx as usize, ny as usize),
                 )
             {
-                quad |= 1 << (CHILDREN.len() * dir + bit);
+                mask |= 1 << (CHILDREN.len() * dir + bit);
             }
         }
     }
-    quad
+    mask
 }
 
-/// Reads the pyramid bottom up, leaving every node its tile depth and
-/// what it would cost to describe.
+/// What a binding at a tile size costs, given what its tiles cost
+/// between them.
+fn binding_cost(depth: usize, tiles_cost: u32) -> usize {
+    let nested = tiles_cost as usize != tiles(depth);
+    CODE + unary(depth) + NESTING + if nested { tiles(depth) } else { 0 } + tiles_cost as usize
+}
+
+/// Reads the pyramid bottom up, leaving every region its tile size
+/// and what it costs to describe.
 ///
-/// It stops at a homogeneous node rather than walking through it: that
-/// node costs [`UNIT`] whatever is beneath it, and the descent never
-/// asks about anything beneath it. On a bitmap with large plain areas
-/// that is most of the tree unvisited, and on a bitmap with none it
-/// stops at the 2x2 squares instead, whose children are cells and so
-/// need no visit either.
-///
-/// Because a node that stops is never split into, its children keep
-/// whatever the last bitmap left in them, and nothing may read those.
-fn survey(work: &mut Work, pyramid: &Pyramid, bits: &BitMatrix, region: Region) -> (u8, u32) {
-    let at = Work::at(region.level, region.x, region.y);
+/// It stops at a homogeneous region rather than walking through it:
+/// that region costs [`UNIT`] whatever is beneath it, and the descent
+/// never asks about anything beneath it. Because a region that stops
+/// is never descended into, its children keep whatever the last
+/// bitmap left in them, and nothing may read those.
+fn minimal_tile_sizes(
+    work: &mut Workspace,
+    pyramid: &Pyramid,
+    bits: &BitMatrix,
+    region: Region,
+    choosing: Choosing,
+) -> (u8, u32) {
+    // A cell is homogeneous and has nothing under it. The pyramid
+    // does not hold the cells -- the bitmap already is them -- so it
+    // is never asked about one.
+    if region.level == 0 {
+        return (0, UNIT);
+    }
+
+    let at = Workspace::at(region.level, region.x, region.y);
     if pyramid.at(region.level, region.x, region.y).is_some() {
-        // Nothing beats one code, a depth of nought and one bit.
-        work.depth[region.level][at] = 0;
+        // Every tile of it is homogeneous at every size, so its tiles
+        // cost one payload bit each whatever size an ancestor asks
+        // about.
+        for size in 0..=region.level {
+            work.set_tiles_cost(region, size, tiles(size) as u32);
+        }
+        work.tile_size[region.level][at] = 0;
         work.cost[region.level][at] = UNIT;
         return (0, UNIT);
     }
 
-    let (depth, plain) = if region.level == 1 {
-        // Its four tiles are cells, so they are homogeneous and it
-        // binds at depth one. Splitting would spend four codes to say
-        // the same four bits.
-        (1, (CODE + unary(1) + tiles(1)) as u32)
-    } else {
-        let (mut deepest, mut split) = (0u8, CODE as u32);
-        for child in children_of(region) {
-            let (depth, cost) = survey(work, pyramid, bits, child);
-            deepest = deepest.max(depth);
-            split += cost;
-        }
-        let depth = deepest + 1;
-        let bind = (CODE + unary(depth as usize) + tiles(depth as usize)) as u32;
-        (depth, bind.min(split))
+    let children = children_of(region);
+    let (mut shallowest, mut split) = (u8::MAX, CODE as u32);
+    for child in children {
+        let (depth, cost) = minimal_tile_sizes(work, pyramid, bits, child, choosing);
+        shallowest = shallowest.min(depth);
+        split += cost;
+    }
+
+    // A region's tiles at one size are its children's at one finer.
+    for size in 1..=region.level {
+        let cost = children.iter().map(|&c| work.tiles_cost_of(c, size - 1)).sum();
+        work.set_tiles_cost(region, size, cost);
+    }
+
+    let depth = match choosing {
+        Choosing::CheapestTileSize => (1..=region.level)
+            .min_by_key(|&size| binding_cost(size, work.tiles_cost_of(region, size)))
+            .unwrap_or(1) as u8,
+        _ => shallowest + 1,
     };
 
-    // Which neighbours are settled depends on what every region above
-    // this one chose, which the survey runs before, so it prices a
-    // copy at what it would cost if the neighbour were there. That
-    // only ever makes a region look cheaper than it is, so a region
-    // that splits on the strength of it still comes back whole; it
-    // just spends a few bits more than the survey promised.
+    let mut cost = binding_cost(depth as usize, work.tiles_cost_of(region, depth as usize)) as u32;
+    if choosing.may_split() {
+        cost = cost.min(split);
+    }
+    // Which neighbours the decoder will hold depends on what every
+    // region above this one chose, which this runs before, so a copy
+    // is priced at what it would cost if the neighbour were there.
+    // That only ever makes a region look cheaper than it is, so a
+    // region that splits on the strength of it still comes back
+    // whole; it just spends a few bits more than this promised.
     let copy = (CODE + DIRECTION) as u32;
-    let cost = if plain > copy && could_copy(pyramid, bits, region) { copy } else { plain };
+    if cost > copy && could_copy(pyramid, bits, region) {
+        cost = copy;
+    }
 
-    let at = Work::at(region.level, region.x, region.y);
-    work.depth[region.level][at] = depth;
+    work.tile_size[region.level][at] = depth;
     work.cost[region.level][at] = cost;
+    // As a tile of the region above, a heterogeneous region costs
+    // whatever it costs to describe.
+    work.set_tiles_cost(region, 0, cost);
     (depth, cost)
 }
 
-/// Writes a region's tiles, one bit each, in reading order.
+/// The tiles of a region at a tile size, as regions.
+fn tiles_of(region: Region, depth: usize) -> impl Iterator<Item = Region> {
+    let across = 1usize << depth;
+    let (level, x, y) = (region.level - depth, region.x * across, region.y * across);
+    (0..tiles(depth)).map(move |at| Region { level, x: x + at % across, y: y + at / across })
+}
+
+/// Writes one mask bit per tile: one where the tile is not
+/// homogeneous and nests, nought where a payload bit describes it.
 ///
-/// A row of tiles is a run of bits of the pyramid's value plane, or
-/// of the bitmap itself where the tiles are cells, so a row goes out
-/// by the word. A binding is the one thing here that can run to
-/// thousands of bits, and writing them one at a time was a tenth of
-/// an encode.
-fn bind_out(pyramid: &Pyramid, bits: &BitMatrix, region: Region, depth: usize, out: &mut Encoded) {
+/// It is the homogeneity plane inverted, so it goes out by the row.
+fn nesting_mask_out(pyramid: &Pyramid, region: Region, depth: usize, out: &mut Encoded) {
+    let across = 1usize << depth;
+    let level = region.level - depth;
+    for row in region.y * across..(region.y + 1) * across {
+        let mut done = 0;
+        while done < across {
+            let take = (across - done).min(64);
+            let all = if take == 64 { u64::MAX } else { (1u64 << take) - 1 };
+            let same = pyramid.span(level, row, region.x * across + done, take);
+            out.tree.push(!same & all, take);
+            done += take;
+        }
+    }
+    out.counts.nesting_masks += tiles(depth);
+}
+
+/// Writes a payload bit for every tile of a region, which is a run of
+/// the pyramid's value plane, or of the bitmap where the tiles are
+/// cells.
+fn whole_payload_out(
+    pyramid: &Pyramid,
+    bits: &BitMatrix,
+    region: Region,
+    depth: usize,
+    out: &mut Encoded,
+) {
     let across = 1usize << depth;
     let level = region.level - depth;
     for row in region.y * across..(region.y + 1) * across {
@@ -427,8 +560,8 @@ fn bind_out(pyramid: &Pyramid, bits: &BitMatrix, region: Region, depth: usize, o
     }
 }
 
-/// Writes a tile depth in unary.
-fn depth_out(depth: usize, out: &mut Encoded) {
+/// Writes a tile size in unary.
+fn tile_size_out(depth: usize, out: &mut Encoded) {
     if depth > 0 {
         out.tree.push((1u64 << depth) - 1, depth);
     }
@@ -439,180 +572,176 @@ fn depth_out(depth: usize, out: &mut Encoded) {
 pub fn encode(
     pyramid: &Pyramid,
     bits: &BitMatrix,
-    work: &mut Work,
+    choosing: Choosing,
+    work: &mut Workspace,
     out: &mut Encoded,
 ) {
     out.clear();
-    work.settled.clear();
+    work.bound.clear();
     let whole = Region { level: LEVELS, x: 0, y: 0 };
-    survey(work, pyramid, bits, whole);
-    write(work, pyramid, bits, whole, out);
+    minimal_tile_sizes(work, pyramid, bits, whole, choosing);
+    describe(work, pyramid, bits, whole, choosing, out);
 }
 
-/// Describes one region, and whatever of it the description leaves
-/// out.
-fn write(work: &mut Work, pyramid: &Pyramid, bits: &BitMatrix, region: Region, out: &mut Encoded) {
-    let depth = work.depth_of(region);
+/// What the descent settled on for a region.
+#[derive(Clone, Copy)]
+enum Chosen {
+    /// Bound at a tile size.
+    Bind(usize),
+    /// Copied whole from a direction.
+    Copy(usize),
+    /// Copied over the quadrants the mask covers, the rest left to
+    /// those children.
+    MaskedCopy(u64, usize),
+    /// Left to the four children.
+    Split,
+}
 
-    // A homogeneous region is done in four bits, which is as cheap as
-    // any code gets, so nothing else is worth asking. This is also
-    // what keeps the descent out of the part of the tree the survey
-    // pruned: the survey stopped here, so this region's children hold
-    // nothing anyone may read.
+/// Describes one region, and whatever its description leaves out.
+fn describe(
+    work: &mut Workspace,
+    pyramid: &Pyramid,
+    bits: &BitMatrix,
+    region: Region,
+    choosing: Choosing,
+    out: &mut Encoded,
+) {
+    let depth = work.tile_size_of(region);
+
+    // A homogeneous region is done outright, and this is also what
+    // keeps the descent out of the part of the tree the survey
+    // pruned: it stopped here, so this region's children hold nothing
+    // anyone may read.
     if depth == 0 {
-        out.counts.binds += 1;
+        out.counts.whole_bindings += 1;
         out.tree.push(BIND, CODE);
-        depth_out(0, out);
-        bind_out(pyramid, bits, region, 0, out);
-        work.settled.mark(region);
+        tile_size_out(0, out);
+        out.tree.push(WHOLE, NESTING);
+        whole_payload_out(pyramid, bits, region, 0, out);
+        work.bound.bind(region);
         return;
     }
 
-    // Binding is tried first, and wins ties: capturing homogeneous
+    // Binding is tried first and wins ties: capturing homogeneous
     // area outright never costs a neighbour's luck, and leaves that
-    // luck for a region with nothing else to spend.
-    let (mut best, mut how) = (CODE + unary(depth) + tiles(depth), Chosen::Bind(depth));
+    // luck to a region with nothing else to spend.
+    let tiles_cost = work.tiles_cost_of(region, depth);
+    let (mut best, mut how) = (binding_cost(depth, tiles_cost), Chosen::Bind(depth));
 
     let children = children_of(region);
-    let outside = |work: &Work, mask: u64| -> usize {
-        (0..CHILDREN.len()).filter(|bit| mask >> bit & 1 == 0).map(|bit| work.cost_of(children[bit]) as usize).sum()
+    let outside = |work: &Workspace, mask: u64| -> usize {
+        (0..CHILDREN.len())
+            .filter(|bit| mask >> bit & 1 == 0)
+            .map(|bit| work.cost_of(children[bit]) as usize)
+            .sum()
     };
 
-    let split = CODE + outside(work, 0);
-    if split < best {
-        (best, how) = (split, Chosen::Split);
+    if choosing.may_split() {
+        let split = CODE + outside(work, 0);
+        if split < best {
+            (best, how) = (split, Chosen::Split);
+        }
     }
 
     // The survey already knows which quadrants match which neighbour.
-    // All that is left is whether the decoder will have them by the
+    // All that is left is whether the decoder will hold them by the
     // time it arrives, which only the descent can say.
-    let quad = quads(pyramid, bits, region);
+    let mask = copy_mask(pyramid, bits, region);
     for (dir, &(dx, dy)) in DIRECTIONS.iter().enumerate() {
-        let mut mask = nibble(quad, dir);
+        let mut mask = quadrants(mask, dir);
         for (bit, child) in children.iter().enumerate() {
             let (nx, ny) = (child.x as isize + 2 * dx, child.y as isize + 2 * dy);
-            if mask >> bit & 1 == 1 && !work.settled.has(child.level, nx, ny) {
+            if mask >> bit & 1 == 1 && !work.bound.has(child.level, nx, ny) {
                 mask &= !(1 << bit);
             }
         }
-        // All four quadrants is the whole region, which needs no mask
-        // to say so.
         let cost = match mask {
             0 => continue,
-            WHOLE => CODE + DIRECTION,
-            _ => CODE + MASK + KIND + DIRECTION + outside(work, mask),
+            EVERY_QUADRANT => CODE + DIRECTION,
+            _ => CODE + QUADRANTS + DIRECTION + outside(work, mask),
         };
         if cost < best {
-            let of = Of::Copy(dir);
-            (best, how) =
-                (cost, if mask == WHOLE { Chosen::Copy(dir) } else { Chosen::Masked { mask, of } });
-        }
-    }
-
-    // A masked binding: the quadrants shallow enough to bind at some
-    // depth are bound, and the deeper ones describe themselves. The
-    // depths worth trying are the ones that take in one more quadrant
-    // than the last, so each child names one.
-    for child in children {
-        let depth = work.depth_of(child) + 1;
-        let mut mask = 0u64;
-        for (bit, &child) in children.iter().enumerate() {
-            if work.depth_of(child) < depth {
-                mask |= 1 << bit;
-            }
-        }
-        // All four quadrants is a plain binding of the region, which
-        // spends no mask saying so.
-        if mask == WHOLE {
-            continue;
-        }
-        let held = mask.count_ones() as usize * tiles(depth - 1);
-        let cost = CODE + MASK + KIND + unary(depth) + held + outside(work, mask);
-        if cost < best {
-            (best, how) = (cost, Chosen::Masked { mask, of: Of::Bind(depth) });
+            (best, how) = (
+                cost,
+                if mask == EVERY_QUADRANT {
+                    Chosen::Copy(dir)
+                } else {
+                    Chosen::MaskedCopy(mask, dir)
+                },
+            );
         }
     }
 
     match how {
         Chosen::Bind(depth) => {
-            out.counts.binds += 1;
             out.tree.push(BIND, CODE);
-            depth_out(depth, out);
-            bind_out(pyramid, bits, region, depth, out);
-            work.settled.mark(region);
+            tile_size_out(depth, out);
+            if tiles_cost as usize == tiles(depth) {
+                out.counts.whole_bindings += 1;
+                out.tree.push(WHOLE, NESTING);
+                whole_payload_out(pyramid, bits, region, depth, out);
+                work.bound.bind(region);
+                return;
+            }
+            out.counts.nested_bindings += 1;
+            out.tree.push(NESTED, NESTING);
+            nesting_mask_out(pyramid, region, depth, out);
+            // Every homogeneous tile first, in reading order, then
+            // every nested one. The decoder rebuilds both orders from
+            // the mask it has just read.
+            //
+            // The homogeneous tiles are bound one at a time rather
+            // than the region at once: the nested tiles are not there
+            // yet, and a nested tile may copy from a homogeneous one
+            // beside it, but never from a nested one that has not
+            // been written. Binding the region here would offer the
+            // encoder cells the decoder will not have.
+            for tile in tiles_of(region, depth) {
+                if let Some(value) = pyramid.at(tile.level, tile.x, tile.y) {
+                    out.payload.push(value as u64, 1);
+                    work.bound.bind(tile);
+                }
+            }
+            for tile in tiles_of(region, depth) {
+                if pyramid.at(tile.level, tile.x, tile.y).is_none() {
+                    out.counts.nested_tiles += 1;
+                    describe(work, pyramid, bits, tile, choosing, out);
+                }
+            }
         }
         Chosen::Copy(dir) => {
             out.counts.copies += 1;
             out.tree.push(COPY, CODE);
             out.tree.push(dir as u64, DIRECTION);
-            work.settled.mark(region);
+            work.bound.bind(region);
         }
         Chosen::Split => {
             out.counts.splits += 1;
             out.tree.push(SPLIT, CODE);
             for child in children {
-                write(work, pyramid, bits, child, out);
+                describe(work, pyramid, bits, child, choosing, out);
             }
         }
-        Chosen::Masked { mask, of } => {
-            out.tree.push(MASKED, CODE);
-            out.tree.push(mask, MASK);
-            match of {
-                Of::Copy(dir) => {
-                    out.counts.masked_copies += 1;
-                    out.tree.push(OF_COPY, KIND);
-                    out.tree.push(dir as u64, DIRECTION);
-                }
-                Of::Bind(depth) => {
-                    out.counts.masked_binds += 1;
-                    out.tree.push(OF_BIND, KIND);
-                    depth_out(depth, out);
-                }
-            }
-
-            // Everything the mask covers is settled before anything it
+        Chosen::MaskedCopy(mask, dir) => {
+            out.counts.masked_copies += 1;
+            out.tree.push(MASKED_COPY, CODE);
+            out.tree.push(mask, QUADRANTS);
+            out.tree.push(dir as u64, DIRECTION);
+            // Everything the mask covers is bound before anything it
             // does not is described, so a hole may copy from the
             // quadrants around it.
             for (bit, &child) in children.iter().enumerate() {
                 if mask >> bit & 1 == 1 {
-                    if let Of::Bind(depth) = of {
-                        out.counts.masked_tiles += tiles(depth - 1);
-                        bind_out(pyramid, bits, child, depth - 1, out);
-                    }
-                    work.settled.mark(child);
+                    work.bound.bind(child);
                 }
             }
             for (bit, &child) in children.iter().enumerate() {
                 if mask >> bit & 1 == 0 {
-                    write(work, pyramid, bits, child, out);
+                    describe(work, pyramid, bits, child, choosing, out);
                 }
             }
         }
     }
-}
-
-/// What [`write`] settled on.
-#[derive(Clone, Copy)]
-enum Chosen {
-    /// Bound at a tile depth.
-    Bind(usize),
-    /// Copied whole from a direction.
-    Copy(usize),
-    /// Left to the four children.
-    Split,
-    /// Described over the quadrants the mask covers, the rest left to
-    /// those children.
-    Masked { mask: u64, of: Of },
-}
-
-/// What a mask covers.
-#[derive(Clone, Copy)]
-enum Of {
-    /// A copy from a direction.
-    Copy(usize),
-    /// A binding at a tile depth, measured from the masked region and
-    /// so one deeper than the quadrants it binds.
-    Bind(usize),
 }
 
 /// The decoder's place in the two streams.
@@ -629,89 +758,95 @@ impl Reading {
         got
     }
 
-    /// A tile depth, read back from unary.
-    fn depth(&mut self, out: &Encoded) -> usize {
+    /// A tile size, read back from unary.
+    fn tile_size(&mut self, out: &Encoded) -> usize {
         let mut depth = 0;
         while self.take(out, 1) == 1 {
             depth += 1;
         }
         depth
     }
+
+    fn value(&mut self, out: &Encoded) -> bool {
+        let got = out.payload.take(self.payload, 1).unwrap_or(0) == 1;
+        self.payload += 1;
+        got
+    }
 }
 
 /// Reads the bitmap back. The workspace need not be the one that
 /// encoded it.
-pub fn decode(out: &Encoded, work: &mut Work, bits: &mut BitMatrix) {
+pub fn decode(out: &Encoded, bits: &mut BitMatrix) {
     bits.words.fill(0);
     let mut reading = Reading::default();
-    read(&mut reading, out, work, bits, Region { level: LEVELS, x: 0, y: 0 });
+    undescribe(&mut reading, out, bits, Region { level: LEVELS, x: 0, y: 0 });
+}
+
+/// Fills in a whole tile of a region.
+fn fill(bits: &mut BitMatrix, tile: Region) {
+    let side = 1usize << tile.level;
+    bits.set_rect(
+        (tile.x * side) as i64,
+        (tile.y * side) as i64,
+        (tile.x * side + side - 1) as i64,
+        (tile.y * side + side - 1) as i64,
+    );
 }
 
 /// Puts back one region, and whatever its description left out.
-fn read(reading: &mut Reading, out: &Encoded, work: &mut Work, bits: &mut BitMatrix, region: Region) {
+fn undescribe(reading: &mut Reading, out: &Encoded, bits: &mut BitMatrix, region: Region) {
     match reading.take(out, CODE) {
         BIND => {
-            let depth = reading.depth(out);
-            bind_in(reading, out, bits, region, depth);
+            let depth = reading.tile_size(out);
+            if reading.take(out, NESTING) == WHOLE {
+                for tile in tiles_of(region, depth) {
+                    if reading.value(out) {
+                        fill(bits, tile);
+                    }
+                }
+                return;
+            }
+            // The mask says which tiles nest. Every other tile takes
+            // a payload bit, in reading order, and then the nested
+            // ones follow as regions, in the same order.
+            let mut nests = [0u64; 1024];
+            for (at, _) in tiles_of(region, depth).enumerate() {
+                nests[at / 64] |= reading.take(out, 1) << (at % 64);
+            }
+            for (at, tile) in tiles_of(region, depth).enumerate() {
+                if nests[at / 64] >> (at % 64) & 1 == 0 && reading.value(out) {
+                    fill(bits, tile);
+                }
+            }
+            for (at, tile) in tiles_of(region, depth).enumerate() {
+                if nests[at / 64] >> (at % 64) & 1 == 1 {
+                    undescribe(reading, out, bits, tile);
+                }
+            }
         }
         COPY => {
             let dir = reading.take(out, DIRECTION) as usize;
             copy_in(bits, region, DIRECTIONS[dir]);
         }
-        MASKED => {
-            let mask = reading.take(out, MASK);
-            let of = if reading.take(out, KIND) == OF_COPY {
-                Of::Copy(reading.take(out, DIRECTION) as usize)
-            } else {
-                Of::Bind(reading.depth(out))
-            };
+        MASKED_COPY => {
+            let mask = reading.take(out, QUADRANTS);
+            let (dx, dy) = DIRECTIONS[reading.take(out, DIRECTION) as usize];
             let children = children_of(region);
             for (bit, &child) in children.iter().enumerate() {
                 if mask >> bit & 1 == 1 {
-                    match of {
-                        Of::Copy(dir) => {
-                            let (dx, dy) = DIRECTIONS[dir];
-                            copy_in(bits, child, (2 * dx, 2 * dy));
-                        }
-                        Of::Bind(depth) => bind_in(reading, out, bits, child, depth - 1),
-                    }
+                    copy_in(bits, child, (2 * dx, 2 * dy));
                 }
             }
             for (bit, &child) in children.iter().enumerate() {
                 if mask >> bit & 1 == 0 {
-                    read(reading, out, work, bits, child);
+                    undescribe(reading, out, bits, child);
                 }
             }
         }
         _ => {
             for child in children_of(region) {
-                read(reading, out, work, bits, child);
+                undescribe(reading, out, bits, child);
             }
-        }
-    }
-}
-
-/// Puts back a region's tiles from the payload.
-fn bind_in(
-    reading: &mut Reading,
-    out: &Encoded,
-    bits: &mut BitMatrix,
-    region: Region,
-    depth: usize,
-) {
-    let across = 1usize << depth;
-    let side = 1usize << (region.level - depth);
-    for at in 0..tiles(depth) {
-        let set = out.payload.take(reading.payload, 1).unwrap_or(0) == 1;
-        reading.payload += 1;
-        if set {
-            let (tx, ty) = (region.x * across + at % across, region.y * across + at / across);
-            bits.set_rect(
-                (tx * side) as i64,
-                (ty * side) as i64,
-                (tx * side + side - 1) as i64,
-                (ty * side + side - 1) as i64,
-            );
         }
     }
 }
@@ -756,62 +891,66 @@ mod tests {
     /// about it matters if this is ever false.
     #[test]
     fn the_encoding_comes_back_the_bitmap_that_went_in() {
-        let (mut pyramid, mut work) = (Pyramid::new(), Work::new());
+        let (mut pyramid, mut work) = (Pyramid::new(), Workspace::new());
         let (mut out, mut back) = (Encoded::default(), BitMatrix::new());
-        for (case, bits) in cases().iter().enumerate() {
-            pyramid.clear();
-            pyramid.rebuild(bits);
-            encode(&pyramid, bits, &mut work, &mut out);
-            decode(&out, &mut work, &mut back);
-            for y in 0..=u8::MAX {
-                for x in 0..=u8::MAX {
-                    assert_eq!(
-                        bits.get(x, y),
-                        back.get(x, y),
-                        "case {case} differs at ({x}, {y})"
-                    );
+        for choosing in Choosing::ALL {
+            for (case, bits) in cases().iter().enumerate() {
+                pyramid.clear();
+                pyramid.rebuild(bits);
+                encode(&pyramid, bits, choosing, &mut work, &mut out);
+                decode(&out, &mut back);
+                for y in 0..=u8::MAX {
+                    for x in 0..=u8::MAX {
+                        assert_eq!(
+                            bits.get(x, y),
+                            back.get(x, y),
+                            "{}, case {case}, differs at ({x}, {y})",
+                            choosing.name()
+                        );
+                    }
                 }
             }
         }
     }
 
-    /// A workspace holds the last bitmap's survey where this one's
-    /// pruning stopped, so an encode must never read those nodes. The
+    /// A workspace holds the last bitmap's tile sizes where this
+    /// one's pruning stopped, so an encode must never read those. The
     /// way to catch it is to encode a plain bitmap after a detailed
     /// one in the same workspace.
     #[test]
     fn a_reused_workspace_does_not_leak_the_last_bitmap() {
-        let (mut pyramid, mut work) = (Pyramid::new(), Work::new());
+        let (mut pyramid, mut work) = (Pyramid::new(), Workspace::new());
         let (mut out, mut back) = (Encoded::default(), BitMatrix::new());
 
         pyramid.clear();
         pyramid.rebuild(&checkerboard(1));
-        encode(&pyramid, &checkerboard(1), &mut work, &mut out);
+        encode(&pyramid, &checkerboard(1), Choosing::LargestHomogeneousTile, &mut work, &mut out);
 
         let empty = BitMatrix::new();
         pyramid.clear();
         pyramid.rebuild(&empty);
-        encode(&pyramid, &empty, &mut work, &mut out);
-        assert_eq!(out.bits(), CODE + unary(0) + 1);
+        encode(&pyramid, &empty, Choosing::LargestHomogeneousTile, &mut work, &mut out);
+        assert_eq!(out.bits(), UNIT as usize);
 
-        decode(&out, &mut work, &mut back);
+        decode(&out, &mut back);
         assert_eq!(back.count_set(), 0);
     }
 
     /// Every region of a bitmap that holds one thing is homogeneous,
-    /// so the whole of it is one code, one depth and one bit.
+    /// so the whole of it is one code, one tile size, one whole and
+    /// one bit.
     #[test]
-    fn a_bitmap_of_one_value_is_four_bits() {
-        let (mut pyramid, mut work) = (Pyramid::new(), Work::new());
+    fn a_bitmap_of_one_value_is_one_binding() {
+        let (mut pyramid, mut work) = (Pyramid::new(), Workspace::new());
         let mut out = Encoded::default();
         let mut full = BitMatrix::new();
         full.set_rect(0, 0, 255, 255);
         for bits in [BitMatrix::new(), full] {
             pyramid.clear();
             pyramid.rebuild(&bits);
-            encode(&pyramid, &bits, &mut work, &mut out);
-            assert_eq!(out.bits(), 4);
-            assert_eq!(out.counts.binds, 1);
+            encode(&pyramid, &bits, Choosing::LargestHomogeneousTile, &mut work, &mut out);
+            assert_eq!(out.bits(), UNIT as usize);
+            assert_eq!(out.counts.whole_bindings, 1);
         }
     }
 }

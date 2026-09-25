@@ -208,7 +208,7 @@ impl Pyramid {
     /// Never straddles a word: a block of `s` squares starts on a
     /// multiple of `s`, and every level's side is either a multiple of
     /// 64 or a power of two that divides it.
-    fn span(&self, level: usize, row: usize, from: usize, take: usize) -> u64 {
+    pub(crate) fn span(&self, level: usize, row: usize, from: usize, take: usize) -> u64 {
         let bit = row * Self::side(level) + from;
         let (at, shift) = (AT[level] + bit / 64, bit % 64);
         let mask = if take == 64 { u64::MAX } else { (1u64 << take) - 1 };

@@ -10,6 +10,7 @@
 //! not a smaller encoding.
 
 use bitmatrix::dsrn::rules::Ruleset;
+use bitmatrix::dsrn::unified::Choosing;
 use bitmatrix::dsrn::{passes, unified, Pyramid};
 use bitmatrix::{samples, BitMatrix};
 
@@ -60,7 +61,7 @@ struct Rooms {
     pyramid: Pyramid,
     tile_work: passes::Work,
     tile_out: passes::Encoded,
-    one_work: unified::Work,
+    one_work: unified::Workspace,
     one_out: unified::Encoded,
     back: BitMatrix,
 }
@@ -71,13 +72,13 @@ impl Rooms {
             pyramid: Pyramid::new(),
             tile_work: passes::Work::default(),
             tile_out: passes::Encoded::default(),
-            one_work: unified::Work::new(),
+            one_work: unified::Workspace::new(),
             one_out: unified::Encoded::default(),
             back: BitMatrix::new(),
         }
     }
 
-    fn run(&mut self, bits: &BitMatrix, rule: Ruleset) -> Both {
+    fn run(&mut self, bits: &BitMatrix, rule: Ruleset, choosing: Choosing) -> Both {
         self.pyramid.clear();
         self.pyramid.rebuild(bits);
 
@@ -85,8 +86,8 @@ impl Rooms {
         passes::decode(&self.tile_out, rule, &mut self.tile_work, &mut self.back);
         let passes_whole = same(bits, &self.back);
 
-        unified::encode(&self.pyramid, bits, &mut self.one_work, &mut self.one_out);
-        unified::decode(&self.one_out, &mut self.one_work, &mut self.back);
+        unified::encode(&self.pyramid, bits, choosing, &mut self.one_work, &mut self.one_out);
+        unified::decode(&self.one_out, &mut self.back);
         let unified_whole = same(bits, &self.back);
 
         Both {
@@ -114,118 +115,127 @@ fn main() {
     let mut rooms = Rooms::new();
     let rule = Ruleset::ALL[0];
 
-    println!("\n  patterns whose right answer is known.\n");
-    let cases: [(&str, BitMatrix); 6] = [
-        ("empty", BitMatrix::new()),
-        ("one cell set", one_cell()),
-        ("halves", halves()),
-        ("checkerboard of 1", checkerboard(1)),
-        ("checkerboard of 2", checkerboard(2)),
-        ("checkerboard of 8", checkerboard(8)),
-    ];
-    let mut t = Table::new(&[
-        "pattern",
-        "tile passes\ncome back",
-        "unified\ncomes back",
-        "tile passes\nbits",
-        "unified\nbits",
-        "unified\nagainst tile passes",
-    ]);
-    for (name, bits) in &cases {
-        let got = rooms.run(bits, rule);
-        t.row(&[
-            name.to_string(),
-            yes(got.passes_whole),
-            yes(got.unified_whole),
-            got.passes.to_string(),
-            got.unified.to_string(),
-            against(got.unified, got.passes),
-        ]);
-    }
-    t.print();
+    for choosing in Choosing::ALL {
+        println!("\n\n  Tile size: {}.\n\n  patterns whose right answer is known.\n", choosing.name());
 
-    println!("\n  the corpus, shape by shape.\n");
-    let mut t = Table::new(&[
-        "shape",
-        "bitmaps",
-        "both come\nback whole",
-        "tile passes\nbits a bitmap",
-        "unified\nbits a bitmap",
-        "unified\nagainst tile passes",
-    ]);
-    let (mut all_passes, mut all_unified, mut all_n) = (0usize, 0usize, 0usize);
-    let mut all_whole = true;
-    for shape in samples::SHAPES {
-        let maps: Vec<BitMatrix> = shape.timed().collect();
-        let (mut a, mut b) = (0usize, 0usize);
-        let mut whole = true;
-        for bits in &maps {
-            let got = rooms.run(bits, rule);
-            a += got.passes;
-            b += got.unified;
-            whole &= got.passes_whole && got.unified_whole;
-        }
-        let n = maps.len();
-        all_passes += a;
-        all_unified += b;
-        all_n += n;
-        all_whole &= whole;
-        t.row(&[
-            shape.name.to_string(),
-            n.to_string(),
-            yes(whole),
-            (a / n).to_string(),
-            (b / n).to_string(),
-            against(b, a),
+        let cases: [(&str, BitMatrix); 6] = [
+            ("empty", BitMatrix::new()),
+            ("one cell set", one_cell()),
+            ("halves", halves()),
+            ("checkerboard of 1", checkerboard(1)),
+            ("checkerboard of 2", checkerboard(2)),
+            ("checkerboard of 8", checkerboard(8)),
+        ];
+        let mut t = Table::new(&[
+            "pattern",
+            "tile passes\ncome back",
+            "unified\ncomes back",
+            "tile passes\nbits",
+            "unified\nbits",
+            "unified\nagainst tile passes",
         ]);
-    }
-    t.rule();
-    t.row(&[
-        "every shape".to_string(),
-        all_n.to_string(),
-        yes(all_whole),
-        (all_passes / all_n).to_string(),
-        (all_unified / all_n).to_string(),
-        against(all_unified, all_passes),
-    ]);
-    t.print();
-
-    println!("\n  what the unified encoder's codes are, over the whole corpus.\n");
-    let mut t = Table::new(&[
-        "code",
-        "a bitmap",
-    ]);
-    let (mut splits, mut binds, mut copies) = (0usize, 0usize, 0usize);
-    let (mut masked_copies, mut masked_binds, mut masked_tiles) = (0usize, 0usize, 0usize);
-    let (mut tree, mut payload, mut n) = (0usize, 0usize, 0usize);
-    for shape in samples::SHAPES {
-        for bits in shape.timed() {
-            rooms.pyramid.clear();
-            rooms.pyramid.rebuild(&bits);
-            unified::encode(&rooms.pyramid, &bits, &mut rooms.one_work, &mut rooms.one_out);
-            let c = rooms.one_out.counts;
-            splits += c.splits;
-            binds += c.binds;
-            copies += c.copies;
-            masked_copies += c.masked_copies;
-            masked_binds += c.masked_binds;
-            masked_tiles += c.masked_tiles;
-            tree += rooms.one_out.tree.len();
-            payload += rooms.one_out.payload.len();
-            n += 1;
+        for (name, bits) in &cases {
+            let got = rooms.run(bits, rule, choosing);
+            t.row(&[
+                name.to_string(),
+                yes(got.passes_whole),
+                yes(got.unified_whole),
+                got.passes.to_string(),
+                got.unified.to_string(),
+                against(got.unified, got.passes),
+            ]);
         }
+        t.print();
+
+        println!("\n  the corpus, shape by shape.\n");
+        let mut t = Table::new(&[
+            "shape",
+            "bitmaps",
+            "both come\nback whole",
+            "tile passes\nbits a bitmap",
+            "unified\nbits a bitmap",
+            "unified\nagainst tile passes",
+        ]);
+        let (mut all_passes, mut all_unified, mut all_n) = (0usize, 0usize, 0usize);
+        let mut all_whole = true;
+        for shape in samples::SHAPES {
+            let maps: Vec<BitMatrix> = shape.timed().collect();
+            let (mut a, mut b) = (0usize, 0usize);
+            let mut whole = true;
+            for bits in &maps {
+                let got = rooms.run(bits, rule, choosing);
+                a += got.passes;
+                b += got.unified;
+                whole &= got.passes_whole && got.unified_whole;
+            }
+            let n = maps.len();
+            all_passes += a;
+            all_unified += b;
+            all_n += n;
+            all_whole &= whole;
+            t.row(&[
+                shape.name.to_string(),
+                n.to_string(),
+                yes(whole),
+                (a / n).to_string(),
+                (b / n).to_string(),
+                against(b, a),
+            ]);
+        }
+        t.rule();
+        t.row(&[
+            "every shape".to_string(),
+            all_n.to_string(),
+            yes(all_whole),
+            (all_passes / all_n).to_string(),
+            (all_unified / all_n).to_string(),
+            against(all_unified, all_passes),
+        ]);
+        t.print();
+
+        println!("\n  what the codes are, over the whole corpus.\n");
+        let mut t = Table::new(&["code", "a bitmap"]);
+        let (mut splits, mut whole, mut nested) = (0usize, 0usize, 0usize);
+        let (mut copies, mut masked_copies, mut nested_tiles, mut masks) =
+            (0usize, 0usize, 0usize, 0usize);
+        let (mut tree, mut payload, mut n) = (0usize, 0usize, 0usize);
+        for shape in samples::SHAPES {
+            for bits in shape.timed() {
+                rooms.pyramid.clear();
+                rooms.pyramid.rebuild(&bits);
+                unified::encode(
+                    &rooms.pyramid,
+                    &bits,
+                    choosing,
+                    &mut rooms.one_work,
+                    &mut rooms.one_out,
+                );
+                let c = rooms.one_out.counts;
+                splits += c.splits;
+                whole += c.whole_bindings;
+                nested += c.nested_bindings;
+                copies += c.copies;
+                masked_copies += c.masked_copies;
+                nested_tiles += c.nested_tiles;
+                masks += c.nesting_masks;
+                tree += rooms.one_out.tree.len();
+                payload += rooms.one_out.payload.len();
+                n += 1;
+            }
+        }
+        for (name, total) in [
+            ("splits", splits),
+            ("whole bindings", whole),
+            ("nested bindings", nested),
+            ("tiles those left to nest", nested_tiles),
+            ("bits spent saying which", masks),
+            ("whole copies", copies),
+            ("masked copies", masked_copies),
+            ("tree bits", tree),
+            ("payload bits", payload),
+        ] {
+            t.row(&[name.to_string(), (total / n).to_string()]);
+        }
+        t.print();
     }
-    for (name, total) in [
-        ("splits", splits),
-        ("bindings", binds),
-        ("whole copies", copies),
-        ("masked copies", masked_copies),
-        ("masked bindings", masked_binds),
-        ("payload bits a mask let through", masked_tiles),
-        ("tree bits", tree),
-        ("payload bits", payload),
-    ] {
-        t.row(&[name.to_string(), (total / n).to_string()]);
-    }
-    t.print();
 }
