@@ -8,8 +8,8 @@ mod table;
 use table::Table;
 
 /// Whether an encoding comes back the bitmap that went in.
-fn whole(out: &Encoded, work: &mut Work, bits: &BitMatrix, back: &mut BitMatrix) -> bool {
-    decode(out, work, back);
+fn whole(out: &Encoded, rule: Ruleset, work: &mut Work, bits: &BitMatrix, back: &mut BitMatrix) -> bool {
+    decode(out, rule, work, back);
     (0..=u8::MAX).all(|y| (0..=u8::MAX).all(|x| bits.get(x, y) == back.get(x, y)))
 }
 
@@ -42,12 +42,12 @@ fn main() {
                 payload += out.payload.len();
                 raw += out.leftover.len();
                 n += 1;
-                lossless &= whole(&out, &mut work, &bits, &mut back);
+                lossless &= whole(&out, rule, &mut work, &bits, &mut back);
             }
         }
         let all = tree + copy + payload + raw;
         t.row(&[
-            rule.name().to_string(),
+            rule.to_string(),
             if lossless { "yes" } else { "no" }.to_string(),
             (tree / n).to_string(),
             (copy / n).to_string(),
@@ -59,7 +59,7 @@ fn main() {
     }
     t.print();
 
-    println!("\n  and {}, shape by shape.\n", Ruleset::ALL[0].name());
+    println!("\n  and {}, shape by shape.\n", Ruleset::ALL[0]);
     let rule = Ruleset::ALL[0];
     let mut t = Table::new(&[
         "shape",

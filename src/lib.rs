@@ -24,7 +24,7 @@
 //!
 //! pyramid.rebuild(&bits);
 //! encode(&pyramid, &bits, Ruleset::ALL[0], &mut work, &mut out);
-//! decode(&out, &mut work, &mut back);
+//! decode(&out, Ruleset::ALL[0], &mut work, &mut back);
 //! assert_eq!(back.count_set(), bits.count_set());
 //! ```
 //!

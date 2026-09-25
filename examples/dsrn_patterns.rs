@@ -12,7 +12,7 @@
 //! and four for each copy. Eight levels of that, plus the one 2x2
 //! written raw, plus the labels the tile passes spend saying nothing.
 
-use bitmatrix::dsrn::code::{decode, encode, Encoded, OnNone, Ruleset, Work};
+use bitmatrix::dsrn::code::{decode, encode, Encoded, Ruleset, Work};
 use bitmatrix::dsrn::Pyramid;
 use bitmatrix::BitMatrix;
 
@@ -61,10 +61,7 @@ fn main() {
     ];
 
     for rule in Ruleset::ALL {
-        if rule.none == OnNone::Skip {
-            continue;
-        }
-        println!("\n  {}\n", rule.name());
+        println!("\n  {}\n", rule);
         let mut t = Table::new(&[
             "pattern",
             "comes back\nthe bitmap",
@@ -78,7 +75,7 @@ fn main() {
             pyramid.clear();
             pyramid.rebuild(bits);
             encode(&pyramid, bits, rule, &mut work, &mut out);
-            decode(&out, &mut work, &mut back);
+            decode(&out, rule, &mut work, &mut back);
             let same =
                 (0..=u8::MAX).all(|y| (0..=u8::MAX).all(|x| bits.get(x, y) == back.get(x, y)));
             t.row(&[

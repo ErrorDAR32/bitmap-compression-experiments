@@ -18,7 +18,7 @@ fn main() {
     let mut out = Encoded::default();
 
     for rule in [Ruleset::ALL[0], Ruleset::ALL[1]] {
-        println!("\n  regions left for the 1x1 pass, {}.\n", rule.name());
+        println!("\n  regions left for the 1x1 pass, {}.\n", rule);
         let mut t = Table::new(&[
             "shape",
             "2x2\na bitmap",

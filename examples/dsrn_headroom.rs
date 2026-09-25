@@ -46,7 +46,7 @@ fn main() {
     let mut out = Encoded::default();
     let rule = Ruleset::ALL[0];
 
-    println!("  what the payload costs against what it could, {}.\n", rule.name());
+    println!("  what the payload costs against what it could, {}.\n", rule);
     println!("  The fewest is one value per maximal homogeneous aligned square. The");
     println!("  leftover is raw cells, so it counts as one value a cell, which is what");
     println!("  it is.\n");

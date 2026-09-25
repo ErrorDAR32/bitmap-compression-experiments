@@ -60,95 +60,176 @@ const SUBDIVIDE: u64 = 0b11;
 const TOP: usize = 8;
 const BOTTOM: usize = 1;
 
-/// What to do with a region some but not all of whose tiles are
-/// homogeneous.
+/// What a pass does with a region, which is a label and whether it
+/// subdivides. Every combination the four codes allow.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum OnMixed {
-    /// Done with this tile size: ask the four children at this size,
-    /// in this pass.
-    SkipAndSubdivide,
-    /// Ask the four children at the next size down.
-    DeferAndSubdivide,
-}
-
-/// What to do with a region none of whose tiles are homogeneous.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum OnNone {
-    /// Ask it again at the next size down.
+pub enum Action {
+    /// Emit one value per tile, and be done.
+    Bind,
+    /// Ask it again at the next tile size down.
     Defer,
-    /// Drop it. Nothing describes it afterwards, so an encoding that
-    /// ever does this does not come back the bitmap that went in. Here
-    /// to be measured, not used.
+    /// Ask its four children at the next tile size down.
+    DeferAndSubdivide,
+    /// Say something else describes it, and name nothing. Lossy unless
+    /// something else really does.
     Skip,
+    /// Say something else describes it: its four children, at this
+    /// tile size, in this pass.
+    SkipAndSubdivide,
 }
 
-/// How a region is labelled, given how many of its tiles are
+impl Action {
+    /// Every action, for searching the space of rulesets.
+    pub const ALL: [Action; 5] = [
+        Action::Bind,
+        Action::Defer,
+        Action::DeferAndSubdivide,
+        Action::Skip,
+        Action::SkipAndSubdivide,
+    ];
+
+    /// What to call it in a table.
+    pub fn name(self) -> &'static str {
+        match self {
+            Action::Bind => "bind",
+            Action::Defer => "defer",
+            Action::DeferAndSubdivide => "defer+split",
+            Action::Skip => "skip",
+            Action::SkipAndSubdivide => "skip+split",
+        }
+    }
+
+    /// The label and the subdivide. A region of exactly the tile's
+    /// size cannot subdivide, so an action that wants to falls back to
+    /// the one that does not.
+    fn coded(self, may_subdivide: bool) -> (u64, bool) {
+        match self {
+            Action::Bind => (BIND, false),
+            Action::Defer => (DEFER, false),
+            Action::DeferAndSubdivide => (DEFER, may_subdivide),
+            Action::Skip => (SKIP, false),
+            Action::SkipAndSubdivide => (SKIP, may_subdivide),
+        }
+    }
+}
+
+/// Whether a pass tries to copy a region before labelling it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Copying {
+    /// Only the 1x1 pass copies, which is only ever handed what no
+    /// tile size could describe.
+    AtTheEnd,
+    /// Every pass copies. A region matching a neighbour already
+    /// settled is described by that neighbour whatever its tiles say.
+    EveryPass,
+    /// Every pass copies, but only where a copy would cost less than
+    /// binding the region.
+    ///
+    /// Both costs are the encoding's own, so this is a comparison and
+    /// not a threshold. A copy is the skip label, the bit saying a
+    /// skip is a copy, and two bits of direction: five. A binding is
+    /// its label and one bit a tile: two and the tiles. The decoder
+    /// works the same comparison out from the region and the tile
+    /// size, so the bit saying which is only spent where the answer
+    /// could have gone either way.
+    WhereCheaper,
+}
+
+impl Copying {
+    pub const ALL: [Copying; 3] = [Copying::AtTheEnd, Copying::EveryPass, Copying::WhereCheaper];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Copying::AtTheEnd => "at the end",
+            Copying::EveryPass => "every pass",
+            Copying::WhereCheaper => "where cheaper",
+        }
+    }
+}
+
+/// What a copy costs: the skip label, the bit that says the skip is a
+/// copy, and the direction.
+const COPY_COST: usize = 2 + 1 + 2;
+
+/// What binding a region of `tiles` tiles costs: the label, and a bit
+/// a tile.
+const fn bind_cost(tiles: usize) -> usize {
+    2 + tiles
+}
+
+/// What a pass does with a region, by how many of its tiles are
 /// homogeneous. The decoder never sees this: it reads the labels.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Ruleset {
-    pub mixed: OnMixed,
-    pub none: OnNone,
-    /// The most tiles a binding may emit. A region with more is
-    /// deferred whole instead, which carries it down to the copy pass.
-    ///
-    /// Binding is otherwise unconditional, and a binding's payload has
-    /// no repeat detection: a checkerboard of 2x2 blocks binds the
-    /// whole bitmap at the smallest tile size and writes out 16,384
-    /// values, where the copy pass describes the same pattern in about
-    /// a hundred bits. The cap is what lets a region reach the copy
-    /// pass rather than be described expensively here.
-    pub cap: usize,
-    pub called: &'static str,
+    /// Every tile homogeneous.
+    pub all: Action,
+    /// Some but not all.
+    pub some: Action,
+    /// None.
+    pub none: Action,
+    pub copying: Copying,
 }
 
 impl Ruleset {
-    const fn new(mixed: OnMixed, none: OnNone, cap: usize, called: &'static str) -> Self {
-        Self { mixed, none, cap, called }
+    pub const fn new(all: Action, some: Action, none: Action, copying: Copying) -> Self {
+        Self { all, some, none, copying }
     }
 
-    /// The rulesets worth putting beside each other.
-    pub const ALL: [Ruleset; 7] = [
-        Ruleset::new(OnMixed::SkipAndSubdivide, OnNone::Defer, usize::MAX, "skip where mixed"),
+    /// The ones worth naming. The space is searched by `dsrn_rules`.
+    pub const ALL: [Ruleset; 3] = [
         Ruleset::new(
-            OnMixed::DeferAndSubdivide,
-            OnNone::Defer,
-            usize::MAX,
-            "defer where mixed",
+            Action::Bind,
+            Action::SkipAndSubdivide,
+            Action::Defer,
+            Copying::AtTheEnd,
         ),
-        Ruleset::new(OnMixed::SkipAndSubdivide, OnNone::Skip, usize::MAX, "skip where none"),
-        Ruleset::new(OnMixed::SkipAndSubdivide, OnNone::Defer, 1024, "skip where mixed, cap 1024"),
-        Ruleset::new(OnMixed::SkipAndSubdivide, OnNone::Defer, 64, "skip where mixed, cap 64"),
-        Ruleset::new(OnMixed::SkipAndSubdivide, OnNone::Defer, 16, "skip where mixed, cap 16"),
-        Ruleset::new(OnMixed::SkipAndSubdivide, OnNone::Defer, 4, "skip where mixed, cap 4"),
+        Ruleset::new(
+            Action::Bind,
+            Action::DeferAndSubdivide,
+            Action::Defer,
+            Copying::AtTheEnd,
+        ),
+        Ruleset::new(
+            Action::Bind,
+            Action::DeferAndSubdivide,
+            Action::Defer,
+            Copying::EveryPass,
+        ),
     ];
 
-    /// What to call this ruleset in a table.
-    pub fn name(self) -> &'static str {
-        self.called
+    /// Whether this pass asks a region of this many tiles about
+    /// copying at all. Where it does not, no bit is spent saying so.
+    fn may_copy(self, tiles: usize) -> bool {
+        match self.copying {
+            Copying::AtTheEnd => false,
+            Copying::EveryPass => true,
+            Copying::WhereCheaper => COPY_COST < bind_cost(tiles),
+        }
     }
 
     /// The label for a region, and whether it subdivides.
-    ///
-    /// `all` is set when every tile in the region is homogeneous and
-    /// `any` when at least one is, so the three cases are `all`, `any`
-    /// without `all`, and neither. `tiles` is how many a binding would
-    /// emit.
-    fn label(self, all: bool, any: bool, tiles: usize, may_subdivide: bool) -> (u64, bool) {
-        if all {
-            // Too many to be worth writing out: hand it down whole and
-            // let the copy pass try.
-            return if tiles > self.cap { (DEFER, false) } else { (BIND, false) };
-        }
-        if any {
-            return match self.mixed {
-                OnMixed::SkipAndSubdivide => (SKIP, may_subdivide),
-                OnMixed::DeferAndSubdivide => (DEFER, may_subdivide),
-            };
-        }
-        match self.none {
-            OnNone::Defer => (DEFER, false),
-            OnNone::Skip => (SKIP, false),
-        }
+    fn label(self, all: bool, any: bool, may_subdivide: bool) -> (u64, bool) {
+        let action = if all {
+            self.all
+        } else if any {
+            self.some
+        } else {
+            self.none
+        };
+        action.coded(may_subdivide)
+    }
+}
+
+impl std::fmt::Display for Ruleset {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "all {}, some {}, none {}, copy {}",
+            self.all.name(),
+            self.some.name(),
+            self.none.name(),
+            self.copying.name()
+        )
     }
 }
 
@@ -219,6 +300,8 @@ pub struct Labels {
     pub defer: usize,
     pub skip: usize,
     pub subdivide: usize,
+    /// Skips that were a copy rather than a subdivision.
+    pub copied: usize,
 }
 
 /// What an encode produces: the tree delta, and the payload in the
@@ -297,6 +380,8 @@ pub fn encode(
     out.clear();
     work.deferred.clear();
     work.deferred.push(Region { level: TOP, x: 0, y: 0 });
+    // Nothing is settled until something describes it.
+    work.settled.words.fill(0);
 
     for tile in (BOTTOM..=TOP).rev() {
         // Every region's answer for this tile size at once, folded up
@@ -313,14 +398,32 @@ pub fn encode(
         while let Some(region) = work.stack.pop() {
             let across = 1 << (region.level - tile);
             let (tx, ty) = (region.x * across, region.y * across);
+
+            // A region matching a neighbour already settled is
+            // described by that neighbour, which is what skip means.
+            if rule.may_copy(across * across) {
+                if let Some(dir) = copies_whole(bits, &work.settled, region) {
+                    out.tree.push(SKIP, 2);
+                    out.tree.push(1, 1);
+                    out.tree.push(dir as u64, 2);
+                    out.labels.skip += 1;
+                    out.labels.copied += 1;
+                    settle(&mut work.settled, region);
+                    continue;
+                }
+            }
+
             let (all, any) = work.folds.at(region.level, region.x, region.y);
-            let (label, subdivide) = rule.label(all, any, across * across, region.level > tile);
+            let (label, subdivide) = rule.label(all, any, region.level > tile);
 
             out.tree.push(label, 2);
             match label {
                 BIND => out.labels.bind += 1,
                 DEFER => out.labels.defer += 1,
                 _ => out.labels.skip += 1,
+            }
+            if label == SKIP && rule.may_copy(across * across) {
+                out.tree.push(0, 1);
             }
             if subdivide {
                 out.tree.push(SUBDIVIDE, 2);
@@ -333,6 +436,7 @@ pub fn encode(
                         out.payload.push(u64::from(pyramid.value(tile, col, row)), 1);
                     }
                 }
+                settle(&mut work.settled, region);
             }
 
             match (label, subdivide) {
@@ -359,16 +463,8 @@ pub fn encode(
     // region no tile size described, and the 1x1 pass has it. Every
     // cell not in one of those regions is already settled by a
     // binding, and so may be copied from.
-    work.settled.words.fill(0);
-    work.settled.set_rect(0, 0, 255, 255);
     for region in &work.deferred {
         out.leftover_sides[region.level] += 1;
-        let side = 1usize << region.level;
-        for y in region.y * side..(region.y + 1) * side {
-            for x in region.x * side..(region.x + 1) * side {
-                work.settled.clear_cell(x as u8, y as u8);
-            }
-        }
     }
     let regions = std::mem::take(&mut work.deferred);
     for region in &regions {
@@ -379,8 +475,9 @@ pub fn encode(
 
 /// Reads an encoding back into a bitmap. Follows the labels, so it
 /// needs to know nothing about which [`Ruleset`] wrote them.
-pub fn decode(out: &Encoded, work: &mut Work, bits: &mut BitMatrix) {
+pub fn decode(out: &Encoded, rule: Ruleset, work: &mut Work, bits: &mut BitMatrix) {
     bits.words.fill(0);
+    work.settled.words.fill(0);
     work.deferred.clear();
     work.deferred.push(Region { level: TOP, x: 0, y: 0 });
     let (mut tree_at, mut payload_at) = (0usize, 0usize);
@@ -393,8 +490,24 @@ pub fn decode(out: &Encoded, work: &mut Work, bits: &mut BitMatrix) {
         work.next.clear();
 
         while let Some(region) = work.stack.pop() {
+            let across: usize = 1 << (region.level - tile);
             let Some(label) = out.tree.take(tree_at, 2) else { break };
             tree_at += 2;
+
+            // A skip says the region is described by something else,
+            // and one bit says by what.
+            if label == SKIP && rule.may_copy(across * across) {
+                let copied = out.tree.take(tree_at, 1) == Some(1);
+                tree_at += 1;
+                if copied {
+                    let dir = out.tree.take(tree_at, 2).unwrap_or(0) as usize;
+                    tree_at += 2;
+                    copy_in(bits, region, DIRECTIONS[dir]);
+                    settle(&mut work.settled, region);
+                    continue;
+                }
+            }
+
             // No label is `11`, so `11` here can only be this region
             // subdividing rather than the next region's label.
             let subdivide = out.tree.take(tree_at, 2) == Some(SUBDIVIDE);
@@ -403,7 +516,6 @@ pub fn decode(out: &Encoded, work: &mut Work, bits: &mut BitMatrix) {
             }
 
             if label == BIND {
-                let across = 1 << (region.level - tile);
                 let (tx, ty) = (region.x * across, region.y * across);
                 let side = 1 << tile;
                 for row in ty..ty + across {
@@ -420,6 +532,7 @@ pub fn decode(out: &Encoded, work: &mut Work, bits: &mut BitMatrix) {
                         }
                     }
                 }
+                settle(&mut work.settled, region);
             }
 
             match (label, subdivide) {
@@ -437,16 +550,6 @@ pub fn decode(out: &Encoded, work: &mut Work, bits: &mut BitMatrix) {
         std::mem::swap(&mut work.deferred, &mut work.next);
     }
 
-    work.settled.words.fill(0);
-    work.settled.set_rect(0, 0, 255, 255);
-    for region in &work.deferred {
-        let side = 1usize << region.level;
-        for y in region.y * side..(region.y + 1) * side {
-            for x in region.x * side..(region.x + 1) * side {
-                work.settled.clear_cell(x as u8, y as u8);
-            }
-        }
-    }
     let (mut copy_at, mut raw_at) = (0usize, 0usize);
     let regions = std::mem::take(&mut work.deferred);
     for region in &regions {
@@ -713,7 +816,7 @@ mod tests {
             pyramid.clear();
             pyramid.rebuild(bits);
             encode(&pyramid, bits, rule, &mut work, &mut out);
-            decode(&out, &mut work, &mut back);
+            decode(&out, rule, &mut work, &mut back);
             for y in 0..=u8::MAX {
                 for x in 0..=u8::MAX {
                     if bits.get(x, y) != back.get(x, y) {
@@ -725,19 +828,12 @@ mod tests {
         true
     }
 
-    /// The rulesets that describe every region come back the bitmap
-    /// that went in. Nothing else about an encoding matters if this is
-    /// ever false.
+    /// Every ruleset comes back the bitmap that went in. Nothing else
+    /// about an encoding matters if this is ever false.
     #[test]
-    fn the_rulesets_that_describe_everything_round_trip() {
-        assert!(round_trips(Ruleset::SkipWhereMixed));
-        assert!(round_trips(Ruleset::DeferWhereHeterogeneous));
-    }
-
-    /// And the one that drops a region does not, which is the whole
-    /// reason it is not the default.
-    #[test]
-    fn skipping_a_heterogeneous_region_loses_the_bitmap() {
-        assert!(!round_trips(Ruleset::SkipWhereHeterogeneous));
+    fn every_ruleset_round_trips() {
+        for rule in Ruleset::ALL {
+            assert!(round_trips(rule), "{} does not", rule);
+        }
     }
 }
