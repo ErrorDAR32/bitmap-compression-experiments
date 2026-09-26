@@ -8,7 +8,7 @@ use bitmatrix::samples;
 fn main() {
     let choosing = match std::env::args().nth(1).unwrap_or_default().as_str() {
         "cheapest" => Choosing::CheapestTileSize,
-        "whole" => Choosing::CoversTheWholeRegion,
+        "whole" => Choosing::TilesTheWholeRegion,
         _ => Choosing::LargestHomogeneousTile,
     };
     let (mut pyramid, mut work) = (Pyramid::new(), Workspace::new());
