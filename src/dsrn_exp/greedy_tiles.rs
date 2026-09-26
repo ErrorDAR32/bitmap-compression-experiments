@@ -60,12 +60,15 @@ pub struct PlacedTile {
     pub says: Says,
 }
 
-/// What a placed tile says: its own value, or a same-size neighbour
-/// to copy, in [`crate::dsrn::region::DIRECTIONS`] order.
+/// What a placed tile says: its own value, or a same-size area to
+/// copy, in [`crate::dsrn::region::DIRECTIONS`] order -- either a
+/// near neighbour of the tile itself, or, one level up, a neighbour
+/// of the tile's parent, at the child position the tile itself
+/// occupies within its own parent.
 #[derive(Clone, Copy)]
 pub enum Says {
     Bound(bool),
-    Copied(usize),
+    Copied { far: bool, direction: usize },
 }
 
 /// Runs the greedy pass over one bitmap, biggest tiles first.
@@ -91,15 +94,15 @@ pub fn decide_tiles(pyramid: &Pyramid, bitmap: &Bitmap) -> Vec<PlacedTile> {
 
                 let says = if let Some(value) = tile_of_bitmap(pyramid, bitmap, level, x, y) {
                     Says::Bound(value)
-                } else if let Some(direction) = copy_direction(pyramid, bitmap, tile) {
-                    // A same-size neighbour holds the same cells,
-                    // read straight from the bitmap -- true or false
-                    // the moment it is asked, regardless of whether
-                    // that neighbour is itself one tile or several.
-                    // Whether a stream can actually deliver that is a
-                    // question for whoever writes cells out, not for
-                    // deciding what the tile space looks like.
-                    Says::Copied(direction)
+                } else if let Some((far, direction)) = copy_choice(pyramid, bitmap, tile) {
+                    // A same-size area holds the same cells, read
+                    // straight from the bitmap -- true or false the
+                    // moment it is asked, regardless of whether that
+                    // area is itself one tile or several. Whether a
+                    // stream can actually deliver that is a question
+                    // for whoever writes cells out, not for deciding
+                    // what the tile space looks like.
+                    Says::Copied { far, direction }
                 } else {
                     // Neither one thing nor a match for any same-size
                     // neighbour: left for this tile's four quarters,
@@ -114,13 +117,32 @@ pub fn decide_tiles(pyramid: &Pyramid, bitmap: &Bitmap) -> Vec<PlacedTile> {
     placed
 }
 
-/// Which direction a tile copies from, if any.
-fn copy_direction(pyramid: &Pyramid, bitmap: &Bitmap, tile: Region) -> Option<usize> {
-    if !pyramid.copyable(tile.level, tile.x, tile.y) {
+/// Which direction a tile copies from, if any, and whether that is a
+/// near copy (a same-size neighbour of the tile itself) or a far copy
+/// (a same-size neighbour of the tile's parent, at the tile's own
+/// child position within it).
+fn copy_choice(pyramid: &Pyramid, bitmap: &Bitmap, tile: Region) -> Option<(bool, usize)> {
+    if pyramid.copyable(tile.level, tile.x, tile.y) {
+        let near = (0..DIRECTIONS.len()).find(|&direction| {
+            tile.neighbour(direction).is_some_and(|beside| same_cells(bitmap, tile, beside))
+        });
+        if let Some(direction) = near {
+            return Some((false, direction));
+        }
+    }
+    if tile.level == 0 {
         return None;
     }
-    (0..DIRECTIONS.len()).find(|&direction| {
-        tile.neighbour(direction).is_some_and(|beside| same_cells(bitmap, tile, beside))
+    let parent = Region { level: tile.level - 1, x: tile.x / 2, y: tile.y / 2 };
+    let (child_dx, child_dy) = (tile.x % 2, tile.y % 2);
+    (0..DIRECTIONS.len()).find_map(|direction| {
+        let beside_parent = parent.neighbour(direction)?;
+        let far = Region {
+            level: tile.level,
+            x: beside_parent.x * 2 + child_dx,
+            y: beside_parent.y * 2 + child_dy,
+        };
+        same_cells(bitmap, tile, far).then_some((true, direction))
     })
 }
 
@@ -131,7 +153,7 @@ pub fn greedy_tile_pass(pyramid: &Pyramid, bitmap: &Bitmap) -> GreedyTileCounts 
     for tile in decide_tiles(pyramid, bitmap) {
         match tile.says {
             Says::Bound(_) => counts.bound_at_level[tile.region.level] += 1,
-            Says::Copied(_) => counts.copied_at_level[tile.region.level] += 1,
+            Says::Copied { .. } => counts.copied_at_level[tile.region.level] += 1,
         }
     }
     counts

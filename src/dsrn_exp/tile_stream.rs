@@ -12,14 +12,23 @@
 //! one of, and that waste is the whole point of a baseline.
 //!
 //! ```text
-//! 1 then 3 bits of size, then 1 bit    bound to a value
-//! 0 then 3 bits of size, then 2 bits   copied from a direction
+//! 1 then 3 bits of size, then 1 bit               bound to a value
+//! 0 then 3 bits of size, then 1 bit, then 2 bits  copied from a direction
 //! ```
 //!
 //! The size field is `level - 1`, so it cannot name level 0, the
 //! whole bitmap as one tile. None of the sample bitmaps are ever one
 //! solid colour, so this never actually comes up; encoding one that
 //! is would need to say so, which this format cannot yet do.
+//!
+//! A copy's extra bit says whether it is near or far: near copies a
+//! same-size neighbour of the tile itself; far copies a same-size
+//! neighbour of the tile's *parent*, at the child position the tile
+//! itself occupies within that parent. Both are a rigid shift of every
+//! cell in the tile by the same offset -- one tile side for a near
+//! copy, two for a far one, since the parent a far copy steps to is
+//! itself twice as wide -- so both resolve the exact same way, just
+//! scaled.
 
 use crate::dsrn::region::DIRECTIONS;
 use crate::dsrn::stream::EncodedBitmap;
@@ -30,6 +39,7 @@ use crate::Bitmap;
 const CODE_WIDTH: usize = 1;
 const SIZE_WIDTH: usize = 3;
 const VALUE_WIDTH: usize = 1;
+const FAR_WIDTH: usize = 1;
 const DIRECTION_WIDTH: usize = 2;
 
 const BOUND: u64 = 1;
@@ -53,9 +63,10 @@ pub fn encode(pyramid: &Pyramid, bitmap: &Bitmap) -> EncodedBitmap {
                 out.push_value((region.level - 1) as u64, SIZE_WIDTH);
                 out.push_value(value as u64, VALUE_WIDTH);
             }
-            Says::Copied(direction) => {
+            Says::Copied { far, direction } => {
                 out.push_value(COPIED, CODE_WIDTH);
                 out.push_value((region.level - 1) as u64, SIZE_WIDTH);
+                out.push_value(far as u64, FAR_WIDTH);
                 out.push_value(direction as u64, DIRECTION_WIDTH);
             }
         }
@@ -69,7 +80,7 @@ pub fn encode(pyramid: &Pyramid, bitmap: &Bitmap) -> EncodedBitmap {
 #[derive(Clone, Copy)]
 enum Owner {
     Bound(bool),
-    Copied(usize, usize),
+    Copied { direction: usize, side: usize, far: bool },
 }
 
 /// Decodes a stream written by [`encode`].
@@ -105,9 +116,11 @@ pub fn decode(stream: &EncodedBitmap) -> Bitmap {
                 at += VALUE_WIDTH;
                 Owner::Bound(value)
             } else {
+                let far = stream.take(at, FAR_WIDTH) != 0;
+                at += FAR_WIDTH;
                 let direction = stream.take(at, DIRECTION_WIDTH) as usize;
                 at += DIRECTION_WIDTH;
-                Owner::Copied(direction, side)
+                Owner::Copied { direction, side, far }
             };
             for row in 0..side {
                 for col in 0..side {
@@ -129,10 +142,15 @@ pub fn decode(stream: &EncodedBitmap) -> Bitmap {
                 }
                 let value = match owner[y as usize * 256 + x as usize].expect("every cell got an owner in the first pass") {
                     Owner::Bound(value) => Some(value),
-                    Owner::Copied(direction, side) => {
+                    Owner::Copied { direction, side, far } => {
+                        // A near copy shifts by one tile side; a far
+                        // copy steps to a neighbour of the tile's
+                        // parent, twice as wide, so the same shift
+                        // doubles -- see the module doc.
+                        let step = side * if far { 2 } else { 1 };
                         let (dx, dy) = DIRECTIONS[direction];
-                        let fx = (x as isize + dx * side as isize) as u8;
-                        let fy = (y as isize + dy * side as isize) as u8;
+                        let fx = (x as isize + dx * step as isize) as u8;
+                        let fy = (y as isize + dy * step as isize) as u8;
                         resolved.get(fx, fy).then(|| bitmap.get(fx, fy))
                     }
                 };
