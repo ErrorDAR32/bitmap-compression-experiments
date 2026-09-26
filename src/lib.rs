@@ -1,61 +1,62 @@
-//! A fixed-size 256x256 bit matrix, and an encoding of it.
+//! A fixed size 256 by 256 bitmap, and an encoding of it.
 //!
 //! [`dsrn`] is disjoint sized-tile region nesting: the bitmap read as a
 //! quadtree whose regions are each bound to a tile size, a bound
-//! region emitting one value per tile, and a region no tile size
-//! suits copied from a neighbour that looks the same or cut into
-//! four that are easier.
+//! region emitting one value per tile, and a region no tile size suits
+//! copied from a neighbour that looks the same or cut into four that
+//! are easier.
 //!
 //! # Using it
 //!
-//! The workspace holds every buffer the encoding needs, so it is
-//! built once and fed bitmap after bitmap:
+//! The workspace holds every buffer the encoding needs, so it is built
+//! once and fed bitmap after bitmap:
 //!
 //! ```
-//! use bitmatrix::dsrn::nesting::{decode, encode, Encoded, Masking, Workspace};
-//! use bitmatrix::dsrn::Pyramid;
-//! use bitmatrix::BitMatrix;
+//! use bitmap::dsrn::{decode, encode, Encoded, Masking, Workspace};
+//! use bitmap::pyramid::Pyramid;
+//! use bitmap::Bitmap;
 //!
-//! let mut bits = BitMatrix::new();
-//! bits.set_rect(10, 10, 40, 30);
-//! bits.set_circle(180, 180, 25);
+//! let mut bitmap = Bitmap::new();
+//! bitmap.set_rect(10, 10, 40, 30);
+//! bitmap.set_circle(180, 180, 25);
 //!
 //! let (mut pyramid, mut work) = (Pyramid::new(), Workspace::new());
-//! let (mut out, mut back) = (Encoded::default(), BitMatrix::new());
+//! let (mut out, mut back) = (Encoded::default(), Bitmap::new());
 //!
-//! pyramid.rebuild(&bits);
-//! encode(&pyramid, &bits, Masking::Anywhere, &mut work, &mut out);
+//! pyramid.rebuild(&bitmap);
+//! encode(&pyramid, &bitmap, Masking::Anywhere, &mut work, &mut out);
 //! decode(&out, &mut back);
-//! assert_eq!(back.count_set(), bits.count_set());
+//! assert_eq!(back.count_set(), bitmap.count_set());
 //! ```
 //!
 //! # How the crate is laid out
 //!
-//! | module | what lives there |
+//! One folder to a domain, and inside it one file to a purpose. A
+//! `_data` file says what something is and what can be asked of it; a
+//! file named for the folder does the work; a `_diag` file explains
+//! what the work did, for a reader rather than a decoder.
+//!
+//! | folder | its domain |
 //! |---|---|
-//! | `data` | the bitmap and the bit operations on it, and nothing that decides anything |
-//! | [`dsrn`] | the pyramid every decision is asked of, and the encoding that asks |
-//! | [`samples`] | the one source of test bitmaps |
+//! | [`bitmap`] | the 65536 cells, and what can be drawn on them |
+//! | [`pyramid`] | for every tile of every size, whether it is all one thing |
+//! | [`dsrn`] | the encoding: what a region says, what it costs, how it is written and read |
+//! | [`samples`] | the bitmaps everything is measured on, and where the seed comes from |
+//! | [`dsrn_exp`] | experiments on the encoding, which are not the encoding |
 //!
-//! `docs/protocol.md` is how a change to any of it gets measured, and
-//! is worth reading before trusting a number in these comments.
-//!
-//! # What it costs
-//!
-//! An encode is about 2.15M instructions a bitmap, of which the
-//! pyramid is 47k: the passes are nearly all of it. What it emits
-//! depends entirely on the content -- a checkerboard of single cells
-//! comes to 120 bits, one of 2x2 blocks to 16,400 -- so the `dsrn_size`
-//! and `dsrn_patterns` examples are worth reading before trusting an
-//! average.
+//! `docs/testing_protocol.md` is how a change to any of it gets
+//! measured, and is worth reading before trusting a number in these
+//! comments.
 
+pub mod bitmap;
 pub mod dsrn;
-mod data;
+pub mod dsrn_exp;
+pub mod pyramid;
 pub mod samples;
 
-pub use data::BitMatrix;
+pub use bitmap::Bitmap;
 
-/// The matrix is always this wide and this tall. Nothing is sized at
+/// The bitmap is always this wide and this tall. Nothing is sized at
 /// run time, which is what lets a workspace be built once and reused.
 pub const WIDTH: usize = 256;
 pub const HEIGHT: usize = 256;

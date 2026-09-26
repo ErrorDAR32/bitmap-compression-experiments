@@ -7,8 +7,8 @@
 //! changed separately. What a corpus is made of is a decision; how a
 //! bitmap is filled is a mechanism.
 
-use crate::data::bits::range_mask;
-use crate::{BitMatrix, HEIGHT, WIDTH};
+use crate::bitmap::bitmap_words::range_mask;
+use crate::{Bitmap, HEIGHT, WIDTH};
 
 /// A bitmap grown from a seed, confined to a `side` by `side` corner.
 ///
@@ -26,12 +26,12 @@ use crate::{BitMatrix, HEIGHT, WIDTH};
 /// cell with three set neighbours is three times as likely to be taken
 /// as one with a single neighbour. That is the point: it is what makes
 /// a blob fill in rather than sprawl.
-pub(super) fn one(seed: u64, side: usize, density: f64, cluster: f64) -> BitMatrix {
+pub(super) fn one(seed: u64, side: usize, density: f64, cluster: f64) -> Bitmap {
     let side = side.clamp(1, WIDTH.min(HEIGHT));
     let wanted = (density.clamp(0.0, 1.0) * (side * side) as f64) as usize;
     let cluster = (cluster.clamp(0.0, 1.0) * u32::MAX as f64) as u64;
 
-    let mut bits = BitMatrix::new();
+    let mut bits = Bitmap::new();
     // Xorshift needs a state that is not zero, and it is the seed alone
     // that has to reproduce the bitmap.
     let mut state = seed ^ 0x9E37_79B9_7F4A_7C15;
@@ -86,7 +86,7 @@ pub(super) fn one(seed: u64, side: usize, density: f64, cluster: f64) -> BitMatr
 /// Guessing answers nearly every draw, because a bitmap is usually far
 /// from full. The scan is there so that a density close to 1 still
 /// finishes rather than rolling dice forever.
-fn anywhere_clear(bits: &BitMatrix, side: usize, next: &mut impl FnMut() -> u64) -> (u8, u8) {
+fn anywhere_clear(bits: &Bitmap, side: usize, next: &mut impl FnMut() -> u64) -> (u8, u8) {
     for _ in 0..64 {
         let roll = next();
         let (x, y) = ((roll as usize % side) as u8, ((roll >> 32) as usize % side) as u8);

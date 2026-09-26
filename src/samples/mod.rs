@@ -25,25 +25,29 @@
 //! half of what matters.
 //!
 //! `generate` holds the drawing itself, `city` holds the laying out,
-//! and `docs/protocol.md` holds
+//! and `docs/testing_protocol.md` holds
 //! the rule for using it: fix with the seed held still, then check on a
 //! seed never seen. A change measured only on the corpus it was tuned
 //! on has not been measured.
 
 mod city;
 mod generate;
+pub mod seed;
 
 pub use city::{one_laid_out, Cities, Plan, PLANS};
+pub use seed::seed_for_this_run;
 
-use crate::BitMatrix;
+use crate::Bitmap;
 
-/// Where every sample's seeds start.
+/// Where every sample's seeds start, read from
+/// [`seed::WHERE_THE_SEED_IS_KEPT`] rather than written here.
 ///
-/// Move it to ask whether a result was about an algorithm or about
-/// those particular bitmaps. It has been zero for every measurement in
-/// this repository, which is what makes them reproducible and is not
-/// what makes them representative.
-pub const SAMPLE_SEED: u64 = 0;
+/// Nothing a measurement runs on is a constant in the code. Move the
+/// seed to ask whether a result was about an algorithm or about those
+/// particular bitmaps, and the run tells you which seed it used.
+pub fn sample_seed() -> u64 {
+    seed::seed_for_this_run()
+}
 
 /// One shape worth measuring on: what it looks like, the two numbers
 /// that make it, and how many of it a timed run should take.
@@ -67,12 +71,12 @@ pub struct Shape {
 impl Shape {
     /// `count` bitmaps of this shape, built one at a time.
     pub fn take(&self, count: u64) -> Samples {
-        grown(SAMPLE_SEED, self.density, self.cluster, count)
+        grown(sample_seed(), self.density, self.cluster, count)
     }
 
     /// The same, confined to a `side` by `side` corner.
     pub fn take_in(&self, side: usize, count: u64) -> Samples {
-        grown_in(SAMPLE_SEED, side, self.density, self.cluster, count)
+        grown_in(sample_seed(), side, self.density, self.cluster, count)
     }
 
     /// As many as a timed run of this shape should take.
@@ -147,14 +151,14 @@ pub fn grown_in(seed: u64, side: usize, density: f64, cluster: f64, count: u64) 
 
 /// One bitmap, for a caller that wants a single sample rather than a
 /// run of them.
-pub fn one_grown(seed: u64, density: f64, cluster: f64) -> BitMatrix {
+pub fn one_grown(seed: u64, density: f64, cluster: f64) -> Bitmap {
     generate::one(seed, crate::WIDTH, density, cluster)
 }
 
 impl Iterator for Samples {
-    type Item = BitMatrix;
+    type Item = Bitmap;
 
-    fn next(&mut self) -> Option<BitMatrix> {
+    fn next(&mut self) -> Option<Bitmap> {
         if self.left == 0 {
             return None;
         }
@@ -170,3 +174,28 @@ impl ExactSizeIterator for Samples {
         self.left as usize
     }
 }
+
+/// Every family of sample, named, with as many of each as a
+/// measurement should take.
+///
+/// Two families, and they disagree about what the encoding is for.
+/// Grown bitmaps are cells scattered or clustered to a density, which
+/// is what an algorithm is stressed on. Laid out ones are streets,
+/// blocks and courtyards on a grid the quadtree can see, which is the
+/// shape the encoding was designed around. A result on one is half a
+/// result.
+pub fn every_family() -> Vec<(String, Vec<BitmapSample>)> {
+    vec![
+        (
+            "laid out like a city".to_string(),
+            PLANS.iter().flat_map(|plan| plan.timed()).collect(),
+        ),
+        (
+            "grown like a blob".to_string(),
+            SHAPES.iter().flat_map(|shape| shape.timed()).collect(),
+        ),
+    ]
+}
+
+/// What a family is made of.
+pub type BitmapSample = crate::Bitmap;

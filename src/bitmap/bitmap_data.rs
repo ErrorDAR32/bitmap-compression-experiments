@@ -14,11 +14,11 @@ use crate::{BITS_PER_WORD, HEIGHT, WIDTH, WORDS};
 /// 65536 bits, boxed so that passing one around moves a pointer rather
 /// than eight kilobytes.
 #[derive(Clone)]
-pub struct BitMatrix {
+pub struct Bitmap {
     pub(crate) words: Box<[u64; WORDS]>,
 }
 
-impl BitMatrix {
+impl Bitmap {
     /// An empty matrix, with nothing set.
     pub fn new() -> Self {
         Self {
@@ -57,88 +57,6 @@ impl BitMatrix {
     pub fn reset(&mut self) {
         for word in self.words.iter_mut() {
             *word = 0;
-        }
-    }
-
-    /// Sets every bit contained in the inclusive rectangle described by
-    /// the two corner points, in any order. Coordinates are clamped to
-    /// the matrix bounds.
-    pub fn set_rect(&mut self, x0: i64, y0: i64, x1: i64, y1: i64) {
-        self.for_each_in_rect(x0, y0, x1, y1, |m, x, y| m.set(x, y));
-    }
-
-    /// Unsets every bit contained in the inclusive rectangle described by
-    /// the two corner points, in any order. Coordinates are clamped to
-    /// the matrix bounds.
-    pub fn unset_rect(&mut self, x0: i64, y0: i64, x1: i64, y1: i64) {
-        self.for_each_in_rect(x0, y0, x1, y1, |m, x, y| m.unset(x, y));
-    }
-
-    /// Visits every cell of a rectangle given in any order and in
-    /// coordinates that may lie outside the matrix, which is what lets
-    /// the drawing methods take `i64` and clamp. Shared by setting and
-    /// unsetting so the two cannot disagree about what a rectangle is.
-    fn for_each_in_rect(
-        &mut self,
-        x0: i64,
-        y0: i64,
-        x1: i64,
-        y1: i64,
-        op: impl Fn(&mut Self, u8, u8),
-    ) {
-        let (lo_x, hi_x) = order(x0, x1);
-        let (lo_y, hi_y) = order(y0, y1);
-        let lo_x = clamp(lo_x, 0, WIDTH as i64 - 1) as u8;
-        let hi_x = clamp(hi_x, 0, WIDTH as i64 - 1) as u8;
-        let lo_y = clamp(lo_y, 0, HEIGHT as i64 - 1) as u8;
-        let hi_y = clamp(hi_y, 0, HEIGHT as i64 - 1) as u8;
-
-        for y in lo_y..=hi_y {
-            for x in lo_x..=hi_x {
-                op(self, x, y);
-            }
-        }
-    }
-
-    /// Sets every bit whose center lies within `radius` of `(cx, cy)`,
-    /// approximating a filled circle by testing squared distance.
-    pub fn set_circle(&mut self, cx: i64, cy: i64, radius: i64) {
-        self.for_each_in_circle(cx, cy, radius, |m, x, y| m.set(x, y));
-    }
-
-    /// Unsets every bit whose center lies within `radius` of `(cx, cy)`.
-    pub fn unset_circle(&mut self, cx: i64, cy: i64, radius: i64) {
-        self.for_each_in_circle(cx, cy, radius, |m, x, y| m.unset(x, y));
-    }
-
-    /// Visits every cell whose centre lies within `radius` of
-    /// `(cx, cy)`, by walking the bounding box and testing squared
-    /// distance, so no square root is taken and nothing is approximated
-    /// beyond the pixel grid itself. A negative radius draws nothing.
-    fn for_each_in_circle(
-        &mut self,
-        cx: i64,
-        cy: i64,
-        radius: i64,
-        op: impl Fn(&mut Self, u8, u8),
-    ) {
-        if radius < 0 {
-            return;
-        }
-        let r2 = radius * radius;
-        let lo_x = clamp(cx - radius, 0, WIDTH as i64 - 1) as u8;
-        let hi_x = clamp(cx + radius, 0, WIDTH as i64 - 1) as u8;
-        let lo_y = clamp(cy - radius, 0, HEIGHT as i64 - 1) as u8;
-        let hi_y = clamp(cy + radius, 0, HEIGHT as i64 - 1) as u8;
-
-        for y in lo_y..=hi_y {
-            let dy = y as i64 - cy;
-            for x in lo_x..=hi_x {
-                let dx = x as i64 - cx;
-                if dx * dx + dy * dy <= r2 {
-                    op(self, x, y);
-                }
-            }
         }
     }
 
@@ -217,29 +135,14 @@ impl BitMatrix {
 
 }
 
-impl Default for BitMatrix {
-    /// The same as [`BitMatrix::new`]: empty.
+impl Default for Bitmap {
+    /// The same as [`Bitmap::new`]: empty.
     fn default() -> Self {
         Self::new()
     }
 }
 
-/// The two given either way round, smaller first, so that a caller can
-/// name a rectangle by any two opposite corners.
-fn order(a: i64, b: i64) -> (i64, i64) {
-    if a <= b {
-        (a, b)
-    } else {
-        (b, a)
-    }
-}
 
-/// `v` pulled into `lo..=hi`. Written out rather than `i64::clamp` so
-/// that the intent is visible next to the coordinate arithmetic it
-/// serves.
-fn clamp(v: i64, lo: i64, hi: i64) -> i64 {
-    v.max(lo).min(hi)
-}
 
 #[cfg(test)]
 mod tests {
@@ -247,7 +150,7 @@ mod tests {
 
     #[test]
     fn starts_empty() {
-        let m = BitMatrix::new();
+        let m = Bitmap::new();
         assert_eq!(m.count_set(), 0);
         assert!(!m.get(0, 0));
         assert!(!m.get(255, 255));
@@ -255,7 +158,7 @@ mod tests {
 
     #[test]
     fn set_and_unset_single_bit() {
-        let mut m = BitMatrix::new();
+        let mut m = Bitmap::new();
         m.set(10, 20);
         assert!(m.get(10, 20));
         assert_eq!(m.count_set(), 1);
@@ -266,7 +169,7 @@ mod tests {
 
     #[test]
     fn rect_is_inclusive_and_order_independent() {
-        let mut m = BitMatrix::new();
+        let mut m = Bitmap::new();
         m.set_rect(5, 5, 2, 2);
         assert_eq!(m.count_set(), 16); // 4x4 inclusive area
         for y in 2..=5 {
@@ -280,14 +183,14 @@ mod tests {
 
     #[test]
     fn rect_clamps_to_bounds() {
-        let mut m = BitMatrix::new();
+        let mut m = Bitmap::new();
         m.set_rect(-10, -10, 1, 1);
         assert_eq!(m.count_set(), 4);
     }
 
     #[test]
     fn circle_includes_center_and_excludes_far_corners() {
-        let mut m = BitMatrix::new();
+        let mut m = Bitmap::new();
         m.set_circle(128, 128, 5);
         assert!(m.get(128, 128));
         assert!(m.get(133, 128));
@@ -298,7 +201,7 @@ mod tests {
 
     #[test]
     fn unset_circle_clears_previously_set_bits() {
-        let mut m = BitMatrix::new();
+        let mut m = Bitmap::new();
         m.set_circle(50, 50, 10);
         let before = m.count_set();
         assert!(before > 0);
@@ -308,7 +211,7 @@ mod tests {
 
     #[test]
     fn reset_clears_everything() {
-        let mut m = BitMatrix::new();
+        let mut m = Bitmap::new();
         m.set_rect(0, 0, 255, 255);
         assert_eq!(m.count_set() as usize, WIDTH * HEIGHT);
         m.reset();

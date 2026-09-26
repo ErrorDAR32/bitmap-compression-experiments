@@ -3,5 +3,5 @@
 version = 4
 
 [[package]]
-name = "bitmatrix"
+name = "bitmap"
 version = "0.1.0"

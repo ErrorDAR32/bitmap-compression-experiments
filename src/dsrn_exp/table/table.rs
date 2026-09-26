@@ -1,4 +1,4 @@
-//! One table renderer for every example, so that a column means the
+//! One table renderer for every experiment, so that a column means the
 //! same thing and looks the same wherever it is printed.
 //!
 //! Rules it enforces rather than leaves to the caller: a header rule
@@ -11,13 +11,7 @@
 //! A heading with newlines in it stacks, so a long name costs height
 //! rather than width.
 
-/// A table being built. The first column is left aligned and named
-/// rather than numbered; the rest are right aligned figures.
-pub struct Table {
-    headings: Vec<Vec<String>>,
-    rows: Vec<Vec<String>>,
-    rules: Vec<usize>,
-}
+use super::table_data::Table;
 
 #[allow(dead_code)]
 impl Table {

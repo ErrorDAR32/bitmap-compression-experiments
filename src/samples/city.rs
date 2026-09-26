@@ -13,7 +13,7 @@
 //! are: settled entirely by a seed and a plan, regenerated every time
 //! they are asked for, never stored.
 
-use crate::BitMatrix;
+use crate::Bitmap;
 
 /// The same arithmetic the grown samples use, so a seed means a
 /// bitmap and nothing drifts between runs or machines.
@@ -61,7 +61,7 @@ impl Plan {
 
     /// `count` bitmaps of this plan, built one at a time.
     pub fn take(&'static self, count: u64) -> Cities {
-        Cities { seed: super::SAMPLE_SEED, left: count, plan: self }
+        Cities { seed: super::sample_seed(), left: count, plan: self }
     }
 
     /// As many as a timed run of this plan should take.
@@ -92,9 +92,9 @@ pub struct Cities {
 }
 
 impl Iterator for Cities {
-    type Item = BitMatrix;
+    type Item = Bitmap;
 
-    fn next(&mut self) -> Option<BitMatrix> {
+    fn next(&mut self) -> Option<Bitmap> {
         if self.left == 0 {
             return None;
         }
@@ -106,8 +106,8 @@ impl Iterator for Cities {
 
 /// One city: a grid of blocks with streets between them and
 /// courtyards inside them.
-pub fn one_laid_out(seed: u64, plan: &Plan) -> BitMatrix {
-    let mut bits = BitMatrix::new();
+pub fn one_laid_out(seed: u64, plan: &Plan) -> Bitmap {
+    let mut bits = Bitmap::new();
     let mut rolls = Rolls(seed);
     let side = plan.block();
 
@@ -125,7 +125,7 @@ pub fn one_laid_out(seed: u64, plan: &Plan) -> BitMatrix {
 
 /// One block, filled, with courtyards cut out of it -- or left clear
 /// altogether, which is a park.
-fn block(bits: &mut BitMatrix, x: i64, y: i64, side: i64, courtyards: u64, rolls: &mut Rolls) {
+fn block(bits: &mut Bitmap, x: i64, y: i64, side: i64, courtyards: u64, rolls: &mut Rolls) {
     if rolls.chance(12) {
         return;
     }
