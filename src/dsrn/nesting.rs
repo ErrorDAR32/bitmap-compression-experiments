@@ -162,6 +162,21 @@ const CHILD_MASK: usize = 4;
 /// A child mask naming every child.
 const EVERY_CHILD: u64 = 0b1111;
 
+/// The smallest region with a grammar of its own. Below it, a region
+/// writes its cells and no code at all.
+///
+/// A 2x2 can only say four things, and three of them cost the same.
+/// All one thing is a code, a tile size and a value: four bits. A
+/// copy is a code and a direction: four bits. Subdividing is a code
+/// and four cells that each cost a code of their own, which is never
+/// worth it. Its four cells written out are four bits and no code,
+/// so it ties the two that were any good and saves three on the one
+/// that was not -- a heterogeneous 2x2 used to cost seven.
+///
+/// A cell is the same argument at its limit: the only thing it can
+/// say is its value, so it says its value and nothing else.
+const BOTTOM: usize = 2;
+
 /// Tiles in a region whose tiles are `depth` levels below it.
 fn tiles(depth: usize) -> usize {
     1 << (2 * depth)
@@ -187,6 +202,9 @@ pub struct Counts {
     /// Children a masked subdivide left clear, which cost nothing at
     /// all beyond their bit of the mask.
     pub children_left_clear: usize,
+    /// Regions below the grammar, which wrote their cells and no
+    /// code at all.
+    pub below_the_grammar: usize,
     /// Regions bound at one cell a tile, and the payload bits that
     /// went out one cell at a time -- the encoding at its floor.
     pub bound_at_cells: usize,
@@ -548,7 +566,7 @@ fn survey(
 
     if region.level == 0 {
         work.finest[0][at] = 0;
-        work.cost[0][at] = CODE + size_width(0) + 1;
+        work.cost[0][at] = 1;
         return;
     }
 
@@ -558,7 +576,15 @@ fn survey(
         survey(work, pyramid, bits, child, masking);
         deepest = deepest.max(work.finest_of(child));
     }
+    // A region above the bottom still needs this, so that a parent
+    // can ask whether it could be bound at a tile size.
     work.finest[region.level][at] = if plain { 0 } else { (deepest + 1) as u8 };
+
+    if region.level < BOTTOM {
+        // Its cells, and nothing said about them.
+        work.cost[region.level][at] = tiles(region.level);
+        return;
+    }
 
     let mut best = usize::MAX;
     for says in every_way(work, pyramid, bits, region, masking, false) {
@@ -591,6 +617,20 @@ fn describe(
     masking: Masking,
     out: &mut Encoded,
 ) {
+    if region.level < BOTTOM {
+        // Below the grammar: the cells, in reading order, and no code
+        // to say that is what they are.
+        out.counts.below_the_grammar += 1;
+        out.counts.accounted += tiles(region.level);
+        for cell in tiles_of(region, region.level) {
+            let value = homogeneous(pyramid, bits, cell).expect("a cell is all one thing");
+            out.payload.push(value as u64, 1);
+            out.counts.cells_written += 1;
+        }
+        mark_written(work, region);
+        return;
+    }
+
     let says = every_way(work, pyramid, bits, region, masking, true)
         .into_iter()
         .min_by_key(|&says| cost_of_saying(work, region, says))
@@ -737,6 +777,14 @@ fn copy_cells(bits: &mut BitMatrix, to: Region, from: Region) {
 
 /// Puts back one region, and whatever its description left out.
 fn undescribe(reading: &mut Reading, out: &Encoded, bits: &mut BitMatrix, region: Region) {
+    if region.level < BOTTOM {
+        for cell in tiles_of(region, region.level) {
+            let value = reading.value(out);
+            fill(bits, cell, value);
+        }
+        return;
+    }
+
     let mut code = reading.take(out, CODE);
     let masked = code == MASK;
     if masked {
