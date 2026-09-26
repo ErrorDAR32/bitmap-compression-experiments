@@ -24,6 +24,7 @@ use crate::dsrn::describable::{
     where_each_child_copies_from,
 };
 use crate::dsrn::nesting::Knobs;
+use crate::dsrn::four_by_four::what_a_four_by_four_says;
 use crate::dsrn::nesting_data::{Standing, Workspace};
 use crate::dsrn::region::{deepest_depth, Region};
 use crate::pyramid::{tile_of_bitmap, Pyramid, CELL_LEVEL};
@@ -87,7 +88,15 @@ pub fn coarsest(
         .min()
         .expect("every region can at least bind at one cell a tile");
 
-    let ask = |standing| cheapest_in(work, pyramid, bitmap, region, knobs, standing, covering_it);
+    // A 4x4 in its own grammar has its own list of ways, so it is
+    // asked its own way.
+    let ask = |standing| {
+        if knobs.four_by_four.is_its_own_grammar(region) {
+            what_a_four_by_four_says(work, pyramid, bitmap, region, knobs, false, standing).1
+        } else {
+            cheapest_in(work, pyramid, bitmap, region, knobs, standing, covering_it)
+        }
+    };
     let nothing_standing = ask(Standing::Nothing);
     let putting_right = [false, true].map(|standing| {
         if already_reads(pyramid, bitmap, region, standing) {

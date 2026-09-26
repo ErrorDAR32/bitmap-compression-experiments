@@ -100,7 +100,7 @@ pub fn whole_subtree_size(
 /// A child left to a binding's tiles costs those tiles' bits and
 /// nothing else. A child left to one thing being said costs nothing
 /// at all: the bit that says it was going to be written anyway.
-fn cost_of_a_child(work: &Workspace, child: Region, standing: Standing, described: bool) -> usize {
+pub fn cost_of_a_child(work: &Workspace, child: Region, standing: Standing, described: bool) -> usize {
     match (standing, described) {
         (Standing::Tiles(depth), true) => work.cost_under_tiles_of(child, depth),
         (Standing::Tiles(depth), false) => tiles_at_depth(depth),

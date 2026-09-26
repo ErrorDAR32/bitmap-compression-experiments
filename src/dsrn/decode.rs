@@ -17,6 +17,10 @@ use crate::dsrn::nesting_data::{
     Encoded, RegionMask, A_SIZE_THAT_MEANS_COPY, BIND, CHILD_MASK_WIDTH, CODE_WIDTH, COPY,
     DIRECTION_WIDTH, FINEST_LEVEL_WITH_A_GRAMMAR, MASK, SUBDIVIDE,
 };
+use crate::dsrn::four_by_four::{
+    BIND_OR_SKIP_WIDTH, COPY_OR_LEAVE_WIDTH, MASKED, MASKED_OR_NOT_WIDTH, TILES_OF_ONE,
+    TILE_SIZE_WIDTH, THE_REST_COPY, BIND as BIND_AT_A_FOUR_BY_FOUR,
+};
 use crate::dsrn::region::{deepest_depth, Region, CHILD_COUNT, DIRECTIONS};
 use crate::Bitmap;
 
@@ -70,6 +74,11 @@ fn decode_region(
 ) {
     if knobs.four_by_four.applies_to(region) {
         read_a_mask_over_the_children(reading, out, bitmap, region);
+        return;
+    }
+
+    if knobs.four_by_four.is_its_own_grammar(region) {
+        read_what_a_four_by_four_says(reading, out, bitmap, region, covered_from_above);
         return;
     }
 
@@ -159,6 +168,59 @@ fn decode_region(
         }
     }
     let _ = DIRECTIONS;
+}
+
+/// Puts back a 4x4 in its own grammar.
+fn read_what_a_four_by_four_says(
+    reading: &mut Reading,
+    out: &Encoded,
+    bitmap: &mut Bitmap,
+    region: Region,
+    covered_from_above: bool,
+) {
+    let binds = reading.take(out, BIND_OR_SKIP_WIDTH) == BIND_AT_A_FOUR_BY_FOUR;
+    let at_ones = binds && reading.take(out, TILE_SIZE_WIDTH) == TILES_OF_ONE;
+    let masked = reading.take(out, MASKED_OR_NOT_WIDTH) == MASKED;
+    // Binding at one tile a cell and taking all four would say what
+    // skipping and taking all four says, so it says this instead.
+    if at_ones && !masked {
+        let direction = reading.take(out, DIRECTION_WIDTH) as usize;
+        let from = region.neighbour(direction).expect("a copy names a neighbour on the bitmap");
+        copy_cells(&mut reading.taken, bitmap, region, from);
+        return;
+    }
+    let (mask, the_rest_copy) = if masked {
+        let mask = RegionMask(reading.take(out, CHILD_MASK_WIDTH));
+        (mask, reading.take(out, COPY_OR_LEAVE_WIDTH) == THE_REST_COPY)
+    } else {
+        (RegionMask::EVERY, false)
+    };
+
+    for (at, child) in region.children().into_iter().enumerate() {
+        if !mask.describes(at) {
+            if the_rest_copy {
+                let direction = reading.take(out, DIRECTION_WIDTH) as usize;
+                let beside = child
+                    .neighbour(direction)
+                    .expect("a copy names a neighbour on the bitmap");
+                copy_cells(&mut reading.taken, bitmap, child, beside);
+                take_region(reading, child);
+            } else if !covered_from_above {
+                take_region(reading, child);
+            }
+            continue;
+        }
+        if binds && !at_ones {
+            let value = reading.value(out);
+            fill(&mut reading.taken, bitmap, child, value);
+            continue;
+        }
+        for cell in child.tiles_at_depth(deepest_depth(child.level)) {
+            let value = reading.value(out);
+            fill(&mut reading.taken, bitmap, cell, value);
+        }
+        take_region(reading, child);
+    }
 }
 
 /// Puts back a 4x4 that always masks: the mask, then per child in

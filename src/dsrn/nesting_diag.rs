@@ -11,18 +11,67 @@ use crate::dsrn::nesting_data::{
     Encoded, RegionMask, A_SIZE_THAT_MEANS_COPY, BIND, CHILD_MASK_WIDTH, CODE_WIDTH, COPY,
     DIRECTION_WIDTH, FINEST_LEVEL_WITH_A_GRAMMAR, MASK, SUBDIVIDE,
 };
-use crate::dsrn::region::{deepest_depth, tiles_at_depth, Region};
+use crate::dsrn::four_by_four::{
+    BIND_OR_SKIP_WIDTH, CELLS_IN_A_CHILD, COPY_OR_LEAVE_WIDTH, MASKED, MASKED_OR_NOT_WIDTH,
+    TILES_OF_ONE, TILE_SIZE_WIDTH, THE_REST_COPY, BIND as BIND_AT_A_FOUR_BY_FOUR,
+};
+use crate::dsrn::nesting::Knobs;
+use crate::dsrn::region::{deepest_depth, tiles_at_depth, Region, CHILD_COUNT};
 
 /// The directions a copy may name, in the order `DIRECTIONS` has them.
 const WHENCE: [&str; 4] = ["the top left", "above", "the top right", "the left"];
 
 /// Walks an encoding's tree and writes out what each region said, one
 /// line a region, indented by how deep it sits.
-pub fn explain(out: &Encoded) -> String {
+pub fn explain(out: &Encoded, knobs: Knobs) -> String {
     let mut said = String::new();
     let mut at = (0usize, 0usize);
-    retell(&mut at, out, Region::whole_bitmap(), 0, &mut said);
+    retell(&mut at, out, knobs, Region::whole_bitmap(), 0, &mut said);
     said
+}
+
+/// A 4x4 in its own grammar, read the same way the decoder reads it.
+fn retell_its_own_grammar(
+    at: &mut (usize, usize),
+    out: &Encoded,
+    region: Region,
+    where_it_is: &str,
+    said: &mut String,
+) {
+    let binds = take(at, out, BIND_OR_SKIP_WIDTH) == BIND_AT_A_FOUR_BY_FOUR;
+    let at_ones = binds && take(at, out, TILE_SIZE_WIDTH) == TILES_OF_ONE;
+    let masked = take(at, out, MASKED_OR_NOT_WIDTH) == MASKED;
+    if at_ones && !masked {
+        take(at, out, DIRECTION_WIDTH);
+        said.push_str(&format!("{where_it_is}: the whole of it, copied\n"));
+        return;
+    }
+    let (mask, the_rest_copy) = if masked {
+        let mask = RegionMask(take(at, out, CHILD_MASK_WIDTH));
+        (mask, take(at, out, COPY_OR_LEAVE_WIDTH) == THE_REST_COPY)
+    } else {
+        (RegionMask::EVERY, false)
+    };
+    for child_at in 0..CHILD_COUNT {
+        if mask.describes(child_at) {
+            at.1 += if binds && !at_ones { 1 } else { CELLS_IN_A_CHILD };
+        } else if the_rest_copy {
+            take(at, out, DIRECTION_WIDTH);
+        }
+    }
+    let takes = if !binds {
+        "skips to"
+    } else if at_ones {
+        "binds at one cell a tile"
+    } else {
+        "binds at one 2x2 a tile"
+    };
+    let rest = if the_rest_copy { "copy" } else { "are left to the binding above" };
+    said.push_str(&format!(
+        "{where_it_is}: {takes} {} children, {} {rest}\n",
+        mask.described(),
+        mask.left_to_a_binding()
+    ));
 }
 
 fn take(at: &mut (usize, usize), out: &Encoded, width: usize) -> u64 {
@@ -31,10 +80,22 @@ fn take(at: &mut (usize, usize), out: &Encoded, width: usize) -> u64 {
     got
 }
 
-fn retell(at: &mut (usize, usize), out: &Encoded, region: Region, deep: usize, said: &mut String) {
+fn retell(
+    at: &mut (usize, usize),
+    out: &Encoded,
+    knobs: Knobs,
+    region: Region,
+    deep: usize,
+    said: &mut String,
+) {
     let side = region.side_in_cells();
     let (x, y) = region.top_left_cell();
     let where_it_is = format!("{:width$}{side}x{side} at ({x}, {y})", "", width = deep * 2);
+
+    if knobs.four_by_four.is_its_own_grammar(region) {
+        retell_its_own_grammar(at, out, region, &where_it_is, said);
+        return;
+    }
 
     if below_the_grammar(region) {
         let cells = tiles_at_depth(deepest_depth(region.level));
@@ -105,7 +166,7 @@ fn retell(at: &mut (usize, usize), out: &Encoded, region: Region, deep: usize, s
 
     for (child_at, child) in region.children().into_iter().enumerate() {
         if mask.describes(child_at) {
-            retell(at, out, child, deep + 1, said);
+            retell(at, out, knobs, child, deep + 1, said);
         }
     }
 }

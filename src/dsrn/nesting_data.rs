@@ -205,6 +205,8 @@ pub struct CodeCounts {
     /// and how many of those children there were.
     pub four_by_fours_copying_each_child: usize,
     pub children_copying_themselves: usize,
+    /// 4x4s that said it in a grammar of their own.
+    pub four_by_fours_in_their_own_grammar: usize,
     /// Regions bound at one cell a tile, and the payload bits that
     /// went out one cell at a time -- the encoding at its floor.
     pub bound_at_cells: usize,

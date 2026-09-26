@@ -121,13 +121,18 @@ pub enum FourByFour {
     AlsoCopiesEachChild,
     /// No code. A mask, and a direction or four cells per child.
     AlwaysMasks,
+    /// A grammar of its own, one bit a choice: bind or skip, at which
+    /// of two tile sizes, masked or not, and what becomes of the
+    /// children the mask leaves. [`super::four_by_four`] has it.
+    ItsOwnGrammar,
 }
 
 impl FourByFour {
-    pub const ALL: [FourByFour; 3] = [
+    pub const ALL: [FourByFour; 4] = [
         FourByFour::LikeAnyRegion,
         FourByFour::AlsoCopiesEachChild,
         FourByFour::AlwaysMasks,
+        FourByFour::ItsOwnGrammar,
     ];
 
     pub fn name(self) -> &'static str {
@@ -135,6 +140,7 @@ impl FourByFour {
             FourByFour::LikeAnyRegion => "a 4x4 says what any region says",
             FourByFour::AlsoCopiesEachChild => "a 4x4 may say its children copy themselves",
             FourByFour::AlwaysMasks => "a 4x4 always masks its four children",
+            FourByFour::ItsOwnGrammar => "a 4x4 has a grammar of its own",
         }
     }
 
@@ -147,6 +153,11 @@ impl FourByFour {
     pub fn may_copy_each_child(self, region: Region) -> bool {
         self == FourByFour::AlsoCopiesEachChild
             && region.level == FINEST_LEVEL_WITH_A_GRAMMAR
+    }
+
+    /// Whether this region says it in a grammar of its own.
+    pub fn is_its_own_grammar(self, region: Region) -> bool {
+        self == FourByFour::ItsOwnGrammar && region.level == FINEST_LEVEL_WITH_A_GRAMMAR
     }
 }
 

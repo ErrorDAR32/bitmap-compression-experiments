@@ -23,6 +23,7 @@ pub mod cost;
 pub mod decode;
 pub mod describable;
 pub mod encode;
+pub mod four_by_four;
 pub mod nesting;
 pub mod nesting_data;
 pub mod nesting_diag;

@@ -32,7 +32,9 @@ pub fn run() {
             for bitmap in &maps {
                 bits += bench.run(bitmap, knobs);
                 let counts = bench.out.counts;
-                said += counts.four_by_four_masks + counts.four_by_fours_copying_each_child;
+                said += counts.four_by_four_masks
+                    + counts.four_by_fours_copying_each_child
+                    + counts.four_by_fours_in_their_own_grammar;
                 copied += counts.children_copied + counts.children_copying_themselves;
             }
             let n = maps.len();

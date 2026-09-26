@@ -55,7 +55,7 @@ fn described_again_by_a_binding(work: &Workspace, region: Region, depth: usize) 
 /// whose tiles is one thing is right, because a tile that is one
 /// thing is a tile the binding can say with the bit it was going to
 /// write anyway.
-fn children_standing_gets_wrong(
+pub fn children_standing_gets_wrong(
     work: &Workspace,
     pyramid: &Pyramid,
     bitmap: &Bitmap,
@@ -105,11 +105,23 @@ pub fn standing_under(work: &Workspace, standing: Standing, region: Region, code
         // Neither of these covers what it does not name, so what it
         // does not name stands one level further into whatever the
         // region itself stands in.
-        RegionCode::Subdivide { .. } | RegionCode::CopyEachChild { .. } => match standing {
-            Standing::Tiles(0) => Standing::Reads(work.value_worth_standing(region)),
-            Standing::Tiles(depth) => Standing::Tiles(depth - 1),
-            held => held,
-        },
+        RegionCode::Subdivide { .. } | RegionCode::CopyEachChild { .. } => {
+            standing_one_level_down(work, standing, region)
+        }
+    }
+}
+
+/// The same standing, read one level further in, for a region that
+/// covers nothing of its own.
+pub fn standing_one_level_down(
+    work: &Workspace,
+    standing: Standing,
+    region: Region,
+) -> Standing {
+    match standing {
+        Standing::Tiles(0) => Standing::Reads(work.value_worth_standing(region)),
+        Standing::Tiles(depth) => Standing::Tiles(depth - 1),
+        held => held,
     }
 }
 
