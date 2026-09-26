@@ -25,7 +25,7 @@
 //! anything is spent on a grammar for it.
 
 use crate::dsrn::region::{same_cells, Region, DIRECTIONS};
-use crate::pyramid::{tile_of_bitmap, tiles_across, Pyramid, CELL_LEVEL};
+use crate::pyramid::{same_tiles, tile_of_bitmap, tile_side, tiles_across, Pyramid, CELL_LEVEL};
 use crate::Bitmap;
 
 /// How many tiles the greedy pass placed, by level, and how many of
@@ -75,6 +75,7 @@ pub enum Says {
 pub fn decide_tiles(pyramid: &Pyramid, bitmap: &Bitmap) -> Vec<PlacedTile> {
     let mut claimed = Bitmap::new();
     let mut placed = Vec::new();
+    let far_copyable = FarCopyable::build(bitmap);
 
     for level in 0..=CELL_LEVEL {
         let across = tiles_across(level);
@@ -94,7 +95,9 @@ pub fn decide_tiles(pyramid: &Pyramid, bitmap: &Bitmap) -> Vec<PlacedTile> {
 
                 let says = if let Some(value) = tile_of_bitmap(pyramid, bitmap, level, x, y) {
                     Says::Bound(value)
-                } else if let Some((far, direction)) = copy_choice(pyramid, bitmap, tile) {
+                } else if let Some((far, direction)) =
+                    copy_choice(pyramid, &far_copyable, bitmap, tile)
+                {
                     // A same-size area holds the same cells, read
                     // straight from the bitmap -- true or false the
                     // moment it is asked, regardless of whether that
@@ -121,7 +124,12 @@ pub fn decide_tiles(pyramid: &Pyramid, bitmap: &Bitmap) -> Vec<PlacedTile> {
 /// near copy (a same-size neighbour of the tile itself) or a far copy
 /// (a same-size neighbour of the tile's parent, at the tile's own
 /// child position within it).
-fn copy_choice(pyramid: &Pyramid, bitmap: &Bitmap, tile: Region) -> Option<(bool, usize)> {
+fn copy_choice(
+    pyramid: &Pyramid,
+    far_copyable: &FarCopyable,
+    bitmap: &Bitmap,
+    tile: Region,
+) -> Option<(bool, usize)> {
     if pyramid.copyable(tile.level, tile.x, tile.y) {
         let near = (0..DIRECTIONS.len()).find(|&direction| {
             tile.neighbour(direction).is_some_and(|beside| same_cells(bitmap, tile, beside))
@@ -130,7 +138,7 @@ fn copy_choice(pyramid: &Pyramid, bitmap: &Bitmap, tile: Region) -> Option<(bool
             return Some((false, direction));
         }
     }
-    if tile.level == 0 {
+    if !far_copyable.get(tile) {
         return None;
     }
     let parent = Region { level: tile.level - 1, x: tile.x / 2, y: tile.y / 2 };
@@ -144,6 +152,54 @@ fn copy_choice(pyramid: &Pyramid, bitmap: &Bitmap, tile: Region) -> Option<(bool
         };
         same_cells(bitmap, tile, far).then_some((true, direction))
     })
+}
+
+/// Whether a tile could far-copy: whether some same-size neighbour of
+/// its own *parent*, at the child position this tile occupies within
+/// that parent, holds the same cells. Precomputed once a bitmap, for
+/// the same reason [`Pyramid::copyable`] is precomputed for near
+/// copies -- the question is asked of nearly every tile and the
+/// answer is nearly always no.
+///
+/// A far copy's source sits exactly one *parent* width away in the
+/// same direction a near copy's source sits one *tile* width away
+/// (the parent a far copy steps to is twice as wide as the tile
+/// itself), so this is the same word-level row comparison
+/// [`Pyramid`] already builds for near copies, just taken two tiles
+/// at a time instead of one.
+struct FarCopyable {
+    can: Vec<Vec<bool>>,
+}
+
+impl FarCopyable {
+    fn build(bitmap: &Bitmap) -> Self {
+        let can = (0..=CELL_LEVEL)
+            .map(|level| {
+                let across = tiles_across(level);
+                let side = tile_side(level);
+                let mut level_bits = vec![false; across * across];
+                for y in 0..across {
+                    for x in 0..across {
+                        level_bits[y * across + x] = DIRECTIONS.iter().any(|&(dx, dy)| {
+                            let (ax, ay) = (x as isize + 2 * dx, y as isize + 2 * dy);
+                            ax >= 0
+                                && ay >= 0
+                                && ax < across as isize
+                                && ay < across as isize
+                                && same_tiles(bitmap, side, (x, y), (ax as usize, ay as usize))
+                        });
+                    }
+                }
+                level_bits
+            })
+            .collect();
+        Self { can }
+    }
+
+    fn get(&self, tile: Region) -> bool {
+        let across = tiles_across(tile.level);
+        self.can[tile.level][tile.y * across + tile.x]
+    }
 }
 
 /// Runs the greedy pass and just counts what it placed, by size and
