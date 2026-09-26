@@ -63,10 +63,30 @@ pub fn encode(pyramid: &Pyramid, bitmap: &Bitmap) -> EncodedBitmap {
     out
 }
 
+/// What a cell's owning tile says, once its header has been read: its
+/// own value, or a direction to read the matching cell from, and the
+/// tile's own side, needed to find that cell.
+#[derive(Clone, Copy)]
+enum Owner {
+    Bound(bool),
+    Copied(usize, usize),
+}
+
 /// Decodes a stream written by [`encode`].
+///
+/// A tile's header is read once, at its top-left corner, exactly as
+/// [`encode`] wrote it -- but its cells are filled in lazily, one at a
+/// time, in step with the same row-major walk, rather than all at once
+/// from whatever the source holds right now. That is what makes a
+/// copy safe regardless of how its source is made up: the one source
+/// cell a given target cell needs is always the one directly behind
+/// it in this same order -- the same row, an earlier column, or an
+/// earlier row entirely -- so it is always already filled by the time
+/// it is read, whether that source was one tile or several.
 pub fn decode(stream: &EncodedBitmap) -> Bitmap {
     let mut bitmap = Bitmap::new();
     let mut filled = Bitmap::new();
+    let mut owner: Vec<Option<Owner>> = vec![None; 256 * 256];
     let mut at = 0usize;
 
     for y in 0..=u8::MAX {
@@ -74,32 +94,49 @@ pub fn decode(stream: &EncodedBitmap) -> Bitmap {
             if filled.get(x, y) {
                 continue;
             }
-            let bound = stream.take(at, CODE_WIDTH) == BOUND;
-            at += CODE_WIDTH;
-            let level = stream.take(at, SIZE_WIDTH) as usize + 1;
-            at += SIZE_WIDTH;
-            let side = tile_side(level);
-
-            if bound {
-                let value = stream.take(at, VALUE_WIDTH) != 0;
-                at += VALUE_WIDTH;
-                if value {
-                    bitmap.set_rect(x as i64, y as i64, (x as i64) + side as i64 - 1, (y as i64) + side as i64 - 1);
-                }
-            } else {
-                let direction = stream.take(at, DIRECTION_WIDTH) as usize;
-                at += DIRECTION_WIDTH;
-                let (dx, dy) = DIRECTIONS[direction];
-                let (fx, fy) = ((x as isize + dx * side as isize) as u8, (y as isize + dy * side as isize) as u8);
-                for row in 0..side {
-                    for col in 0..side {
-                        if bitmap.get(fx + col as u8, fy + row as u8) {
-                            bitmap.set(x + col as u8, y + row as u8);
+            let idx = y as usize * 256 + x as usize;
+            let says = match owner[idx] {
+                Some(says) => says,
+                None => {
+                    // A new tile starts here: read its header and mark
+                    // its whole footprint owned, so the rest of it
+                    // does not read the stream again.
+                    let bound = stream.take(at, CODE_WIDTH) == BOUND;
+                    at += CODE_WIDTH;
+                    let level = stream.take(at, SIZE_WIDTH) as usize + 1;
+                    at += SIZE_WIDTH;
+                    let side = tile_side(level);
+                    let says = if bound {
+                        let value = stream.take(at, VALUE_WIDTH) != 0;
+                        at += VALUE_WIDTH;
+                        Owner::Bound(value)
+                    } else {
+                        let direction = stream.take(at, DIRECTION_WIDTH) as usize;
+                        at += DIRECTION_WIDTH;
+                        Owner::Copied(direction, side)
+                    };
+                    for row in 0..side {
+                        for col in 0..side {
+                            owner[(y as usize + row) * 256 + (x as usize + col)] = Some(says);
                         }
                     }
+                    says
                 }
+            };
+
+            let value = match says {
+                Owner::Bound(value) => value,
+                Owner::Copied(direction, side) => {
+                    let (dx, dy) = DIRECTIONS[direction];
+                    let fx = (x as isize + dx * side as isize) as u8;
+                    let fy = (y as isize + dy * side as isize) as u8;
+                    bitmap.get(fx, fy)
+                }
+            };
+            if value {
+                bitmap.set(x, y);
             }
-            filled.set_rect(x as i64, y as i64, (x as i64) + side as i64 - 1, (y as i64) + side as i64 - 1);
+            filled.set(x, y);
         }
     }
     bitmap

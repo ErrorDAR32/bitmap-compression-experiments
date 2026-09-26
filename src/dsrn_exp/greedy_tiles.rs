@@ -69,19 +69,9 @@ pub enum Says {
 }
 
 /// Runs the greedy pass over one bitmap, biggest tiles first.
-///
-/// A copy needs its whole same-size neighbour available in one piece
-/// by the time reading order gets there, not merely matching content
-/// -- a neighbour that is itself several smaller tiles can have rows
-/// still unwritten below wherever reading order currently stands.
-/// `placed_as_one_tile` tracks exactly that: a same-level tile that
-/// was itself placed whole, which is the one case reading order
-/// always guarantees finished first, whatever it is made of.
 pub fn decide_tiles(pyramid: &Pyramid, bitmap: &Bitmap) -> Vec<PlacedTile> {
     let mut claimed = Bitmap::new();
     let mut placed = Vec::new();
-    let mut placed_as_one_tile: Vec<Vec<bool>> =
-        (0..=CELL_LEVEL).map(|level| vec![false; tiles_across(level) * tiles_across(level)]).collect();
 
     for level in 0..=CELL_LEVEL {
         let across = tiles_across(level);
@@ -101,19 +91,22 @@ pub fn decide_tiles(pyramid: &Pyramid, bitmap: &Bitmap) -> Vec<PlacedTile> {
 
                 let says = if let Some(value) = tile_of_bitmap(pyramid, bitmap, level, x, y) {
                     Says::Bound(value)
-                } else if let Some(direction) =
-                    copy_direction(bitmap, tile, &placed_as_one_tile[level], across)
-                {
+                } else if let Some(direction) = copy_direction(pyramid, bitmap, tile) {
+                    // A same-size neighbour holds the same cells,
+                    // read straight from the bitmap -- true or false
+                    // the moment it is asked, regardless of whether
+                    // that neighbour is itself one tile or several.
+                    // Whether a stream can actually deliver that is a
+                    // question for whoever writes cells out, not for
+                    // deciding what the tile space looks like.
                     Says::Copied(direction)
                 } else {
-                    // Neither one thing nor a whole, already-placed
-                    // same-size match: left for this tile's four
-                    // quarters, one level finer, to each try for
-                    // themselves.
+                    // Neither one thing nor a match for any same-size
+                    // neighbour: left for this tile's four quarters,
+                    // one level finer, to each try for themselves.
                     continue;
                 };
                 claim(&mut claimed, tile);
-                placed_as_one_tile[level][y * across + x] = true;
                 placed.push(PlacedTile { region: tile, says });
             }
         }
@@ -121,13 +114,13 @@ pub fn decide_tiles(pyramid: &Pyramid, bitmap: &Bitmap) -> Vec<PlacedTile> {
     placed
 }
 
-/// Which direction a tile copies from, if any: a same-size neighbour
-/// that was itself placed as one tile, and holds the same cells.
-fn copy_direction(bitmap: &Bitmap, tile: Region, placed_at_level: &[bool], across: usize) -> Option<usize> {
+/// Which direction a tile copies from, if any.
+fn copy_direction(pyramid: &Pyramid, bitmap: &Bitmap, tile: Region) -> Option<usize> {
+    if !pyramid.copyable(tile.level, tile.x, tile.y) {
+        return None;
+    }
     (0..DIRECTIONS.len()).find(|&direction| {
-        tile.neighbour(direction).is_some_and(|beside| {
-            placed_at_level[beside.y * across + beside.x] && same_cells(bitmap, tile, beside)
-        })
+        tile.neighbour(direction).is_some_and(|beside| same_cells(bitmap, tile, beside))
     })
 }
 
