@@ -19,13 +19,13 @@
 //! built a machine word at a time, so the whole pyramid costs a little
 //! over one pass across the bitmap rather than one pass per level.
 
+pub mod nesting;
 pub mod passes;
 pub mod region;
 pub mod rules;
 pub mod copying;
 pub mod stream;
 pub mod tree;
-pub mod unified;
 
 use crate::data::bits::LINE_WORDS;
 use crate::{BitMatrix, HEIGHT, WIDTH};
