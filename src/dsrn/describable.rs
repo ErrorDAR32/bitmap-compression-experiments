@@ -34,10 +34,11 @@ use crate::Bitmap;
 /// lie. A child cheaper to describe than the bits covering it costs
 /// wants to be described again too.
 fn described_again_by_a_binding(work: &Workspace, region: Region, depth: usize) -> RegionMask {
-    let share = crate::dsrn::region::tiles_at_depth(depth - 1);
+    let under = depth - 1;
+    let share = crate::dsrn::region::tiles_at_depth(under);
     let mut again = 0;
     for (at, child) in region.children().into_iter().enumerate() {
-        if work.coarsest_depth_of(child) > depth - 1 || work.cost_of(child) < share {
+        if work.coarsest_depth_of(child) > under || work.cost_under_tiles_of(child, under) < share {
             again |= 1 << at;
         }
     }
@@ -64,10 +65,14 @@ fn children_standing_gets_wrong(
     let mut wrong = 0;
     for (at, child) in region.children().into_iter().enumerate() {
         let right = match standing {
-            Standing::Clear => already_reads(pyramid, bitmap, child, false),
-            Standing::Reads(reads) => already_reads(pyramid, bitmap, child, reads),
+            // One tile, and the children are inside it, so what is
+            // standing over them is what that tile will say.
+            Standing::Tiles(0) => {
+                already_reads(pyramid, bitmap, child, work.value_worth_standing(region))
+            }
             Standing::Tiles(depth) => work.coarsest_depth_of(child) <= depth - 1,
             Standing::Nothing => false,
+            _ => already_reads(pyramid, bitmap, child, standing.reads() == Some(true)),
         };
         if !right {
             wrong |= 1 << at;
@@ -89,29 +94,21 @@ fn already_reads(pyramid: &Pyramid, bitmap: &Bitmap, region: Region, reads: bool
 /// puts there reads the neighbour rather than any one thing. A
 /// subdivision says nothing of its own, so its children stand in
 /// whatever it stands in.
-pub fn standing_under(
-    work: &Workspace,
-    standing: Standing,
-    region: Region,
-    code: RegionCode,
-    child: Region,
-) -> Standing {
+pub fn standing_under(work: &Workspace, standing: Standing, region: Region, code: RegionCode) -> Standing {
     match code {
-        // One tile, and it is the whole region, so every child is
-        // inside it.
-        RegionCode::Bind { depth: 0, .. } => Standing::Reads(work.value_worth_standing(region)),
-        RegionCode::Bind { depth, .. } => one_level_down(work, Standing::Tiles(depth), child),
+        // One tile, and it is the whole region. A binding at one tile
+        // describes no child again -- there is no mask to name one
+        // with -- so nothing ever stands under it.
+        RegionCode::Bind { depth: 0, .. } => Standing::Nothing,
+        RegionCode::Bind { depth, .. } => Standing::Tiles(depth - 1),
         RegionCode::Copy { .. } => Standing::Nothing,
-        RegionCode::Subdivide { .. } => one_level_down(work, standing, child),
-    }
-}
-
-/// The same standing, read one level further down.
-fn one_level_down(work: &Workspace, standing: Standing, child: Region) -> Standing {
-    match standing {
-        Standing::Tiles(1) => Standing::Reads(work.value_worth_standing(child)),
-        Standing::Tiles(depth) => Standing::Tiles(depth - 1),
-        held => held,
+        // It says nothing of its own, so its children stand one level
+        // further into whatever it stands in.
+        RegionCode::Subdivide { .. } => match standing {
+            Standing::Tiles(0) => Standing::Reads(work.value_worth_standing(region)),
+            Standing::Tiles(depth) => Standing::Tiles(depth - 1),
+            held => held,
+        },
     }
 }
 

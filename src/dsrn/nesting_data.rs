@@ -7,6 +7,7 @@
 
 use crate::dsrn::region::{Region, CHILD_COUNT, EVERY_CHILD};
 use crate::dsrn::stream::EncodedBitmap;
+use crate::dsrn::region::deepest_depth;
 use crate::pyramid::{tiles_in_level, CELL_LEVEL};
 use crate::Bitmap;
 
@@ -36,6 +37,12 @@ pub const CHILD_MASK_WIDTH: usize = 4;
 /// can say is its value, so it says its value and nothing else.
 pub const FINEST_LEVEL_WITH_A_GRAMMAR: usize = CELL_LEVEL - 2;
 
+/// How many tile sizes a region at a level can be covered with, from
+/// being one tile itself down to being covered a cell at a time.
+const fn tile_sizes_at(level: usize) -> usize {
+    deepest_depth(level) + 1
+}
+
 /// What a region can already count on before it says anything: what
 /// the closest binding above it says over its cells.
 ///
@@ -52,9 +59,11 @@ pub enum Standing {
     /// Everything left unsaid here reads it.
     Reads(bool),
     /// A binding above covers this region with tiles `depth` levels
-    /// below it. There is no one value to leave anything to here --
-    /// each of those tiles has its own -- but a region that far down
-    /// is one of them, and does.
+    /// below it. At zero the region is one of those tiles, and the
+    /// bit that says it is the region's to keep or to take. Deeper
+    /// than that there is no one value to leave anything to -- each
+    /// tile has its own -- but there is still something to leave
+    /// things to, which is those tiles.
     Tiles(usize),
     /// Nothing to leave anything to. A copy covers this region, and
     /// what it puts here reads the neighbour rather than any one
@@ -234,6 +243,20 @@ pub struct Workspace {
     /// nothing else decides, and it is one bit, so both are priced
     /// and the cheaper wins.
     pub cost_to_put_right: Vec<Vec<[usize; 2]>>,
+    /// Per region, and per tile size a binding above could be
+    /// covering it with, what it costs to describe it -- counting the
+    /// binding's own payload bits for the tiles inside it that
+    /// survive being described.
+    ///
+    /// Those bits belong here and not to the binding because whether
+    /// they survive is decided here. A region that takes the whole of
+    /// itself leaves the binding nothing to say about its area and
+    /// none of them are written; a region that puts right a corner of
+    /// itself leaves all the rest, and every one of them is.
+    ///
+    /// Indexed by the tile size as a depth below the region, from
+    /// zero -- the region is itself one tile -- down to its cells.
+    pub cost_under_tiles: Vec<Vec<usize>>,
     /// Which cells some description has taken, and so which cells
     /// the decoder will already hold.
     ///
@@ -263,6 +286,9 @@ impl Workspace {
                 .collect(),
             cost_to_put_right: (0..=CELL_LEVEL)
                 .map(|level| vec![[0usize; 2]; tiles_in_level(level)])
+                .collect(),
+            cost_under_tiles: (0..=CELL_LEVEL)
+                .map(|level| vec![0usize; tiles_in_level(level) * tile_sizes_at(level)])
                 .collect(),
             encoded_cells: Bitmap::new(),
         }
@@ -302,6 +328,21 @@ impl Workspace {
     /// leaves the least to put right.
     pub fn value_worth_standing(&self, region: Region) -> bool {
         self.cost_to_put_right_of(region, true) < self.cost_to_put_right_of(region, false)
+    }
+
+    /// What it costs to describe a region a binding above covers with
+    /// tiles `depth` levels below it, the binding's surviving payload
+    /// bits for that area included.
+    pub fn cost_under_tiles_of(&self, region: Region, depth: usize) -> usize {
+        self.cost_under_tiles[region.level][Self::under(region, depth)]
+    }
+
+    pub fn set_cost_under_tiles(&mut self, region: Region, depth: usize, cost: usize) {
+        self.cost_under_tiles[region.level][Self::under(region, depth)] = cost;
+    }
+
+    fn under(region: Region, depth: usize) -> usize {
+        Self::at(region) * tile_sizes_at(region.level) + depth
     }
 
     /// Takes a region's cells back off the encoded map, so that a

@@ -22,7 +22,7 @@ use crate::dsrn::cost::{
 use crate::dsrn::describable::{every_description, where_each_child_copies_from};
 use crate::dsrn::nesting::Knobs;
 use crate::dsrn::nesting_data::{Standing, Workspace};
-use crate::dsrn::region::Region;
+use crate::dsrn::region::{deepest_depth, Region};
 use crate::pyramid::{tile_of_bitmap, Pyramid, CELL_LEVEL};
 use crate::Bitmap;
 
@@ -74,10 +74,11 @@ pub fn coarsest(
         return;
     }
 
+    // Three times over, because what a region has to say depends on
+    // what is already standing over it, and there are three kinds of
+    // that: nothing, one thing said, and a binding's tiles. They go
+    // in this order because each is asked in terms of the last.
     work.set_cost(region, cheapest_in(work, pyramid, bitmap, region, knobs, Standing::Nothing));
-    // And again for each thing a binding above could be saying over
-    // it, because what a region has to say depends on what is already
-    // there to be left alone.
     for standing in [false, true] {
         let cost = if already_reads(pyramid, bitmap, region, standing) {
             0
@@ -85,6 +86,10 @@ pub fn coarsest(
             cheapest_in(work, pyramid, bitmap, region, knobs, Standing::Reads(standing))
         };
         work.set_cost_to_put_right(region, standing, cost);
+    }
+    for depth in 0..=deepest_depth(region.level) {
+        let cost = cheapest_in(work, pyramid, bitmap, region, knobs, Standing::Tiles(depth));
+        work.set_cost_under_tiles(region, depth, cost);
     }
     let _ = CELL_LEVEL;
 }
@@ -112,9 +117,15 @@ fn already_reads(pyramid: &Pyramid, bitmap: &Bitmap, region: Region, standing: b
     tile_of_bitmap(pyramid, bitmap, region.level, region.x, region.y) == Some(standing)
 }
 
-/// What a region with nothing to choose between costs to put right:
-/// nothing where it already reads what is standing, and the whole of
-/// its one description where it does not.
+/// What a region with nothing to choose between costs, whatever is
+/// standing over it.
+///
+/// It has one description and no way to say part of itself, so a
+/// binding above changes only whether it is described at all: nothing
+/// where it already reads what is standing, and the whole of its one
+/// description where it does not. Under a binding's tiles it is
+/// always the whole, because the choice of saying only part of itself
+/// is the one it does not have.
 fn price_putting_right(
     work: &mut Workspace,
     pyramid: &Pyramid,
@@ -125,5 +136,8 @@ fn price_putting_right(
     for standing in [false, true] {
         let right = already_reads(pyramid, bitmap, region, standing);
         work.set_cost_to_put_right(region, standing, if right { 0 } else { cost });
+    }
+    for depth in 0..=deepest_depth(region.level) {
+        work.set_cost_under_tiles(region, depth, cost);
     }
 }

@@ -105,10 +105,10 @@ pub fn encode_region(
 
     // The children described again go first, because what they take
     // is exactly what this region does not have to write.
+    let theirs = standing_under(work, standing, region, code);
     for (at, child) in region.children().into_iter().enumerate() {
         if mask.describes(at) {
             out.counts.children_made_regions += 1;
-            let theirs = standing_under(work, standing, region, code, child);
             encode_region(work, pyramid, bitmap, child, knobs, theirs, out);
         }
     }

@@ -1,16 +1,17 @@
 //! What a description costs, in bits.
 //!
 //! Two numbers, and keeping them apart is what lets an encode be
-//! checked against itself. [`bound_region_payload_size`] and
-//! [`description_size`] are what a region spends on itself; adding
-//! that up over every region described must come to exactly what the
-//! encode wrote. [`whole_subtree_size`] is that plus everything the
-//! description hands on, which is what a region is worth to the region
-//! above it.
+//! checked against itself. [`description_tree_size`] is what a region
+//! spends saying what it is; its payload is spent a bit at a time as
+//! the descent finds out what is left of its tiles, and the two added
+//! up over every region described must come to exactly what the
+//! encode wrote. [`whole_subtree_size`] is what a description is
+//! worth to the region above it, which is all of that for the whole
+//! subtree and the binding bits nobody below took.
 
 use crate::dsrn::describable::standing_under;
 use crate::dsrn::nesting_data::{
-    RegionCode, RegionMask, Standing, Workspace, CHILD_MASK_WIDTH, CODE_WIDTH, DIRECTION_WIDTH,
+    RegionCode, Standing, Workspace, CHILD_MASK_WIDTH, CODE_WIDTH, DIRECTION_WIDTH,
     FINEST_LEVEL_WITH_A_GRAMMAR,
 };
 use crate::dsrn::region::{deepest_depth, tiles_at_depth, Region, CHILD_COUNT};
@@ -31,37 +32,11 @@ pub fn tile_size_field_width(level: usize) -> usize {
     width
 }
 
-/// How many payload bits a binding writes.
+/// What a description spends on itself, in the tree.
 ///
-/// This is the whole of the answer to "does a binding write bits for
-/// tiles inside a region it handed on": it does not. A binding covers
-/// its whole region, so it writes a bit for every one of its tiles --
-/// except the ones that fall inside a child it described again, which
-/// took those cells for itself and pays for them.
-pub fn bound_region_payload_size(depth: usize, mask: RegionMask) -> usize {
-    if mask == RegionMask::NONE {
-        tiles_at_depth(depth)
-    } else {
-        mask.left_to_a_binding() * tiles_at_depth(depth - 1)
-    }
-}
-
-/// What a description spends on itself: everything but the regions it
-/// describes again.
-pub fn description_size(code: RegionCode) -> usize {
-    let payload = match code {
-        RegionCode::Bind { depth, mask, .. } => bound_region_payload_size(depth, mask),
-        _ => 0,
-    };
-    description_tree_size(code) + payload
-}
-
-/// The half of that which goes into the tree, which is the half that
-/// is known before anything below has been written.
-///
-/// A binding's payload is the other half, and how much of it there is
-/// depends on what the regions below took: this says everything but
-/// that.
+/// A binding's payload is the rest of what it spends, and how much of
+/// it there is depends on what the regions below took, so it is not
+/// here. This is everything that is known before any of that.
 pub fn description_tree_size(code: RegionCode) -> usize {
     let mut size = CODE_WIDTH + if code.is_masked() { CODE_WIDTH + CHILD_MASK_WIDTH } else { 0 };
     match code {
@@ -70,6 +45,55 @@ pub fn description_tree_size(code: RegionCode) -> usize {
         RegionCode::Copy { .. } => size += DIRECTION_WIDTH,
     }
     size
+}
+
+/// What a description costs all told: what it spends on itself, what
+/// every region it describes again will spend, and whatever payload
+/// the binding above is left writing for the parts of it nobody took.
+///
+/// The three are one number because they are one decision. A region
+/// that takes the whole of itself leaves the binding above nothing to
+/// write over its area; a region that puts right a corner of itself
+/// leaves the binding writing all the rest. So the bits a binding
+/// spends inside a region are counted here, where whether they exist
+/// is settled, and not up at the binding, which cannot know.
+pub fn whole_subtree_size(
+    work: &Workspace,
+    region: Region,
+    code: RegionCode,
+    standing: Standing,
+) -> usize {
+    let mut size = description_tree_size(code);
+    // A binding at one tile keeps one bit, unless something below
+    // takes the whole region out from under it. A region that only
+    // puts part of itself right leaves the tile it stands in still
+    // needing its bit.
+    if matches!(code, RegionCode::Bind { depth: 0, .. })
+        || (matches!(code, RegionCode::Subdivide { .. }) && standing == Standing::Tiles(0))
+    {
+        size += 1;
+    }
+    let mask = code.mask();
+    let theirs = standing_under(work, standing, region, code);
+    for (child, at) in region.children().into_iter().zip(0..CHILD_COUNT) {
+        size += cost_of_a_child(work, child, theirs, mask.describes(at));
+    }
+    size
+}
+
+/// What one child comes to, described or left where it is.
+///
+/// A child left to a binding's tiles costs those tiles' bits and
+/// nothing else. A child left to one thing being said costs nothing
+/// at all: the bit that says it was going to be written anyway.
+fn cost_of_a_child(work: &Workspace, child: Region, standing: Standing, described: bool) -> usize {
+    match (standing, described) {
+        (Standing::Tiles(depth), true) => work.cost_under_tiles_of(child, depth),
+        (Standing::Tiles(depth), false) => tiles_at_depth(depth),
+        (_, false) => 0,
+        (Standing::Nothing, true) => work.cost_of(child),
+        (_, true) => cost_of_describing(work, child, standing),
+    }
 }
 
 /// What a 4x4 spends when it always masks: the mask, and per child
@@ -90,40 +114,6 @@ pub const CELLS_IN_A_CHILD: usize = 4;
 /// written out, one bit each.
 pub fn cells_written_out(region: Region) -> usize {
     tiles_at_depth(deepest_depth(region.level))
-}
-
-/// What a description costs all told: what it spends on itself, and
-/// what every region it describes again will spend, down to the
-/// cells.
-///
-/// The part below is read from the workspace, which holds each
-/// region's own whole subtree size, so this is the whole subtree and
-/// not just the children. Which of the two the workspace holds
-/// depends on what the child stands in: a child with a binding above
-/// it saying one thing only has to put right what that gets wrong.
-///
-/// A binding whose tiles are its children underpays here by a bit per
-/// child it describes again, because a child that leaves any of
-/// itself standing still costs the bit that says what is standing,
-/// and whether it does is only known once it has been written. That
-/// is the same optimism a copy is priced with, and the same answer:
-/// it makes a region look cheaper than it turns out to be, never
-/// dearer, and nothing is written on the strength of it.
-pub fn whole_subtree_size(
-    work: &Workspace,
-    region: Region,
-    code: RegionCode,
-    standing: Standing,
-) -> usize {
-    let mut size = description_size(code);
-    let mask = code.mask();
-    for (child, at) in region.children().into_iter().zip(0..CHILD_COUNT) {
-        if !mask.describes(at) {
-            continue;
-        }
-        size += cost_of_describing(work, child, standing_under(work, standing, region, code, child));
-    }
-    size
 }
 
 /// What it costs to describe a region, standing in what it stands in.

@@ -6,9 +6,8 @@
 
 #![cfg(test)]
 
-use crate::dsrn::cost::{description_size, tile_size_field_width};
+use crate::dsrn::cost::{description_tree_size, tile_size_field_width};
 use crate::dsrn::nesting_data::{RegionCode, RegionMask, CHILD_MASK_WIDTH, CODE_WIDTH};
-use crate::dsrn::region::tiles_at_depth;
 use crate::dsrn::{decode, encode, Encoded, FourByFour, Knobs, Masking, Workspace};
 use crate::pyramid::{Pyramid, CELL_LEVEL};
 use crate::{samples, Bitmap};
@@ -161,19 +160,20 @@ fn a_tile_size_field_is_as_wide_as_its_region_needs() {
 }
 
 /// An unmasked description writes no mark and no mask; a masked one
-/// pays for both, and for a payload bit per tile of the region but
-/// for the ones inside a child described again over the top of it.
+/// pays for both. Neither pays here for its payload, because how much
+/// of that there is is not known until the regions below it have been
+/// written.
 #[test]
 fn a_description_pays_for_exactly_what_it_says() {
     let whole = RegionCode::Bind { level: 4, depth: 2, mask: RegionMask::NONE };
     assert!(!whole.is_masked());
-    assert_eq!(description_size(whole), CODE_WIDTH + tile_size_field_width(4) + tiles_at_depth(2));
+    assert_eq!(description_tree_size(whole), CODE_WIDTH + tile_size_field_width(4));
 
     let overridden_in_three = RegionCode::Bind { level: 4, depth: 2, mask: RegionMask(0b0111) };
     assert!(overridden_in_three.is_masked());
     assert_eq!(
-        description_size(overridden_in_three),
-        CODE_WIDTH + CODE_WIDTH + CHILD_MASK_WIDTH + tile_size_field_width(4) + tiles_at_depth(1)
+        description_tree_size(overridden_in_three),
+        CODE_WIDTH + CODE_WIDTH + CHILD_MASK_WIDTH + tile_size_field_width(4)
     );
 
     assert!(!RegionCode::Subdivide { mask: RegionMask::EVERY }.is_masked());
