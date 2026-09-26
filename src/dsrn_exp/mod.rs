@@ -18,6 +18,8 @@ pub mod four_by_four;
 pub mod greedy_tiles;
 mod greedy_tiles_tests;
 pub mod masking_thresholds;
+pub mod tile_or_subdivide;
+mod tile_or_subdivide_tests;
 pub mod tile_stream;
 mod tile_stream_tests;
 pub mod tile_tree;

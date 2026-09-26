@@ -5,7 +5,10 @@
 //! not tuned on without editing anything.
 
 use bitmap::dsrn::{FourByFour, Knobs, Masking};
-use bitmap::dsrn_exp::{emitted, four_by_four, greedy_tiles, masking_thresholds, tile_stream, tile_tree, where_the_bits_go};
+use bitmap::dsrn_exp::{
+    emitted, four_by_four, greedy_tiles, masking_thresholds, tile_or_subdivide, tile_stream, tile_tree,
+    where_the_bits_go,
+};
 
 fn main() {
     let mut args = std::env::args().skip(1);
@@ -31,6 +34,7 @@ fn main() {
         "tiles" => greedy_tiles::run(),
         "tree" => tile_tree::run(),
         "stream" => tile_stream::run(),
+        "subdivide" => tile_or_subdivide::run(),
         _ => {
             println!("  which test?\n");
             println!("    emitted [knobs]   what it emits, and what the codes are");
@@ -38,6 +42,7 @@ fn main() {
             println!("    masking           what forbidding a mask below a size costs");
             println!("    4x4               what a 4x4 that always masks costs");
             println!("    tiles             the greedy tile pass against dsrn, tile for tile");
+            println!("    subdivide         homogeneous tiles vs. subdividing, against dsrn");
             println!("\n  knobs: anywhere from4 from8 from16 | grammar always-masks");
         }
     }
