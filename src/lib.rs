@@ -42,13 +42,17 @@
 //! | [`pyramid`] | for every tile of every size, whether it is all one thing |
 //! | [`dsrn`] | the encoding: what a region says, what it costs, how it is written and read |
 //! | [`samples`] | the bitmaps everything is measured on, and where the seed comes from |
-//! | [`dsrn_exp`] | experiments on the encoding, which are not the encoding |
+//! | [`dsrn_exp`] | experimental tests on the encoding, which are not the encoding |
 //!
-//! `docs/testing_protocol.md` is how a change to any of it gets
-//! measured, and is worth reading before trusting a number in these
-//! comments.
+//! | [`table`] | printing any of it, which every experiment does the same way |
+//!
+//! `docs/design_statements.md` is what the layout and the names are
+//! for, and `docs/testing_protocol.md` is how a change to any of it
+//! gets measured. Both are worth reading before trusting a number in
+//! these comments or a shape in this tree.
 
 pub mod bitmap;
+pub mod table;
 pub mod dsrn;
 pub mod dsrn_exp;
 pub mod pyramid;

@@ -1,7 +1,7 @@
 //! Which regions give up and write their cells, and whether anything
 //! could have described them instead.
 
-use super::table::Table;
+use crate::table::Table;
 use super::Bench;
 use crate::dsrn::cost::tile_size_field_width;
 use crate::dsrn::nesting_data::CODE_WIDTH;

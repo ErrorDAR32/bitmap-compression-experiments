@@ -1,7 +1,7 @@
 //! What the encoding emits, over both families of sample and over
 //! patterns whose right answer is known.
 
-use super::table::Table;
+use crate::table::Table;
 use super::Bench;
 use crate::dsrn::Masking;
 use crate::{samples, Bitmap};

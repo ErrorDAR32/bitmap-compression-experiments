@@ -5,7 +5,7 @@
 //! change what everything above chooses, because a region's cost is
 //! what its children cost.
 
-use super::table::Table;
+use crate::table::Table;
 use super::Bench;
 use crate::dsrn::Masking;
 use crate::samples;

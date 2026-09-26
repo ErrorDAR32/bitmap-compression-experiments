@@ -5,8 +5,13 @@
 //! region of level `L` and a tile of level `L` are the same square --
 //! same size, same alignment, same grid. Cell coordinates are worked
 //! out once, at the bottom, where raw bits are actually read.
+//!
+//! It is one file because it is one thing. A region is small enough
+//! that what it is and what can be asked of it read as one idea, and
+//! splitting them would cost a folder and a hop to say the same.
 
-use crate::pyramid::{tile_side, tiles_across, CELL_LEVEL};
+use crate::pyramid::{tile_of_bitmap, tile_side, tiles_across, Pyramid, CELL_LEVEL};
+use crate::Bitmap;
 
 /// A square of the quadtree, which is also a tile of its own level.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -109,4 +114,43 @@ pub const fn tiles_at_depth(depth: usize) -> usize {
 /// tile down to its cells.
 pub const fn deepest_depth(level: usize) -> usize {
     CELL_LEVEL - level
+}
+
+
+/// Whether two regions of the same size hold the same cells.
+pub fn same_cells(bitmap: &Bitmap, a: Region, b: Region) -> bool {
+    let ((ax, ay), (bx, by)) = (a.top_left_cell(), b.top_left_cell());
+    let side = a.side_in_cells();
+    for row in 0..side {
+        for col in 0..side {
+            if bitmap.get((ax + col) as u8, (ay + row) as u8)
+                != bitmap.get((bx + col) as u8, (by + row) as u8)
+            {
+                return false;
+            }
+        }
+    }
+    true
+}
+
+/// Whether every cell of a region is clear, which is what a region
+/// left alone by a subdivision stays.
+pub fn all_cells_clear(pyramid: &Pyramid, bitmap: &Bitmap, region: Region) -> bool {
+    tile_of_bitmap(pyramid, bitmap, region.level, region.x, region.y)
+        == Some(false)
+}
+
+/// Whether every cell of a region has been encoded already, and so
+/// will be there for the decoder to copy from.
+pub fn whole_region_encoded(encoded_cells: &Bitmap, region: Region) -> bool {
+    let (x, y) = region.top_left_cell();
+    let side = region.side_in_cells();
+    for row in 0..side {
+        for col in 0..side {
+            if !encoded_cells.get((x + col) as u8, (y + row) as u8) {
+                return false;
+            }
+        }
+    }
+    true
 }

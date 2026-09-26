@@ -11,7 +11,14 @@
 //! A heading with newlines in it stacks, so a long name costs height
 //! rather than width.
 
-use super::table_data::Table;
+/// A table being built. The first column is left aligned and named
+/// rather than numbered; the rest are right aligned figures.
+pub struct Table {
+    headings: Vec<Vec<String>>,
+    rows: Vec<Vec<String>>,
+    rules: Vec<usize>,
+}
+
 
 #[allow(dead_code)]
 impl Table {

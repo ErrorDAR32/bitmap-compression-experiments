@@ -12,11 +12,9 @@
 //! | `emitted` | what does it emit, and what are the codes made of |
 //! | `where_the_bits_go` | which regions give up, and could anything have described them |
 //! | `masking_thresholds` | what does forbidding a mask below a size cost |
-//! | `table/` | printing any of it |
 
 pub mod emitted;
 pub mod masking_thresholds;
-pub mod table;
 pub mod where_the_bits_go;
 
 use crate::dsrn::{decode, encode, Encoded, Masking, Workspace};

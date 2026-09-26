@@ -1,6 +1,8 @@
 //! An encoded bitmap: the bits an encode produced, in the order it
 //! produced them.
 //!
+//! One file, because it is one idea.
+//!
 //! One bit to an entry. Nothing here packs anything, and the length is
 //! the vector's own length rather than a counter kept beside it --
 //! there is no second number to drift out of step with the first, and
