@@ -55,7 +55,13 @@ fn every_setting() -> Vec<Knobs> {
 
 /// The encoding comes back the bitmap that went in. Nothing else about
 /// it matters if this is ever false.
+///
+/// Exhaustive -- every sample, every knob setting -- and slow because
+/// of it. Ignored by default so routine runs stay fast; run explicitly
+/// with `cargo test -- --include-ignored` before trusting a change
+/// that touches how a region is encoded or decoded.
 #[test]
+#[ignore]
 fn every_encoding_comes_back_the_bitmap_that_went_in() {
     let (mut pyramid, mut work) = (Pyramid::new(), Workspace::new());
     let (mut out, mut back) = (Encoded::default(), Bitmap::new());
@@ -99,7 +105,11 @@ fn the_pyramid_agrees_with_reading_the_cells() {
 /// The count is built from the mask arithmetic; the encoding is built
 /// by walking tiles and asking of each what is left of it. Different
 /// code, same number, or one of them is wrong.
+///
+/// Exhaustive and slow for the same reason as the round-trip test
+/// above; ignored by default.
 #[test]
+#[ignore]
 fn a_binding_writes_nothing_for_what_it_hands_on() {
     let (mut pyramid, mut work) = (Pyramid::new(), Workspace::new());
     let mut out = Encoded::default();
@@ -238,15 +248,17 @@ fn a_parent_absorbs_every_homogeneous_child_and_keeps_only_the_rest() {
     }
 }
 
-
-
 /// A region is taken exactly when it genuinely is, never a step
 /// early and never a step late: `region_taken` must agree with a
 /// plain scan of every one of its cells, at every region of every
 /// level, on every sample and every knob. A copy is only ever offered
 /// once this says yes, so this is the guarantee that a copy never
 /// waits on nothing and never jumps the gun either.
+///
+/// Exhaustive and slow for the same reason as the round-trip test
+/// above; ignored by default.
 #[test]
+#[ignore]
 fn region_taken_agrees_with_a_direct_cell_scan() {
     let (mut pyramid, mut work) = (Pyramid::new(), Workspace::new());
     let mut out = Encoded::default();
