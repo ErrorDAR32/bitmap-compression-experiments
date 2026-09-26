@@ -156,7 +156,7 @@ fn encode_region(
     let child_side = children[0].side_in_cells();
     let leftover_cells = (4 - tiled_count) * child_side * child_side;
 
-    if tiled_count == 4 || tiled_count < leftover_cells {
+    if tiled_count == 4 || (tiled_count > 0 && tiled_count < leftover_cells) {
         out.push_value(1, BIND_WIDTH);
         out.push_value(TILING, CODE_WIDTH);
         out.push_value(region.level as u64, SIZE_WIDTH);
