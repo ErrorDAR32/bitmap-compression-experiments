@@ -6,7 +6,7 @@
 //! bitmap back and explaining what was written are two purposes, and
 //! only one of them ever runs in anger.
 
-use crate::dsrn::cost::{below_the_grammar, tile_size_field_width};
+use crate::dsrn::cost::{below_the_grammar, bound_region_payload_size, tile_size_field_width};
 use crate::dsrn::nesting_data::{
     Encoded, RegionMask, BIND, CHILD_MASK_WIDTH, CODE_WIDTH, COPY, DIRECTION_WIDTH, MASK,
     SUBDIVIDE,
@@ -51,50 +51,47 @@ fn retell(at: &mut (usize, usize), out: &Encoded, region: Region, deep: usize, s
     let mask = RegionMask(if masked {
         take(at, out, CHILD_MASK_WIDTH)
     } else if code == SUBDIVIDE {
-        RegionMask::NONE.0
-    } else {
         RegionMask::EVERY.0
+    } else {
+        RegionMask::NONE.0
     });
 
     match code {
         BIND => {
             let depth = take(at, out, tile_size_field_width(region.level)) as usize;
             let tile = crate::pyramid::tile_side(region.level + depth);
-            let mut filled = 0;
-            for candidate in region.tiles_at_depth(depth) {
-                if mask == RegionMask::EVERY || mask.covers(region.child_holding(depth, candidate))
-                {
-                    filled += 1;
-                }
-            }
+            let filled = bound_region_payload_size(depth, mask);
             at.1 += filled;
             said.push_str(&format!(
                 "{where_it_is}: bind at {tile}x{tile} tiles, {filled} of them"
             ));
-            if mask != RegionMask::EVERY {
-                said.push_str(&format!(", handing down {}", mask.left_to_describe()));
+            if mask != RegionMask::NONE {
+                said.push_str(&format!(", overridden in {}", mask.described()));
             }
             said.push('\n');
         }
         COPY => {
             let direction = take(at, out, DIRECTION_WIDTH) as usize;
             said.push_str(&format!("{where_it_is}: copy from {}", WHENCE[direction]));
-            if mask != RegionMask::EVERY {
-                said.push_str(&format!(", but for {} of its children", mask.left_to_describe()));
+            if mask != RegionMask::NONE {
+                said.push_str(&format!(", overridden in {}", mask.described()));
             }
             said.push('\n');
         }
         _ => {
             said.push_str(&format!("{where_it_is}: subdivide"));
-            if mask != RegionMask::NONE {
-                said.push_str(&format!(", leaving {} clear", mask.covered()));
+            if mask != RegionMask::EVERY {
+                said.push_str(&format!(
+                    ", leaving {} to the binding above",
+                    mask.left_to_a_binding()
+                ));
             }
             said.push('\n');
         }
     }
 
     for (child_at, child) in region.children().into_iter().enumerate() {
-        if !mask.covers(child_at) {
+        if mask.describes(child_at) {
             retell(at, out, child, deep + 1, said);
         }
     }

@@ -95,11 +95,11 @@ fn the_pyramid_agrees_with_reading_the_cells() {
 }
 
 /// Every bit written is one region's own, and a binding writes none
-/// for a tile inside a region it handed on.
+/// for a tile a region below it took whole.
 ///
 /// The count is built from the mask arithmetic; the encoding is built
-/// by walking tiles and skipping the ones inside a handed on child.
-/// Different code, same number, or one of them is wrong.
+/// by walking tiles and asking of each what is left of it. Different
+/// code, same number, or one of them is wrong.
 #[test]
 fn a_binding_writes_nothing_for_what_it_hands_on() {
     let (mut pyramid, mut work) = (Pyramid::new(), Workspace::new());
@@ -161,22 +161,22 @@ fn a_tile_size_field_is_as_wide_as_its_region_needs() {
 }
 
 /// An unmasked description writes no mark and no mask; a masked one
-/// pays for both, and for a payload bit per tile of the children it
-/// keeps and nothing for the one it hands on.
+/// pays for both, and for a payload bit per tile of the region but
+/// for the ones inside a child described again over the top of it.
 #[test]
 fn a_description_pays_for_exactly_what_it_says() {
-    let whole = RegionCode::Bind { level: 4, depth: 2, mask: RegionMask::EVERY };
+    let whole = RegionCode::Bind { level: 4, depth: 2, mask: RegionMask::NONE };
     assert!(!whole.is_masked());
     assert_eq!(description_size(whole), CODE_WIDTH + tile_size_field_width(4) + tiles_at_depth(2));
 
-    let handing_one_on = RegionCode::Bind { level: 4, depth: 2, mask: RegionMask(0b0111) };
-    assert!(handing_one_on.is_masked());
+    let overridden_in_three = RegionCode::Bind { level: 4, depth: 2, mask: RegionMask(0b0111) };
+    assert!(overridden_in_three.is_masked());
     assert_eq!(
-        description_size(handing_one_on),
-        CODE_WIDTH + CODE_WIDTH + CHILD_MASK_WIDTH + tile_size_field_width(4) + 3 * tiles_at_depth(1)
+        description_size(overridden_in_three),
+        CODE_WIDTH + CODE_WIDTH + CHILD_MASK_WIDTH + tile_size_field_width(4) + tiles_at_depth(1)
     );
 
-    assert!(!RegionCode::Subdivide { mask: RegionMask::NONE }.is_masked());
+    assert!(!RegionCode::Subdivide { mask: RegionMask::EVERY }.is_masked());
     assert!(RegionCode::Subdivide { mask: RegionMask(0b0001) }.is_masked());
 }
 

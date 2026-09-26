@@ -12,7 +12,9 @@
 //! above chooses, which happens after this, so this cannot know -- and
 //! does not have to. Pricing a copy at four bits only ever makes a
 //! region look cheaper than it turns out to be, and the descent asks
-//! the real question before it writes anything.
+//! the real question before it writes anything. Whether a binding
+//! above covers this region is the same kind of unknown, priced the
+//! same way: as though nothing did.
 
 use crate::dsrn::cost::{
     below_the_grammar, cells_written_out, four_by_four_mask_size, whole_subtree_size,
@@ -69,7 +71,7 @@ pub fn coarsest(
         return;
     }
 
-    let cheapest = every_description(work, pyramid, bitmap, region, knobs, false)
+    let cheapest = every_description(work, pyramid, bitmap, region, knobs, false, false)
         .into_iter()
         .map(|code| whole_subtree_size(work, region, code))
         .min()

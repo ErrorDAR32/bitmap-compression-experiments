@@ -3,10 +3,18 @@
 //! It runs the whole bitmap downward, and at every region it asks the
 //! same three things in the same order: what could this region say,
 //! what would each of those cost, and which is smallest. Then it
-//! writes that and moves on to whatever the description left out.
+//! writes that and moves on.
+//!
+//! What it writes is in two halves and they go in opposite orders. A
+//! region's own fields go into the tree before its children's, so the
+//! tree reads top down. Its own cells go into the payload after its
+//! children's, because a binding writes nothing for a tile a region
+//! below it has already taken, and it only knows what they took once
+//! they have been. The two streams are separate, so both orders hold
+//! at once.
 //!
 //! The one thing it knows that [`super::coarsest`] could not is which
-//! cells are encoded already, so a copy offered here is a copy the
+//! cells are taken already, so a copy offered here is a copy the
 //! decoder will really be able to make.
 
 use crate::dsrn::cost::{
@@ -26,13 +34,19 @@ use crate::dsrn::region::{
 use crate::pyramid::{tile_of_bitmap, Pyramid};
 use crate::Bitmap;
 
-/// Describes one region, and whatever its description leaves out.
+/// Describes one region, the children it describes again, and then
+/// whatever of itself they left.
+///
+/// `covered_from_above` says whether some binding or copy already
+/// covers this region. Where one does, a child left out of a mask is
+/// filled by it; where none does, a child left out stays clear.
 pub fn encode_region(
     work: &mut Workspace,
     pyramid: &Pyramid,
     bitmap: &Bitmap,
     region: Region,
     knobs: Knobs,
+    covered_from_above: bool,
     out: &mut Encoded,
 ) {
     if below_the_grammar(region) {
@@ -45,17 +59,19 @@ pub fn encode_region(
         return;
     }
 
-    let code = every_description(work, pyramid, bitmap, region, knobs, true)
+    let code = every_description(work, pyramid, bitmap, region, knobs, true, covered_from_above)
         .into_iter()
         .min_by_key(|&code| whole_subtree_size(work, region, code))
         .expect("every region can at least bind at one cell a tile");
 
+    let mask = code.mask();
     out.counts.accounted += description_size(code);
     if code.is_masked() {
         out.tree.push_value(MASK, CODE_WIDTH);
+        out.counts.children_left_to_a_binding += mask.left_to_a_binding();
     }
     match code {
-        RegionCode::Bind { depth, mask, .. } => {
+        RegionCode::Bind { depth, .. } => {
             count_a_binding(bitmap, region, depth, out);
             out.tree.push_value(BIND, CODE_WIDTH);
             if code.is_masked() {
@@ -63,40 +79,16 @@ pub fn encode_region(
                 out.tree.push_value(mask.0, CHILD_MASK_WIDTH);
             }
             out.tree.push_value(depth as u64, tile_size_field_width(region.level));
-            // A payload bit for every tile of every child it keeps, in
-            // reading order.
-            for tile in region.tiles_at_depth(depth) {
-                if mask != crate::dsrn::nesting_data::RegionMask::EVERY
-                    && !mask.covers(region.child_holding(depth, tile))
-                {
-                    continue;
-                }
-                let value = tile_of_bitmap(pyramid, bitmap, tile.level, tile.x, tile.y)
-                    .expect("a bound tile is homogeneous, or the binding would be a lie");
-                out.payload.push(value);
-                if tile.is_a_cell() {
-                    out.counts.cells_written += 1;
-                }
-                work.mark_encoded(tile);
-            }
         }
-        RegionCode::Subdivide { mask } => {
+        RegionCode::Subdivide { .. } => {
             out.counts.subdivides += 1;
             out.tree.push_value(SUBDIVIDE, CODE_WIDTH);
             if code.is_masked() {
                 out.counts.masked_subdivides += 1;
-                out.counts.children_left_clear += mask.covered();
                 out.tree.push_value(mask.0, CHILD_MASK_WIDTH);
             }
-            // A child the mask covers is left clear, which the decoder
-            // already holds it as.
-            for (at, child) in region.children().into_iter().enumerate() {
-                if mask.covers(at) {
-                    work.mark_encoded(child);
-                }
-            }
         }
-        RegionCode::Copy { direction, mask } => {
+        RegionCode::Copy { direction, .. } => {
             out.counts.copies += 1;
             out.tree.push_value(COPY, CODE_WIDTH);
             if code.is_masked() {
@@ -104,28 +96,82 @@ pub fn encode_region(
                 out.tree.push_value(mask.0, CHILD_MASK_WIDTH);
             }
             out.tree.push_value(direction as u64, DIRECTION_WIDTH);
-            if mask == crate::dsrn::nesting_data::RegionMask::EVERY {
-                work.mark_encoded(region);
-            } else {
+        }
+    }
+
+    // The children described again go first, because what they take
+    // is exactly what this region does not have to write. A binding
+    // and a copy cover whatever they leave; a subdivision passes on
+    // the question of whether anything does.
+    let covers_its_children = !matches!(code, RegionCode::Subdivide { .. });
+    for (at, child) in region.children().into_iter().enumerate() {
+        if mask.describes(at) {
+            out.counts.children_made_regions += 1;
+            let covered = covered_from_above || covers_its_children;
+            encode_region(work, pyramid, bitmap, child, knobs, covered, out);
+        }
+    }
+
+    match code {
+        RegionCode::Bind { depth, .. } => {
+            // A payload bit for every tile of the region, in reading
+            // order, but for the ones a region below took whole.
+            for tile in region.tiles_at_depth(depth) {
+                let Some(value) = what_is_left_of(work, bitmap, tile) else { continue };
+                out.payload.push(value);
+                if tile.is_a_cell() {
+                    out.counts.cells_written += 1;
+                }
+                work.mark_encoded(tile);
+            }
+        }
+        // A copy takes what is left of the region from the neighbour.
+        RegionCode::Copy { .. } => work.mark_encoded(region),
+        // A subdivision writes nothing. A child it left out is the
+        // binding above's to fill; where there is none, it stays
+        // clear, and clear is something the decoder holds and a copy
+        // may read.
+        RegionCode::Subdivide { .. } => {
+            if !covered_from_above {
                 for (at, child) in region.children().into_iter().enumerate() {
-                    if mask.covers(at) {
+                    if !mask.describes(at) {
                         work.mark_encoded(child);
                     }
                 }
             }
         }
     }
+    let _ = CHILD_COUNT;
+}
 
-    // Whatever the description left out is described before the
-    // descent moves on, so a region beside it may read what it wrote.
-    let mask = code.mask();
-    for (at, child) in region.children().into_iter().enumerate() {
-        if !mask.covers(at) {
-            out.counts.children_made_regions += 1;
-            encode_region(work, pyramid, bitmap, child, knobs, out);
+/// What a binding has left to say about one of its tiles: the value
+/// of the cells no region below took, or nothing at all if they took
+/// the tile whole.
+///
+/// Those cells have to be one thing, because one bit is all a binding
+/// has to say about them. They are not the whole tile: a tile with an
+/// override inside it is one thing only around the override.
+fn what_is_left_of(work: &Workspace, bitmap: &Bitmap, tile: Region) -> Option<bool> {
+    let (x, y) = tile.top_left_cell();
+    let side = tile.side_in_cells();
+    let mut left = None;
+    for row in 0..side {
+        for col in 0..side {
+            let (at_x, at_y) = ((x + col) as u8, (y + row) as u8);
+            if work.encoded_cells.get(at_x, at_y) {
+                continue;
+            }
+            let value = bitmap.get(at_x, at_y);
+            match left {
+                None => left = Some(value),
+                Some(so_far) => assert_eq!(
+                    so_far, value,
+                    "a binding has one bit for what is left of a tile, and it is not one thing"
+                ),
+            }
         }
     }
-    let _ = CHILD_COUNT;
+    left
 }
 
 /// A 4x4 that always masks: a four bit mask, then per child in

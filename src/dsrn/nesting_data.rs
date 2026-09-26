@@ -36,14 +36,25 @@ pub const CHILD_MASK_WIDTH: usize = 4;
 /// can say is its value, so it says its value and nothing else.
 pub const FINEST_LEVEL_WITH_A_GRAMMAR: usize = CELL_LEVEL - 2;
 
-/// Which children a description covers, and which become regions of
-/// their own.
+/// Which children of a region get a description of their own, and
+/// which are left to the closest binding above them.
 ///
-/// A bit set names a child the operation handles itself; a bit clear
-/// names one that is described separately afterwards. All four set is
-/// the whole region and needs no mask to say so -- except for
-/// subdividing, which covers nothing by definition, so for it none
-/// set is the unmasked case.
+/// The mask does not change what its code does. A binding still
+/// covers every cell of its region, a copy still takes the whole of
+/// one. What the mask says is which children are described again,
+/// over the top -- and a child described that way is an override: it
+/// writes its own cells, and the binding above writes no bit for a
+/// tile that falls inside it.
+///
+/// A child the mask does not name is not left clear. It is left to
+/// the closest binding above it, which is what covers it. Only where
+/// there is no such binding does a child left out stay as the decoder
+/// found it.
+///
+/// A bit set names a child that is described. None set is the
+/// unmasked case for a binding and a copy, which describe no child
+/// again; all four set is the unmasked case for subdividing, which
+/// says nothing itself and so has to describe all four.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct RegionMask(pub u64);
 
@@ -51,31 +62,33 @@ impl RegionMask {
     pub const EVERY: Self = Self(EVERY_CHILD);
     pub const NONE: Self = Self(0);
 
-    /// Whether the mask names a child.
-    pub fn covers(self, child: usize) -> bool {
+    /// Whether the mask names a child as described.
+    pub fn describes(self, child: usize) -> bool {
         self.0 >> child & 1 == 1
     }
 
-    /// How many children it names.
-    pub fn covered(self) -> usize {
+    /// How many children it describes.
+    pub fn described(self) -> usize {
         self.0.count_ones() as usize
     }
 
-    /// How many it leaves to describe themselves.
-    pub fn left_to_describe(self) -> usize {
-        CHILD_COUNT - self.covered()
+    /// How many it leaves to the binding above.
+    pub fn left_to_a_binding(self) -> usize {
+        CHILD_COUNT - self.described()
     }
 }
 
 /// What a region says about itself, and the mask that goes with it.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum RegionCode {
-    /// Bound at a tile size `depth` levels below the region.
+    /// Bound at a tile size `depth` levels below the region: a bit
+    /// for every tile of it that no description below has taken.
     Bind { level: usize, depth: usize, mask: RegionMask },
-    /// Left to the children the mask does not cover; the ones it does
-    /// stay clear.
+    /// Nothing said. The children the mask names describe
+    /// themselves; the rest are left to the closest binding above.
     Subdivide { mask: RegionMask },
-    /// Taken from the neighbour in a direction.
+    /// Taken from the neighbour in a direction, but for the children
+    /// the mask names.
     Copy { direction: usize, mask: RegionMask },
 }
 
@@ -90,13 +103,14 @@ impl RegionCode {
 
     /// Whether it needs the mark and the mask written out.
     ///
-    /// Subdividing is masked whenever it covers any child, because
-    /// subdividing without a mask covers none; the other two are
-    /// masked whenever they do not cover all four.
+    /// Subdividing is masked whenever it describes fewer than four,
+    /// because subdividing without a mask describes all four; the
+    /// other two are masked whenever they describe any child at all,
+    /// because unmasked they describe none.
     pub fn is_masked(self) -> bool {
         match self {
-            RegionCode::Subdivide { mask } => mask != RegionMask::NONE,
-            _ => self.mask() != RegionMask::EVERY,
+            RegionCode::Subdivide { mask } => mask != RegionMask::EVERY,
+            _ => self.mask() != RegionMask::NONE,
         }
     }
 }
@@ -112,9 +126,9 @@ pub struct CodeCounts {
     pub masked_subdivides: usize,
     pub masked_copies: usize,
     /// Children a mask sent off to be regions of their own, and
-    /// children a masked subdivision left clear.
+    /// children a mask left to the closest binding above them.
     pub children_made_regions: usize,
-    pub children_left_clear: usize,
+    pub children_left_to_a_binding: usize,
     /// Regions below the grammar, which wrote their cells and no code.
     pub below_the_grammar: usize,
     /// 4x4s that masked their four children by definition, and how
@@ -171,8 +185,15 @@ pub struct Workspace {
     pub coarsest_homogeneous_depth: Vec<Vec<u8>>,
     /// Per region, what its cheapest description costs.
     pub cheapest_description: Vec<Vec<usize>>,
-    /// Which cells the descent has described so far, which is what the
-    /// decoder will hold when it arrives.
+    /// Which cells some description has taken, and so which cells
+    /// the decoder will already hold.
+    ///
+    /// It answers both questions the descent asks about ground it has
+    /// been over: whether a region may be copied from, and whether a
+    /// tile of a binding falls inside something below that took it
+    /// first. Every cell is taken exactly once -- that is what makes
+    /// the regions disjoint -- so the binding above writes bits only
+    /// for what is left.
     pub encoded_cells: Bitmap,
 }
 

@@ -17,12 +17,19 @@
 //! 01  subdivide   the four children, in reading order
 //! 10  copy        a direction
 //! 11  mask        one of the three above, then four bits saying which
-//!                 children it covers and which become regions
+//!                 children are described again over the top of it
 //! ```
 //!
 //! The fourth is not a fourth thing to say. It is the other three said
 //! of part of a region, and the point of it being a code rather than a
 //! flag on a binding is that nothing pays for a mask it does not use.
+//!
+//! A description acts over the whole of its region. A binding covers
+//! every cell of it, a copy takes every cell of it. What a mask adds
+//! is an override: a child named by it is described again, takes its
+//! own cells, and the binding above writes no bit for a tile that
+//! falls inside it. A child not named is left to the closest binding
+//! above, which is what covers it.
 //!
 //! A region finer than [`FINEST_LEVEL_WITH_A_GRAMMAR`] writes its
 //! cells and no code at all.
@@ -159,5 +166,5 @@ pub fn encode(
     work.encoded_cells.reset();
     let whole = Region::whole_bitmap();
     coarsest(work, pyramid, bitmap, whole, knobs);
-    encode_region(work, pyramid, bitmap, whole, knobs, out);
+    encode_region(work, pyramid, bitmap, whole, knobs, false, out);
 }

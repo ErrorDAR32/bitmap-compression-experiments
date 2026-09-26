@@ -33,14 +33,15 @@ pub fn tile_size_field_width(level: usize) -> usize {
 /// How many payload bits a binding writes.
 ///
 /// This is the whole of the answer to "does a binding write bits for
-/// tiles inside a region it handed on": it does not. It writes one bit
-/// per tile of the children it keeps, and the children it hands on
-/// pay for themselves.
+/// tiles inside a region it handed on": it does not. A binding covers
+/// its whole region, so it writes a bit for every one of its tiles --
+/// except the ones that fall inside a child it described again, which
+/// took those cells for itself and pays for them.
 pub fn bound_region_payload_size(depth: usize, mask: RegionMask) -> usize {
-    if mask == RegionMask::EVERY {
+    if mask == RegionMask::NONE {
         tiles_at_depth(depth)
     } else {
-        mask.covered() * tiles_at_depth(depth - 1)
+        mask.left_to_a_binding() * tiles_at_depth(depth - 1)
     }
 }
 
@@ -89,7 +90,7 @@ pub fn whole_subtree_size(work: &Workspace, region: Region, code: RegionCode) ->
     let mut size = description_size(code);
     let mask = code.mask();
     for (child, at) in region.children().into_iter().zip(0..CHILD_COUNT) {
-        if !mask.covers(at) {
+        if mask.describes(at) {
             size += work.cost_of(child);
         }
     }
