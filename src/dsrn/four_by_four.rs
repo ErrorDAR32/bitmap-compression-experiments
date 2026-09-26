@@ -24,15 +24,21 @@
 //! for a 2x2 means its four cells. What the code does not take is
 //! either copied or already right.
 //!
-//! One of those readings says nothing. Binding at one tile a cell and
-//! taking all four children writes sixteen raw bits, which is what
-//! skipping and taking all four writes, for a bit less. So that
-//! reading is free, and it says the one thing the rest of this
-//! grammar cannot: the whole 4x4 copied from one neighbour, in five
-//! bits rather than the fifteen it would cost to say it four times
-//! over.
+//! There are three readings that carry no mask and four things
+//! wanting one, so one of them has to go. The one dropped is skipping
+//! and taking nothing -- a 4x4 saying that the whole of it is already
+//! right -- because a region is only described at all when the region
+//! above it named it, and a region above only names a child that is
+//! not already right. Nothing can reach it, so it is free.
+//!
+//! What it says instead is the one thing the rest of this grammar
+//! cannot: the whole 4x4 copied from one neighbour, in five bits
+//! rather than the fifteen it would cost to say it four times over.
+//! Skipping and taking all four writes the four children out raw, and
+//! is a bit cheaper for it.
 //!
 //! ```text
+//! 1 0                                the four children, raw
 //! 0 1 0 then two bits of direction   the whole of it, copied
 //! ```
 //!
@@ -190,7 +196,9 @@ pub fn every_way_a_four_by_four_can_say_it(
         let taking = what_taking_it_costs(takes);
 
         // Taking all four at one tile a cell is the reading that now
-        // says copy, so it is not one of these.
+        // says copy, so it is not one of these. Skipping and taking
+        // all four writes them raw, which is what it would have
+        // written anyway, a bit cheaper.
         if takes != WhatItTakes::BindAtOnes && (0..CHILD_COUNT).all(may_take) {
             let says = FourByFourSays::Said {
                 takes,
