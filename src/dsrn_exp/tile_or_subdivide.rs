@@ -63,6 +63,68 @@ use crate::dsrn_exp::greedy_tiles::FarCopyable;
 use crate::pyramid::{tile_of_bitmap, Pyramid, CELL_LEVEL};
 use crate::Bitmap;
 
+/// One size the region's own four children could be tiled at: which
+/// are entirely covered by homogeneous tiles of that size (only
+/// homogeneous -- copies are not considered here), the tiles that
+/// cover them, and the resulting payload and leftover.
+struct TilingAt {
+    depth: usize,
+    covered: [bool; 4],
+    tiles: [Vec<Region>; 4],
+    payload: usize,
+    leftover: usize,
+}
+
+/// Every size the region's own four children could be tiled at, one
+/// child's own depth below the region at a time, biggest tiles (depth
+/// one, the children themselves) first. A child counts as covered at
+/// a size only if every one of its own tiles at that size is
+/// homogeneous -- there is no partial credit inside one child, since
+/// naming a size names it for everything the tiling covers.
+fn tiling_sizes<'a>(
+    pyramid: &'a Pyramid,
+    bitmap: &'a Bitmap,
+    children: &'a [Region; 4],
+    finest_depth: usize,
+) -> impl Iterator<Item = TilingAt> + 'a {
+    (1..=finest_depth).map(move |depth| {
+        let child_depth = depth - 1;
+        let mut covered = [false; 4];
+        let mut tiles: [Vec<Region>; 4] = Default::default();
+        let mut payload = 0usize;
+        let mut leftover = 0usize;
+        for i in 0..4 {
+            let child = children[i];
+            let child_tiles = child.tiles_at_depth(child_depth);
+            let all_homogeneous =
+                child_tiles.iter().all(|tile| tile_of_bitmap(pyramid, bitmap, tile.level, tile.x, tile.y).is_some());
+            if all_homogeneous {
+                covered[i] = true;
+                payload += child_tiles.len();
+                tiles[i] = child_tiles;
+            } else {
+                let side = child.side_in_cells();
+                leftover += side * side;
+            }
+        }
+        TilingAt { depth, covered, tiles, payload, leftover }
+    })
+}
+
+/// The best size to tile the region's own four children at, if any is
+/// worth using at all: whichever size's payload plus leftover cells
+/// sums smallest -- the coarsest size worth using naturally has the
+/// smallest such sum, since a deeper size only adds more value bits to
+/// buy back cells that were already cheaper left as leftover. If even
+/// the smallest sum does not actually beat its own leftover (or cover
+/// everything outright), no size here is worth it at all.
+fn best_tiling(pyramid: &Pyramid, bitmap: &Bitmap, children: &[Region; 4], finest_depth: usize) -> Option<TilingAt> {
+    tiling_sizes(pyramid, bitmap, children, finest_depth)
+        .filter(|candidate| candidate.payload > 0)
+        .min_by_key(|candidate| candidate.payload + candidate.leftover)
+        .filter(|candidate| candidate.leftover == 0 || candidate.payload < candidate.leftover)
+}
+
 const BIND_WIDTH: usize = 1;
 const CODE_WIDTH: usize = 1;
 const FAR_WIDTH: usize = 1;
@@ -150,31 +212,31 @@ fn encode_region(
     }
 
     let children = region.children();
-    let values: [Option<bool>; 4] =
-        std::array::from_fn(|i| tile_of_bitmap(pyramid, bitmap, children[i].level, children[i].x, children[i].y));
-    let tiled_count = values.iter().filter(|v| v.is_some()).count();
-    let child_side = children[0].side_in_cells();
-    let leftover_cells = (4 - tiled_count) * child_side * child_side;
+    let finest_depth = CELL_LEVEL - 1 - region.level;
 
-    if tiled_count == 4 || (tiled_count > 0 && tiled_count < leftover_cells) {
+    if let Some(tiling) = best_tiling(pyramid, bitmap, &children, finest_depth) {
         out.push_value(1, BIND_WIDTH);
         out.push_value(TILING, CODE_WIDTH);
-        out.push_value(region.level as u64, SIZE_WIDTH);
-        let subdivide = tiled_count < 4;
+        out.push_value((region.level + tiling.depth - 1) as u64, SIZE_WIDTH);
+        let subdivide = !tiling.covered.iter().all(|&c| c);
         out.push_value(subdivide as u64, SUBDIVIDE_WIDTH);
         if subdivide {
-            let mask: u64 = (0..4).filter(|&i| values[i].is_none()).map(|i| 1 << i).sum();
+            let mask: u64 = (0..4).filter(|&i| !tiling.covered[i]).map(|i| 1 << i).sum();
             out.push_value(mask, MASK_WIDTH);
         }
-        for (i, value) in values.iter().enumerate() {
-            if let Some(value) = value {
-                out.push_value(*value as u64, 1);
-                mark_covered(covered, children[i]);
+        for i in 0..4 {
+            if tiling.covered[i] {
+                for tile in &tiling.tiles[i] {
+                    let value = tile_of_bitmap(pyramid, bitmap, tile.level, tile.x, tile.y)
+                        .expect("every tile named here was checked homogeneous above");
+                    out.push_value(value as u64, 1);
+                    mark_covered(covered, *tile);
+                }
             }
         }
         if subdivide {
-            for (i, value) in values.iter().enumerate() {
-                if value.is_none() {
+            for i in 0..4 {
+                if !tiling.covered[i] {
                     encode_region(pyramid, far_copyable, bitmap, children[i], covered, out);
                 }
             }
@@ -266,9 +328,9 @@ fn decode_region(stream: &EncodedBitmap, at: &mut usize, region: Region, covered
         return;
     }
 
-    let child_level = stream.take(*at, SIZE_WIDTH) as usize + 1;
+    let tile_level = stream.take(*at, SIZE_WIDTH) as usize + 1;
     *at += SIZE_WIDTH;
-    debug_assert_eq!(child_level, region.level + 1, "tiling always names this region's own children");
+    let child_depth = tile_level - region.level - 1;
     let subdivide = stream.take(*at, SUBDIVIDE_WIDTH) != 0;
     *at += SUBDIVIDE_WIDTH;
     let mask = if subdivide {
@@ -282,10 +344,12 @@ fn decode_region(stream: &EncodedBitmap, at: &mut usize, region: Region, covered
     let children = region.children();
     for i in 0..4 {
         if mask & (1 << i) == 0 {
-            let value = stream.take(*at, 1) != 0;
-            *at += 1;
-            mark_owner(owner, children[i], Owner::Bound(value));
-            mark_covered(covered, children[i]);
+            for tile in children[i].tiles_at_depth(child_depth) {
+                let value = stream.take(*at, 1) != 0;
+                *at += 1;
+                mark_owner(owner, tile, Owner::Bound(value));
+                mark_covered(covered, tile);
+            }
         }
     }
     if subdivide {
