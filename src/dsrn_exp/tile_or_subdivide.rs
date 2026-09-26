@@ -1,145 +1,331 @@
-//! Pairing the greedy pass with an actual quadtree.
+//! Pairing the greedy pass's precomputed facts with an actual
+//! quadtree: a real, round-tripping codec, not just a decision count.
 //!
-//! At every region, biggest first: try covering its inside with
-//! homogeneous tiles bigger than a cell, and see what that leaves
-//! over. Committing to that tiling costs one fixed header a tile;
-//! whatever it leaves over costs one bit a cell and nothing else,
-//! since there is no cheaper way to say a single bit than the bit
-//! itself. If the tiling's own header cost beats the cell count it
-//! leaves over, it wins and the region is done. If it doesn't, the
-//! region gives up on describing itself at all, and its four children
-//! each get the same choice, one level finer.
+//! At every region: try a whole-region copy first, since it is
+//! cheapest. Failing that, look at the region's own four children --
+//! that is the one fixed size this scheme ever tiles at, since the
+//! pyramid already answers "is this child homogeneous" in one lookup,
+//! no scanning needed. If every child is homogeneous, bind all four
+//! and stop, no subdivide bit spent. If describing the homogeneous
+//! ones costs less than leaving the rest as one bit a cell, bind the
+//! ones that are and subdivide into the ones that are not. Otherwise
+//! nothing here is worth saying at all, and it just subdivides into
+//! all four, plainly.
 //!
-//! This is the first piece of the scheme: homogeneous tiles only, no
-//! copying yet.
+//! # The grammar
+//!
+//! ```text
+//! 1: bind
+//!   0: copy   + 1 far/near bit + 2 direction bits
+//!   1: tiling + 3 size bits (always this region's own children)
+//!   + 1 subdivide bit
+//!     (if set) + 4 bit mask
+//!   (if tiling) 1 value bit for every child the mask does not name
+//!   (if the subdivide bit was set) recurse into every child the mask names
+//! 0: skip -- always subdivides
+//!   + 4 bit mask, recurse into every child the mask names
+//! ```
+//!
+//! The mask has to come before the tiling's value bits: a decoder
+//! cannot know how many bits to read, or for which children, before
+//! it knows which children the mask is deferring.
+//!
+//! A copy is only offered when its source is already fully resolved
+//! in the same top-down order the decoder will walk -- not merely
+//! content-eligible -- for exactly the reason dsrn's own production
+//! encoder keeps its `region_taken` check: a single-pass decoder that
+//! never defers has to have its sources ready the moment it reads
+//! them.
 
-use crate::dsrn::region::Region;
-use crate::pyramid::{tile_of_bitmap, Pyramid, CELL_LEVEL};
+use crate::dsrn::region::{same_cells, Region, DIRECTIONS};
+use crate::dsrn::stream::EncodedBitmap;
+use crate::pyramid::{tile_of_bitmap, tiles_across, tiles_in_level, Pyramid, CELL_LEVEL};
 use crate::Bitmap;
 
+const BIND_WIDTH: usize = 1;
+const CODE_WIDTH: usize = 1;
+const FAR_WIDTH: usize = 1;
+const DIRECTION_WIDTH: usize = 2;
 const SIZE_WIDTH: usize = 3;
-const VALUE_WIDTH: usize = 1;
+const SUBDIVIDE_WIDTH: usize = 1;
+const MASK_WIDTH: usize = 4;
 
-/// What a leaf costs to describe: a single cell costs its own bit and
-/// nothing else; anything bigger needs to say its size too.
-fn payload_cost(level: usize) -> usize {
-    if level == CELL_LEVEL {
-        1
-    } else {
-        SIZE_WIDTH + VALUE_WIDTH
+const COPY: u64 = 0;
+const TILING: u64 = 1;
+
+/// A bit per region, per level, for whether it is already fully
+/// resolved in the traversal order both sides walk -- the same
+/// upward-folding tracker dsrn's own `region_taken` is, kept local
+/// here since this is a different codec, not dsrn itself.
+struct Taken {
+    marked: Vec<Vec<bool>>,
+}
+
+impl Taken {
+    fn new() -> Self {
+        Self { marked: (0..=CELL_LEVEL).map(|level| vec![false; tiles_in_level(level)]).collect() }
+    }
+
+    fn at(region: Region) -> usize {
+        region.y * tiles_across(region.level) + region.x
+    }
+
+    fn whole_region_taken(&self, region: Region) -> bool {
+        let mut here = region;
+        loop {
+            if self.marked[here.level][Self::at(here)] {
+                return true;
+            }
+            if here.level == 0 {
+                return false;
+            }
+            here = Region { level: here.level - 1, x: here.x / 2, y: here.y / 2 };
+        }
+    }
+
+    fn mark(&mut self, region: Region) {
+        self.marked[region.level][Self::at(region)] = true;
+        let mut here = region;
+        while here.level > 0 {
+            let parent = Region { level: here.level - 1, x: here.x / 2, y: here.y / 2 };
+            if !parent.children().into_iter().all(|c| self.whole_region_taken(c)) {
+                break;
+            }
+            self.marked[parent.level][Self::at(parent)] = true;
+            here = parent;
+        }
     }
 }
 
-/// A region the tree settled on, bound to a value, whatever its size.
-#[derive(Clone, Copy)]
-pub struct Leaf {
-    pub region: Region,
-    pub value: bool,
+/// Which direction a whole region copies from, if any, and whether
+/// that is a near neighbour of the region itself or a far one of its
+/// parent -- only offered once the source is already taken.
+fn copy_choice(pyramid: &Pyramid, bitmap: &Bitmap, taken: &Taken, region: Region) -> Option<(bool, usize)> {
+    if pyramid.copyable(region.level, region.x, region.y) {
+        let near = (0..DIRECTIONS.len()).find(|&direction| {
+            region.neighbour(direction).is_some_and(|beside| {
+                taken.whole_region_taken(beside) && same_cells(bitmap, region, beside)
+            })
+        });
+        if let Some(direction) = near {
+            return Some((false, direction));
+        }
+    }
+    if region.level == 0 {
+        return None;
+    }
+    let parent = Region { level: region.level - 1, x: region.x / 2, y: region.y / 2 };
+    let (child_dx, child_dy) = (region.x % 2, region.y % 2);
+    (0..DIRECTIONS.len()).find_map(|direction| {
+        let beside_parent = parent.neighbour(direction)?;
+        let far =
+            Region { level: region.level, x: beside_parent.x * 2 + child_dx, y: beside_parent.y * 2 + child_dy };
+        (taken.whole_region_taken(far) && same_cells(bitmap, region, far)).then_some((true, direction))
+    })
 }
 
-/// Builds the tree top-down from `region` inward, pushing every leaf
-/// it settles on into `out` and counting every region that gave up
-/// and subdivided into `subdivisions`.
-pub fn decide(pyramid: &Pyramid, bitmap: &Bitmap, region: Region, out: &mut Vec<Leaf>, subdivisions: &mut usize) {
-    if let Some(value) = tile_of_bitmap(pyramid, bitmap, region.level, region.x, region.y) {
-        out.push(Leaf { region, value });
+/// Encodes a bitmap top-down from the whole bitmap inward.
+pub fn encode(pyramid: &Pyramid, bitmap: &Bitmap) -> EncodedBitmap {
+    let mut out = EncodedBitmap::default();
+    let mut taken = Taken::new();
+    encode_region(pyramid, bitmap, Region::whole_bitmap(), &mut taken, &mut out);
+    out
+}
+
+fn encode_region(pyramid: &Pyramid, bitmap: &Bitmap, region: Region, taken: &mut Taken, out: &mut EncodedBitmap) {
+    if let Some((far, direction)) = copy_choice(pyramid, bitmap, taken, region) {
+        out.push_value(1, BIND_WIDTH);
+        out.push_value(COPY, CODE_WIDTH);
+        out.push_value(far as u64, FAR_WIDTH);
+        out.push_value(direction as u64, DIRECTION_WIDTH);
+        out.push_value(0, SUBDIVIDE_WIDTH);
+        taken.mark(region);
         return;
     }
 
-    let (tiles, leftover) = tile_the_inside(pyramid, bitmap, region);
-    let payload: usize = tiles.iter().map(|tile| payload_cost(tile.region.level)).sum();
+    let children = region.children();
+    let values: [Option<bool>; 4] =
+        std::array::from_fn(|i| tile_of_bitmap(pyramid, bitmap, children[i].level, children[i].x, children[i].y));
+    let tiled_count = values.iter().filter(|v| v.is_some()).count();
+    let child_side = children[0].side_in_cells();
+    let leftover_cells = (4 - tiled_count) * child_side * child_side;
 
-    if payload < leftover.len() {
-        out.extend(tiles);
-        out.extend(
-            leftover
-                .into_iter()
-                .map(|cell| Leaf { region: cell, value: bitmap.get(cell.x as u8, cell.y as u8) }),
-        );
-    } else {
-        *subdivisions += 1;
-        for child in region.children() {
-            decide(pyramid, bitmap, child, out, subdivisions);
+    if tiled_count == 4 || tiled_count < leftover_cells {
+        out.push_value(1, BIND_WIDTH);
+        out.push_value(TILING, CODE_WIDTH);
+        out.push_value(region.level as u64, SIZE_WIDTH);
+        let subdivide = tiled_count < 4;
+        out.push_value(subdivide as u64, SUBDIVIDE_WIDTH);
+        if subdivide {
+            let mask: u64 = (0..4).filter(|&i| values[i].is_none()).map(|i| 1 << i).sum();
+            out.push_value(mask, MASK_WIDTH);
         }
-    }
-}
-
-/// Every homogeneous tile strictly inside `region` -- bigger than a
-/// cell, smaller than the region itself -- biggest first, and every
-/// cell none of them covered, as its own 1x1 region.
-fn tile_the_inside(pyramid: &Pyramid, bitmap: &Bitmap, region: Region) -> (Vec<Leaf>, Vec<Region>) {
-    let side = region.side_in_cells();
-    let (rx, ry) = region.top_left_cell();
-    let mut claimed = vec![false; side * side];
-    let mut tiles = Vec::new();
-
-    for depth in 1..(CELL_LEVEL - region.level) {
-        for tile in region.tiles_at_depth(depth) {
-            let (tx, ty) = tile.top_left_cell();
-            let (lx, ly) = (tx - rx, ty - ry);
-            if claimed[ly * side + lx] {
-                continue;
+        for (i, value) in values.iter().enumerate() {
+            if let Some(value) = value {
+                out.push_value(*value as u64, 1);
+                taken.mark(children[i]);
             }
-            let Some(value) = tile_of_bitmap(pyramid, bitmap, tile.level, tile.x, tile.y) else {
-                continue;
-            };
-            let tile_side = tile.side_in_cells();
-            for row in 0..tile_side {
-                for col in 0..tile_side {
-                    claimed[(ly + row) * side + (lx + col)] = true;
+        }
+        if subdivide {
+            for (i, value) in values.iter().enumerate() {
+                if value.is_none() {
+                    encode_region(pyramid, bitmap, children[i], taken, out);
                 }
             }
-            tiles.push(Leaf { region: tile, value });
         }
+        taken.mark(region);
+        return;
     }
 
-    let mut leftover = Vec::new();
-    for row in 0..side {
-        for col in 0..side {
-            if !claimed[row * side + col] {
-                leftover.push(Region { level: CELL_LEVEL, x: rx + col, y: ry + row });
+    out.push_value(0, BIND_WIDTH);
+    out.push_value(0b1111, MASK_WIDTH);
+    for child in children {
+        encode_region(pyramid, bitmap, child, taken, out);
+    }
+    taken.mark(region);
+}
+
+/// Decodes a stream written by [`encode`], one pass, top-down.
+pub fn decode(stream: &EncodedBitmap) -> Bitmap {
+    let mut bitmap = Bitmap::new();
+    let mut taken = Taken::new();
+    let mut at = 0usize;
+    decode_region(stream, &mut at, Region::whole_bitmap(), &mut taken, &mut bitmap);
+    bitmap
+}
+
+fn decode_region(stream: &EncodedBitmap, at: &mut usize, region: Region, taken: &mut Taken, bitmap: &mut Bitmap) {
+    let bind = stream.take(*at, BIND_WIDTH) != 0;
+    *at += BIND_WIDTH;
+
+    if !bind {
+        let mask = stream.take(*at, MASK_WIDTH);
+        *at += MASK_WIDTH;
+        let children = region.children();
+        for i in 0..4 {
+            if mask & (1 << i) != 0 {
+                decode_region(stream, at, children[i], taken, bitmap);
+            }
+        }
+        taken.mark(region);
+        return;
+    }
+
+    let code = stream.take(*at, CODE_WIDTH);
+    *at += CODE_WIDTH;
+
+    if code == COPY {
+        let far = stream.take(*at, FAR_WIDTH) != 0;
+        *at += FAR_WIDTH;
+        let direction = stream.take(*at, DIRECTION_WIDTH) as usize;
+        *at += DIRECTION_WIDTH;
+        let subdivide = stream.take(*at, SUBDIVIDE_WIDTH) != 0;
+        *at += SUBDIVIDE_WIDTH;
+        resolve_copy(bitmap, region, far, direction);
+        taken.mark(region);
+        if subdivide {
+            let mask = stream.take(*at, MASK_WIDTH);
+            *at += MASK_WIDTH;
+            let children = region.children();
+            for i in 0..4 {
+                if mask & (1 << i) != 0 {
+                    decode_region(stream, at, children[i], taken, bitmap);
+                }
+            }
+        }
+        return;
+    }
+
+    let child_level = stream.take(*at, SIZE_WIDTH) as usize + 1;
+    *at += SIZE_WIDTH;
+    debug_assert_eq!(child_level, region.level + 1, "tiling always names this region's own children");
+    let subdivide = stream.take(*at, SUBDIVIDE_WIDTH) != 0;
+    *at += SUBDIVIDE_WIDTH;
+    let mask = if subdivide {
+        let mask = stream.take(*at, MASK_WIDTH);
+        *at += MASK_WIDTH;
+        mask
+    } else {
+        0
+    };
+
+    let children = region.children();
+    for i in 0..4 {
+        if mask & (1 << i) == 0 {
+            let value = stream.take(*at, 1) != 0;
+            *at += 1;
+            bind_region(bitmap, children[i], value);
+            taken.mark(children[i]);
+        }
+    }
+    if subdivide {
+        for i in 0..4 {
+            if mask & (1 << i) != 0 {
+                decode_region(stream, at, children[i], taken, bitmap);
             }
         }
     }
-    (tiles, leftover)
+    taken.mark(region);
 }
 
-/// Node count and payload bits against dsrn's own, in the same
-/// currency [`crate::dsrn_exp::greedy_tiles`] already compares in.
+/// Binds every cell of a region to a value.
+fn bind_region(bitmap: &mut Bitmap, region: Region, value: bool) {
+    if value {
+        let (x, y) = region.top_left_cell();
+        let side = region.side_in_cells();
+        bitmap.set_rect(x as i64, y as i64, (x + side - 1) as i64, (y + side - 1) as i64);
+    }
+}
+
+/// Copies a region's cells from its already-resolved source.
+fn resolve_copy(bitmap: &mut Bitmap, region: Region, far: bool, direction: usize) {
+    let source = if far {
+        let parent = Region { level: region.level - 1, x: region.x / 2, y: region.y / 2 };
+        let beside_parent = parent.neighbour(direction).expect("encoder only emits a far copy that exists");
+        Region {
+            level: region.level,
+            x: beside_parent.x * 2 + region.x % 2,
+            y: beside_parent.y * 2 + region.y % 2,
+        }
+    } else {
+        region.neighbour(direction).expect("encoder only emits a near copy that exists")
+    };
+    let (rx, ry) = region.top_left_cell();
+    let (sx, sy) = source.top_left_cell();
+    let side = region.side_in_cells();
+    for row in 0..side {
+        for col in 0..side {
+            if bitmap.get((sx + col) as u8, (sy + row) as u8) {
+                bitmap.set((rx + col) as u8, (ry + row) as u8);
+            }
+        }
+    }
+}
+
+/// Bits against dsrn's own, in the same currency [`crate::dsrn_exp::tile_stream`]
+/// already compares in.
 pub fn run() {
-    use crate::dsrn::{encode, FourByFour, Knobs, Masking, Workspace};
+    use crate::dsrn::{encode as dsrn_encode, FourByFour, Knobs, Masking, Workspace};
     use crate::samples;
 
     let knobs = Knobs { masking: Masking::Anywhere, four_by_four: FourByFour::ItsOwnGrammar };
-    let (mut pyramid, mut work, mut encoded) =
+    let (mut pyramid, mut work, mut dsrn_out) =
         (Pyramid::new(), Workspace::new(), crate::dsrn::Encoded::default());
 
     for (family, maps) in samples::every_family() {
-        let (mut dsrn_bits, mut dsrn_nodes) = (0usize, 0usize);
-        let (mut our_bits, mut our_nodes, mut our_subdivisions) = (0usize, 0usize, 0usize);
-
+        let (mut dsrn_bits, mut our_bits) = (0usize, 0usize);
         for bitmap in &maps {
             pyramid.clear();
             pyramid.rebuild(bitmap);
-            encode(&pyramid, bitmap, knobs, &mut work, &mut encoded);
-            dsrn_bits += encoded.bits();
-            dsrn_nodes += encoded.counts.total_tiles();
-
-            let (mut leaves, mut subdivisions) = (Vec::new(), 0usize);
-            decide(&pyramid, bitmap, Region::whole_bitmap(), &mut leaves, &mut subdivisions);
-            our_nodes += leaves.len();
-            our_subdivisions += subdivisions;
-            our_bits += leaves.iter().map(|leaf| payload_cost(leaf.region.level)).sum::<usize>();
+            dsrn_encode(&pyramid, bitmap, knobs, &mut work, &mut dsrn_out);
+            dsrn_bits += dsrn_out.bits();
+            our_bits += encode(&pyramid, bitmap).len();
         }
-
         let n = maps.len();
         println!(
-            "\n  {family}, {n} bitmaps:\n    dsrn                {} bits, {} nodes a bitmap\n    tile-or-subdivide   {} bits, {} nodes, {} subdivisions a bitmap ({:+.1}% bits)",
+            "\n  {family}, {n} bitmaps: dsrn {} bits a bitmap, tile-or-subdivide {} ({:+.1}%)",
             dsrn_bits / n,
-            dsrn_nodes / n,
             our_bits / n,
-            our_nodes / n,
-            our_subdivisions / n,
             100.0 * (our_bits as f64 - dsrn_bits as f64) / dsrn_bits as f64
         );
     }
