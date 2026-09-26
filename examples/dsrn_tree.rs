@@ -7,7 +7,7 @@
 
 use bitmatrix::dsrn::rules::Ruleset;
 use bitmatrix::dsrn::unified::Choosing;
-use bitmatrix::dsrn::tree::Sizing;
+use bitmatrix::dsrn::tree::{Overlap, Sizing};
 use bitmatrix::dsrn::{passes, tree, unified, Pyramid};
 use bitmatrix::{samples, BitMatrix};
 
@@ -72,7 +72,7 @@ impl Rooms {
     /// Bits out of each encoder, panicking if any of them loses a
     /// cell -- a smaller encoding that does not come back is not a
     /// smaller encoding, and nothing below should be read if it does.
-    fn run(&mut self, bits: &BitMatrix) -> [usize; 4] {
+    fn run(&mut self, bits: &BitMatrix) -> [usize; 5] {
         self.pyramid.clear();
         self.pyramid.rebuild(bits);
 
@@ -91,23 +91,49 @@ impl Rooms {
         unified::decode(&self.one_out, &mut self.back);
         assert!(same(bits, &self.back), "the unified encoder lost a cell");
 
-        let mut tree_bits = [0usize; 2];
-        for (at, sizing) in Sizing::ALL.into_iter().enumerate() {
-            tree::encode(&self.pyramid, bits, sizing, &mut self.tree_work, &mut self.tree_out);
-            tree::decode(&self.tree_out, sizing, &mut self.back);
-            assert!(same(bits, &self.back), "the tree encoder lost a cell: {}", sizing.name());
+        let mut tree_bits = [0usize; 3];
+        for (at, (sizing, overlap)) in WAYS.into_iter().enumerate() {
+            tree::encode(
+                &self.pyramid,
+                bits,
+                sizing,
+                overlap,
+                &mut self.tree_work,
+                &mut self.tree_out,
+            );
+            tree::decode(&self.tree_out, sizing, overlap, &mut self.back);
+            assert!(
+                same(bits, &self.back),
+                "the tree encoder lost a cell: {} with {}",
+                sizing.name(),
+                overlap.name()
+            );
             tree_bits[at] = self.tree_out.bits();
         }
 
-        [self.tile_out.bits(), self.one_out.bits(), tree_bits[0], tree_bits[1]]
+        [
+            self.tile_out.bits(),
+            self.one_out.bits(),
+            tree_bits[0],
+            tree_bits[1],
+            tree_bits[2],
+        ]
     }
 }
 
-const NAMES: [&str; 4] = [
+/// The tree encodings measured, in the order the columns show them.
+const WAYS: [(Sizing, Overlap); 3] = [
+    (Sizing::Flat, Overlap::Disjoint),
+    (Sizing::AsWideAsNeeded, Overlap::Disjoint),
+    (Sizing::AsWideAsNeeded, Overlap::SubtreeBindings),
+];
+
+const NAMES: [&str; 5] = [
     "tile passes\nbits",
     "unified\nbits",
     "tree, flat\nbits",
     "tree, sized\nbits",
+    "tree, subtrees\nbits",
 ];
 
 fn main() {
@@ -123,16 +149,12 @@ fn main() {
         ("checkerboard of 2", checkerboard(2)),
         ("checkerboard of 8", checkerboard(8)),
     ];
-    let mut t = Table::new(&["pattern", NAMES[0], NAMES[1], NAMES[2], NAMES[3]]);
+    let mut t = Table::new(&["pattern", NAMES[0], NAMES[1], NAMES[2], NAMES[3], NAMES[4]]);
     for (name, bits) in &cases {
         let got = rooms.run(bits);
-        t.row(&[
-            name.to_string(),
-            got[0].to_string(),
-            got[1].to_string(),
-            got[2].to_string(),
-            got[3].to_string(),
-        ]);
+        let mut row = vec![name.to_string()];
+        row.extend(got.iter().map(|bits| bits.to_string()));
+        t.row(&row);
     }
     t.print();
 
@@ -144,13 +166,15 @@ fn main() {
         "unified\nbits a bitmap",
         "tree, flat\nbits a bitmap",
         "tree, sized\nbits a bitmap",
-        "tree, sized\nagainst unified",
+        "tree, subtrees\nbits a bitmap",
+        "subtrees\nagainst sized",
     ]);
-    let mut all = [0usize; 4];
+    let mut all = [0usize; 5];
     let mut count = 0usize;
+    let against = |a: usize, b: usize| format!("{:+.1}%", 100.0 * (a as f64 - b as f64) / b as f64);
     for shape in samples::SHAPES {
         let maps: Vec<BitMatrix> = shape.timed().collect();
-        let mut sum = [0usize; 4];
+        let mut sum = [0usize; 5];
         for bits in &maps {
             let got = rooms.run(bits);
             for (at, bits) in got.iter().enumerate() {
@@ -158,36 +182,31 @@ fn main() {
             }
         }
         let n = maps.len();
-        for at in 0..4 {
+        for at in 0..5 {
             all[at] += sum[at];
         }
         count += n;
-        t.row(&[
-            shape.name.to_string(),
-            n.to_string(),
-            (sum[0] / n).to_string(),
-            (sum[1] / n).to_string(),
-            (sum[2] / n).to_string(),
-            (sum[3] / n).to_string(),
-            format!("{:+.1}%", 100.0 * (sum[3] as f64 - sum[1] as f64) / sum[1] as f64),
-        ]);
+        let mut row = vec![shape.name.to_string(), n.to_string()];
+        row.extend(sum.iter().map(|bits| (bits / n).to_string()));
+        row.push(against(sum[4], sum[3]));
+        t.row(&row);
     }
     t.rule();
-    t.row(&[
-        "every shape".to_string(),
-        count.to_string(),
-        (all[0] / count).to_string(),
-        (all[1] / count).to_string(),
-        (all[2] / count).to_string(),
-        (all[3] / count).to_string(),
-        format!("{:+.1}%", 100.0 * (all[3] as f64 - all[1] as f64) / all[1] as f64),
-    ]);
+    let mut row = vec!["every shape".to_string(), count.to_string()];
+    row.extend(all.iter().map(|bits| (bits / count).to_string()));
+    row.push(against(all[4], all[3]));
+    t.row(&row);
     t.print();
 
     println!("\n  what the tree encoder's codes are, over the whole corpus.\n");
-    let mut t = Table::new(&["code", "flat\na bitmap", "sized\na bitmap"]);
-    let mut counts = [[0usize; 8]; 2];
-    for (at, sizing) in Sizing::ALL.into_iter().enumerate() {
+    let mut t = Table::new(&[
+        "code",
+        "flat\na bitmap",
+        "sized\na bitmap",
+        "subtrees\na bitmap",
+    ]);
+    let mut counts = [[0usize; 10]; 3];
+    for (at, (sizing, overlap)) in WAYS.into_iter().enumerate() {
         let mut n = 0usize;
         for shape in samples::SHAPES {
             for bits in shape.timed() {
@@ -197,6 +216,7 @@ fn main() {
                     &rooms.pyramid,
                     &bits,
                     sizing,
+                    overlap,
                     &mut rooms.tree_work,
                     &mut rooms.tree_out,
                 );
@@ -207,6 +227,8 @@ fn main() {
                     c.copies,
                     c.masked_copies,
                     c.deferred_tiles,
+                    c.subtree_bindings,
+                    c.tiles_handed_down,
                     c.bound_at_cells,
                     rooms.tree_out.tree.len(),
                     rooms.tree_out.payload.len(),
@@ -217,7 +239,7 @@ fn main() {
                 n += 1;
             }
         }
-        for slot in 0..8 {
+        for slot in 0..10 {
             counts[at][slot] /= n;
         }
     }
@@ -227,6 +249,8 @@ fn main() {
         "whole copies",
         "masked copies",
         "tiles those deferred",
+        "bindings handing to a subtree",
+        "tiles those handed down",
         "bindings at one cell a tile",
         "tree bits",
         "payload bits",
@@ -234,7 +258,12 @@ fn main() {
     .into_iter()
     .enumerate()
     {
-        t.row(&[name.to_string(), counts[0][slot].to_string(), counts[1][slot].to_string()]);
+        t.row(&[
+            name.to_string(),
+            counts[0][slot].to_string(),
+            counts[1][slot].to_string(),
+            counts[2][slot].to_string(),
+        ]);
     }
     t.print();
 }

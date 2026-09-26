@@ -1,14 +1,21 @@
 //! The tree, built and then written. No deltas, no labels relative to
 //! a pass: every region says one of four things about itself.
 //!
-//! # Disjoint
+//! # Disjoint, or overlapping with subtree bindings
 //!
-//! The regions partition the bitmap. A region either describes itself
-//! or hands its whole area to its four children, and nothing
-//! describes anything twice. So a binding's payload never has to
-//! leave a hole for something nested: whatever a sibling subtree
-//! describes was never this region's to describe. That is the "D" the
-//! rest of it hangs off.
+//! Under [`Overlap::Disjoint`] the regions partition the bitmap. A
+//! region either describes itself or hands its whole area to its four
+//! children, and nothing describes anything twice, so a binding
+//! covers its whole region and every tile of it has to be
+//! homogeneous.
+//!
+//! Under [`Overlap::SubtreeBindings`] a binding may overlap the
+//! bindings in its own subtree. It names a tile size coarser than its
+//! region can carry, fills the tiles it can, and hands the rest to
+//! subtree bindings -- a four bit tile mask says which. Its payload
+//! leaves out the bits those would have needed, so a wide plain area
+//! with an awkward corner fills three tiles and lets the corner
+//! describe itself at whatever size it needs.
 //!
 //! # The codes
 //!
@@ -29,13 +36,19 @@
 //!
 //! # Tile size
 //!
-//! A tile size is an aligned size, not a depth: [`TILE_SIZE`] bits
-//! name the tile's side outright, the same field whatever region is
-//! reading it. Since a binding covers its whole region and writes one
-//! bit per tile, every tile of it has to be homogeneous, so the size
-//! is forced -- the coarsest that tiles the region homogeneously.
-//! There is nothing to choose and nothing to search: one max fold up
-//! the pyramid settles it for every region at once.
+//! A tile size is an aligned size, not a depth: the field names the
+//! tile's side outright.
+//!
+//! Disjoint, the size is forced. A binding writes one bit per tile
+//! over its whole region, so every tile has to be homogeneous, and
+//! the coarsest such size is one max fold up the pyramid. Nothing to
+//! choose, nothing to search.
+//!
+//! With subtree bindings it becomes a choice, because a size too
+//! coarse for part of the region is still usable there -- that part
+//! becomes a subtree binding. Every size the region can name is
+//! priced and the cheapest taken, which is four stored numbers a
+//! size.
 //!
 //! Three bits name eight sides, 1 to 128, which leaves 256 unnamed:
 //! a bitmap that holds one thing throughout binds at 128 and spends
@@ -49,6 +62,36 @@ use crate::dsrn::region::{children_of, copy_in, row_span, Region, CHILDREN, DIRE
 use crate::dsrn::stream::Bits;
 use crate::dsrn::{Pyramid, LEVELS};
 use crate::BitMatrix;
+
+/// Whether a binding may overlap the bindings in its own subtree.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Overlap {
+    /// It may not: the regions partition the bitmap, and a binding
+    /// covers its whole region.
+    Disjoint,
+    /// It may: a binding fills the tiles it can and hands the rest to
+    /// bindings in its subtree, naming them with a tile mask.
+    SubtreeBindings,
+}
+
+impl Overlap {
+    pub const ALL: [Overlap; 2] = [Overlap::Disjoint, Overlap::SubtreeBindings];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Overlap::Disjoint => "disjoint regions",
+            Overlap::SubtreeBindings => "bindings may overlap their subtree's",
+        }
+    }
+
+    /// The bit a binding spends saying whether a tile mask follows.
+    fn flag(self) -> usize {
+        match self {
+            Overlap::Disjoint => 0,
+            Overlap::SubtreeBindings => 1,
+        }
+    }
+}
 
 /// The two bit code every region writes.
 const BIND: u64 = 0b00;
@@ -121,6 +164,10 @@ pub struct Counts {
     pub masked_copies: usize,
     /// Tiles a masked copy left to a region of their own.
     pub deferred_tiles: usize,
+    /// Bindings that handed part of themselves to their subtree.
+    pub subtree_bindings: usize,
+    /// Tiles those handed down.
+    pub tiles_handed_down: usize,
     /// Regions bound at one cell a tile, which is the encoding giving
     /// up and writing the bitmap out.
     pub bound_at_cells: usize,
@@ -185,7 +232,9 @@ impl Workspace {
     }
 
     /// The coarsest tile size that tiles a region homogeneously, as
-    /// [`tile_sizes`] left it.
+    /// [`tile_sizes`] left it. A binding at a coarser size than this
+    /// has tiles that are not homogeneous, and hands those to its
+    /// subtree.
     fn tile_size_of(&self, region: Region) -> usize {
         if region.level == 0 {
             return 0;
@@ -195,18 +244,82 @@ impl Workspace {
 
     /// The cheapest description of a region, as [`tile_sizes`] left
     /// it.
-    fn cost_of(&self, region: Region, sizing: Sizing) -> u32 {
+    fn cost_of(&self, region: Region, sizing: Sizing, overlap: Overlap) -> u32 {
         if region.level == 0 {
-            return binding_cost(0, 0, sizing) as u32;
+            return (CODE + sizing.width(0) + overlap.flag() + 1) as u32;
         }
         self.cost[region.level][Self::at(region.level, region.x, region.y)]
     }
 }
 
-/// What a binding costs: the code, the tile size, and a payload bit
-/// per tile.
-fn binding_cost(level: usize, depth: usize, sizing: Sizing) -> usize {
-    CODE + sizing.width(level) + tiles(depth)
+/// Which of a region's four tiles one level down need a subtree
+/// binding at a tile size: the ones holding a tile of that size that
+/// is not homogeneous.
+fn needs_subtree(work: &Workspace, region: Region, depth: usize) -> u64 {
+    let mut mask = 0;
+    for (bit, child) in children_of(region).into_iter().enumerate() {
+        if work.tile_size_of(child) > depth - 1 {
+            mask |= 1 << bit;
+        }
+    }
+    mask
+}
+
+/// What a binding costs: the code, the tile size, the bit saying
+/// whether a tile mask follows, the mask, a payload bit for every
+/// tile it fills, and a description of each tile it hands to its
+/// subtree.
+fn binding_cost(
+    work: &Workspace,
+    region: Region,
+    depth: usize,
+    sizing: Sizing,
+    overlap: Overlap,
+) -> usize {
+    let head = CODE + sizing.width(region.level) + overlap.flag();
+    if overlap == Overlap::Disjoint || depth >= work.tile_size_of(region) {
+        // Every tile is homogeneous, so the binding fills all of them
+        // and hands its subtree nothing.
+        return head + tiles(depth);
+    }
+    // A region of one tile cannot hand out part of itself: the mask
+    // names tiles one level down, and there are none above that.
+    if depth == 0 {
+        return usize::MAX;
+    }
+    let mask = needs_subtree(work, region, depth);
+    let children = children_of(region);
+    let mut cost = head + TILE_MASK;
+    for (bit, &child) in children.iter().enumerate() {
+        cost += if mask >> bit & 1 == 1 {
+            work.cost_of(child, sizing, overlap) as usize
+        } else {
+            tiles(depth - 1)
+        };
+    }
+    cost
+}
+
+/// The tile size a region settles on, and what it costs there.
+///
+/// Disjoint there is nothing to settle: the coarsest size that tiles
+/// the region homogeneously is the only one worth naming. With
+/// subtree bindings every size the region can name is priced.
+fn cheapest_binding(
+    work: &Workspace,
+    region: Region,
+    sizing: Sizing,
+    overlap: Overlap,
+) -> (usize, usize) {
+    let coarsest = sizing.coarsest(region.level);
+    if overlap == Overlap::Disjoint {
+        let depth = work.tile_size_of(region).max(coarsest);
+        return (depth, binding_cost(work, region, depth, sizing, overlap));
+    }
+    (coarsest..=region.level)
+        .map(|depth| (depth, binding_cost(work, region, depth, sizing, overlap)))
+        .min_by_key(|&(_, cost)| cost)
+        .unwrap_or((coarsest, usize::MAX))
 }
 
 /// Reads the pyramid bottom up, leaving every region the coarsest
@@ -229,29 +342,32 @@ fn tile_sizes(
     bits: &BitMatrix,
     region: Region,
     sizing: Sizing,
+    overlap: Overlap,
 ) -> (u8, u32) {
     if region.level == 0 {
-        return (0, binding_cost(0, 0, sizing) as u32);
+        return (0, work.cost_of(region, sizing, overlap));
     }
 
     let at = Workspace::at(region.level, region.x, region.y);
-    let coarsest = sizing.coarsest(region.level) as u8;
     if pyramid.at(region.level, region.x, region.y).is_some() {
-        let cost = binding_cost(region.level, coarsest as usize, sizing) as u32;
-        work.tile_size[region.level][at] = coarsest;
-        work.cost[region.level][at] = cost;
-        return (coarsest, cost);
+        work.tile_size[region.level][at] = 0;
+        let (_, cost) = cheapest_binding(work, region, sizing, overlap);
+        work.cost[region.level][at] = cost as u32;
+        return (0, cost as u32);
     }
 
     let (mut deepest, mut subdivide) = (0u8, CODE as u32);
     for child in children_of(region) {
-        let (depth, cost) = tile_sizes(work, pyramid, bits, child, sizing);
+        let (depth, cost) = tile_sizes(work, pyramid, bits, child, sizing, overlap);
         deepest = deepest.max(depth);
         subdivide += cost;
     }
-    let depth = (deepest + 1).max(coarsest);
+    // The coarsest size that tiles the region homogeneously: one
+    // level finer than its deepest child's.
+    work.tile_size[region.level][at] = deepest + 1;
 
-    let mut cost = (binding_cost(region.level, depth as usize, sizing) as u32).min(subdivide);
+    let (_, binding) = cheapest_binding(work, region, sizing, overlap);
+    let mut cost = (binding as u32).min(subdivide);
     // Which neighbours the decoder will hold depends on what every
     // region above this one chose, which this runs before, so a copy
     // is priced at what it would cost if the neighbour were there.
@@ -263,9 +379,8 @@ fn tile_sizes(
         cost = copy;
     }
 
-    work.tile_size[region.level][at] = depth;
     work.cost[region.level][at] = cost;
-    (depth, cost)
+    (deepest + 1, cost)
 }
 
 /// The tiles of a region at a tile size, as regions.
@@ -308,20 +423,23 @@ pub fn encode(
     pyramid: &Pyramid,
     bits: &BitMatrix,
     sizing: Sizing,
+    overlap: Overlap,
     work: &mut Workspace,
     out: &mut Encoded,
 ) {
     out.clear();
     work.bound.clear();
     let whole = Region { level: LEVELS, x: 0, y: 0 };
-    tile_sizes(work, pyramid, bits, whole, sizing);
-    describe(work, pyramid, bits, whole, sizing, out);
+    tile_sizes(work, pyramid, bits, whole, sizing, overlap);
+    describe(work, pyramid, bits, whole, sizing, overlap, out);
 }
 
 /// What the descent settled on for a region.
 #[derive(Clone, Copy)]
 enum Chosen {
-    Bind(usize),
+    /// Bound at a tile size, handing the tiles the mask names to its
+    /// subtree.
+    Bind(usize, u64),
     Subdivide,
     Copy(usize),
     /// Copied but for the tiles the mask sets, which follow as
@@ -336,11 +454,16 @@ fn describe(
     bits: &BitMatrix,
     region: Region,
     sizing: Sizing,
+    overlap: Overlap,
     out: &mut Encoded,
 ) {
-    let depth = work.tile_size_of(region);
-    let (mut best, mut how) =
-        (binding_cost(region.level, depth, sizing), Chosen::Bind(depth));
+    let (depth, binding) = cheapest_binding(work, region, sizing, overlap);
+    let subtrees = if overlap == Overlap::SubtreeBindings && depth < work.tile_size_of(region) {
+        needs_subtree(work, region, depth)
+    } else {
+        0
+    };
+    let (mut best, mut how) = (binding, Chosen::Bind(depth, subtrees));
 
     // A homogeneous region never subdivides -- four codes to say one
     // thing four times cannot beat one code saying it once -- and
@@ -367,7 +490,7 @@ fn describe(
         let deferred = |work: &Workspace, mask: u64| -> usize {
             (0..CHILDREN.len())
                 .filter(|bit| mask >> bit & 1 == 1)
-                .map(|bit| work.cost_of(children[bit], sizing) as usize)
+                .map(|bit| work.cost_of(children[bit], sizing, overlap) as usize)
                 .sum()
         };
 
@@ -403,7 +526,7 @@ fn describe(
     }
 
     match how {
-        Chosen::Bind(depth) => {
+        Chosen::Bind(depth, subtrees) => {
             out.counts.bindings += 1;
             if region.level == depth {
                 out.counts.bound_at_cells += 1;
@@ -411,14 +534,38 @@ fn describe(
             out.tree.push(BIND, CODE);
             // The side of the tile, as a power of two.
             out.tree.push((region.level - depth) as u64, sizing.width(region.level));
-            payload_out(pyramid, bits, region, depth, out);
-            work.bound.bind(region);
+            if overlap == Overlap::SubtreeBindings {
+                out.tree.push((subtrees != 0) as u64, 1);
+            }
+            if subtrees == 0 {
+                payload_out(pyramid, bits, region, depth, out);
+                work.bound.bind(region);
+                return;
+            }
+            out.counts.subtree_bindings += 1;
+            out.tree.push(subtrees, TILE_MASK);
+            // The tiles the mask leaves clear are filled from here,
+            // and are bound before the rest is described so that a
+            // subtree binding may read them.
+            let children = children_of(region);
+            for (bit, &child) in children.iter().enumerate() {
+                if subtrees >> bit & 1 == 0 {
+                    payload_out(pyramid, bits, child, depth - 1, out);
+                    work.bound.bind(child);
+                }
+            }
+            for (bit, &child) in children.iter().enumerate() {
+                if subtrees >> bit & 1 == 1 {
+                    out.counts.tiles_handed_down += 1;
+                    describe(work, pyramid, bits, child, sizing, overlap, out);
+                }
+            }
         }
         Chosen::Subdivide => {
             out.counts.subdivides += 1;
             out.tree.push(SUBDIVIDE, CODE);
             for child in children_of(region) {
-                describe(work, pyramid, bits, child, sizing, out);
+                describe(work, pyramid, bits, child, sizing, overlap, out);
             }
         }
         Chosen::Copy(dir) => {
@@ -444,7 +591,7 @@ fn describe(
             for (bit, &child) in children.iter().enumerate() {
                 if mask >> bit & 1 == 1 {
                     out.counts.deferred_tiles += 1;
-                    describe(work, pyramid, bits, child, sizing, out);
+                    describe(work, pyramid, bits, child, sizing, overlap, out);
                 }
             }
         }
@@ -473,10 +620,10 @@ impl Reading {
 }
 
 /// Reads the bitmap back.
-pub fn decode(out: &Encoded, sizing: Sizing, bits: &mut BitMatrix) {
+pub fn decode(out: &Encoded, sizing: Sizing, overlap: Overlap, bits: &mut BitMatrix) {
     bits.words.fill(0);
     let mut reading = Reading::default();
-    undescribe(&mut reading, out, sizing, bits, Region { level: LEVELS, x: 0, y: 0 });
+    undescribe(&mut reading, out, sizing, overlap, bits, Region { level: LEVELS, x: 0, y: 0 });
 }
 
 /// Fills in a whole tile.
@@ -495,15 +642,37 @@ fn undescribe(
     reading: &mut Reading,
     out: &Encoded,
     sizing: Sizing,
+    overlap: Overlap,
     bits: &mut BitMatrix,
     region: Region,
 ) {
     match reading.take(out, CODE) {
         BIND => {
             let side = reading.take(out, sizing.width(region.level)) as usize;
-            for tile in tiles_of(region, region.level - side.min(region.level)) {
-                if reading.value(out) {
-                    fill(bits, tile);
+            let depth = region.level - side.min(region.level);
+            let subtrees = overlap == Overlap::SubtreeBindings && reading.take(out, 1) == 1;
+            if !subtrees {
+                for tile in tiles_of(region, depth) {
+                    if reading.value(out) {
+                        fill(bits, tile);
+                    }
+                }
+                return;
+            }
+            let mask = reading.take(out, TILE_MASK);
+            let children = children_of(region);
+            for (bit, &child) in children.iter().enumerate() {
+                if mask >> bit & 1 == 0 {
+                    for tile in tiles_of(child, depth - 1) {
+                        if reading.value(out) {
+                            fill(bits, tile);
+                        }
+                    }
+                }
+            }
+            for (bit, &child) in children.iter().enumerate() {
+                if mask >> bit & 1 == 1 {
+                    undescribe(reading, out, sizing, overlap, bits, child);
                 }
             }
         }
@@ -522,13 +691,13 @@ fn undescribe(
             }
             for (bit, &child) in children.iter().enumerate() {
                 if mask >> bit & 1 == 1 {
-                    undescribe(reading, out, sizing, bits, child);
+                    undescribe(reading, out, sizing, overlap, bits, child);
                 }
             }
         }
         _ => {
             for child in children_of(region) {
-                undescribe(reading, out, sizing, bits, child);
+                undescribe(reading, out, sizing, overlap, bits, child);
             }
         }
     }
@@ -575,19 +744,20 @@ mod tests {
     fn the_encoding_comes_back_the_bitmap_that_went_in() {
         let (mut pyramid, mut work) = (Pyramid::new(), Workspace::new());
         let (mut out, mut back) = (Encoded::default(), BitMatrix::new());
-        for sizing in Sizing::ALL {
+        for (sizing, overlap) in Sizing::ALL.into_iter().flat_map(|s| Overlap::ALL.map(|o| (s, o))) {
             for (case, bits) in cases().iter().enumerate() {
                 pyramid.clear();
                 pyramid.rebuild(bits);
-                encode(&pyramid, bits, sizing, &mut work, &mut out);
-                decode(&out, sizing, &mut back);
+                encode(&pyramid, bits, sizing, overlap, &mut work, &mut out);
+                decode(&out, sizing, overlap, &mut back);
                 for y in 0..=u8::MAX {
                     for x in 0..=u8::MAX {
                         assert_eq!(
                             bits.get(x, y),
                             back.get(x, y),
-                            "{}, case {case}, differs at ({x}, {y})",
-                            sizing.name()
+                            "{} with {}, case {case}, differs at ({x}, {y})",
+                            sizing.name(),
+                            overlap.name()
                         );
                     }
                 }
@@ -604,16 +774,16 @@ mod tests {
 
         pyramid.clear();
         pyramid.rebuild(&checkerboard(1));
-        encode(&pyramid, &checkerboard(1), Sizing::Flat, &mut work, &mut out);
+        encode(&pyramid, &checkerboard(1), Sizing::Flat, Overlap::Disjoint, &mut work, &mut out);
 
         let empty = BitMatrix::new();
         pyramid.clear();
         pyramid.rebuild(&empty);
-        encode(&pyramid, &empty, Sizing::Flat, &mut work, &mut out);
+        encode(&pyramid, &empty, Sizing::Flat, Overlap::Disjoint, &mut work, &mut out);
         assert_eq!(out.counts.bindings, 1);
         assert_eq!(out.counts.subdivides, 0);
 
-        decode(&out, Sizing::Flat, &mut back);
+        decode(&out, Sizing::Flat, Overlap::Disjoint, &mut back);
         assert_eq!(back.count_set(), 0);
     }
 
@@ -630,11 +800,11 @@ mod tests {
         for bits in [BitMatrix::new(), full] {
             pyramid.clear();
             pyramid.rebuild(&bits);
-            encode(&pyramid, &bits, Sizing::Flat, &mut work, &mut out);
+            encode(&pyramid, &bits, Sizing::Flat, Overlap::Disjoint, &mut work, &mut out);
             assert_eq!(out.counts.bindings, 1);
             assert_eq!(out.bits(), CODE + TILE_SIZE + 4);
 
-            encode(&pyramid, &bits, Sizing::AsWideAsNeeded, &mut work, &mut out);
+            encode(&pyramid, &bits, Sizing::AsWideAsNeeded, Overlap::Disjoint, &mut work, &mut out);
             assert_eq!(out.counts.bindings, 1);
             assert_eq!(out.bits(), CODE + 4 + 1);
         }
