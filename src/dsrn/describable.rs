@@ -20,7 +20,7 @@
 use crate::dsrn::nesting::Knobs;
 use crate::dsrn::nesting_data::{RegionCode, RegionMask, Standing, Workspace};
 use crate::dsrn::region::{
-    deepest_depth, same_cells, whole_region_encoded, Region, CHILD_COUNT, DIRECTIONS,
+    deepest_depth, same_cells, Region, CHILD_COUNT, DIRECTIONS,
     EVERY_CHILD,
 };
 use crate::pyramid::{tile_of_bitmap, Pyramid};
@@ -139,7 +139,7 @@ fn children_the_copy_misses(
     for (at, mine) in region.children().into_iter().enumerate() {
         let there = theirs[at];
         if !(same_cells(bitmap, mine, there)
-            && (!encoded || whole_region_encoded(&work.encoded_cells, there)))
+            && (!encoded || work.region_taken.whole_region_taken(there)))
         {
             missed |= 1 << at;
         }
@@ -171,7 +171,7 @@ pub fn where_each_child_copies_from(
         from[at] = (0..DIRECTIONS.len()).find(|&direction| {
             child.neighbour(direction).is_some_and(|beside| {
                 same_cells(bitmap, child, beside)
-                    && (!encoded || whole_region_encoded(&work.encoded_cells, beside))
+                    && (!encoded || work.region_taken.whole_region_taken(beside))
             })
         });
     }
@@ -307,7 +307,7 @@ fn every_way_of_copying(
         // whole region holding what the neighbour does, so there is
         // nothing further to ask.
         if missed == RegionMask::NONE
-            && (!encoded || whole_region_encoded(&work.encoded_cells, from))
+            && (!encoded || work.region_taken.whole_region_taken(from))
         {
             ways.push(RegionCode::Copy { direction, mask: RegionMask::NONE });
             continue;

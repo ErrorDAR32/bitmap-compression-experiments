@@ -36,7 +36,7 @@ use crate::dsrn::nesting_data::{
     SUBDIVIDE,
 };
 use crate::dsrn::region::{
-    deepest_depth, same_cells, tiles_at_depth, whole_region_encoded, Region, CHILD_COUNT,
+    deepest_depth, same_cells, tiles_at_depth, Region, CHILD_COUNT,
     DIRECTIONS,
 };
 use crate::pyramid::{tile_of_bitmap, Pyramid};
@@ -353,7 +353,7 @@ fn write_a_mask_over_the_children(
             from[at] = (0..DIRECTIONS.len()).find(|&direction| {
                 child.neighbour(direction).is_some_and(|beside| {
                     same_cells(bitmap, child, beside)
-                        && whole_region_encoded(&work.encoded_cells, beside)
+                        && work.region_taken.whole_region_taken(beside)
                 })
             });
         }

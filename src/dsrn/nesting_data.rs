@@ -326,6 +326,69 @@ pub struct Workspace {
     /// the regions disjoint -- so the binding above writes bits only
     /// for what is left.
     pub encoded_cells: Bitmap,
+    /// Whether a whole region is taken, at every level -- the same
+    /// question `whole_region_encoded` answers by scanning every cell
+    /// of it, answered here in one lookup instead. A tile is taken
+    /// the moment [`Workspace::mark_encoded`] says so; its parent
+    /// folds to taken the moment all four of its children are, the
+    /// same way the homogeneity pyramid folds upward, except this one
+    /// grows true as the descent goes rather than being built once
+    /// from the finished bitmap.
+    pub region_taken: DefinedTiles,
+}
+
+/// A bit per tile, per level, whether the whole of it is taken.
+pub struct DefinedTiles {
+    taken: Vec<Vec<bool>>,
+}
+
+impl DefinedTiles {
+    fn new() -> Self {
+        Self { taken: (0..=CELL_LEVEL).map(|level| vec![false; tiles_in_level(level)]).collect() }
+    }
+
+    pub fn reset(&mut self) {
+        for plane in &mut self.taken {
+            plane.fill(false);
+        }
+    }
+
+    fn at(region: Region) -> usize {
+        region.y * crate::pyramid::tiles_across(region.level) + region.x
+    }
+
+    /// Whether the whole of a region is taken: itself, or any ancestor
+    /// of it, which covers it entirely by being coarser. A mark only
+    /// ever folds upward from where it is made, so a region taken by
+    /// a coarser ancestor's own mark, rather than by its own cells
+    /// folding up to it, is only found by looking upward here.
+    pub fn whole_region_taken(&self, region: Region) -> bool {
+        let mut here = region;
+        loop {
+            if self.taken[here.level][Self::at(here)] {
+                return true;
+            }
+            if here.level == 0 {
+                return false;
+            }
+            here = Region { level: here.level - 1, x: here.x / 2, y: here.y / 2 };
+        }
+    }
+
+    /// Marks a region taken, and folds that upward: a parent is taken
+    /// exactly when all four of its children are.
+    fn mark(&mut self, region: Region) {
+        self.taken[region.level][Self::at(region)] = true;
+        let mut here = region;
+        while here.level > 0 {
+            let parent = Region { level: here.level - 1, x: here.x / 2, y: here.y / 2 };
+            if !parent.children().into_iter().all(|child| self.whole_region_taken(child)) {
+                break;
+            }
+            self.taken[parent.level][Self::at(parent)] = true;
+            here = parent;
+        }
+    }
 }
 
 impl Default for Workspace {
@@ -350,6 +413,7 @@ impl Workspace {
                 .map(|level| vec![0usize; tiles_in_level(level) * tile_sizes_at(level)])
                 .collect(),
             encoded_cells: Bitmap::new(),
+            region_taken: DefinedTiles::new(),
         }
     }
 
@@ -427,5 +491,6 @@ impl Workspace {
             (x + side - 1) as i64,
             (y + side - 1) as i64,
         );
+        self.region_taken.mark(region);
     }
 }

@@ -138,17 +138,3 @@ pub fn all_cells_clear(pyramid: &Pyramid, bitmap: &Bitmap, region: Region) -> bo
         == Some(false)
 }
 
-/// Whether every cell of a region has been encoded already, and so
-/// will be there for the decoder to copy from.
-pub fn whole_region_encoded(encoded_cells: &Bitmap, region: Region) -> bool {
-    let (x, y) = region.top_left_cell();
-    let side = region.side_in_cells();
-    for row in 0..side {
-        for col in 0..side {
-            if !encoded_cells.get((x + col) as u8, (y + row) as u8) {
-                return false;
-            }
-        }
-    }
-    true
-}

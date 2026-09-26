@@ -44,7 +44,7 @@ use crate::dsrn::nesting::Knobs;
 use crate::dsrn::nesting_data::{
     RegionMask, Standing, Workspace, CHILD_MASK_WIDTH, DIRECTION_WIDTH,
 };
-use crate::dsrn::region::{same_cells, whole_region_encoded, Region, CHILD_COUNT, DIRECTIONS};
+use crate::dsrn::region::{same_cells, Region, CHILD_COUNT, DIRECTIONS};
 use crate::pyramid::{tile_of_bitmap, Pyramid};
 use crate::Bitmap;
 
@@ -253,7 +253,7 @@ fn children_the_copy_holds(
     let mut held = 0;
     for (at, mine) in region.children().into_iter().enumerate() {
         if same_cells(bitmap, mine, theirs[at])
-            && (!encoded || whole_region_encoded(&work.encoded_cells, theirs[at]))
+            && (!encoded || work.region_taken.whole_region_taken(theirs[at]))
         {
             held |= 1 << at;
         }

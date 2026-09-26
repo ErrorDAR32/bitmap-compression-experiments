@@ -195,6 +195,7 @@ pub fn encode(
 ) {
     out.clear();
     work.encoded_cells.reset();
+    work.region_taken.reset();
     let whole = Region::whole_bitmap();
     coarsest(work, pyramid, bitmap, whole, knobs);
     encode_region(work, pyramid, bitmap, whole, knobs, Standing::Clear, out);
