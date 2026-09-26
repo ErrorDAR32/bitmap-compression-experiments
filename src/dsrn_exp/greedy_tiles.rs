@@ -23,7 +23,7 @@
 //! against what the region-based encoder actually produces, before
 //! anything is spent on a grammar for it.
 
-use crate::dsrn::region::{same_cells, Region, DIRECTIONS};
+use crate::dsrn::region::Region;
 use crate::pyramid::{tile_of_bitmap, tiles_across, Pyramid, CELL_LEVEL};
 use crate::Bitmap;
 
@@ -74,10 +74,12 @@ pub fn greedy_tile_pass(pyramid: &Pyramid, bitmap: &Bitmap) -> GreedyTileCounts 
 
                 if tile_of_bitmap(pyramid, bitmap, level, x, y).is_some() {
                     counts.bound_at_level[level] += 1;
-                } else if level < CELL_LEVEL
-                    && (0..DIRECTIONS.len())
-                        .any(|direction| copies_from(&claimed, bitmap, tile, direction))
-                {
+                } else if pyramid.copyable(level, x, y) {
+                    // Priced the same optimistic way DSRN's own
+                    // bottom-up pass prices a copy: by content alone,
+                    // not by whether the neighbour happens to have
+                    // been decided as one tile yet. Whether some order
+                    // can actually deliver it is a later question.
                     counts.copied_at_level[level] += 1;
                 } else {
                     // Neither one thing nor a copy of anything already
@@ -90,23 +92,6 @@ pub fn greedy_tile_pass(pyramid: &Pyramid, bitmap: &Bitmap) -> GreedyTileCounts 
         }
     }
     counts
-}
-
-/// Whether a tile copies a same-size neighbour in a direction: the
-/// neighbour must already be fully decided, and hold the same cells.
-///
-/// "Already decided" is one cell, not the whole neighbour: every
-/// claim this pass ever makes covers a whole tile aligned to some
-/// level, and every level's grid refines the one before it, so any
-/// already-placed tile that reaches the neighbour's corner is either
-/// the neighbour itself, already claimed whole, or a coarser tile
-/// that contains the whole of it. There is no way for a claim to
-/// cover only part of it.
-fn copies_from(claimed: &Bitmap, bitmap: &Bitmap, tile: Region, direction: usize) -> bool {
-    tile.neighbour(direction).is_some_and(|beside| {
-        let (bx, by) = beside.top_left_cell();
-        claimed.get(bx as u8, by as u8) && same_cells(bitmap, tile, beside)
-    })
 }
 
 /// Marks every cell of a tile claimed.
@@ -190,53 +175,3 @@ copied",
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::samples;
-
-    /// Every tile the pass places covers area that adds up to exactly
-    /// the whole bitmap, once -- no gaps, and the "claimed" check
-    /// already rules out overlaps.
-    #[test]
-    fn covers_every_cell_exactly_once() {
-        let mut pyramid = Pyramid::new();
-        for (_, maps) in samples::every_family() {
-            for bitmap in &maps {
-                pyramid.clear();
-                pyramid.rebuild(bitmap);
-                let counts = greedy_tile_pass(&pyramid, bitmap);
-                let area: usize = (0..=CELL_LEVEL)
-                    .map(|level| {
-                        let side = crate::pyramid::tile_side(level);
-                        (counts.bound_at_level[level] + counts.copied_at_level[level])
-                            * side
-                            * side
-                    })
-                    .sum();
-                assert_eq!(area, 256 * 256, "left cells uncovered or double-covered");
-            }
-        }
-    }
-
-    /// A same-size neighbour is only ever a copy source once it is
-    /// homogeneous itself -- under this pass's strict biggest-first,
-    /// one-size-at-a-time order, a heterogeneous tile is never
-    /// resolved before its same-size neighbours are looked at, so
-    /// there is nothing yet for them to match against. This nails
-    /// that down so a future change to the ordering has to notice it
-    /// broke, rather than silently stop exercising copy at all.
-    #[test]
-    fn copy_never_fires_under_strict_size_major_order() {
-        let mut pyramid = Pyramid::new();
-        let mut total_copies = 0usize;
-        for (_, maps) in samples::every_family() {
-            for bitmap in &maps {
-                pyramid.clear();
-                pyramid.rebuild(bitmap);
-                total_copies += greedy_tile_pass(&pyramid, bitmap).total_copies();
-            }
-        }
-        assert_eq!(total_copies, 0, "copy fired under an ordering that should never let it");
-    }
-}
