@@ -248,23 +248,30 @@ pub fn every_way_of_covering_it(
 
 /// The tile sizes a region could be bound at, and for each the
 /// children a binding at that size would have to describe again.
+///
+/// The unmasked case needs no comparison at all: its header costs the
+/// same at every depth and its payload is `tiles_at_depth(depth)`,
+/// which only grows as the tiles get finer, so a deeper unmasked bind
+/// can never be cheaper than the coarsest one that is still
+/// homogeneous. That is true of every region on every bitmap, not
+/// just the ones measured -- so there is exactly one unmasked
+/// candidate, picked outright, not searched for.
+///
+/// Masked binds are not this simple. Which children a given depth has
+/// to describe again genuinely changes from one depth to the next --
+/// a coarser depth demands more of a child to be absorbed for free,
+/// a finer one demands less but absorbs a smaller share per bit -- so
+/// there is no depth that dominates every other, and every one of
+/// them still has to be priced.
 fn every_way_of_binding(work: &Workspace, region: Region, knobs: Knobs) -> Vec<RegionCode> {
-    let mut ways = Vec::new();
-    let may_mask = knobs.masking.allows(region);
-    let level = region.level;
+    let mut ways =
+        vec![RegionCode::Bind { level: region.level, depth: work.coarsest_depth_of(region), mask: RegionMask::NONE }];
 
-    for depth in 0..=deepest_depth(level) {
-        // Unmasked: every tile of the region has to be homogeneous,
-        // because the binding covers all of it on its own.
-        if depth >= work.coarsest_depth_of(region) {
-            ways.push(RegionCode::Bind { level, depth, mask: RegionMask::NONE });
-        }
-        // Masked: only the children it covers have to be, and a mask
-        // names children, so there have to be children to name.
-        if depth >= 1 && may_mask {
+    if knobs.masking.allows(region) {
+        for depth in 1..=deepest_depth(region.level) {
             let mask = described_again_by_a_binding(work, region, depth);
             if mask != RegionMask::NONE {
-                ways.push(RegionCode::Bind { level, depth, mask });
+                ways.push(RegionCode::Bind { level: region.level, depth, mask });
             }
         }
     }
