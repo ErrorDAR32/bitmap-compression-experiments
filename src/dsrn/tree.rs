@@ -137,7 +137,7 @@ impl Sizing {
     }
 
     /// The width of the tile size field for a region.
-    fn width(self, level: usize) -> usize {
+    pub fn width(self, level: usize) -> usize {
         match self {
             Sizing::Flat => TILE_SIZE,
             // The sizes it could mean are the cells up to the region
@@ -171,6 +171,16 @@ pub struct Counts {
     /// Regions bound at one cell a tile, which is the encoding giving
     /// up and writing the bitmap out.
     pub bound_at_cells: usize,
+    /// Cells those wrote out, by the level of the region that gave
+    /// up. A large region giving up costs a bit a cell; a small one
+    /// costs its head as well, spread over very few cells.
+    pub cells_given_up: [usize; LEVELS + 1],
+    /// Of those regions, the ones that hold the same cells as a
+    /// neighbour they are allowed to copy from -- but one the decoder
+    /// will not hold by the time it arrives.
+    pub copies_just_missed: usize,
+    /// And the ones with no matching neighbour at all.
+    pub no_neighbour_matched: usize,
 }
 
 /// What an encode produces.
@@ -528,8 +538,16 @@ fn describe(
     match how {
         Chosen::Bind(depth, subtrees) => {
             out.counts.bindings += 1;
-            if region.level == depth {
+            if region.level == depth && region.level > 0 {
                 out.counts.bound_at_cells += 1;
+                out.counts.cells_given_up[region.level] += tiles(depth);
+                // Whether a copy was there to be had and reading
+                // order took it away, or there was never one.
+                if could_copy(pyramid, bits, region) {
+                    out.counts.copies_just_missed += 1;
+                } else {
+                    out.counts.no_neighbour_matched += 1;
+                }
             }
             out.tree.push(BIND, CODE);
             // The side of the tile, as a power of two.
