@@ -1,16 +1,10 @@
-//! The encoding on bitmaps shaped like what it is for.
+//! The encoding on bitmaps laid out like a city, beside the grown
+//! ones it has been measured on until now.
 //!
-//! The corpus is random blobs and scattered cells, and nothing in a
-//! random blob is aligned to anything. A city is aligned to
-//! everything: streets run on a pitch, blocks fill what is between
-//! them, and courtyards are holes inside blocks. So these bitmaps are
-//! laid out that way -- a grid of blocks, streets between them, and
-//! holes inside the blocks at sizes and alignments a quadtree can
-//! see.
-//!
-//! They are not a claim about any real city. They are the shape the
-//! encoding was designed around, measured beside the shape it has
-//! been tested on, so the difference between the two is visible.
+//! Nothing in a random blob is aligned to anything, and the encoding
+//! reads a bitmap as a quadtree of aligned squares. So the two
+//! families belong in the same table: a result on one is half a
+//! result.
 
 use bitmatrix::dsrn::nesting;
 use bitmatrix::dsrn::Pyramid;
@@ -20,136 +14,76 @@ use bitmatrix::{samples, BitMatrix};
 mod table;
 use table::Table;
 
-/// The same arithmetic the sample generator uses, so a seed means a
-/// bitmap and nothing here drifts between runs.
-struct Rolls(u64);
-
-impl Rolls {
-    fn next(&mut self) -> u64 {
-        self.0 = self.0.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
-        self.0 >> 33
-    }
-
-    fn upto(&mut self, high: u64) -> u64 {
-        self.next() % high
-    }
-
-    fn chance(&mut self, in_a_hundred: u64) -> bool {
-        self.upto(100) < in_a_hundred
-    }
-}
-
-/// A grid of blocks with streets between them and holes inside them.
-///
-/// `pitch` is how far apart the streets run and `street` how wide
-/// they are; both are powers of two so that the blocks land on the
-/// quadtree's own grid, which is the whole point of the exercise.
-fn city(seed: u64, pitch: i64, street: i64, holes: u64) -> BitMatrix {
-    let mut bits = BitMatrix::new();
-    let mut rolls = Rolls(seed);
-
-    let block = |bits: &mut BitMatrix, x: i64, y: i64, side: i64, rolls: &mut Rolls| {
-        if rolls.chance(12) {
-            // A park: the block is left clear.
-            return;
-        }
-        bits.set_rect(x, y, x + side - 1, y + side - 1);
-        // Courtyards, aligned to their own size the way a quadtree
-        // square is.
-        for _ in 0..holes {
-            let hole = 1 << (1 + rolls.upto(3));
-            if hole >= side {
-                continue;
-            }
-            let across = side / hole;
-            let (hx, hy) = (rolls.upto(across as u64) as i64, rolls.upto(across as u64) as i64);
-            bits.unset_rect(
-                x + hx * hole,
-                y + hy * hole,
-                x + hx * hole + hole - 1,
-                y + hy * hole + hole - 1,
-            );
-        }
-    };
-
-    let side = pitch - street;
-    let mut y = 0;
-    while y + side <= 256 {
-        let mut x = 0;
-        while x + side <= 256 {
-            block(&mut bits, x, y, side, &mut rolls);
-            x += pitch;
-        }
-        y += pitch;
-    }
-    bits
-}
-
 fn main() {
     let (mut pyramid, mut work) = (Pyramid::new(), nesting::Workspace::new());
     let (mut out, mut back) = (nesting::Encoded::default(), BitMatrix::new());
 
-    let mut run = |pyramid: &mut Pyramid, bits: &BitMatrix| {
-        pyramid.clear();
-        pyramid.rebuild(bits);
-        nesting::encode(pyramid, bits, &mut work, &mut out);
-        nesting::decode(&out, &mut back);
-        let whole = (0..=u8::MAX).all(|y| (0..=u8::MAX).all(|x| bits.get(x, y) == back.get(x, y)));
-        assert!(whole, "lost a cell");
-        out.bits()
-    };
-
     let mut t = Table::new(&[
         "laid out",
         "bitmaps",
-        "bits a bitmap",
+        "tree\nbits a bitmap",
+        "payload\nbits a bitmap",
+        "all of it\nbits a bitmap",
         "of the 65536\nbits it holds",
     ]);
 
-    // Street pitch, street width, and how many holes a block gets.
-    let plans: [(&str, i64, i64, u64); 4] = [
-        ("blocks of 28, streets of 4", 32, 4, 2),
-        ("blocks of 24, streets of 8", 32, 8, 3),
-        ("blocks of 60, streets of 4", 64, 4, 6),
-        ("blocks of 12, streets of 4", 16, 4, 1),
-    ];
-
-    let mut count = 0usize;
-    for (name, pitch, street, holes) in plans {
-        let maps: Vec<BitMatrix> = (0..24).map(|seed| city(seed, pitch, street, holes)).collect();
-        let mut sum = 0usize;
+    let mut measure = |name: &str, maps: Vec<BitMatrix>, t: &mut Table| {
+        let (mut tree, mut payload) = (0usize, 0usize);
         for bits in &maps {
-            sum += run(&mut pyramid, bits);
+            pyramid.clear();
+            pyramid.rebuild(bits);
+            nesting::encode(&pyramid, bits, &mut work, &mut out);
+            nesting::decode(&out, &mut back);
+            let whole =
+                (0..=u8::MAX).all(|y| (0..=u8::MAX).all(|x| bits.get(x, y) == back.get(x, y)));
+            assert!(whole, "{name} lost a cell");
+            tree += out.tree.len();
+            payload += out.payload.len();
         }
         let n = maps.len();
-
-        count += n;
         t.row(&[
             name.to_string(),
             n.to_string(),
-            (sum / n).to_string(),
-            format!("{:.1}%", 100.0 * (sum / n) as f64 / 65536.0),
+            (tree / n).to_string(),
+            (payload / n).to_string(),
+            ((tree + payload) / n).to_string(),
+            format!("{:.1}%", 100.0 * ((tree + payload) / n) as f64 / 65536.0),
         ]);
-    }
+        (tree, payload, n)
+    };
 
-    // The corpus beside it, so the two are read together.
-    let mut sum = 0usize;
-    let mut n = 0usize;
-    for shape in samples::SHAPES {
-        for bits in shape.timed() {
-            sum += run(&mut pyramid, &bits);
-            n += 1;
-        }
+    let mut laid = (0usize, 0usize, 0usize);
+    for plan in &samples::PLANS {
+        let (tree, payload, n) = measure(plan.name, plan.timed().collect(), &mut t);
+        laid = (laid.0 + tree, laid.1 + payload, laid.2 + n);
     }
     t.rule();
     t.row(&[
-        "the corpus: blobs and scatter".to_string(),
-        n.to_string(),
-        (sum / n).to_string(),
-        format!("{:.1}%", 100.0 * (sum / n) as f64 / 65536.0),
+        "every plan".to_string(),
+        laid.2.to_string(),
+        (laid.0 / laid.2).to_string(),
+        (laid.1 / laid.2).to_string(),
+        ((laid.0 + laid.1) / laid.2).to_string(),
+        format!("{:.1}%", 100.0 * ((laid.0 + laid.1) / laid.2) as f64 / 65536.0),
+    ]);
+    t.rule();
+
+    let mut grown = (0usize, 0usize, 0usize);
+    for shape in samples::SHAPES {
+        let (tree, payload, n) = measure(shape.name, shape.timed().collect(), &mut t);
+        grown = (grown.0 + tree, grown.1 + payload, grown.2 + n);
+    }
+    t.rule();
+    t.row(&[
+        "every shape".to_string(),
+        grown.2.to_string(),
+        (grown.0 / grown.2).to_string(),
+        (grown.1 / grown.2).to_string(),
+        ((grown.0 + grown.1) / grown.2).to_string(),
+        format!("{:.1}%", 100.0 * ((grown.0 + grown.1) / grown.2) as f64 / 65536.0),
     ]);
 
-    println!("\n  laid out like a city, on a grid the quadtree can see.\n");
+    println!("\n  Every bitmap comes back the one that went in, or this stops.\n");
+    println!("  laid out like a city, then grown like a blob.\n");
     t.print();
-    let _ = count;
 }

@@ -714,6 +714,11 @@ mod tests {
             cases.extend(shape.tested());
         }
         cases.extend(samples::grown(0, 1.0, 0.0, 1));
+        // Laid out on the quadtree's own grid, which is the shape
+        // this is for and the one the grown samples never give.
+        for plan in &samples::PLANS {
+            cases.extend(plan.tested());
+        }
         for side in [1usize, 2, 3, 8, 16] {
             cases.push(checkerboard(side));
         }

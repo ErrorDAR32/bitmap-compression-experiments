@@ -17,24 +17,32 @@
 //! them. The worst motif cost 13,057 instructions per set cell, where
 //! `grown(_, 0.50, 0.00)` costs 124,610.
 //!
-//! `generate` holds the drawing itself, and `docs/protocol.md` holds
+//! Two families live here. [`SHAPES`] are grown: cells scattered or
+//! clustered to a density, which is what an algorithm is stressed on.
+//! [`PLANS`] are laid out: streets, blocks and courtyards on a grid
+//! the quadtree can see, which is the shape the encoding is for. A
+//! result measured on one and not the other has been measured on
+//! half of what matters.
+//!
+//! `generate` holds the drawing itself, `city` holds the laying out,
+//! and `docs/protocol.md` holds
 //! the rule for using it: fix with the seed held still, then check on a
 //! seed never seen. A change measured only on the corpus it was tuned
 //! on has not been measured.
 
+mod city;
 mod generate;
+
+pub use city::{one_laid_out, Cities, Plan, PLANS};
 
 use crate::BitMatrix;
 
-/// Where every sample's seeds start, and the seed of a random
-/// generator rather than the [`crate::runmax`] kind, which is a run.
+/// Where every sample's seeds start.
 ///
 /// Move it to ask whether a result was about an algorithm or about
 /// those particular bitmaps. It has been zero for every measurement in
 /// this repository, which is what makes them reproducible and is not
-/// what makes them representative -- `examples/absolute_worst.rs` takes a seed
-/// base as an argument so a change can be checked on bitmaps it was
-/// not tuned on.
+/// what makes them representative.
 pub const SAMPLE_SEED: u64 = 0;
 
 /// One shape worth measuring on: what it looks like, the two numbers
