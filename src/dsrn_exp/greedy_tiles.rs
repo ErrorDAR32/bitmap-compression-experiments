@@ -24,7 +24,7 @@
 //! against what the region-based encoder actually produces, before
 //! anything is spent on a grammar for it.
 
-use crate::dsrn::region::Region;
+use crate::dsrn::region::{same_cells, Region, DIRECTIONS};
 use crate::pyramid::{tile_of_bitmap, tiles_across, Pyramid, CELL_LEVEL};
 use crate::Bitmap;
 
@@ -52,10 +52,36 @@ impl GreedyTileCounts {
     }
 }
 
-/// Runs the greedy pass over one bitmap.
-pub fn greedy_tile_pass(pyramid: &Pyramid, bitmap: &Bitmap) -> GreedyTileCounts {
+/// A tile the greedy pass placed: where, and what it says about
+/// itself.
+#[derive(Clone, Copy)]
+pub struct PlacedTile {
+    pub region: Region,
+    pub says: Says,
+}
+
+/// What a placed tile says: its own value, or a same-size neighbour
+/// to copy, in [`crate::dsrn::region::DIRECTIONS`] order.
+#[derive(Clone, Copy)]
+pub enum Says {
+    Bound(bool),
+    Copied(usize),
+}
+
+/// Runs the greedy pass over one bitmap, biggest tiles first.
+///
+/// A copy needs its whole same-size neighbour available in one piece
+/// by the time reading order gets there, not merely matching content
+/// -- a neighbour that is itself several smaller tiles can have rows
+/// still unwritten below wherever reading order currently stands.
+/// `placed_as_one_tile` tracks exactly that: a same-level tile that
+/// was itself placed whole, which is the one case reading order
+/// always guarantees finished first, whatever it is made of.
+pub fn decide_tiles(pyramid: &Pyramid, bitmap: &Bitmap) -> Vec<PlacedTile> {
     let mut claimed = Bitmap::new();
-    let mut counts = GreedyTileCounts::default();
+    let mut placed = Vec::new();
+    let mut placed_as_one_tile: Vec<Vec<bool>> =
+        (0..=CELL_LEVEL).map(|level| vec![false; tiles_across(level) * tiles_across(level)]).collect();
 
     for level in 0..=CELL_LEVEL {
         let across = tiles_across(level);
@@ -73,22 +99,46 @@ pub fn greedy_tile_pass(pyramid: &Pyramid, bitmap: &Bitmap) -> GreedyTileCounts 
                     continue;
                 }
 
-                if tile_of_bitmap(pyramid, bitmap, level, x, y).is_some() {
-                    counts.bound_at_level[level] += 1;
-                } else if pyramid.copyable(level, x, y) {
-                    // A same-size neighbour holds the same cells,
-                    // read straight from the bitmap -- true or false
-                    // the moment it is asked, not something to wait
-                    // for the encoder to have decided.
-                    counts.copied_at_level[level] += 1;
+                let says = if let Some(value) = tile_of_bitmap(pyramid, bitmap, level, x, y) {
+                    Says::Bound(value)
+                } else if let Some(direction) =
+                    copy_direction(bitmap, tile, &placed_as_one_tile[level], across)
+                {
+                    Says::Copied(direction)
                 } else {
-                    // Neither one thing nor a match for any same-size
-                    // neighbour: left for this tile's four quarters,
-                    // one level finer, to each try for themselves.
+                    // Neither one thing nor a whole, already-placed
+                    // same-size match: left for this tile's four
+                    // quarters, one level finer, to each try for
+                    // themselves.
                     continue;
-                }
+                };
                 claim(&mut claimed, tile);
+                placed_as_one_tile[level][y * across + x] = true;
+                placed.push(PlacedTile { region: tile, says });
             }
+        }
+    }
+    placed
+}
+
+/// Which direction a tile copies from, if any: a same-size neighbour
+/// that was itself placed as one tile, and holds the same cells.
+fn copy_direction(bitmap: &Bitmap, tile: Region, placed_at_level: &[bool], across: usize) -> Option<usize> {
+    (0..DIRECTIONS.len()).find(|&direction| {
+        tile.neighbour(direction).is_some_and(|beside| {
+            placed_at_level[beside.y * across + beside.x] && same_cells(bitmap, tile, beside)
+        })
+    })
+}
+
+/// Runs the greedy pass and just counts what it placed, by size and
+/// kind -- what [`super::greedy_tiles::run`] compares against dsrn.
+pub fn greedy_tile_pass(pyramid: &Pyramid, bitmap: &Bitmap) -> GreedyTileCounts {
+    let mut counts = GreedyTileCounts::default();
+    for tile in decide_tiles(pyramid, bitmap) {
+        match tile.says {
+            Says::Bound(_) => counts.bound_at_level[tile.region.level] += 1,
+            Says::Copied(_) => counts.copied_at_level[tile.region.level] += 1,
         }
     }
     counts

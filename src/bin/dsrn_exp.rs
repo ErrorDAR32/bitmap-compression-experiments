@@ -5,7 +5,7 @@
 //! not tuned on without editing anything.
 
 use bitmap::dsrn::{FourByFour, Knobs, Masking};
-use bitmap::dsrn_exp::{emitted, four_by_four, greedy_tiles, masking_thresholds, where_the_bits_go};
+use bitmap::dsrn_exp::{emitted, four_by_four, greedy_tiles, masking_thresholds, tile_stream, tile_tree, where_the_bits_go};
 
 fn main() {
     let mut args = std::env::args().skip(1);
@@ -29,6 +29,8 @@ fn main() {
         "masking" => masking_thresholds::run(),
         "4x4" => four_by_four::run(),
         "tiles" => greedy_tiles::run(),
+        "tree" => tile_tree::run(),
+        "stream" => tile_stream::run(),
         _ => {
             println!("  which test?\n");
             println!("    emitted [knobs]   what it emits, and what the codes are");

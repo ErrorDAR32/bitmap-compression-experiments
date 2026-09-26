@@ -18,6 +18,9 @@ pub mod four_by_four;
 pub mod greedy_tiles;
 mod greedy_tiles_tests;
 pub mod masking_thresholds;
+pub mod tile_stream;
+mod tile_stream_tests;
+pub mod tile_tree;
 pub mod where_the_bits_go;
 
 use crate::dsrn::{decode, encode, Encoded, Knobs, Workspace};
