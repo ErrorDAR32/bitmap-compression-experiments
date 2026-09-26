@@ -270,7 +270,17 @@ fn every_way_of_binding(work: &Workspace, region: Region, knobs: Knobs) -> Vec<R
     if knobs.masking.allows(region) {
         for depth in 1..=deepest_depth(region.level) {
             let mask = described_again_by_a_binding(work, region, depth);
-            if mask != RegionMask::NONE {
+            // A mask naming all four children describes exactly what
+            // an unmasked subdivide describes, for strictly more
+            // header. It is not, as it first looks, priced the same
+            // as subdividing: it hands its children `Tiles(depth-1)`
+            // instead of whatever standing this region was itself
+            // given, and that can look cheaper to the argmin than it
+            // turns out to be once the children are actually written
+            // -- measured worse on every knob setting tried, never
+            // better. So it is excluded outright rather than left for
+            // the argmin to occasionally get wrong.
+            if mask != RegionMask::NONE && mask != RegionMask::EVERY {
                 ways.push(RegionCode::Bind { level: region.level, depth, mask });
             }
         }

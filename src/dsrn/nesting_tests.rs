@@ -237,3 +237,5 @@ fn a_parent_absorbs_every_homogeneous_child_and_keeps_only_the_rest() {
         }
     }
 }
+
+
