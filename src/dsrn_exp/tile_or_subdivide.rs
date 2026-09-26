@@ -39,6 +39,7 @@
 
 use crate::dsrn::region::{same_cells, Region, DIRECTIONS};
 use crate::dsrn::stream::EncodedBitmap;
+use crate::dsrn_exp::greedy_tiles::FarCopyable;
 use crate::pyramid::{tile_of_bitmap, tiles_across, tiles_in_level, Pyramid, CELL_LEVEL};
 use crate::Bitmap;
 
@@ -100,7 +101,18 @@ impl Taken {
 /// Which direction a whole region copies from, if any, and whether
 /// that is a near neighbour of the region itself or a far one of its
 /// parent -- only offered once the source is already taken.
-fn copy_choice(pyramid: &Pyramid, bitmap: &Bitmap, taken: &Taken, region: Region) -> Option<(bool, usize)> {
+///
+/// The pyramid's own `copyable` bit, and the greedy tiler's matching
+/// `FarCopyable` cache, are precomputed once a bitmap and answered in
+/// O(1); without them, every region that fails both would still pay
+/// for up to four full `same_cells` scans it was never going to use.
+fn copy_choice(
+    pyramid: &Pyramid,
+    far_copyable: &FarCopyable,
+    bitmap: &Bitmap,
+    taken: &Taken,
+    region: Region,
+) -> Option<(bool, usize)> {
     if pyramid.copyable(region.level, region.x, region.y) {
         let near = (0..DIRECTIONS.len()).find(|&direction| {
             region.neighbour(direction).is_some_and(|beside| {
@@ -111,7 +123,7 @@ fn copy_choice(pyramid: &Pyramid, bitmap: &Bitmap, taken: &Taken, region: Region
             return Some((false, direction));
         }
     }
-    if region.level == 0 {
+    if !far_copyable.get(region) {
         return None;
     }
     let parent = Region { level: region.level - 1, x: region.x / 2, y: region.y / 2 };
@@ -128,12 +140,20 @@ fn copy_choice(pyramid: &Pyramid, bitmap: &Bitmap, taken: &Taken, region: Region
 pub fn encode(pyramid: &Pyramid, bitmap: &Bitmap) -> EncodedBitmap {
     let mut out = EncodedBitmap::default();
     let mut taken = Taken::new();
-    encode_region(pyramid, bitmap, Region::whole_bitmap(), &mut taken, &mut out);
+    let far_copyable = FarCopyable::build(bitmap);
+    encode_region(pyramid, &far_copyable, bitmap, Region::whole_bitmap(), &mut taken, &mut out);
     out
 }
 
-fn encode_region(pyramid: &Pyramid, bitmap: &Bitmap, region: Region, taken: &mut Taken, out: &mut EncodedBitmap) {
-    if let Some((far, direction)) = copy_choice(pyramid, bitmap, taken, region) {
+fn encode_region(
+    pyramid: &Pyramid,
+    far_copyable: &FarCopyable,
+    bitmap: &Bitmap,
+    region: Region,
+    taken: &mut Taken,
+    out: &mut EncodedBitmap,
+) {
+    if let Some((far, direction)) = copy_choice(pyramid, far_copyable, bitmap, taken, region) {
         out.push_value(1, BIND_WIDTH);
         out.push_value(COPY, CODE_WIDTH);
         out.push_value(far as u64, FAR_WIDTH);
@@ -169,7 +189,7 @@ fn encode_region(pyramid: &Pyramid, bitmap: &Bitmap, region: Region, taken: &mut
         if subdivide {
             for (i, value) in values.iter().enumerate() {
                 if value.is_none() {
-                    encode_region(pyramid, bitmap, children[i], taken, out);
+                    encode_region(pyramid, far_copyable, bitmap, children[i], taken, out);
                 }
             }
         }
@@ -180,7 +200,7 @@ fn encode_region(pyramid: &Pyramid, bitmap: &Bitmap, region: Region, taken: &mut
     out.push_value(0, BIND_WIDTH);
     out.push_value(0b1111, MASK_WIDTH);
     for child in children {
-        encode_region(pyramid, bitmap, child, taken, out);
+        encode_region(pyramid, far_copyable, bitmap, child, taken, out);
     }
     taken.mark(region);
 }

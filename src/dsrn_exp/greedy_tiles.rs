@@ -167,12 +167,12 @@ fn copy_choice(
 /// itself), so this is the same word-level row comparison
 /// [`Pyramid`] already builds for near copies, just taken two tiles
 /// at a time instead of one.
-struct FarCopyable {
+pub(crate) struct FarCopyable {
     can: Vec<Vec<bool>>,
 }
 
 impl FarCopyable {
-    fn build(bitmap: &Bitmap) -> Self {
+    pub(crate) fn build(bitmap: &Bitmap) -> Self {
         let can = (0..=CELL_LEVEL)
             .map(|level| {
                 let across = tiles_across(level);
@@ -196,7 +196,7 @@ impl FarCopyable {
         Self { can }
     }
 
-    fn get(&self, tile: Region) -> bool {
+    pub(crate) fn get(&self, tile: Region) -> bool {
         let across = tiles_across(tile.level);
         self.can[tile.level][tile.y * across + tile.x]
     }
