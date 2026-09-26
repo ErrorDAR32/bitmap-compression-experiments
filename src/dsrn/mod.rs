@@ -22,7 +22,9 @@
 pub mod passes;
 pub mod region;
 pub mod rules;
+pub mod copying;
 pub mod stream;
+pub mod tree;
 pub mod unified;
 
 use crate::data::bits::LINE_WORDS;

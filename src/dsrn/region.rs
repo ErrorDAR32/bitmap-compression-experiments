@@ -103,6 +103,7 @@ pub(crate) fn copies_whole(bits: &BitMatrix, done: &BitMatrix, region: Region) -
 /// top left, top right, bottom left, bottom right.
 pub(crate) const CHILDREN: [(usize, usize); 4] = [(0, 0), (1, 0), (0, 1), (1, 1)];
 
+#[inline]
 pub(crate) fn children_of(region: Region) -> [Region; 4] {
     CHILDREN.map(|(dx, dy)| Region {
         level: region.level - 1,
