@@ -1,22 +1,18 @@
-//! Subtree bindings on bitmaps shaped like what this is for.
+//! The encoding on bitmaps shaped like what it is for.
 //!
-//! The corpus is random blobs and scattered cells, and on it a
-//! binding that hands children down earns about a bit a time. The
-//! case it is actually for -- a wide aligned area with a small
-//! aligned hole in it -- barely occurs there, because nothing in a
-//! random blob is aligned to anything.
-//!
-//! A city is aligned to everything. Streets run on a pitch, blocks
-//! fill what is between them, and courtyards and yards are holes
-//! inside blocks. So these bitmaps are laid out that way: a grid of
-//! blocks, streets between them, and holes inside the blocks at the
-//! sizes and alignments a quadtree can see.
+//! The corpus is random blobs and scattered cells, and nothing in a
+//! random blob is aligned to anything. A city is aligned to
+//! everything: streets run on a pitch, blocks fill what is between
+//! them, and courtyards are holes inside blocks. So these bitmaps are
+//! laid out that way -- a grid of blocks, streets between them, and
+//! holes inside the blocks at sizes and alignments a quadtree can
+//! see.
 //!
 //! They are not a claim about any real city. They are the shape the
 //! encoding was designed around, measured beside the shape it has
 //! been tested on, so the difference between the two is visible.
 
-use bitmatrix::dsrn::nesting::{self, Subtrees};
+use bitmatrix::dsrn::nesting;
 use bitmatrix::dsrn::Pyramid;
 use bitmatrix::{samples, BitMatrix};
 
@@ -93,13 +89,21 @@ fn main() {
     let (mut pyramid, mut work) = (Pyramid::new(), nesting::Workspace::new());
     let (mut out, mut back) = (nesting::Encoded::default(), BitMatrix::new());
 
+    let mut run = |pyramid: &mut Pyramid, bits: &BitMatrix| {
+        pyramid.clear();
+        pyramid.rebuild(bits);
+        nesting::encode(pyramid, bits, &mut work, &mut out);
+        nesting::decode(&out, &mut back);
+        let whole = (0..=u8::MAX).all(|y| (0..=u8::MAX).all(|x| bits.get(x, y) == back.get(x, y)));
+        assert!(whole, "lost a cell");
+        out.bits()
+    };
+
     let mut t = Table::new(&[
         "laid out",
         "bitmaps",
-        "no subtrees\nbits a bitmap",
-        "subtrees\nbits a bitmap",
-        "subtrees against\nno subtrees",
-        "bindings that\nhand down, a bitmap",
+        "bits a bitmap",
+        "of the 65536\nbits it holds",
     ]);
 
     // Street pitch, street width, and how many holes a block gets.
@@ -110,87 +114,42 @@ fn main() {
         ("blocks of 12, streets of 4", 16, 4, 1),
     ];
 
-    let mut all = [0usize; 2];
-    let (mut all_handed, mut count) = (0usize, 0usize);
+    let mut count = 0usize;
     for (name, pitch, street, holes) in plans {
         let maps: Vec<BitMatrix> = (0..24).map(|seed| city(seed, pitch, street, holes)).collect();
-        let mut sum = [0usize; 2];
-        let mut handed = 0usize;
+        let mut sum = 0usize;
         for bits in &maps {
-            pyramid.clear();
-            pyramid.rebuild(bits);
-            for (at, subtrees) in Subtrees::ALL.into_iter().enumerate() {
-                nesting::encode(&pyramid, bits, subtrees, &mut work, &mut out);
-                nesting::decode(&out, subtrees, &mut back);
-                let whole =
-                    (0..=u8::MAX).all(|y| (0..=u8::MAX).all(|x| bits.get(x, y) == back.get(x, y)));
-                assert!(whole, "{} lost a cell", subtrees.name());
-                sum[at] += out.bits();
-                if subtrees == Subtrees::On {
-                    handed += out.counts.subdividing_bindings;
-                }
-            }
+            sum += run(&mut pyramid, bits);
         }
         let n = maps.len();
-        all[0] += sum[0];
-        all[1] += sum[1];
-        all_handed += handed;
+
         count += n;
         t.row(&[
             name.to_string(),
             n.to_string(),
-            (sum[0] / n).to_string(),
-            (sum[1] / n).to_string(),
-            format!("{:+.1}%", 100.0 * (sum[1] as f64 - sum[0] as f64) / sum[0] as f64),
-            (handed / n).to_string(),
+            (sum / n).to_string(),
+            format!("{:.1}%", 100.0 * (sum / n) as f64 / 65536.0),
         ]);
+    }
+
+    // The corpus beside it, so the two are read together.
+    let mut sum = 0usize;
+    let mut n = 0usize;
+    for shape in samples::SHAPES {
+        for bits in shape.timed() {
+            sum += run(&mut pyramid, &bits);
+            n += 1;
+        }
     }
     t.rule();
     t.row(&[
-        "every plan".to_string(),
-        count.to_string(),
-        (all[0] / count).to_string(),
-        (all[1] / count).to_string(),
-        format!("{:+.1}%", 100.0 * (all[1] as f64 - all[0] as f64) / all[0] as f64),
-        (all_handed / count).to_string(),
+        "the corpus: blobs and scatter".to_string(),
+        n.to_string(),
+        (sum / n).to_string(),
+        format!("{:.1}%", 100.0 * (sum / n) as f64 / 65536.0),
     ]);
 
     println!("\n  laid out like a city, on a grid the quadtree can see.\n");
     t.print();
-
-    // And the corpus beside it, so the two are read together.
-    let mut t = Table::new(&[
-        "laid out",
-        "bitmaps",
-        "no subtrees\nbits a bitmap",
-        "subtrees\nbits a bitmap",
-        "subtrees against\nno subtrees",
-        "bindings that\nhand down, a bitmap",
-    ]);
-    let mut sum = [0usize; 2];
-    let (mut handed, mut n) = (0usize, 0usize);
-    for shape in samples::SHAPES {
-        for bits in shape.timed() {
-            pyramid.clear();
-            pyramid.rebuild(&bits);
-            for (at, subtrees) in Subtrees::ALL.into_iter().enumerate() {
-                nesting::encode(&pyramid, &bits, subtrees, &mut work, &mut out);
-                sum[at] += out.bits();
-                if subtrees == Subtrees::On {
-                    handed += out.counts.subdividing_bindings;
-                }
-            }
-            n += 1;
-        }
-    }
-    t.row(&[
-        "the corpus: blobs and scatter".to_string(),
-        n.to_string(),
-        (sum[0] / n).to_string(),
-        (sum[1] / n).to_string(),
-        format!("{:+.1}%", 100.0 * (sum[1] as f64 - sum[0] as f64) / sum[0] as f64),
-        (handed / n).to_string(),
-    ]);
-    println!("\n  and what it has been measured on until now.\n");
-    t.print();
+    let _ = count;
 }

@@ -1,19 +1,13 @@
-//! Where the bits actually go, and why the copy codes miss.
+//! Where the bits go, region by region.
 //!
-//! Four fifths of the bindings in the best encoding are bound at one
-//! cell a tile -- a region that found no size it could tile
-//! homogeneously and wrote its cells out. That is most of the
-//! encoding, so it is worth knowing what those regions look like and
-//! whether anything could have described them instead.
-//!
-//! Two questions, and the second is the interesting one. How big are
-//! they -- a large region writing its cells costs a bit a cell, which
-//! is the floor and no disgrace, but a small one pays its head as
-//! well over very few cells. And when a region gives up, was there a
-//! neighbour holding the same cells that the decoder simply would not
-//! have yet?
+//! Two questions about the regions that bind at one cell a tile,
+//! which is the encoding at its floor. How big are they -- a large
+//! one writing its cells costs a bit a cell and no more, but a small
+//! one pays its head as well over very few cells. And when a region
+//! gives up, was there a neighbour holding the same cells that the
+//! decoder simply would not have yet?
 
-use bitmatrix::dsrn::tree::{self, Overlap, Sizing};
+use bitmatrix::dsrn::nesting;
 use bitmatrix::dsrn::{Pyramid, LEVELS};
 use bitmatrix::samples;
 
@@ -22,19 +16,18 @@ mod table;
 use table::Table;
 
 fn main() {
-    let (mut pyramid, mut work) = (Pyramid::new(), tree::Workspace::new());
-    let mut out = tree::Encoded::default();
+    let (mut pyramid, mut work) = (Pyramid::new(), nesting::Workspace::new());
+    let mut out = nesting::Encoded::default();
 
-    let (sizing, overlap) = (Sizing::AsWideAsNeeded, Overlap::Disjoint);
     let mut cells = [0usize; LEVELS + 1];
     let (mut gave_up, mut missed, mut never) = (0usize, 0usize, 0usize);
-    let (mut bindings, mut tree_bits, mut payload, mut n) = (0usize, 0usize, 0usize, 0usize);
+    let (mut bindings, mut tree, mut payload, mut n) = (0usize, 0usize, 0usize, 0usize);
 
     for shape in samples::SHAPES {
         for bits in shape.timed() {
             pyramid.clear();
             pyramid.rebuild(&bits);
-            tree::encode(&pyramid, &bits, sizing, overlap, &mut work, &mut out);
+            nesting::encode(&pyramid, &bits, &mut work, &mut out);
             let c = out.counts;
             for level in 0..=LEVELS {
                 cells[level] += c.cells_given_up[level];
@@ -43,7 +36,7 @@ fn main() {
             missed += c.copies_just_missed;
             never += c.no_neighbour_matched;
             bindings += c.bindings;
-            tree_bits += out.tree.len();
+            tree += out.tree.len();
             payload += out.payload.len();
             n += 1;
         }
@@ -51,16 +44,10 @@ fn main() {
 
     let all: usize = cells.iter().sum();
     println!(
-        "\n  {} bitmaps, {} sizing, {}.\n",
-        n,
-        sizing.name(),
-        overlap.name()
-    );
-    println!(
-        "  {} bits a bitmap: {} of tree and {} of payload.\n  \
+        "\n  {n} bitmaps. {} bits a bitmap: {} of tree and {} of payload.\n  \
          {} bindings a bitmap, {} of them at one cell a tile, writing {} cells.\n",
-        (tree_bits + payload) / n,
-        tree_bits / n,
+        (tree + payload) / n,
+        tree / n,
         payload / n,
         bindings / n,
         gave_up / n,
@@ -80,8 +67,7 @@ fn main() {
         }
         let side = 1usize << level;
         let regions = cells[level] / (side * side);
-        // Two for the code, the tile size field, and a bit a cell.
-        let head = 2 + sizing.width(level);
+        let head = nesting::head_of_a_binding(level);
         t.row(&[
             side.to_string(),
             (cells[level] / n).to_string(),

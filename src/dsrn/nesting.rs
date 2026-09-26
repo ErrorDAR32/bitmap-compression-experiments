@@ -22,11 +22,7 @@
 //! region it stands on, so nothing says where it is or how big.
 //!
 //! ```text
-//! 00  bind          a tile size, then a bit: does it subdivide?
-//!                     no  -- a payload bit for every tile of the region
-//!                     yes -- a four bit child mask, a payload bit for
-//!                            every tile not inside a named child, then
-//!                            the named children as regions of their own
+//! 00  bind          a tile size, then a payload bit for every tile
 //! 01  subdivide     the four children, in reading order
 //! 10  copy          a direction
 //! 11  masked copy   a direction and a four bit child mask; the children
@@ -39,21 +35,21 @@
 //! size field is [`size_width`] bits, which depends only on the
 //! region's level, and both halves compute it the same way.
 //!
-//! # Subtree bindings
+//! # The tile size is not a choice
 //!
-//! A named child is a **subtree binding**: it describes its own area,
-//! and the region above leaves that area out of its payload. So a
-//! region's payload does not carry the bits a subtree binding would
-//! have needed.
+//! A binding covers its whole region and writes one bit per tile, so
+//! every tile of it has to be homogeneous. Coarser than the coarsest
+//! size that manages that and a payload bit would be a lie; finer and
+//! the same answer goes out four times over. So there is one size a
+//! region can name, and one fold up the pyramid finds it for every
+//! region at once.
 //!
-//! A child is worth handing down when describing it costs less than
-//! its share of the payload, which is one bit per tile over a quarter
-//! of the region. That is the rule, and it catches two different
-//! things with one test. A child too detailed to tile at this size
-//! *must* go down, because its share would be wrong. A child that
-//! merely copies a neighbour *wants* to go down, because four bits
-//! beats a quarter of the payload as soon as the region is bigger
-//! than four tiles across.
+//! Regions are **disjoint**: each describes its own area and nothing
+//! else. A binding that could fill most of a region and hand the
+//! awkward part to its subtree was built and measured, and it lost --
+//! it has to spend a bit on every binding saying whether it did, and
+//! only a quarter of them ever do. What it would have reached,
+//! subdividing reaches for two bits.
 //!
 //! # Copying
 //!
@@ -69,40 +65,6 @@ use crate::dsrn::stream::Bits;
 use crate::dsrn::{Pyramid, LEVELS};
 use crate::BitMatrix;
 
-/// Whether a binding may hand children down to its subtree.
-///
-/// Off, a binding covers its whole region and spends no bit saying
-/// so, which is the encoding without region nesting at all. On, it
-/// costs every binding of more than one tile a bit, whether it hands
-/// anything down or not. Having both is how the question "do subtree
-/// bindings pay for themselves" gets an answer rather than an
-/// argument.
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub enum Subtrees {
-    Off,
-    On,
-}
-
-impl Subtrees {
-    pub const ALL: [Subtrees; 2] = [Subtrees::Off, Subtrees::On];
-
-    pub fn name(self) -> &'static str {
-        match self {
-            Subtrees::Off => "no subtree bindings",
-            Subtrees::On => "bindings may hand children down",
-        }
-    }
-
-    /// The bit a binding of more than one tile spends saying whether
-    /// it hands anything down.
-    fn flag(self) -> usize {
-        match self {
-            Subtrees::Off => 0,
-            Subtrees::On => SUBDIVIDES,
-        }
-    }
-}
-
 /// The two bit code every region writes.
 const BIND: u64 = 0b00;
 const SUBDIVIDE: u64 = 0b01;
@@ -113,15 +75,6 @@ const MASKED_COPY: u64 = 0b11;
 const CODE: usize = 2;
 const DIRECTION: usize = 2;
 const CHILD_MASK: usize = 4;
-/// The bit after a binding's tile size, saying whether it subdivides.
-///
-/// A binding of one tile does not spend it. The mask it would
-/// introduce names children, and a child is smaller than the tile, so
-/// there is nothing such a binding could hand down and nothing the
-/// bit could say. Both halves know the tile size before they reach
-/// the bit, so both know whether it is there.
-const SUBDIVIDES: usize = 1;
-
 /// Tiles in a region whose tiles are `depth` levels below it.
 fn tiles(depth: usize) -> usize {
     1 << (2 * depth)
@@ -142,24 +95,35 @@ fn size_width(level: usize) -> usize {
     width
 }
 
+/// What a binding of a region at `level` spends before its payload:
+/// the code and the tile size.
+pub fn head_of_a_binding(level: usize) -> usize {
+    CODE + size_width(level)
+}
+
 /// How many of each code an encode wrote.
 #[derive(Default, Clone, Copy)]
 pub struct Counts {
     pub bindings: usize,
-    /// Bindings of more than one tile, which are the ones that spend
-    /// a bit saying whether they subdivide.
-    pub bindings_that_pay_the_flag: usize,
-    pub subdividing_bindings: usize,
     pub subdivides: usize,
     pub copies: usize,
     pub masked_copies: usize,
-    /// Children handed down by a binding, and by a masked copy.
-    pub subtree_bindings: usize,
+    /// Children a masked copy left to describe themselves.
     pub deferred_children: usize,
     /// Regions bound at one cell a tile, and the payload bits that
     /// went out one cell at a time -- the encoding at its floor.
     pub bound_at_cells: usize,
     pub cells_written: usize,
+    /// The cells those regions wrote, by the level of the region that
+    /// gave up. A large region giving up costs a bit a cell; a small
+    /// one costs its head as well, over very few cells.
+    pub cells_given_up: [usize; LEVELS + 1],
+    /// Of those regions, the ones holding the same cells as a
+    /// neighbour they may copy from -- but one the decoder will not
+    /// hold by the time it arrives.
+    pub copies_just_missed: usize,
+    /// And the ones with no matching neighbour at all.
+    pub no_neighbour_matched: usize,
 }
 
 /// What an encode produces.
@@ -188,9 +152,8 @@ impl Encoded {
 /// What a region settled on.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Says {
-    /// Bound at a tile size, handing down the children the mask
-    /// names.
-    Bind { depth: usize, handed: u64 },
+    /// Bound at a tile size.
+    Bind { depth: usize },
     Subdivide,
     Copy { dir: usize },
     /// Copied but for the children the mask names, which describe
@@ -327,56 +290,10 @@ fn tiles_of(region: Region, depth: usize) -> Vec<Region> {
     out
 }
 
-/// Which child of a region a tile falls in, given the tile size.
-fn child_of_tile(region: Region, depth: usize, tile: Region) -> usize {
-    let half = 1usize << (depth - 1);
-    let (col, row) = (tile.x - region.x * (1 << depth), tile.y - region.y * (1 << depth));
-    (row >= half) as usize * 2 + (col >= half) as usize
-}
-
-/// A binding at a tile size: which children it hands down, and what
-/// the whole thing costs.
-///
-/// A child is handed down when it must be -- its own tiles are not
-/// all homogeneous at this size, so a payload bit for it would be a
-/// lie -- or when it is simply cheaper to describe than its share of
-/// the payload.
-fn binding(work: &Workspace, region: Region, depth: usize, subtrees: Subtrees) -> (u64, usize) {
-    if depth == 0 {
-        // One tile, and it is the region. Nothing to hand down, so no
-        // bit spent saying so.
-        return (0, CODE + size_width(region.level) + 1);
-    }
-    let mut head = CODE + size_width(region.level) + subtrees.flag();
-
-    let share = tiles(depth - 1);
-    let (mut handed, mut total) = (0u64, 0usize);
-    for (bit, child) in children_of(region).into_iter().enumerate() {
-        // A child whose tiles are not all homogeneous at this size
-        // has to go down, or its share of the payload would be a lie.
-        // A child that is simply cheaper to describe than its share
-        // wants to go down. Without subtree bindings neither can, so
-        // a size that would need one is not a size this region can
-        // name at all.
-        let must = work.finest_of(child) > depth - 1;
-        if subtrees == Subtrees::Off {
-            if must {
-                return (0, usize::MAX);
-            }
-            total += share;
-            continue;
-        }
-        if must || work.cost_of(child) < share {
-            handed |= 1 << bit;
-            total += work.cost_of(child);
-        } else {
-            total += share;
-        }
-    }
-    if handed != 0 {
-        head += CHILD_MASK;
-    }
-    (handed, head + total)
+/// What a binding costs: the code, the tile size, and a payload bit
+/// for every tile of the region.
+fn binding_cost(region: Region, depth: usize) -> usize {
+    CODE + size_width(region.level) + tiles(depth)
 }
 
 /// Reads the pyramid bottom up, leaving every region the coarsest
@@ -389,18 +306,12 @@ fn binding(work: &Workspace, region: Region, depth: usize, subtrees: Subtrees) -
 /// -- and it does not have to. Pricing a copy at four bits only ever
 /// makes a region look cheaper than it turns out to be, and the
 /// descent asks the real question before it writes anything.
-fn survey(
-    work: &mut Workspace,
-    pyramid: &Pyramid,
-    bits: &BitMatrix,
-    region: Region,
-    subtrees: Subtrees,
-) {
+fn survey(work: &mut Workspace, pyramid: &Pyramid, bits: &BitMatrix, region: Region) {
     let at = Workspace::at(region);
 
     if region.level == 0 {
         work.finest[0][at] = 0;
-        work.cost[0][at] = CODE + size_width(0) + 1;
+        work.cost[0][at] = binding_cost(region, 0);
         return;
     }
 
@@ -410,27 +321,21 @@ fn survey(
         // surveyed as well: a masked copy above may hand one of them
         // down, and it has to have a cost.
         for child in children_of(region) {
-            survey(work, pyramid, bits, child, subtrees);
+            survey(work, pyramid, bits, child);
         }
-        work.cost[region.level][at] = CODE + size_width(region.level) + 1;
+        work.cost[region.level][at] = binding_cost(region, 0);
         return;
     }
 
     let mut deepest = 0;
     for child in children_of(region) {
-        survey(work, pyramid, bits, child, subtrees);
+        survey(work, pyramid, bits, child);
         deepest = deepest.max(work.finest_of(child));
     }
     work.finest[region.level][at] = (deepest + 1) as u8;
 
-    // Every tile size the region can name.
-    let mut best = usize::MAX;
-    for depth in 0..=region.level {
-        if depth == 0 {
-            continue;
-        }
-        best = best.min(binding(work, region, depth, subtrees).1);
-    }
+    // Binding, at the one size the region can name.
+    let mut best = binding_cost(region, work.finest_of(region));
 
     // Subdividing: the four children and nothing else.
     let mut subdivide = CODE;
@@ -464,35 +369,19 @@ fn survey(
 }
 
 /// Encodes the bitmap. The pyramid must already hold it.
-pub fn encode(
-    pyramid: &Pyramid,
-    bits: &BitMatrix,
-    subtrees: Subtrees,
-    work: &mut Workspace,
-    out: &mut Encoded,
-) {
+pub fn encode(pyramid: &Pyramid, bits: &BitMatrix, work: &mut Workspace, out: &mut Encoded) {
     out.clear();
     work.written.words.fill(0);
     let whole = Region { level: LEVELS, x: 0, y: 0 };
-    survey(work, pyramid, bits, whole, subtrees);
-    describe(work, pyramid, bits, whole, subtrees, out);
+    survey(work, pyramid, bits, whole);
+    describe(work, pyramid, bits, whole, out);
 }
 
 /// What a region will say, now that the descent knows what is
 /// written.
-fn decide(work: &Workspace, bits: &BitMatrix, region: Region, subtrees: Subtrees) -> Says {
-    let (mut best, mut says) = (usize::MAX, Says::Subdivide);
-
-    for depth in 0..=region.level {
-        // A region that is not all one thing cannot be one tile.
-        if depth == 0 && work.finest_of(region) > 0 {
-            continue;
-        }
-        let (handed, cost) = binding(work, region, depth, subtrees);
-        if cost < best {
-            (best, says) = (cost, Says::Bind { depth, handed });
-        }
-    }
+fn decide(work: &Workspace, bits: &BitMatrix, region: Region) -> Says {
+    let depth = work.finest_of(region);
+    let (mut best, mut says) = (binding_cost(region, depth), Says::Bind { depth });
 
     if region.level > 0 {
         let mut subdivide = CODE;
@@ -538,32 +427,29 @@ fn describe(
     pyramid: &Pyramid,
     bits: &BitMatrix,
     region: Region,
-    subtrees: Subtrees,
     out: &mut Encoded,
 ) {
-    match decide(work, bits, region, subtrees) {
-        Says::Bind { depth, handed } => {
+    match decide(work, bits, region) {
+        Says::Bind { depth } => {
             out.counts.bindings += 1;
-            if region.level == depth {
+                    if region.level == depth && region.level > 0 {
                 out.counts.bound_at_cells += 1;
+                out.counts.cells_given_up[region.level] += tiles(depth);
+                // Whether a copy was there to be had and reading order
+                // took it away, or there was never one.
+                let matched = (0..DIRECTIONS.len()).any(|dir| {
+                    neighbour(region, dir).is_some_and(|from| same_cells(bits, region, from))
+                });
+                if matched {
+                    out.counts.copies_just_missed += 1;
+                } else {
+                    out.counts.no_neighbour_matched += 1;
+                }
             }
             out.tree.push(BIND, CODE);
             out.tree.push(depth as u64, size_width(region.level));
-            if depth > 0 && subtrees == Subtrees::On {
-                out.counts.bindings_that_pay_the_flag += 1;
-                out.tree.push((handed != 0) as u64, SUBDIVIDES);
-            }
-            if handed != 0 {
-                out.counts.subdividing_bindings += 1;
-                out.tree.push(handed, CHILD_MASK);
-            }
-
-            // A payload bit for every tile not inside a handed down
-            // child, in reading order.
+            // A payload bit for every tile, in reading order.
             for tile in tiles_of(region, depth) {
-                if handed != 0 && handed >> child_of_tile(region, depth, tile) & 1 == 1 {
-                    continue;
-                }
                 let value = homogeneous(pyramid, bits, tile)
                     .expect("a bound tile is homogeneous, or the binding would be a lie");
                 out.payload.push(value as u64, 1);
@@ -572,19 +458,12 @@ fn describe(
                 }
                 mark_written(work, tile);
             }
-
-            for (bit, child) in children_of(region).into_iter().enumerate() {
-                if handed >> bit & 1 == 1 {
-                    out.counts.subtree_bindings += 1;
-                    describe(work, pyramid, bits, child, subtrees, out);
-                }
-            }
         }
         Says::Subdivide => {
             out.counts.subdivides += 1;
             out.tree.push(SUBDIVIDE, CODE);
             for child in children_of(region) {
-                describe(work, pyramid, bits, child, subtrees, out);
+                describe(work, pyramid, bits, child, out);
             }
         }
         Says::Copy { dir } => {
@@ -608,7 +487,7 @@ fn describe(
             for (bit, child) in children_of(region).into_iter().enumerate() {
                 if deferred >> bit & 1 == 1 {
                     out.counts.deferred_children += 1;
-                    describe(work, pyramid, bits, child, subtrees, out);
+                    describe(work, pyramid, bits, child, out);
                 }
             }
         }
@@ -641,17 +520,16 @@ impl Reading {
 ///
 /// It reads the same fields in the same order the decoder does, so a
 /// stream it cannot walk is a stream the decoder cannot read either.
-pub fn explain(out: &Encoded, subtrees: Subtrees) -> String {
+pub fn explain(out: &Encoded) -> String {
     let mut said = String::new();
     let mut reading = Reading::default();
-    retell(&mut reading, out, subtrees, Region { level: LEVELS, x: 0, y: 0 }, 0, &mut said);
+    retell(&mut reading, out, Region { level: LEVELS, x: 0, y: 0 }, 0, &mut said);
     said
 }
 
 fn retell(
     reading: &mut Reading,
     out: &Encoded,
-    subtrees: Subtrees,
     region: Region,
     deep: usize,
     said: &mut String,
@@ -662,38 +540,14 @@ fn retell(
     match reading.take(out, CODE) {
         BIND => {
             let depth = reading.take(out, size_width(region.level)) as usize;
-            let handed = if depth > 0
-                && subtrees == Subtrees::On
-                && reading.take(out, SUBDIVIDES) == 1
-            {
-                reading.take(out, CHILD_MASK)
-            } else {
-                0
-            };
             let tile = 1usize << (region.level - depth);
-            let filled = tiles_of(region, depth)
-                .into_iter()
-                .filter(|tile| {
-                    handed == 0 || handed >> child_of_tile(region, depth, *tile) & 1 == 0
-                })
-                .count();
-            for tile in tiles_of(region, depth) {
-                if handed == 0 || handed >> child_of_tile(region, depth, tile) & 1 == 0 {
-                    reading.value(out);
-                }
+            let filled = tiles(depth);
+            for _ in 0..filled {
+                reading.value(out);
             }
             said.push_str(&format!(
-                "{where_it_is}: bind at {tile}x{tile} tiles, {filled} of them"
+                "{where_it_is}: bind at {tile}x{tile} tiles, {filled} of them\n"
             ));
-            if handed != 0 {
-                said.push_str(&format!(", handing down {}", handed.count_ones()));
-            }
-            said.push('\n');
-            for (bit, child) in children_of(region).into_iter().enumerate() {
-                if handed >> bit & 1 == 1 {
-                    retell(reading, out, subtrees, child, deep + 1, said);
-                }
-            }
         }
         COPY => {
             let dir = reading.take(out, DIRECTION) as usize;
@@ -709,14 +563,14 @@ fn retell(
             ));
             for (bit, child) in children_of(region).into_iter().enumerate() {
                 if deferred >> bit & 1 == 1 {
-                    retell(reading, out, subtrees, child, deep + 1, said);
+                    retell(reading, out, child, deep + 1, said);
                 }
             }
         }
         _ => {
             said.push_str(&format!("{where_it_is}: subdivide\n"));
             for child in children_of(region) {
-                retell(reading, out, subtrees, child, deep + 1, said);
+                retell(reading, out, child, deep + 1, said);
             }
         }
     }
@@ -727,10 +581,10 @@ fn retell(
 const WHENCE: [&str; 4] = ["the top left", "above", "the top right", "the left"];
 
 /// Reads the bitmap back.
-pub fn decode(out: &Encoded, subtrees: Subtrees, bits: &mut BitMatrix) {
+pub fn decode(out: &Encoded, bits: &mut BitMatrix) {
     bits.words.fill(0);
     let mut reading = Reading::default();
-    undescribe(&mut reading, out, subtrees, bits, Region { level: LEVELS, x: 0, y: 0 });
+    undescribe(&mut reading, out, bits, Region { level: LEVELS, x: 0, y: 0 });
 }
 
 /// Writes a whole tile into the bitmap.
@@ -755,35 +609,13 @@ fn copy_cells(bits: &mut BitMatrix, to: Region, from: Region) {
 }
 
 /// Puts back one region, and whatever its description left out.
-fn undescribe(
-    reading: &mut Reading,
-    out: &Encoded,
-    subtrees: Subtrees,
-    bits: &mut BitMatrix,
-    region: Region,
-) {
+fn undescribe(reading: &mut Reading, out: &Encoded, bits: &mut BitMatrix, region: Region) {
     match reading.take(out, CODE) {
         BIND => {
             let depth = reading.take(out, size_width(region.level)) as usize;
-            let handed = if depth > 0
-                && subtrees == Subtrees::On
-                && reading.take(out, SUBDIVIDES) == 1
-            {
-                reading.take(out, CHILD_MASK)
-            } else {
-                0
-            };
             for tile in tiles_of(region, depth) {
-                if handed != 0 && handed >> child_of_tile(region, depth, tile) & 1 == 1 {
-                    continue;
-                }
                 let value = reading.value(out);
                 fill(bits, tile, value);
-            }
-            for (bit, child) in children_of(region).into_iter().enumerate() {
-                if handed >> bit & 1 == 1 {
-                    undescribe(reading, out, subtrees, bits, child);
-                }
             }
         }
         COPY => {
@@ -804,13 +636,13 @@ fn undescribe(
             }
             for (bit, child) in children_of(region).into_iter().enumerate() {
                 if deferred >> bit & 1 == 1 {
-                    undescribe(reading, out, subtrees, bits, child);
+                    undescribe(reading, out, bits, child);
                 }
             }
         }
         _ => {
             for child in children_of(region) {
-                undescribe(reading, out, subtrees, bits, child);
+                undescribe(reading, out, bits, child);
             }
         }
     }
@@ -867,18 +699,11 @@ mod tests {
         for (case, bits) in cases().iter().enumerate() {
             pyramid.clear();
             pyramid.rebuild(bits);
-            for subtrees in Subtrees::ALL {
-                encode(&pyramid, bits, subtrees, &mut work, &mut out);
-                decode(&out, subtrees, &mut back);
-                for y in 0..=u8::MAX {
-                    for x in 0..=u8::MAX {
-                        assert_eq!(
-                            bits.get(x, y),
-                            back.get(x, y),
-                            "{}, case {case}, differs at ({x}, {y})",
-                            subtrees.name()
-                        );
-                    }
+            encode(&pyramid, bits, &mut work, &mut out);
+            decode(&out, &mut back);
+            for y in 0..=u8::MAX {
+                for x in 0..=u8::MAX {
+                    assert_eq!(bits.get(x, y), back.get(x, y), "case {case} differs at ({x}, {y})");
                 }
             }
         }
@@ -896,7 +721,7 @@ mod tests {
         for bits in [BitMatrix::new(), full] {
             pyramid.clear();
             pyramid.rebuild(&bits);
-            encode(&pyramid, &bits, Subtrees::On, &mut work, &mut out);
+            encode(&pyramid, &bits, &mut work, &mut out);
             assert_eq!(out.counts.bindings, 1);
             assert_eq!(out.bits(), CODE + size_width(LEVELS) + 1);
         }
@@ -921,8 +746,8 @@ mod tests {
         for bits in [checkerboard(1), BitMatrix::new(), checkerboard(3)] {
             pyramid.clear();
             pyramid.rebuild(&bits);
-            encode(&pyramid, &bits, Subtrees::On, &mut work, &mut out);
-            decode(&out, Subtrees::On, &mut back);
+            encode(&pyramid, &bits, &mut work, &mut out);
+            decode(&out, &mut back);
             assert_eq!(bits.count_set(), back.count_set());
         }
     }

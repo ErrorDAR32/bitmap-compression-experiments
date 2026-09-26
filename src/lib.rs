@@ -1,18 +1,18 @@
 //! A fixed-size 256x256 bit matrix, and an encoding of it.
 //!
 //! [`dsrn`] is disjoint sized-tile region nesting: the bitmap read as a
-//! quadtree whose regions are bound to a tile size, each bound region
-//! emitting one value per tile, and whatever no tile size describes
-//! copied from a neighbour that looks the same.
+//! quadtree whose regions are each bound to a tile size, a bound
+//! region emitting one value per tile, and a region no tile size
+//! suits copied from a neighbour that looks the same or cut into
+//! four that are easier.
 //!
 //! # Using it
 //!
-//! The workspaces hold every buffer the encoding needs, so they are
+//! The workspace holds every buffer the encoding needs, so it is
 //! built once and fed bitmap after bitmap:
 //!
 //! ```
-//! use bitmatrix::dsrn::passes::{decode, encode, Encoded, Workspace};
-//! use bitmatrix::dsrn::rules::Ruleset;
+//! use bitmatrix::dsrn::nesting::{decode, encode, Encoded, Workspace};
 //! use bitmatrix::dsrn::Pyramid;
 //! use bitmatrix::BitMatrix;
 //!
@@ -20,12 +20,12 @@
 //! bits.set_rect(10, 10, 40, 30);
 //! bits.set_circle(180, 180, 25);
 //!
-//! let (mut pyramid, mut work) = (Pyramid::new(), Workspace::default());
+//! let (mut pyramid, mut work) = (Pyramid::new(), Workspace::new());
 //! let (mut out, mut back) = (Encoded::default(), BitMatrix::new());
 //!
 //! pyramid.rebuild(&bits);
-//! encode(&pyramid, &bits, Ruleset::ALL[0], &mut work, &mut out);
-//! decode(&out, Ruleset::ALL[0], &mut work, &mut back);
+//! encode(&pyramid, &bits, &mut work, &mut out);
+//! decode(&out, &mut back);
 //! assert_eq!(back.count_set(), bits.count_set());
 //! ```
 //!
@@ -34,7 +34,7 @@
 //! | module | what lives there |
 //! |---|---|
 //! | `data` | the bitmap and the bit operations on it, and nothing that decides anything |
-//! | [`dsrn`] | the pyramid every decision is asked of, and the passes that ask |
+//! | [`dsrn`] | the pyramid every decision is asked of, and the encoding that asks |
 //! | [`samples`] | the one source of test bitmaps |
 //!
 //! `docs/protocol.md` is how a change to any of it gets measured, and
