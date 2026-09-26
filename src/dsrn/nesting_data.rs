@@ -36,6 +36,44 @@ pub const CHILD_MASK_WIDTH: usize = 4;
 /// can say is its value, so it says its value and nothing else.
 pub const FINEST_LEVEL_WITH_A_GRAMMAR: usize = CELL_LEVEL - 2;
 
+/// What a region can already count on before it says anything: what
+/// the closest binding above it says over its cells.
+///
+/// A region left out of its parent's mask is not left clear, it is
+/// left to that binding. So what a region may leave out depends on
+/// what the binding above would put there, and that is this.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Standing {
+    /// No binding above at all. What is left unsaid here stays as the
+    /// decoder found it, which is clear -- so this is `Reads(false)`
+    /// for everything but who puts it there, which is nobody.
+    Clear,
+    /// A binding above covers this region and says this over it.
+    /// Everything left unsaid here reads it.
+    Reads(bool),
+    /// A binding above covers this region with tiles `depth` levels
+    /// below it. There is no one value to leave anything to here --
+    /// each of those tiles has its own -- but a region that far down
+    /// is one of them, and does.
+    Tiles(usize),
+    /// Nothing to leave anything to. A copy covers this region, and
+    /// what it puts here reads the neighbour rather than any one
+    /// thing.
+    Nothing,
+}
+
+impl Standing {
+    /// What is already there to be left alone, where there is any one
+    /// thing.
+    pub fn reads(self) -> Option<bool> {
+        match self {
+            Standing::Clear => Some(false),
+            Standing::Reads(value) => Some(value),
+            Standing::Tiles(_) | Standing::Nothing => None,
+        }
+    }
+}
+
 /// Which children of a region get a description of their own, and
 /// which are left to the closest binding above them.
 ///
@@ -183,8 +221,19 @@ pub struct Workspace {
     /// Per region, the coarsest tile size at which every tile of it is
     /// homogeneous, as a depth below the region.
     pub coarsest_homogeneous_depth: Vec<Vec<u8>>,
-    /// Per region, what its cheapest description costs.
+    /// Per region, what its cheapest description costs when it has
+    /// to say the whole of itself.
     pub cheapest_description: Vec<Vec<usize>>,
+    /// Per region, what its cheapest description costs when a binding
+    /// above already says one thing over it -- once for each thing
+    /// that binding could be saying.
+    ///
+    /// Zero where the region already reads that: there is nothing to
+    /// put right, and the region is not described at all. Which of
+    /// the two a binding should say is the one choice a tile has that
+    /// nothing else decides, and it is one bit, so both are priced
+    /// and the cheaper wins.
+    pub cost_to_put_right: Vec<Vec<[usize; 2]>>,
     /// Which cells some description has taken, and so which cells
     /// the decoder will already hold.
     ///
@@ -212,6 +261,9 @@ impl Workspace {
             cheapest_description: (0..=CELL_LEVEL)
                 .map(|level| vec![0usize; tiles_in_level(level)])
                 .collect(),
+            cost_to_put_right: (0..=CELL_LEVEL)
+                .map(|level| vec![[0usize; 2]; tiles_in_level(level)])
+                .collect(),
             encoded_cells: Bitmap::new(),
         }
     }
@@ -234,6 +286,22 @@ impl Workspace {
 
     pub fn set_cost(&mut self, region: Region, cost: usize) {
         self.cheapest_description[region.level][Self::at(region)] = cost;
+    }
+
+    /// What it costs to put a region right when the binding above it
+    /// says `standing` over it.
+    pub fn cost_to_put_right_of(&self, region: Region, standing: bool) -> usize {
+        self.cost_to_put_right[region.level][Self::at(region)][standing as usize]
+    }
+
+    pub fn set_cost_to_put_right(&mut self, region: Region, standing: bool, cost: usize) {
+        self.cost_to_put_right[region.level][Self::at(region)][standing as usize] = cost;
+    }
+
+    /// Which of the two things a binding could say over a region
+    /// leaves the least to put right.
+    pub fn value_worth_standing(&self, region: Region) -> bool {
+        self.cost_to_put_right_of(region, true) < self.cost_to_put_right_of(region, false)
     }
 
     /// Takes a region's cells back off the encoded map, so that a

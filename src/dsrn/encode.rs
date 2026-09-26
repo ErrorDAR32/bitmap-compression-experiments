@@ -18,14 +18,14 @@
 //! decoder will really be able to make.
 
 use crate::dsrn::cost::{
-    below_the_grammar, description_size, four_by_four_mask_size, tile_size_field_width,
+    below_the_grammar, description_tree_size, four_by_four_mask_size, tile_size_field_width,
     whole_subtree_size,
 };
-use crate::dsrn::describable::every_description;
+use crate::dsrn::describable::{every_description, standing_under};
 use crate::dsrn::nesting::Knobs;
 use crate::dsrn::nesting_data::{
-    Encoded, RegionCode, Workspace, BIND, CHILD_MASK_WIDTH, CODE_WIDTH, COPY, DIRECTION_WIDTH,
-    MASK, SUBDIVIDE,
+    Encoded, RegionCode, Standing, Workspace, BIND, CHILD_MASK_WIDTH, CODE_WIDTH, COPY,
+    DIRECTION_WIDTH, MASK, SUBDIVIDE,
 };
 use crate::dsrn::region::{
     deepest_depth, same_cells, tiles_at_depth, whole_region_encoded, Region, CHILD_COUNT,
@@ -37,16 +37,17 @@ use crate::Bitmap;
 /// Describes one region, the children it describes again, and then
 /// whatever of itself they left.
 ///
-/// `covered_from_above` says whether some binding or copy already
-/// covers this region. Where one does, a child left out of a mask is
-/// filled by it; where none does, a child left out stays clear.
+/// `standing` is what the closest binding above already says over
+/// this region, which is what a child left out of a mask is left to.
+/// At the top of the bitmap there is no such binding, and what is
+/// left out stays clear.
 pub fn encode_region(
     work: &mut Workspace,
     pyramid: &Pyramid,
     bitmap: &Bitmap,
     region: Region,
     knobs: Knobs,
-    covered_from_above: bool,
+    standing: Standing,
     out: &mut Encoded,
 ) {
     if below_the_grammar(region) {
@@ -59,13 +60,16 @@ pub fn encode_region(
         return;
     }
 
-    let code = every_description(work, pyramid, bitmap, region, knobs, true, covered_from_above)
+    let code = every_description(work, pyramid, bitmap, region, knobs, true, standing)
         .into_iter()
-        .min_by_key(|&code| whole_subtree_size(work, region, code))
+        .min_by_key(|&code| whole_subtree_size(work, region, code, standing))
         .expect("every region can at least bind at one cell a tile");
 
     let mask = code.mask();
-    out.counts.accounted += description_size(code);
+    // The tree half now; the payload half is counted as it goes out,
+    // because how much of it there is depends on what the regions
+    // below take.
+    out.counts.accounted += description_tree_size(code);
     if code.is_masked() {
         out.tree.push_value(MASK, CODE_WIDTH);
         out.counts.children_left_to_a_binding += mask.left_to_a_binding();
@@ -100,15 +104,12 @@ pub fn encode_region(
     }
 
     // The children described again go first, because what they take
-    // is exactly what this region does not have to write. A binding
-    // and a copy cover whatever they leave; a subdivision passes on
-    // the question of whether anything does.
-    let covers_its_children = !matches!(code, RegionCode::Subdivide { .. });
+    // is exactly what this region does not have to write.
     for (at, child) in region.children().into_iter().enumerate() {
         if mask.describes(at) {
             out.counts.children_made_regions += 1;
-            let covered = covered_from_above || covers_its_children;
-            encode_region(work, pyramid, bitmap, child, knobs, covered, out);
+            let theirs = standing_under(work, standing, region, code, child);
+            encode_region(work, pyramid, bitmap, child, knobs, theirs, out);
         }
     }
 
@@ -119,6 +120,7 @@ pub fn encode_region(
             for tile in region.tiles_at_depth(depth) {
                 let Some(value) = what_is_left_of(work, bitmap, tile) else { continue };
                 out.payload.push(value);
+                out.counts.accounted += 1;
                 if tile.is_a_cell() {
                     out.counts.cells_written += 1;
                 }
@@ -132,7 +134,7 @@ pub fn encode_region(
         // clear, and clear is something the decoder holds and a copy
         // may read.
         RegionCode::Subdivide { .. } => {
-            if !covered_from_above {
+            if standing == Standing::Clear {
                 for (at, child) in region.children().into_iter().enumerate() {
                     if !mask.describes(at) {
                         work.mark_encoded(child);

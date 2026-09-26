@@ -36,7 +36,7 @@
 
 use crate::dsrn::coarsest::coarsest;
 use crate::dsrn::encode::encode_region;
-use crate::dsrn::nesting_data::{Encoded, Workspace, FINEST_LEVEL_WITH_A_GRAMMAR};
+use crate::dsrn::nesting_data::{Encoded, Standing, Workspace, FINEST_LEVEL_WITH_A_GRAMMAR};
 use crate::dsrn::region::Region;
 use crate::pyramid::{tile_side, Pyramid, CELL_LEVEL};
 use crate::Bitmap;
@@ -166,5 +166,5 @@ pub fn encode(
     work.encoded_cells.reset();
     let whole = Region::whole_bitmap();
     coarsest(work, pyramid, bitmap, whole, knobs);
-    encode_region(work, pyramid, bitmap, whole, knobs, false, out);
+    encode_region(work, pyramid, bitmap, whole, knobs, Standing::Clear, out);
 }

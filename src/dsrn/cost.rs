@@ -8,8 +8,9 @@
 //! description hands on, which is what a region is worth to the region
 //! above it.
 
+use crate::dsrn::describable::standing_under;
 use crate::dsrn::nesting_data::{
-    RegionCode, RegionMask, Workspace, CHILD_MASK_WIDTH, CODE_WIDTH, DIRECTION_WIDTH,
+    RegionCode, RegionMask, Standing, Workspace, CHILD_MASK_WIDTH, CODE_WIDTH, DIRECTION_WIDTH,
     FINEST_LEVEL_WITH_A_GRAMMAR,
 };
 use crate::dsrn::region::{deepest_depth, tiles_at_depth, Region, CHILD_COUNT};
@@ -46,14 +47,25 @@ pub fn bound_region_payload_size(depth: usize, mask: RegionMask) -> usize {
 }
 
 /// What a description spends on itself: everything but the regions it
-/// hands on.
+/// describes again.
 pub fn description_size(code: RegionCode) -> usize {
+    let payload = match code {
+        RegionCode::Bind { depth, mask, .. } => bound_region_payload_size(depth, mask),
+        _ => 0,
+    };
+    description_tree_size(code) + payload
+}
+
+/// The half of that which goes into the tree, which is the half that
+/// is known before anything below has been written.
+///
+/// A binding's payload is the other half, and how much of it there is
+/// depends on what the regions below took: this says everything but
+/// that.
+pub fn description_tree_size(code: RegionCode) -> usize {
     let mut size = CODE_WIDTH + if code.is_masked() { CODE_WIDTH + CHILD_MASK_WIDTH } else { 0 };
     match code {
-        RegionCode::Bind { level, depth, mask } => {
-            size += tile_size_field_width(level);
-            size += bound_region_payload_size(depth, mask);
-        }
+        RegionCode::Bind { level, .. } => size += tile_size_field_width(level),
         RegionCode::Subdivide { .. } => {}
         RegionCode::Copy { .. } => size += DIRECTION_WIDTH,
     }
@@ -81,20 +93,54 @@ pub fn cells_written_out(region: Region) -> usize {
 }
 
 /// What a description costs all told: what it spends on itself, and
-/// what every region it hands on will spend, down to the cells.
+/// what every region it describes again will spend, down to the
+/// cells.
 ///
-/// The handed on part is read from the workspace, which holds each
+/// The part below is read from the workspace, which holds each
 /// region's own whole subtree size, so this is the whole subtree and
-/// not just the children.
-pub fn whole_subtree_size(work: &Workspace, region: Region, code: RegionCode) -> usize {
+/// not just the children. Which of the two the workspace holds
+/// depends on what the child stands in: a child with a binding above
+/// it saying one thing only has to put right what that gets wrong.
+///
+/// A binding whose tiles are its children underpays here by a bit per
+/// child it describes again, because a child that leaves any of
+/// itself standing still costs the bit that says what is standing,
+/// and whether it does is only known once it has been written. That
+/// is the same optimism a copy is priced with, and the same answer:
+/// it makes a region look cheaper than it turns out to be, never
+/// dearer, and nothing is written on the strength of it.
+pub fn whole_subtree_size(
+    work: &Workspace,
+    region: Region,
+    code: RegionCode,
+    standing: Standing,
+) -> usize {
     let mut size = description_size(code);
     let mask = code.mask();
     for (child, at) in region.children().into_iter().zip(0..CHILD_COUNT) {
-        if mask.describes(at) {
-            size += work.cost_of(child);
+        if !mask.describes(at) {
+            continue;
         }
+        size += cost_of_describing(work, child, standing_under(work, standing, region, code, child));
     }
     size
+}
+
+/// What it costs to describe a region, standing in what it stands in.
+///
+/// A region with a binding above saying one thing over it only has to
+/// put right what that gets wrong. A region that is already right has
+/// nothing to put right -- but a mask that names it has asked it to
+/// say something anyway, and the least it can say is the whole of
+/// itself.
+pub fn cost_of_describing(work: &Workspace, region: Region, standing: Standing) -> usize {
+    match standing.reads() {
+        Some(reads) => match work.cost_to_put_right_of(region, reads) {
+            0 => work.cost_of(region),
+            putting_right => putting_right,
+        },
+        None => work.cost_of(region),
+    }
 }
 
 /// Whether a region is too fine to have a grammar of its own.

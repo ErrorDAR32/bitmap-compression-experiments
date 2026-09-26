@@ -7,22 +7,23 @@
 //! and then a copy is only offered where the decoder really will hold
 //! what it copies from.
 //!
-//! `covered_from_above` is the other thing the descent knows and the
-//! first pass does not: whether some binding or copy already covers
-//! this region, and so will fill whatever is left out here. Where
-//! nothing does, what is left out stays clear, and only a child that
-//! is already clear may be left out.
+//! What a region may leave out depends on what it is standing in.
+//! A child left out of a mask is left to the closest binding above,
+//! so a child may be left out exactly when it already reads what that
+//! binding says. At the top of the bitmap that binding is nothing and
+//! what it says is clear, which is the same rule with the same
+//! answer.
 //!
 //! Nothing here chooses. It lays out the options and lets
 //! [`super::cost`] price them.
 
 use crate::dsrn::nesting::Knobs;
-use crate::dsrn::nesting_data::{RegionCode, RegionMask, Workspace};
+use crate::dsrn::nesting_data::{RegionCode, RegionMask, Standing, Workspace};
 use crate::dsrn::region::{
-    all_cells_clear, deepest_depth, same_cells, whole_region_encoded, Region, CHILD_COUNT,
-    DIRECTIONS, EVERY_CHILD,
+    deepest_depth, same_cells, whole_region_encoded, Region, CHILD_COUNT, DIRECTIONS,
+    EVERY_CHILD,
 };
-use crate::pyramid::Pyramid;
+use crate::pyramid::{tile_of_bitmap, Pyramid};
 use crate::Bitmap;
 
 /// Which children a binding at a tile size has to describe again,
@@ -43,20 +44,75 @@ fn described_again_by_a_binding(work: &Workspace, region: Region, depth: usize) 
     RegionMask(again)
 }
 
-/// Which children a subdivision has to describe when nothing above
-/// covers the region: every child that holds anything.
+/// Which children what is standing over them already gets right, and
+/// so which a subdivision has to describe.
 ///
-/// A child left out is left to the closest binding above. Where there
-/// is none, what is left out stays as the decoder found it, which is
-/// clear -- so only a child that is clear may be left out.
-fn children_holding_anything(pyramid: &Pyramid, bitmap: &Bitmap, region: Region) -> RegionMask {
-    let mut holding = 0;
+/// A child left out is left to the closest binding above, and that
+/// binding is already going to put something there. Where it says one
+/// thing over the whole region, a child that already reads it is
+/// right. Where it covers the region with tiles, a child every one of
+/// whose tiles is one thing is right, because a tile that is one
+/// thing is a tile the binding can say with the bit it was going to
+/// write anyway.
+fn children_standing_gets_wrong(
+    work: &Workspace,
+    pyramid: &Pyramid,
+    bitmap: &Bitmap,
+    region: Region,
+    standing: Standing,
+) -> RegionMask {
+    let mut wrong = 0;
     for (at, child) in region.children().into_iter().enumerate() {
-        if !all_cells_clear(pyramid, bitmap, child) {
-            holding |= 1 << at;
+        let right = match standing {
+            Standing::Clear => already_reads(pyramid, bitmap, child, false),
+            Standing::Reads(reads) => already_reads(pyramid, bitmap, child, reads),
+            Standing::Tiles(depth) => work.coarsest_depth_of(child) <= depth - 1,
+            Standing::Nothing => false,
+        };
+        if !right {
+            wrong |= 1 << at;
         }
     }
-    RegionMask(holding)
+    RegionMask(wrong)
+}
+
+/// Whether a region already reads one thing all the way through.
+fn already_reads(pyramid: &Pyramid, bitmap: &Bitmap, region: Region, reads: bool) -> bool {
+    tile_of_bitmap(pyramid, bitmap, region.level, region.x, region.y) == Some(reads)
+}
+
+/// What a region's children stand in, once it has said what it says.
+///
+/// A binding covers them with its tiles, and a child that is one of
+/// those tiles reads whichever of the two that tile is cheaper
+/// saying. A copy leaves them nothing to stand in, because what it
+/// puts there reads the neighbour rather than any one thing. A
+/// subdivision says nothing of its own, so its children stand in
+/// whatever it stands in.
+pub fn standing_under(
+    work: &Workspace,
+    standing: Standing,
+    region: Region,
+    code: RegionCode,
+    child: Region,
+) -> Standing {
+    match code {
+        // One tile, and it is the whole region, so every child is
+        // inside it.
+        RegionCode::Bind { depth: 0, .. } => Standing::Reads(work.value_worth_standing(region)),
+        RegionCode::Bind { depth, .. } => one_level_down(work, Standing::Tiles(depth), child),
+        RegionCode::Copy { .. } => Standing::Nothing,
+        RegionCode::Subdivide { .. } => one_level_down(work, standing, child),
+    }
+}
+
+/// The same standing, read one level further down.
+fn one_level_down(work: &Workspace, standing: Standing, child: Region) -> Standing {
+    match standing {
+        Standing::Tiles(1) => Standing::Reads(work.value_worth_standing(child)),
+        Standing::Tiles(depth) => Standing::Tiles(depth - 1),
+        held => held,
+    }
 }
 
 /// Which children a copy would get wrong, in a direction, and so has
@@ -113,7 +169,7 @@ pub fn every_description(
     region: Region,
     knobs: Knobs,
     encoded: bool,
-    covered_from_above: bool,
+    standing: Standing,
 ) -> Vec<RegionCode> {
     let mut ways = Vec::new();
     let may_mask = knobs.masking.allows(region);
@@ -136,10 +192,10 @@ pub fn every_description(
     }
 
     ways.push(RegionCode::Subdivide { mask: RegionMask::EVERY });
-    if may_mask && !covered_from_above {
-        let holding = children_holding_anything(pyramid, bitmap, region);
-        if holding != RegionMask::EVERY {
-            ways.push(RegionCode::Subdivide { mask: holding });
+    if may_mask {
+        let wrong = children_standing_gets_wrong(work, pyramid, bitmap, region, standing);
+        if wrong != RegionMask::EVERY {
+            ways.push(RegionCode::Subdivide { mask: wrong });
         }
     }
 

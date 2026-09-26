@@ -21,7 +21,7 @@ use crate::dsrn::cost::{
 };
 use crate::dsrn::describable::{every_description, where_each_child_copies_from};
 use crate::dsrn::nesting::Knobs;
-use crate::dsrn::nesting_data::Workspace;
+use crate::dsrn::nesting_data::{Standing, Workspace};
 use crate::dsrn::region::Region;
 use crate::pyramid::{tile_of_bitmap, Pyramid, CELL_LEVEL};
 use crate::Bitmap;
@@ -37,6 +37,7 @@ pub fn coarsest(
     if region.is_a_cell() {
         work.set_coarsest_depth(region, 0);
         work.set_cost(region, 1);
+        price_putting_right(work, pyramid, bitmap, region, 1);
         return;
     }
 
@@ -55,6 +56,7 @@ pub fn coarsest(
 
     if below_the_grammar(region) {
         work.set_cost(region, cells_written_out(region));
+        price_putting_right(work, pyramid, bitmap, region, cells_written_out(region));
         return;
     }
 
@@ -68,14 +70,60 @@ pub fn coarsest(
             .filter(|from| from.is_some())
             .count();
         work.set_cost(region, four_by_four_mask_size(copied));
+        price_putting_right(work, pyramid, bitmap, region, four_by_four_mask_size(copied));
         return;
     }
 
-    let cheapest = every_description(work, pyramid, bitmap, region, knobs, false, false)
-        .into_iter()
-        .map(|code| whole_subtree_size(work, region, code))
-        .min()
-        .expect("every region can at least bind at one cell a tile");
-    work.set_cost(region, cheapest);
+    work.set_cost(region, cheapest_in(work, pyramid, bitmap, region, knobs, Standing::Nothing));
+    // And again for each thing a binding above could be saying over
+    // it, because what a region has to say depends on what is already
+    // there to be left alone.
+    for standing in [false, true] {
+        let cost = if already_reads(pyramid, bitmap, region, standing) {
+            0
+        } else {
+            cheapest_in(work, pyramid, bitmap, region, knobs, Standing::Reads(standing))
+        };
+        work.set_cost_to_put_right(region, standing, cost);
+    }
     let _ = CELL_LEVEL;
+}
+
+/// The cheapest thing a region could say, standing in what it stands
+/// in.
+fn cheapest_in(
+    work: &Workspace,
+    pyramid: &Pyramid,
+    bitmap: &Bitmap,
+    region: Region,
+    knobs: Knobs,
+    standing: Standing,
+) -> usize {
+    every_description(work, pyramid, bitmap, region, knobs, false, standing)
+        .into_iter()
+        .map(|code| whole_subtree_size(work, region, code, standing))
+        .min()
+        .expect("every region can at least bind at one cell a tile")
+}
+
+/// Whether a region already reads what a binding above would say
+/// over it, and so has nothing to put right and nothing to say.
+fn already_reads(pyramid: &Pyramid, bitmap: &Bitmap, region: Region, standing: bool) -> bool {
+    tile_of_bitmap(pyramid, bitmap, region.level, region.x, region.y) == Some(standing)
+}
+
+/// What a region with nothing to choose between costs to put right:
+/// nothing where it already reads what is standing, and the whole of
+/// its one description where it does not.
+fn price_putting_right(
+    work: &mut Workspace,
+    pyramid: &Pyramid,
+    bitmap: &Bitmap,
+    region: Region,
+    cost: usize,
+) {
+    for standing in [false, true] {
+        let right = already_reads(pyramid, bitmap, region, standing);
+        work.set_cost_to_put_right(region, standing, if right { 0 } else { cost });
+    }
 }
