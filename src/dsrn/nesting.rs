@@ -22,34 +22,44 @@
 //! region it stands on, so nothing says where it is or how big.
 //!
 //! ```text
-//! 00  bind          a tile size, then a payload bit for every tile
-//! 01  subdivide     the four children, in reading order
-//! 10  copy          a direction
-//! 11  masked copy   a direction and a four bit child mask; the children
-//!                   the mask names follow as regions of their own, and
-//!                   the rest are copied
+//! 00  bind        a tile size, then a payload bit for every tile
+//! 01  subdivide   the four children, in reading order
+//! 10  copy        a direction
+//! 11  mask        one of the three above, then four bits saying which
+//!                 children it leaves alone and which become regions
 //! ```
 //!
-//! Every field is fixed width once the code and the region are known,
-//! so there is exactly one way to read any stream. A binding's tile
-//! size field is [`size_width`] bits, which depends only on the
-//! region's level, and both halves compute it the same way.
+//! The fourth is not a fourth thing to say. It is the other three
+//! said of part of a region: the mask names the children the
+//! operation leaves alone, and the rest follow as regions of their
+//! own. So a masked binding fills the children it leaves alone and
+//! hands the others down, a masked copy takes the children it leaves
+//! alone from a neighbour, and a masked subdivide leaves its children
+//! alone entirely -- which is to say clear, since that is what the
+//! decoder starts from.
 //!
-//! # The tile size is not a choice
+//! Nothing costs a bit for the option. A region that masks pays two
+//! bits for the mark and four for the mask; a region that does not
+//! pays neither. That is the whole reason the mark is a code rather
+//! than a flag on a binding: a flag is paid by every binding whether
+//! it masks or not.
 //!
-//! A binding covers its whole region and writes one bit per tile, so
-//! every tile of it has to be homogeneous. Coarser than the coarsest
-//! size that manages that and a payload bit would be a lie; finer and
-//! the same answer goes out four times over. So there is one size a
-//! region can name, and one fold up the pyramid finds it for every
-//! region at once.
+//! `11` is never followed by `11`. A mask modifies one of the three,
+//! and masking a mask would say nothing the one mask cannot.
 //!
-//! Regions are **disjoint**: each describes its own area and nothing
-//! else. A binding that could fill most of a region and hand the
-//! awkward part to its subtree was built and measured, and it lost --
-//! it has to spend a bit on every binding saying whether it did, and
-//! only a quarter of them ever do. What it would have reached,
-//! subdividing reaches for two bits.
+//! # Tile size
+//!
+//! A binding names its tile's side as a power of two, in as many bits
+//! as its own size allows -- none at a cell, four at the whole
+//! bitmap. See [`size_width`].
+//!
+//! An unmasked binding covers its whole region and writes one bit per
+//! tile, so every tile of it has to be homogeneous. Coarser than the
+//! coarsest size that manages that and a payload bit would be a lie;
+//! finer and the same answer goes out four times over. A masked
+//! binding only has to be true of the children it keeps, which is
+//! what lets it name a coarser size than the region as a whole could
+//! carry and hand the awkward children down.
 //!
 //! # Copying
 //!
@@ -69,24 +79,21 @@ use crate::BitMatrix;
 const BIND: u64 = 0b00;
 const SUBDIVIDE: u64 = 0b01;
 const COPY: u64 = 0b10;
-const MASKED_COPY: u64 = 0b11;
+/// Not a fourth thing to say: a mark that one of the three above is
+/// about to be said of part of the region.
+const MASK: u64 = 0b11;
 
-/// The widths, in bits, of everything that is not a tile size.
+/// The widths, in bits.
 const CODE: usize = 2;
-const DIRECTION: usize = 2;
-const CHILD_MASK: usize = 4;
-/// Tiles in a region whose tiles are `depth` levels below it.
-fn tiles(depth: usize) -> usize {
-    1 << (2 * depth)
-}
 
-/// The width of a binding's tile size field, for a region at `level`.
+/// The width of a binding's tile size field for a region at `level`.
 ///
 /// A region of side `1 << level` can name `level + 1` tile sizes, the
 /// cells up to the region itself, so it spends exactly the bits those
 /// need: none at a cell, one at a 2x2, four at the whole bitmap. A
-/// flat field would have to be four bits everywhere and would still
-/// be a cap if the bitmap ever grew.
+/// flat field wide enough for the whole bitmap would charge a 2x2
+/// four bits to say "cells", and over a corpus that is 1652 bits a
+/// bitmap -- more than the mask code earns.
 fn size_width(level: usize) -> usize {
     let mut width = 0;
     while (1 << width) < level + 1 {
@@ -94,9 +101,18 @@ fn size_width(level: usize) -> usize {
     }
     width
 }
+const DIRECTION: usize = 2;
+const CHILD_MASK: usize = 4;
 
-/// What a binding of a region at `level` spends before its payload:
-/// the code and the tile size.
+/// A child mask naming every child.
+const EVERY_CHILD: u64 = 0b1111;
+
+/// Tiles in a region whose tiles are `depth` levels below it.
+fn tiles(depth: usize) -> usize {
+    1 << (2 * depth)
+}
+
+/// What a binding of a region at `level` spends before its payload.
 pub fn head_of_a_binding(level: usize) -> usize {
     CODE + size_width(level)
 }
@@ -107,16 +123,21 @@ pub struct Counts {
     pub bindings: usize,
     pub subdivides: usize,
     pub copies: usize,
+    /// Of each of those, the ones that masked.
+    pub masked_bindings: usize,
+    pub masked_subdivides: usize,
     pub masked_copies: usize,
-    /// Children a masked copy left to describe themselves.
-    pub deferred_children: usize,
+    /// Children a mask sent off to be regions of their own.
+    pub children_made_regions: usize,
+    /// Children a masked subdivide left clear, which cost nothing at
+    /// all beyond their bit of the mask.
+    pub children_left_clear: usize,
     /// Regions bound at one cell a tile, and the payload bits that
     /// went out one cell at a time -- the encoding at its floor.
     pub bound_at_cells: usize,
     pub cells_written: usize,
     /// The cells those regions wrote, by the level of the region that
-    /// gave up. A large region giving up costs a bit a cell; a small
-    /// one costs its head as well, over very few cells.
+    /// gave up.
     pub cells_given_up: [usize; LEVELS + 1],
     /// Of those regions, the ones holding the same cells as a
     /// neighbour they may copy from -- but one the decoder will not
@@ -149,26 +170,32 @@ impl Encoded {
     }
 }
 
-/// What a region settled on.
+/// What a region settled on. `alone` is the mask: the children the
+/// operation covers, with the rest becoming regions of their own. All
+/// four means no mask at all, and no mark to introduce one.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Says {
-    /// Bound at a tile size.
-    Bind { depth: usize },
-    Subdivide,
-    Copy { dir: usize },
-    /// Copied but for the children the mask names, which describe
-    /// themselves.
-    MaskedCopy { dir: usize, deferred: u64 },
+    Bind { depth: usize, alone: u64 },
+    Subdivide { alone: u64 },
+    Copy { dir: usize, alone: u64 },
 }
 
-/// The room an encode works in.
-///
-/// One entry per region of every level, which is 87381 of them, found
-/// once and refilled per bitmap.
+impl Says {
+    fn masked(self) -> bool {
+        match self {
+            // Subdividing is masked whenever it leaves any child
+            // alone, because subdividing without a mask leaves none.
+            Says::Subdivide { alone } => alone != 0,
+            Says::Bind { alone, .. } | Says::Copy { alone, .. } => alone != EVERY_CHILD,
+        }
+    }
+}
+
+/// The room an encode works in. One entry per region of every level,
+/// found once and refilled per bitmap.
 pub struct Workspace {
     /// The coarsest tile size at which every tile of a region is
-    /// homogeneous, as a depth below the region. A region cannot be
-    /// bound by anything at a size coarser than this.
+    /// homogeneous, as a depth below the region.
     finest: Vec<Vec<u8>>,
     /// What the cheapest description of a region costs.
     cost: Vec<Vec<usize>>,
@@ -210,15 +237,15 @@ impl Workspace {
 }
 
 /// The cells of a region, as a rectangle.
-fn cells(region: Region) -> (usize, usize, usize, usize) {
+fn cells(region: Region) -> (usize, usize, usize) {
     let side = 1usize << region.level;
-    (region.x * side, region.y * side, side, side)
+    (region.x * side, region.y * side, side)
 }
 
 /// Whether two regions of the same size hold the same cells. A cell
 /// at a time, as the statement says.
 fn same_cells(bits: &BitMatrix, a: Region, b: Region) -> bool {
-    let ((ax, ay, side, _), (bx, by, _, _)) = (cells(a), cells(b));
+    let ((ax, ay, side), (bx, by, _)) = (cells(a), cells(b));
     for row in 0..side {
         for col in 0..side {
             if bits.get((ax + col) as u8, (ay + row) as u8)
@@ -245,7 +272,7 @@ fn neighbour(region: Region, dir: usize) -> Option<Region> {
 
 /// Whether the decoder will already hold every cell of a region.
 fn already_written(work: &Workspace, region: Region) -> bool {
-    let (x, y, side, _) = cells(region);
+    let (x, y, side) = cells(region);
     for row in 0..side {
         for col in 0..side {
             if !work.written.get((x + col) as u8, (y + row) as u8) {
@@ -258,13 +285,8 @@ fn already_written(work: &Workspace, region: Region) -> bool {
 
 /// Marks every cell of a region described.
 fn mark_written(work: &mut Workspace, region: Region) {
-    let (x, y, side, _) = cells(region);
-    work.written.set_rect(
-        x as i64,
-        y as i64,
-        (x + side - 1) as i64,
-        (y + side - 1) as i64,
-    );
+    let (x, y, side) = cells(region);
+    work.written.set_rect(x as i64, y as i64, (x + side - 1) as i64, (y + side - 1) as i64);
 }
 
 /// What a region holds, if it is all one thing.
@@ -275,6 +297,12 @@ fn homogeneous(pyramid: &Pyramid, bits: &BitMatrix, region: Region) -> Option<bo
         return Some(bits.get(region.x as u8, region.y as u8));
     }
     pyramid.at(region.level, region.x, region.y)
+}
+
+/// Whether every cell of a region is clear, which is what a masked
+/// subdivide leaves its children as.
+fn all_clear(pyramid: &Pyramid, bits: &BitMatrix, region: Region) -> bool {
+    homogeneous(pyramid, bits, region) == Some(false)
 }
 
 /// The tiles of a region at a tile size, in reading order.
@@ -290,10 +318,126 @@ fn tiles_of(region: Region, depth: usize) -> Vec<Region> {
     out
 }
 
-/// What a binding costs: the code, the tile size, and a payload bit
-/// for every tile of the region.
-fn binding_cost(region: Region, depth: usize) -> usize {
-    CODE + size_width(region.level) + tiles(depth)
+/// Which child of a region a tile falls in, at that tile size.
+fn child_of_tile(region: Region, depth: usize, tile: Region) -> usize {
+    let half = 1usize << (depth - 1);
+    let (col, row) = (tile.x - region.x * (1 << depth), tile.y - region.y * (1 << depth));
+    (row >= half) as usize * 2 + (col >= half) as usize
+}
+
+/// What a description costs, given which children it leaves alone.
+///
+/// The mark and the mask are paid only when there is a mask -- when
+/// the operation leaves every child alone (or, for subdividing, none)
+/// there is nothing to say and nothing to pay.
+fn cost_of_saying(work: &Workspace, region: Region, says: Says) -> usize {
+    let mut cost = CODE + if says.masked() { CODE + CHILD_MASK } else { 0 };
+    let (alone, own) = match says {
+        Says::Bind { depth, alone } => {
+            cost += size_width(region.level);
+            // A payload bit for every tile of every child it keeps.
+            cost += if alone == EVERY_CHILD {
+                tiles(depth)
+            } else {
+                alone.count_ones() as usize * tiles(depth - 1)
+            };
+            (alone, true)
+        }
+        Says::Subdivide { alone } => (alone, true),
+        Says::Copy { alone, .. } => {
+            cost += DIRECTION;
+            (alone, true)
+        }
+    };
+    let _ = own;
+    for (bit, child) in children_of(region).into_iter().enumerate() {
+        if alone >> bit & 1 == 0 {
+            cost += work.cost_of(child);
+        }
+    }
+    cost
+}
+
+/// Which children a binding at a tile size can keep, and which it has
+/// to hand down.
+///
+/// A child whose tiles are not all homogeneous at this size has to go
+/// down, or its share of the payload would be a lie. A child cheaper
+/// to describe than its share wants to go down.
+fn kept_by_a_binding(work: &Workspace, region: Region, depth: usize) -> u64 {
+    let share = tiles(depth - 1);
+    let mut alone = 0;
+    for (bit, child) in children_of(region).into_iter().enumerate() {
+        if work.finest_of(child) <= depth - 1 && work.cost_of(child) >= share {
+            alone |= 1 << bit;
+        }
+    }
+    alone
+}
+
+/// Every description a region could give of itself, cheapest last so
+/// that a fold over them takes the best.
+fn every_way(
+    work: &Workspace,
+    pyramid: &Pyramid,
+    bits: &BitMatrix,
+    region: Region,
+    written: bool,
+) -> Vec<Says> {
+    let mut ways = Vec::new();
+
+    for depth in 0..=region.level {
+        // Unmasked: every tile of the region has to be homogeneous.
+        if depth >= work.finest_of(region) {
+            ways.push(Says::Bind { depth, alone: EVERY_CHILD });
+        }
+        // Masked: only the children it keeps have to be, and a mask
+        // names children, so there have to be children to name.
+        if depth >= 1 && region.level > 0 {
+            let alone = kept_by_a_binding(work, region, depth);
+            if alone != EVERY_CHILD {
+                ways.push(Says::Bind { depth, alone });
+            }
+        }
+    }
+
+    if region.level > 0 {
+        ways.push(Says::Subdivide { alone: 0 });
+        // Masked: the children it leaves alone stay clear.
+        let mut clear = 0;
+        for (bit, child) in children_of(region).into_iter().enumerate() {
+            if all_clear(pyramid, bits, child) {
+                clear |= 1 << bit;
+            }
+        }
+        if clear != 0 && clear != EVERY_CHILD {
+            ways.push(Says::Subdivide { alone: clear });
+        }
+
+        for dir in 0..DIRECTIONS.len() {
+            let Some(from) = neighbour(region, dir) else { continue };
+            let here = |a: Region, b: Region| {
+                same_cells(bits, a, b) && (!written || already_written(work, b))
+            };
+            if here(region, from) {
+                ways.push(Says::Copy { dir, alone: EVERY_CHILD });
+                continue;
+            }
+            let mut alone = 0;
+            for (bit, (child, mirror)) in
+                children_of(region).into_iter().zip(children_of(from)).enumerate()
+            {
+                if here(child, mirror) {
+                    alone |= 1 << bit;
+                }
+            }
+            if alone != 0 {
+                ways.push(Says::Copy { dir, alone });
+            }
+        }
+    }
+
+    ways
 }
 
 /// Reads the pyramid bottom up, leaving every region the coarsest
@@ -311,60 +455,22 @@ fn survey(work: &mut Workspace, pyramid: &Pyramid, bits: &BitMatrix, region: Reg
 
     if region.level == 0 {
         work.finest[0][at] = 0;
-        work.cost[0][at] = binding_cost(region, 0);
+        work.cost[0][at] = CODE + size_width(0) + 1;
         return;
     }
 
-    if homogeneous(pyramid, bits, region).is_some() {
-        work.finest[region.level][at] = 0;
-        // Every region under it is homogeneous too, so they are
-        // surveyed as well: a masked copy above may hand one of them
-        // down, and it has to have a cost.
-        for child in children_of(region) {
-            survey(work, pyramid, bits, child);
-        }
-        work.cost[region.level][at] = binding_cost(region, 0);
-        return;
-    }
-
+    let plain = homogeneous(pyramid, bits, region).is_some();
     let mut deepest = 0;
     for child in children_of(region) {
         survey(work, pyramid, bits, child);
         deepest = deepest.max(work.finest_of(child));
     }
-    work.finest[region.level][at] = (deepest + 1) as u8;
+    work.finest[region.level][at] = if plain { 0 } else { (deepest + 1) as u8 };
 
-    // Binding, at the one size the region can name.
-    let mut best = binding_cost(region, work.finest_of(region));
-
-    // Subdividing: the four children and nothing else.
-    let mut subdivide = CODE;
-    for child in children_of(region) {
-        subdivide += work.cost_of(child);
+    let mut best = usize::MAX;
+    for says in every_way(work, pyramid, bits, region, false) {
+        best = best.min(cost_of_saying(work, region, says));
     }
-    best = best.min(subdivide);
-
-    // Copying, and copying all but some children.
-    for dir in 0..DIRECTIONS.len() {
-        let Some(from) = neighbour(region, dir) else { continue };
-        if same_cells(bits, region, from) {
-            best = best.min(CODE + DIRECTION);
-            continue;
-        }
-        let mut deferred = 0usize;
-        let mut any = false;
-        for (child, mirror) in children_of(region).into_iter().zip(children_of(from)) {
-            if same_cells(bits, child, mirror) {
-                any = true;
-            } else {
-                deferred += work.cost_of(child);
-            }
-        }
-        if any {
-            best = best.min(CODE + DIRECTION + CHILD_MASK + deferred);
-        }
-    }
-
     work.cost[region.level][at] = best;
 }
 
@@ -377,50 +483,6 @@ pub fn encode(pyramid: &Pyramid, bits: &BitMatrix, work: &mut Workspace, out: &m
     describe(work, pyramid, bits, whole, out);
 }
 
-/// What a region will say, now that the descent knows what is
-/// written.
-fn decide(work: &Workspace, bits: &BitMatrix, region: Region) -> Says {
-    let depth = work.finest_of(region);
-    let (mut best, mut says) = (binding_cost(region, depth), Says::Bind { depth });
-
-    if region.level > 0 {
-        let mut subdivide = CODE;
-        for child in children_of(region) {
-            subdivide += work.cost_of(child);
-        }
-        if subdivide < best {
-            (best, says) = (subdivide, Says::Subdivide);
-        }
-
-        for dir in 0..DIRECTIONS.len() {
-            let Some(from) = neighbour(region, dir) else { continue };
-            if already_written(work, from) && same_cells(bits, region, from) {
-                if CODE + DIRECTION < best {
-                    (best, says) = (CODE + DIRECTION, Says::Copy { dir });
-                }
-                continue;
-            }
-            // Part of it may still be there to take.
-            let (mut deferred, mut cost, mut any) = (0u64, CODE + DIRECTION + CHILD_MASK, false);
-            for (bit, (child, mirror)) in
-                children_of(region).into_iter().zip(children_of(from)).enumerate()
-            {
-                if already_written(work, mirror) && same_cells(bits, child, mirror) {
-                    any = true;
-                } else {
-                    deferred |= 1 << bit;
-                    cost += work.cost_of(child);
-                }
-            }
-            if any && cost < best {
-                (best, says) = (cost, Says::MaskedCopy { dir, deferred });
-            }
-        }
-    }
-
-    says
-}
-
 /// Describes one region, and whatever its description leaves out.
 fn describe(
     work: &mut Workspace,
@@ -429,27 +491,48 @@ fn describe(
     region: Region,
     out: &mut Encoded,
 ) {
-    match decide(work, bits, region) {
-        Says::Bind { depth } => {
-            out.counts.bindings += 1;
-                    if region.level == depth && region.level > 0 {
-                out.counts.bound_at_cells += 1;
-                out.counts.cells_given_up[region.level] += tiles(depth);
-                // Whether a copy was there to be had and reading order
-                // took it away, or there was never one.
-                let matched = (0..DIRECTIONS.len()).any(|dir| {
-                    neighbour(region, dir).is_some_and(|from| same_cells(bits, region, from))
-                });
-                if matched {
-                    out.counts.copies_just_missed += 1;
-                } else {
-                    out.counts.no_neighbour_matched += 1;
-                }
+    let says = every_way(work, pyramid, bits, region, true)
+        .into_iter()
+        .min_by_key(|&says| cost_of_saying(work, region, says))
+        .expect("every region can at least bind at one cell a tile");
+
+    if let Says::Bind { depth, .. } = says {
+        out.counts.bindings += 1;
+        if region.level == depth && region.level > 0 {
+            out.counts.bound_at_cells += 1;
+            out.counts.cells_given_up[region.level] += tiles(depth);
+            // Whether a copy was there to be had and reading order
+            // took it away, or there was never one.
+            let matched = (0..DIRECTIONS.len())
+                .any(|dir| neighbour(region, dir).is_some_and(|f| same_cells(bits, region, f)));
+            if matched {
+                out.counts.copies_just_missed += 1;
+            } else {
+                out.counts.no_neighbour_matched += 1;
             }
+        }
+    }
+
+    let alone = match says {
+        Says::Bind { alone, .. } | Says::Subdivide { alone } | Says::Copy { alone, .. } => alone,
+    };
+    if says.masked() {
+        out.tree.push(MASK, CODE);
+    }
+    match says {
+        Says::Bind { depth, .. } => {
             out.tree.push(BIND, CODE);
-            out.tree.push(depth as u64, size_width(region.level));
-            // A payload bit for every tile, in reading order.
+            if says.masked() {
+                out.counts.masked_bindings += 1;
+                out.tree.push(alone, CHILD_MASK);
+            }
+            out.tree.push((region.level - depth) as u64, size_width(region.level));
+            // A payload bit for every tile of every child it keeps,
+            // in reading order.
             for tile in tiles_of(region, depth) {
+                if alone != EVERY_CHILD && alone >> child_of_tile(region, depth, tile) & 1 == 0 {
+                    continue;
+                }
                 let value = homogeneous(pyramid, bits, tile)
                     .expect("a bound tile is homogeneous, or the binding would be a lie");
                 out.payload.push(value as u64, 1);
@@ -459,37 +542,47 @@ fn describe(
                 mark_written(work, tile);
             }
         }
-        Says::Subdivide => {
+        Says::Subdivide { .. } => {
             out.counts.subdivides += 1;
             out.tree.push(SUBDIVIDE, CODE);
-            for child in children_of(region) {
-                describe(work, pyramid, bits, child, out);
+            if says.masked() {
+                out.counts.masked_subdivides += 1;
+                out.counts.children_left_clear += alone.count_ones() as usize;
+                out.tree.push(alone, CHILD_MASK);
             }
-        }
-        Says::Copy { dir } => {
-            out.counts.copies += 1;
-            out.tree.push(COPY, CODE);
-            out.tree.push(dir as u64, DIRECTION);
-            mark_written(work, region);
-        }
-        Says::MaskedCopy { dir, deferred } => {
-            out.counts.masked_copies += 1;
-            out.tree.push(MASKED_COPY, CODE);
-            out.tree.push(dir as u64, DIRECTION);
-            out.tree.push(deferred, CHILD_MASK);
-            // What the copy takes is written before what it defers is
-            // described, so a deferred child may read beside it.
+            // A child left alone is left clear, which the decoder
+            // already holds it as.
             for (bit, child) in children_of(region).into_iter().enumerate() {
-                if deferred >> bit & 1 == 0 {
+                if alone >> bit & 1 == 1 {
                     mark_written(work, child);
                 }
             }
+        }
+        Says::Copy { dir, .. } => {
+            out.counts.copies += 1;
+            out.tree.push(COPY, CODE);
+            if says.masked() {
+                out.counts.masked_copies += 1;
+                out.tree.push(alone, CHILD_MASK);
+            }
+            out.tree.push(dir as u64, DIRECTION);
             for (bit, child) in children_of(region).into_iter().enumerate() {
-                if deferred >> bit & 1 == 1 {
-                    out.counts.deferred_children += 1;
-                    describe(work, pyramid, bits, child, out);
+                if alone >> bit & 1 == 1 {
+                    mark_written(work, child);
                 }
             }
+            if alone == EVERY_CHILD {
+                mark_written(work, region);
+            }
+        }
+    }
+
+    // Whatever the description left out is described before the
+    // descent moves on, so a region beside it may read what it wrote.
+    for (bit, child) in children_of(region).into_iter().enumerate() {
+        if region.level > 0 && alone >> bit & 1 == 0 {
+            out.counts.children_made_regions += 1;
+            describe(work, pyramid, bits, child, out);
         }
     }
 }
@@ -515,71 +608,6 @@ impl Reading {
     }
 }
 
-/// Walks an encoding's tree and writes out what each region says,
-/// one line a region, indented by how deep it sits.
-///
-/// It reads the same fields in the same order the decoder does, so a
-/// stream it cannot walk is a stream the decoder cannot read either.
-pub fn explain(out: &Encoded) -> String {
-    let mut said = String::new();
-    let mut reading = Reading::default();
-    retell(&mut reading, out, Region { level: LEVELS, x: 0, y: 0 }, 0, &mut said);
-    said
-}
-
-fn retell(
-    reading: &mut Reading,
-    out: &Encoded,
-    region: Region,
-    deep: usize,
-    said: &mut String,
-) {
-    let side = 1usize << region.level;
-    let (x, y, _, _) = cells(region);
-    let where_it_is = format!("{:width$}{side}x{side} at ({x}, {y})", "", width = deep * 2);
-    match reading.take(out, CODE) {
-        BIND => {
-            let depth = reading.take(out, size_width(region.level)) as usize;
-            let tile = 1usize << (region.level - depth);
-            let filled = tiles(depth);
-            for _ in 0..filled {
-                reading.value(out);
-            }
-            said.push_str(&format!(
-                "{where_it_is}: bind at {tile}x{tile} tiles, {filled} of them\n"
-            ));
-        }
-        COPY => {
-            let dir = reading.take(out, DIRECTION) as usize;
-            said.push_str(&format!("{where_it_is}: copy from {}\n", WHENCE[dir]));
-        }
-        MASKED_COPY => {
-            let dir = reading.take(out, DIRECTION) as usize;
-            let deferred = reading.take(out, CHILD_MASK);
-            said.push_str(&format!(
-                "{where_it_is}: copy from {}, but for {} of its children\n",
-                WHENCE[dir],
-                deferred.count_ones()
-            ));
-            for (bit, child) in children_of(region).into_iter().enumerate() {
-                if deferred >> bit & 1 == 1 {
-                    retell(reading, out, child, deep + 1, said);
-                }
-            }
-        }
-        _ => {
-            said.push_str(&format!("{where_it_is}: subdivide\n"));
-            for child in children_of(region) {
-                retell(reading, out, child, deep + 1, said);
-            }
-        }
-    }
-}
-
-/// The directions a copy may name, in the order [`DIRECTIONS`] has
-/// them.
-const WHENCE: [&str; 4] = ["the top left", "above", "the top right", "the left"];
-
 /// Reads the bitmap back.
 pub fn decode(out: &Encoded, bits: &mut BitMatrix) {
     bits.words.fill(0);
@@ -592,13 +620,13 @@ fn fill(bits: &mut BitMatrix, tile: Region, value: bool) {
     if !value {
         return;
     }
-    let (x, y, side, _) = cells(tile);
+    let (x, y, side) = cells(tile);
     bits.set_rect(x as i64, y as i64, (x + side - 1) as i64, (y + side - 1) as i64);
 }
 
 /// Copies one region's cells onto another's, a cell at a time.
 fn copy_cells(bits: &mut BitMatrix, to: Region, from: Region) {
-    let ((tx, ty, side, _), (fx, fy, _, _)) = (cells(to), cells(from));
+    let ((tx, ty, side), (fx, fy, _)) = (cells(to), cells(from));
     for row in 0..side {
         for col in 0..side {
             if bits.get((fx + col) as u8, (fy + row) as u8) {
@@ -610,10 +638,28 @@ fn copy_cells(bits: &mut BitMatrix, to: Region, from: Region) {
 
 /// Puts back one region, and whatever its description left out.
 fn undescribe(reading: &mut Reading, out: &Encoded, bits: &mut BitMatrix, region: Region) {
-    match reading.take(out, CODE) {
+    let mut code = reading.take(out, CODE);
+    let masked = code == MASK;
+    if masked {
+        code = reading.take(out, CODE);
+    }
+    // Unmasked, a binding and a copy cover the whole region and a
+    // subdivision covers none of it.
+    let alone = if masked {
+        reading.take(out, CHILD_MASK)
+    } else if code == SUBDIVIDE {
+        0
+    } else {
+        EVERY_CHILD
+    };
+
+    match code {
         BIND => {
-            let depth = reading.take(out, size_width(region.level)) as usize;
+            let depth = region.level - reading.take(out, size_width(region.level)) as usize;
             for tile in tiles_of(region, depth) {
+                if alone != EVERY_CHILD && alone >> child_of_tile(region, depth, tile) & 1 == 0 {
+                    continue;
+                }
                 let value = reading.value(out);
                 fill(bits, tile, value);
             }
@@ -621,29 +667,26 @@ fn undescribe(reading: &mut Reading, out: &Encoded, bits: &mut BitMatrix, region
         COPY => {
             let dir = reading.take(out, DIRECTION) as usize;
             let from = neighbour(region, dir).expect("a copy names a neighbour on the bitmap");
-            copy_cells(bits, region, from);
-        }
-        MASKED_COPY => {
-            let dir = reading.take(out, DIRECTION) as usize;
-            let deferred = reading.take(out, CHILD_MASK);
-            let from = neighbour(region, dir).expect("a copy names a neighbour on the bitmap");
-            for (bit, (child, mirror)) in
-                children_of(region).into_iter().zip(children_of(from)).enumerate()
-            {
-                if deferred >> bit & 1 == 0 {
-                    copy_cells(bits, child, mirror);
-                }
-            }
-            for (bit, child) in children_of(region).into_iter().enumerate() {
-                if deferred >> bit & 1 == 1 {
-                    undescribe(reading, out, bits, child);
+            if alone == EVERY_CHILD {
+                copy_cells(bits, region, from);
+            } else {
+                for (bit, (child, mirror)) in
+                    children_of(region).into_iter().zip(children_of(from)).enumerate()
+                {
+                    if alone >> bit & 1 == 1 {
+                        copy_cells(bits, child, mirror);
+                    }
                 }
             }
         }
-        _ => {
-            for child in children_of(region) {
-                undescribe(reading, out, bits, child);
-            }
+        // Subdividing says nothing, and a child it leaves alone stays
+        // as the decoder found it, which is clear.
+        _ => {}
+    }
+
+    for (bit, child) in children_of(region).into_iter().enumerate() {
+        if region.level > 0 && alone >> bit & 1 == 0 {
+            undescribe(reading, out, bits, child);
         }
     }
 }
@@ -687,6 +730,12 @@ mod tests {
             }
         }
         cases.push(stripes);
+        // A 16x16 block with an aligned 2x2 hole, which is what a
+        // masked binding is for.
+        let mut hole = BitMatrix::new();
+        hole.set_rect(64, 64, 79, 79);
+        hole.unset_rect(74, 74, 75, 75);
+        cases.push(hole);
         cases
     }
 
@@ -709,9 +758,9 @@ mod tests {
         }
     }
 
-    /// A bitmap of one value is one binding of one tile: two bits of
-    /// code, four of tile size, one saying it does not subdivide, and
-    /// one of payload.
+    /// A bitmap of one value is one binding. Three bits of tile size
+    /// cannot name a tile of 256, so it binds at 128 and spends four
+    /// payload bits where one would have done.
     #[test]
     fn a_bitmap_of_one_value_is_one_binding() {
         let (mut pyramid, mut work) = (Pyramid::new(), Workspace::new());
@@ -723,18 +772,23 @@ mod tests {
             pyramid.rebuild(&bits);
             encode(&pyramid, &bits, &mut work, &mut out);
             assert_eq!(out.counts.bindings, 1);
+            assert_eq!(out.counts.masked_bindings, 0);
             assert_eq!(out.bits(), CODE + size_width(LEVELS) + 1);
         }
     }
 
-    /// The tile size field is as wide as the region's own size needs
-    /// and no wider.
+    /// Nothing pays for a mask it does not use: an unmasked
+    /// description writes no mark and no mask.
     #[test]
-    fn a_tile_size_field_is_as_wide_as_its_region_needs() {
-        for (level, width) in [(0, 0), (1, 1), (2, 2), (3, 2), (4, 3), (7, 3), (8, 4)] {
-            assert_eq!(size_width(level), width, "at level {level}");
-            assert!(1 << width >= level + 1, "level {level} cannot name all its tile sizes");
-        }
+    fn an_unmasked_description_pays_for_no_mask() {
+        let region = Region { level: 4, x: 0, y: 0 };
+        let work = Workspace::new();
+        let whole = Says::Bind { depth: 2, alone: EVERY_CHILD };
+        assert!(!whole.masked());
+        assert_eq!(cost_of_saying(&work, region, whole), CODE + size_width(4) + tiles(2));
+        assert!(Says::Bind { depth: 2, alone: 0b0111 }.masked());
+        assert!(!Says::Subdivide { alone: 0 }.masked());
+        assert!(Says::Subdivide { alone: 0b0001 }.masked());
     }
 
     /// A workspace holds the last bitmap's survey, so an encode must

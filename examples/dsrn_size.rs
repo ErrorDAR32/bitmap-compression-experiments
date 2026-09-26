@@ -134,7 +134,7 @@ fn main() {
 
     println!("\n  what the codes are, over the whole corpus.\n");
     let mut t = Table::new(&["code", "a bitmap"]);
-    let mut totals = [0usize; 6];
+    let mut totals = [0usize; 9];
     let mut n = 0usize;
     for shape in samples::SHAPES {
         for bits in shape.timed() {
@@ -144,10 +144,13 @@ fn main() {
             let c = room.out.counts;
             let row = [
                 c.bindings,
+                c.masked_bindings,
                 c.subdivides,
+                c.masked_subdivides,
+                c.children_left_clear,
                 c.copies,
                 c.masked_copies,
-                c.deferred_children,
+                c.children_made_regions,
                 c.cells_written,
             ];
             for (slot, got) in row.iter().enumerate() {
@@ -158,10 +161,13 @@ fn main() {
     }
     for (slot, name) in [
         "bindings",
+        "of those, masked",
         "subdivides",
-        "whole copies",
-        "masked copies",
-        "children those left to describe themselves",
+        "of those, masked",
+        "children those left clear",
+        "copies",
+        "of those, masked",
+        "children a mask made regions of their own",
         "payload bits that went out one cell at a time",
     ]
     .into_iter()
