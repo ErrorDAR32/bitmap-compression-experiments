@@ -238,6 +238,16 @@ pub struct CodeCounts {
     /// write them. If it is not [`Encoded::bits`], one of the two is
     /// wrong.
     pub accounted: usize,
+    /// How many payload-bearing units this encode produced, by the
+    /// level of the tile each one is about -- one bind's worth of
+    /// value or one copy's worth of direction, whatever its size.
+    ///
+    /// This is the number [`crate::dsrn_exp::greedy_tiles`] counts
+    /// against, so the two are comparable: a tile a binding absorbs
+    /// still costs its own bit and is counted here once, the same as
+    /// a tile that pays for its own header.
+    pub bound_tiles_at_level: [usize; CELL_LEVEL + 1],
+    pub copied_tiles_at_level: [usize; CELL_LEVEL + 1],
 }
 
 /// What an encode produces.
@@ -248,6 +258,16 @@ pub struct Encoded {
     pub tree: EncodedBitmap,
     /// One bit per tile, in the order the regions bound them.
     pub payload: EncodedBitmap,
+}
+
+impl CodeCounts {
+    /// Every payload-bearing tile this encode produced, whatever its
+    /// size or kind -- the same count [`crate::dsrn_exp::greedy_tiles`]
+    /// reports for its own pass, so the two are directly comparable.
+    pub fn total_tiles(&self) -> usize {
+        self.bound_tiles_at_level.iter().sum::<usize>()
+            + self.copied_tiles_at_level.iter().sum::<usize>()
+    }
 }
 
 impl Encoded {

@@ -132,6 +132,7 @@ pub fn encode_region(
                 }
                 let direction = from[at].expect("a child this names was offered a direction");
                 out.tree.push_value(direction as u64, DIRECTION_WIDTH);
+                out.counts.copied_tiles_at_level[child.level] += 1;
                 work.mark_encoded(child);
             }
         }
@@ -156,6 +157,7 @@ pub fn encode_region(
                 let Some(value) = what_is_left_of(work, bitmap, tile) else { continue };
                 out.payload.push(value);
                 out.counts.accounted += 1;
+                out.counts.bound_tiles_at_level[tile.level] += 1;
                 if tile.is_a_cell() {
                     out.counts.cells_written += 1;
                 }
@@ -163,7 +165,10 @@ pub fn encode_region(
             }
         }
         // A copy takes what is left of the region from the neighbour.
-        RegionCode::Copy { .. } => work.mark_encoded(region),
+        RegionCode::Copy { .. } => {
+            out.counts.copied_tiles_at_level[region.level] += 1;
+            work.mark_encoded(region);
+        }
         // A subdivision writes nothing. A child it left out is the
         // binding above's to fill; where there is none, it stays
         // clear, and clear is something the decoder holds and a copy
@@ -255,6 +260,7 @@ fn write_what_a_four_by_four_says(
         TheCode::Copied { direction } => {
             out.counts.copies += 1;
             out.counts.four_by_fours_copied_whole += 1;
+            out.counts.copied_tiles_at_level[region.level] += 1;
             out.tree.push_value(NOT_BIND, FIRST_WIDTH);
             out.tree.push_value(COPY, SECOND_WIDTH);
             out.tree.push_value(direction as u64, DIRECTION_WIDTH);
@@ -279,6 +285,7 @@ fn write_what_a_four_by_four_says(
                     out.tree.push_value(direction as u64, DIRECTION_WIDTH);
                     out.counts.accounted += DIRECTION_WIDTH;
                     out.counts.children_copying_themselves += 1;
+                    out.counts.copied_tiles_at_level[child.level] += 1;
                     work.mark_encoded(child);
                 }
                 // Left to the binding above, which writes it. Where
@@ -299,6 +306,7 @@ fn write_what_a_four_by_four_says(
                     .expect("a child bound at one tile is all one thing");
                 out.payload.push(value);
                 out.counts.accounted += 1;
+                out.counts.bound_tiles_at_level[child.level] += 1;
                 work.mark_encoded(child);
             }
             TheCode::BindAtOnes | TheCode::Skip => {
@@ -362,13 +370,17 @@ fn write_a_mask_over_the_children(
     out.tree.push_value(mask, CHILD_MASK_WIDTH);
     for (at, child) in region.children().into_iter().enumerate() {
         match from[at] {
-            Some(direction) => out.tree.push_value(direction as u64, DIRECTION_WIDTH),
+            Some(direction) => {
+                out.tree.push_value(direction as u64, DIRECTION_WIDTH);
+                out.counts.copied_tiles_at_level[child.level] += 1;
+            }
             None => {
                 for cell in child.tiles_at_depth(deepest_depth(child.level)) {
                     let value = tile_of_bitmap(pyramid, bitmap, cell.level, cell.x, cell.y)
                         .expect("a cell is all one thing");
                     out.payload.push(value);
                     out.counts.cells_written += 1;
+                    out.counts.bound_tiles_at_level[cell.level] += 1;
                 }
             }
         }
@@ -392,6 +404,7 @@ fn write_the_cells(
             .expect("a cell is all one thing");
         out.payload.push(value);
         out.counts.cells_written += 1;
+        out.counts.bound_tiles_at_level[cell.level] += 1;
     }
     work.mark_encoded(region);
 }

@@ -15,6 +15,7 @@
 
 pub mod emitted;
 pub mod four_by_four;
+pub mod greedy_tiles;
 pub mod masking_thresholds;
 pub mod where_the_bits_go;
 
