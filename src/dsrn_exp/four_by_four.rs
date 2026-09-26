@@ -24,11 +24,15 @@ pub fn run() {
             "against\nthe grammar",
             "4x4s that said it\na bitmap",
             "children they copied\na bitmap",
+            "already right\na bitmap",
+            "copied whole\na bitmap",
+            "bits the already\nright spent",
         ]);
         let mut first = 0f64;
         for four_by_four in FourByFour::ALL {
             let knobs = Knobs { four_by_four, ..Knobs::default() };
-            let (mut bits, mut said, mut copied) = (0usize, 0usize, 0usize);
+            let (mut bits, mut said, mut copied, mut right) = (0usize, 0usize, 0usize, 0usize);
+            let (mut whole, mut wasted) = (0usize, 0usize);
             for bitmap in &maps {
                 bits += bench.run(bitmap, knobs);
                 let counts = bench.out.counts;
@@ -36,6 +40,9 @@ pub fn run() {
                     + counts.four_by_fours_copying_each_child
                     + counts.four_by_fours_in_their_own_grammar;
                 copied += counts.children_copied + counts.children_copying_themselves;
+                right += counts.four_by_fours_already_right;
+                whole += counts.four_by_fours_copied_whole;
+                wasted += counts.bits_spent_on_being_already_right;
             }
             let n = maps.len();
             if four_by_four == FourByFour::LikeAnyRegion {
@@ -47,6 +54,9 @@ pub fn run() {
                 format!("{:+.2}%", 100.0 * (bits as f64 - first) / first),
                 (said / n).to_string(),
                 (copied / n).to_string(),
+                (right / n).to_string(),
+                (whole / n).to_string(),
+                (wasted / n).to_string(),
             ]);
         }
         t.print();

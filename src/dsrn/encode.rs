@@ -228,16 +228,28 @@ fn write_what_a_four_by_four_says(
 ) {
     let (says, _) = what_a_four_by_four_says(work, pyramid, bitmap, region, knobs, true, standing);
     out.counts.four_by_fours_in_their_own_grammar += 1;
+    let already_right = crate::dsrn::describable::children_standing_gets_wrong(
+        work, pyramid, bitmap, region, standing,
+    ) == crate::dsrn::nesting_data::RegionMask::NONE;
+    let spent_so_far = out.counts.accounted;
+    if already_right {
+        out.counts.four_by_fours_already_right += 1;
+    }
     out.counts.accounted += says.header_size();
 
     let (takes, mask, leaves) = match says {
         FourByFourSays::CopiedWhole { direction } => {
             out.counts.copies += 1;
+            out.counts.four_by_fours_copied_whole += 1;
             out.tree.push_value(BIND_AT_A_FOUR_BY_FOUR, BIND_OR_SKIP_WIDTH);
             out.tree.push_value(TILES_OF_ONE, TILE_SIZE_WIDTH);
             out.tree.push_value(UNMASKED, MASKED_OR_NOT_WIDTH);
             out.tree.push_value(direction as u64, DIRECTION_WIDTH);
             work.mark_encoded(region);
+            if already_right {
+                out.counts.bits_spent_on_being_already_right +=
+                    out.counts.accounted - spent_so_far;
+            }
             return;
         }
         FourByFourSays::Said { takes, mask, leaves } => (takes, mask, leaves),
@@ -298,6 +310,9 @@ fn write_what_a_four_by_four_says(
                 write_the_cells(work, pyramid, bitmap, child, out);
             }
         }
+    }
+    if already_right {
+        out.counts.bits_spent_on_being_already_right += out.counts.accounted - spent_so_far;
     }
 }
 

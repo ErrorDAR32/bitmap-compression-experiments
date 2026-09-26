@@ -207,6 +207,14 @@ pub struct CodeCounts {
     pub children_copying_themselves: usize,
     /// 4x4s that said it in a grammar of their own.
     pub four_by_fours_in_their_own_grammar: usize,
+    /// Of those, the ones every cell of which was already right --
+    /// the ones that had nothing to say and had to say something --
+    /// and the ones taken whole from a neighbour.
+    pub four_by_fours_already_right: usize,
+    pub four_by_fours_copied_whole: usize,
+    /// What the already right ones spent saying what they had no way
+    /// of not saying.
+    pub bits_spent_on_being_already_right: usize,
     /// Regions bound at one cell a tile, and the payload bits that
     /// went out one cell at a time -- the encoding at its floor.
     pub bound_at_cells: usize,
