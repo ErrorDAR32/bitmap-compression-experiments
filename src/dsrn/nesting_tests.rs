@@ -239,3 +239,42 @@ fn a_parent_absorbs_every_homogeneous_child_and_keeps_only_the_rest() {
 }
 
 
+
+/// A region is taken exactly when it genuinely is, never a step
+/// early and never a step late: `region_taken` must agree with a
+/// plain scan of every one of its cells, at every region of every
+/// level, on every sample and every knob. A copy is only ever offered
+/// once this says yes, so this is the guarantee that a copy never
+/// waits on nothing and never jumps the gun either.
+#[test]
+fn region_taken_agrees_with_a_direct_cell_scan() {
+    let (mut pyramid, mut work) = (Pyramid::new(), Workspace::new());
+    let mut out = Encoded::default();
+    for knobs in every_setting() {
+        for (case, bitmap) in every_case().iter().enumerate() {
+            pyramid.clear();
+            pyramid.rebuild(bitmap);
+            encode(&pyramid, bitmap, knobs, &mut work, &mut out);
+            for level in 0..=CELL_LEVEL {
+                let across = crate::pyramid::tiles_across(level);
+                for y in 0..across {
+                    for x in 0..across {
+                        let region = crate::dsrn::region::Region { level, x, y };
+                        let (cx, cy) = region.top_left_cell();
+                        let side = region.side_in_cells();
+                        let by_scan = (0..side).all(|row| {
+                            (0..side)
+                                .all(|col| work.encoded_cells.get((cx + col) as u8, (cy + row) as u8))
+                        });
+                        assert_eq!(
+                            work.region_taken.whole_region_taken(region),
+                            by_scan,
+                            "{}, case {case}: level {level} ({x}, {y}) disagrees with a cell scan",
+                            knobs.name()
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
