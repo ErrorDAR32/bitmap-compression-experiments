@@ -20,7 +20,8 @@ use crate::dsrn::cost::{
     below_the_grammar, cells_written_out, four_by_four_mask_size, whole_subtree_size,
 };
 use crate::dsrn::describable::{
-    every_way_of_covering_it, every_way_of_subdividing, where_each_child_copies_from,
+    every_way_of_covering_it, every_way_of_subdividing, the_way_its_children_copy_themselves,
+    where_each_child_copies_from,
 };
 use crate::dsrn::nesting::Knobs;
 use crate::dsrn::nesting_data::{Standing, Workspace};
@@ -124,6 +125,9 @@ fn cheapest_in(
     covering_it: usize,
 ) -> usize {
     every_way_of_subdividing(work, pyramid, bitmap, region, knobs, standing)
+        .chain(the_way_its_children_copy_themselves(
+            work, pyramid, bitmap, region, knobs, false, standing,
+        ))
         .map(|code| whole_subtree_size(work, region, code, standing))
         .chain(std::iter::once(covering_it))
         .min()

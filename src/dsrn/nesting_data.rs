@@ -37,6 +37,17 @@ pub const CHILD_MASK_WIDTH: usize = 4;
 /// can say is its value, so it says its value and nothing else.
 pub const FINEST_LEVEL_WITH_A_GRAMMAR: usize = CELL_LEVEL - 2;
 
+/// The tile size a 4x4 has no size for, which is the one after its
+/// coarsest: it can be bound at 4x4, 2x2 or 1x1 tiles, which is three
+/// of the four a two bit field can name.
+///
+/// The fourth says something else entirely: that the four children
+/// copy, each from its own neighbour. A 2x2 has no grammar of its own
+/// and so can never say copy, and this is the only place it can be
+/// said for it. It costs nothing to have, because the field it is
+/// written in was being paid for anyway.
+pub const A_SIZE_THAT_MEANS_COPY: u64 = (CELL_LEVEL - FINEST_LEVEL_WITH_A_GRAMMAR + 1) as u64;
+
 /// How many tile sizes a region at a level can be covered with, from
 /// being one tile itself down to being covered a cell at a time.
 const fn tile_sizes_at(level: usize) -> usize {
@@ -137,6 +148,10 @@ pub enum RegionCode {
     /// Taken from the neighbour in a direction, but for the children
     /// the mask names.
     Copy { direction: usize, mask: RegionMask },
+    /// Only a 4x4 says this. The children the mask names each copy
+    /// from a neighbour of their own; the rest are left to the
+    /// closest binding above, which already says what they hold.
+    CopyEachChild { mask: RegionMask },
 }
 
 impl RegionCode {
@@ -144,7 +159,8 @@ impl RegionCode {
         match self {
             RegionCode::Bind { mask, .. }
             | RegionCode::Subdivide { mask }
-            | RegionCode::Copy { mask, .. } => mask,
+            | RegionCode::Copy { mask, .. }
+            | RegionCode::CopyEachChild { mask } => mask,
         }
     }
 
@@ -157,6 +173,9 @@ impl RegionCode {
     pub fn is_masked(self) -> bool {
         match self {
             RegionCode::Subdivide { mask } => mask != RegionMask::EVERY,
+            // Its mask is not a modifier on something else. It is the
+            // whole of what it says, and it is always written.
+            RegionCode::CopyEachChild { .. } => false,
             _ => self.mask() != RegionMask::NONE,
         }
     }
@@ -182,6 +201,10 @@ pub struct CodeCounts {
     /// many of those children were copied rather than written out.
     pub four_by_four_masks: usize,
     pub children_copied: usize,
+    /// 4x4s whose children each copied from a neighbour of their own,
+    /// and how many of those children there were.
+    pub four_by_fours_copying_each_child: usize,
+    pub children_copying_themselves: usize,
     /// Regions bound at one cell a tile, and the payload bits that
     /// went out one cell at a time -- the encoding at its floor.
     pub bound_at_cells: usize,

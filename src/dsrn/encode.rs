@@ -21,11 +21,13 @@ use crate::dsrn::cost::{
     below_the_grammar, description_tree_size, four_by_four_mask_size, tile_size_field_width,
     whole_subtree_size,
 };
-use crate::dsrn::describable::{every_description, standing_under};
+use crate::dsrn::describable::{
+    every_description, standing_under, where_each_child_copies_from,
+};
 use crate::dsrn::nesting::Knobs;
 use crate::dsrn::nesting_data::{
-    Encoded, RegionCode, Standing, Workspace, BIND, CHILD_MASK_WIDTH, CODE_WIDTH, COPY,
-    DIRECTION_WIDTH, MASK, SUBDIVIDE,
+    Encoded, RegionCode, Standing, Workspace, A_SIZE_THAT_MEANS_COPY, BIND, CHILD_MASK_WIDTH,
+    CODE_WIDTH, COPY, DIRECTION_WIDTH, MASK, SUBDIVIDE,
 };
 use crate::dsrn::region::{
     deepest_depth, same_cells, tiles_at_depth, whole_region_encoded, Region, CHILD_COUNT,
@@ -101,13 +103,35 @@ pub fn encode_region(
             }
             out.tree.push_value(direction as u64, DIRECTION_WIDTH);
         }
+        // A bind whose tile size field takes the one value it has no
+        // size for, then its own mask, then where each child it names
+        // copies from.
+        RegionCode::CopyEachChild { .. } => {
+            out.counts.four_by_fours_copying_each_child += 1;
+            out.counts.children_copying_themselves += mask.described();
+            out.counts.children_left_to_a_binding += mask.left_to_a_binding();
+            out.tree.push_value(BIND, CODE_WIDTH);
+            out.tree
+                .push_value(A_SIZE_THAT_MEANS_COPY, tile_size_field_width(region.level));
+            out.tree.push_value(mask.0, CHILD_MASK_WIDTH);
+            let from = where_each_child_copies_from(work, pyramid, bitmap, region, true);
+            for (at, child) in region.children().into_iter().enumerate() {
+                if !mask.describes(at) {
+                    continue;
+                }
+                let direction = from[at].expect("a child this names was offered a direction");
+                out.tree.push_value(direction as u64, DIRECTION_WIDTH);
+                work.mark_encoded(child);
+            }
+        }
     }
 
     // The children described again go first, because what they take
     // is exactly what this region does not have to write.
     let theirs = standing_under(work, standing, region, code);
+    let says_it_all = matches!(code, RegionCode::CopyEachChild { .. });
     for (at, child) in region.children().into_iter().enumerate() {
-        if mask.describes(at) {
+        if mask.describes(at) && !says_it_all {
             out.counts.children_made_regions += 1;
             encode_region(work, pyramid, bitmap, child, knobs, theirs, out);
         }
@@ -133,7 +157,7 @@ pub fn encode_region(
         // binding above's to fill; where there is none, it stays
         // clear, and clear is something the decoder holds and a copy
         // may read.
-        RegionCode::Subdivide { .. } => {
+        RegionCode::Subdivide { .. } | RegionCode::CopyEachChild { .. } => {
             if standing == Standing::Clear {
                 for (at, child) in region.children().into_iter().enumerate() {
                     if !mask.describes(at) {

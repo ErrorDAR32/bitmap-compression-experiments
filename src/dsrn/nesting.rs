@@ -110,16 +110,30 @@ pub enum FourByFour {
     /// The same grammar as any other region: a code, and everything
     /// that code can say.
     LikeAnyRegion,
+    /// That, and one thing more, written in the one tile size its
+    /// field has no size for: its four children each copy from a
+    /// neighbour of their own, but for the ones already right, which
+    /// are left to the binding above.
+    ///
+    /// A 2x2 has no grammar and so can never say copy. This is the
+    /// only place it can be said for it, and it is said in a field
+    /// that was being paid for anyway.
+    AlsoCopiesEachChild,
     /// No code. A mask, and a direction or four cells per child.
     AlwaysMasks,
 }
 
 impl FourByFour {
-    pub const ALL: [FourByFour; 2] = [FourByFour::LikeAnyRegion, FourByFour::AlwaysMasks];
+    pub const ALL: [FourByFour; 3] = [
+        FourByFour::LikeAnyRegion,
+        FourByFour::AlsoCopiesEachChild,
+        FourByFour::AlwaysMasks,
+    ];
 
     pub fn name(self) -> &'static str {
         match self {
             FourByFour::LikeAnyRegion => "a 4x4 says what any region says",
+            FourByFour::AlsoCopiesEachChild => "a 4x4 may say its children copy themselves",
             FourByFour::AlwaysMasks => "a 4x4 always masks its four children",
         }
     }
@@ -127,6 +141,12 @@ impl FourByFour {
     /// Whether this region is one the rule is about.
     pub fn applies_to(self, region: Region) -> bool {
         self == FourByFour::AlwaysMasks && region.level == FINEST_LEVEL_WITH_A_GRAMMAR
+    }
+
+    /// Whether this region may say that its children copy themselves.
+    pub fn may_copy_each_child(self, region: Region) -> bool {
+        self == FourByFour::AlsoCopiesEachChild
+            && region.level == FINEST_LEVEL_WITH_A_GRAMMAR
     }
 }
 

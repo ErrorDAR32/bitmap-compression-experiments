@@ -43,6 +43,15 @@ pub fn description_tree_size(code: RegionCode) -> usize {
         RegionCode::Bind { level, .. } => size += tile_size_field_width(level),
         RegionCode::Subdivide { .. } => {}
         RegionCode::Copy { .. } => size += DIRECTION_WIDTH,
+        // A bind's code and size field, then its own mask, then a
+        // direction for each child the mask names. That is the whole
+        // of it: a child it names says nothing further, and a child
+        // it does not is not described at all.
+        RegionCode::CopyEachChild { mask } => {
+            size += tile_size_field_width(FINEST_LEVEL_WITH_A_GRAMMAR)
+                + CHILD_MASK_WIDTH
+                + mask.described() * DIRECTION_WIDTH;
+        }
     }
     size
 }
@@ -76,6 +85,11 @@ pub fn whole_subtree_size(
     let mask = code.mask();
     let theirs = standing_under(work, standing, region, code);
     for (child, at) in region.children().into_iter().zip(0..CHILD_COUNT) {
+        // A child that copies itself is said and finished with, in a
+        // direction already counted above.
+        if matches!(code, RegionCode::CopyEachChild { .. }) && mask.describes(at) {
+            continue;
+        }
         size += cost_of_a_child(work, child, theirs, mask.describes(at));
     }
     size

@@ -8,8 +8,8 @@
 
 use crate::dsrn::cost::{below_the_grammar, tile_size_field_width};
 use crate::dsrn::nesting_data::{
-    Encoded, RegionMask, BIND, CHILD_MASK_WIDTH, CODE_WIDTH, COPY, DIRECTION_WIDTH, MASK,
-    SUBDIVIDE,
+    Encoded, RegionMask, A_SIZE_THAT_MEANS_COPY, BIND, CHILD_MASK_WIDTH, CODE_WIDTH, COPY,
+    DIRECTION_WIDTH, FINEST_LEVEL_WITH_A_GRAMMAR, MASK, SUBDIVIDE,
 };
 use crate::dsrn::region::{deepest_depth, tiles_at_depth, Region};
 
@@ -59,6 +59,22 @@ fn retell(at: &mut (usize, usize), out: &Encoded, region: Region, deep: usize, s
     match code {
         BIND => {
             let depth = take(at, out, tile_size_field_width(region.level)) as usize;
+            if region.level == FINEST_LEVEL_WITH_A_GRAMMAR
+                && depth as u64 == A_SIZE_THAT_MEANS_COPY
+            {
+                let mask = RegionMask(take(at, out, CHILD_MASK_WIDTH));
+                for child_at in 0..4 {
+                    if mask.describes(child_at) {
+                        take(at, out, DIRECTION_WIDTH);
+                    }
+                }
+                said.push_str(&format!(
+                    "{where_it_is}: {} children copy themselves, {} left to the binding above\n",
+                    mask.described(),
+                    mask.left_to_a_binding()
+                ));
+                return;
+            }
             let tile = crate::pyramid::tile_side(region.level + depth);
             let tiles = tiles_at_depth(depth);
             said.push_str(&format!("{where_it_is}: bind at {tile}x{tile} tiles, {tiles} of them"));

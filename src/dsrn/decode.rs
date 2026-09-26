@@ -14,8 +14,8 @@
 use crate::dsrn::cost::{below_the_grammar, tile_size_field_width};
 use crate::dsrn::nesting::Knobs;
 use crate::dsrn::nesting_data::{
-    Encoded, RegionMask, BIND, CHILD_MASK_WIDTH, CODE_WIDTH, COPY, DIRECTION_WIDTH, MASK,
-    SUBDIVIDE,
+    Encoded, RegionMask, A_SIZE_THAT_MEANS_COPY, BIND, CHILD_MASK_WIDTH, CODE_WIDTH, COPY,
+    DIRECTION_WIDTH, FINEST_LEVEL_WITH_A_GRAMMAR, MASK, SUBDIVIDE,
 };
 use crate::dsrn::region::{deepest_depth, Region, CHILD_COUNT, DIRECTIONS};
 use crate::Bitmap;
@@ -97,7 +97,34 @@ fn decode_region(
         RegionMask::NONE.0
     });
     let depth = (code == BIND)
-        .then(|| reading.take(out, tile_size_field_width(region.level)) as usize);
+        .then(|| reading.take(out, tile_size_field_width(region.level)) as u64);
+    // The one tile size a 4x4 has no size for says its children copy
+    // themselves instead: a mask, then where each child it names
+    // copies from. What it does not name is left where it is, for the
+    // binding above to fill.
+    if region.level == FINEST_LEVEL_WITH_A_GRAMMAR && depth == Some(A_SIZE_THAT_MEANS_COPY) {
+        let mask = RegionMask(reading.take(out, CHILD_MASK_WIDTH));
+        for (at, child) in region.children().into_iter().enumerate() {
+            if !mask.describes(at) {
+                continue;
+            }
+            let direction = reading.take(out, DIRECTION_WIDTH) as usize;
+            let beside = child
+                .neighbour(direction)
+                .expect("a copy names a neighbour on the bitmap");
+            copy_cells(&mut reading.taken, bitmap, child, beside);
+            take_region(reading, child);
+        }
+        if !covered_from_above {
+            for (at, child) in region.children().into_iter().enumerate() {
+                if !mask.describes(at) {
+                    take_region(reading, child);
+                }
+            }
+        }
+        return;
+    }
+    let depth = depth.map(|depth| depth as usize);
     let direction =
         (code == COPY).then(|| reading.take(out, DIRECTION_WIDTH) as usize);
 

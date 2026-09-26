@@ -102,9 +102,10 @@ pub fn standing_under(work: &Workspace, standing: Standing, region: Region, code
         RegionCode::Bind { depth: 0, .. } => Standing::Nothing,
         RegionCode::Bind { depth, .. } => Standing::Tiles(depth - 1),
         RegionCode::Copy { .. } => Standing::Nothing,
-        // It says nothing of its own, so its children stand one level
-        // further into whatever it stands in.
-        RegionCode::Subdivide { .. } => match standing {
+        // Neither of these covers what it does not name, so what it
+        // does not name stands one level further into whatever the
+        // region itself stands in.
+        RegionCode::Subdivide { .. } | RegionCode::CopyEachChild { .. } => match standing {
             Standing::Tiles(0) => Standing::Reads(work.value_worth_standing(region)),
             Standing::Tiles(depth) => Standing::Tiles(depth - 1),
             held => held,
@@ -178,7 +179,40 @@ pub fn every_description(
     let mut ways = every_way_of_binding(work, region, knobs);
     ways.extend(every_way_of_subdividing(work, pyramid, bitmap, region, knobs, standing));
     ways.extend(every_way_of_copying(work, bitmap, region, knobs, encoded));
+    ways.extend(the_way_its_children_copy_themselves(
+        work, pyramid, bitmap, region, knobs, encoded, standing,
+    ));
     ways
+}
+
+/// The one thing only a 4x4 can say: that each of its children copies
+/// from a neighbour of its own.
+///
+/// It can only be said when every child that is not already right can
+/// copy, because a child it does not name is not described and there
+/// is nowhere else for it to be said. A child that is already right
+/// is left to the binding above, which was going to put it there in
+/// any case.
+pub fn the_way_its_children_copy_themselves(
+    work: &Workspace,
+    pyramid: &Pyramid,
+    bitmap: &Bitmap,
+    region: Region,
+    knobs: Knobs,
+    encoded: bool,
+    standing: Standing,
+) -> Option<RegionCode> {
+    if !knobs.four_by_four.may_copy_each_child(region) {
+        return None;
+    }
+    let wrong = children_standing_gets_wrong(work, pyramid, bitmap, region, standing);
+    if wrong == RegionMask::NONE {
+        return None;
+    }
+    let from = where_each_child_copies_from(work, pyramid, bitmap, region, encoded);
+    (0..CHILD_COUNT)
+        .all(|at| !wrong.describes(at) || from[at].is_some())
+        .then_some(RegionCode::CopyEachChild { mask: wrong })
 }
 
 /// The ways a region can cover the whole of itself: bind, or copy.
