@@ -142,12 +142,19 @@ fn children_the_copy_misses(
 /// that will never be a region in its own right.
 pub fn where_each_child_copies_from(
     work: &Workspace,
+    pyramid: &Pyramid,
     bitmap: &Bitmap,
     region: Region,
     encoded: bool,
 ) -> [Option<usize>; CHILD_COUNT] {
     let mut from = [None; CHILD_COUNT];
     for (at, child) in region.children().into_iter().enumerate() {
+        // The pyramid has already asked whether any neighbour holds
+        // the same cells, and where it says none there is no
+        // direction to look in.
+        if !pyramid.copyable(child.level, child.x, child.y) {
+            continue;
+        }
         from[at] = (0..DIRECTIONS.len()).find(|&direction| {
             child.neighbour(direction).is_some_and(|beside| {
                 same_cells(bitmap, child, beside)
@@ -168,6 +175,34 @@ pub fn every_description(
     encoded: bool,
     standing: Standing,
 ) -> Vec<RegionCode> {
+    let mut ways = every_way_of_binding(work, region, knobs);
+    ways.extend(every_way_of_subdividing(work, pyramid, bitmap, region, knobs, standing));
+    ways.extend(every_way_of_copying(work, bitmap, region, knobs, encoded));
+    ways
+}
+
+/// The ways a region can cover the whole of itself: bind, or copy.
+///
+/// None of them depends on what the region is standing in. A binding
+/// says every cell of its region and a copy takes every cell of one,
+/// so what a binding above would have put there does not come into
+/// it -- which is why the first pass can ask this once and then ask
+/// about subdividing as many times as it has standings to try.
+pub fn every_way_of_covering_it(
+    work: &Workspace,
+    bitmap: &Bitmap,
+    region: Region,
+    knobs: Knobs,
+    encoded: bool,
+) -> Vec<RegionCode> {
+    let mut ways = every_way_of_binding(work, region, knobs);
+    ways.extend(every_way_of_copying(work, bitmap, region, knobs, encoded));
+    ways
+}
+
+/// The tile sizes a region could be bound at, and for each the
+/// children a binding at that size would have to describe again.
+fn every_way_of_binding(work: &Workspace, region: Region, knobs: Knobs) -> Vec<RegionCode> {
     let mut ways = Vec::new();
     let may_mask = knobs.masking.allows(region);
     let level = region.level;
@@ -187,20 +222,28 @@ pub fn every_description(
             }
         }
     }
+    ways
+}
 
-    ways.push(RegionCode::Subdivide { mask: RegionMask::EVERY });
-    if may_mask {
-        let wrong = children_standing_gets_wrong(work, pyramid, bitmap, region, standing);
-        if wrong != RegionMask::EVERY {
-            ways.push(RegionCode::Subdivide { mask: wrong });
-        }
-    }
+/// The neighbours a region could be copied from, and for each the
+/// children that copy would get wrong.
+fn every_way_of_copying(
+    work: &Workspace,
+    bitmap: &Bitmap,
+    region: Region,
+    knobs: Knobs,
+    encoded: bool,
+) -> Vec<RegionCode> {
+    let mut ways = Vec::new();
+    let may_mask = knobs.masking.allows(region);
 
     for direction in 0..DIRECTIONS.len() {
         let Some(from) = region.neighbour(direction) else { continue };
         let missed = children_the_copy_misses(work, bitmap, region, from, encoded);
+        // Four children each holding what the neighbour's does is the
+        // whole region holding what the neighbour does, so there is
+        // nothing further to ask.
         if missed == RegionMask::NONE
-            && same_cells(bitmap, region, from)
             && (!encoded || whole_region_encoded(&work.encoded_cells, from))
         {
             ways.push(RegionCode::Copy { direction, mask: RegionMask::NONE });
@@ -213,4 +256,30 @@ pub fn every_description(
 
     let _ = (CHILD_COUNT, EVERY_CHILD);
     ways
+}
+
+/// The ways a region can say nothing of its own and leave it to its
+/// children: all four of them, or only the ones what is standing over
+/// it gets wrong.
+///
+/// This is the only thing a region could say that depends on what it
+/// is standing in, which is why it is on its own.
+pub fn every_way_of_subdividing(
+    work: &Workspace,
+    pyramid: &Pyramid,
+    bitmap: &Bitmap,
+    region: Region,
+    knobs: Knobs,
+    standing: Standing,
+) -> impl Iterator<Item = RegionCode> {
+    let mut only_the_wrong_ones = None;
+    if knobs.masking.allows(region) {
+        let wrong = children_standing_gets_wrong(work, pyramid, bitmap, region, standing);
+        if wrong != RegionMask::EVERY {
+            only_the_wrong_ones = Some(RegionCode::Subdivide { mask: wrong });
+        }
+    }
+    [Some(RegionCode::Subdivide { mask: RegionMask::EVERY }), only_the_wrong_ones]
+        .into_iter()
+        .flatten()
 }

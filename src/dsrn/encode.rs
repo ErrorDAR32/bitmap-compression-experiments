@@ -76,7 +76,7 @@ pub fn encode_region(
     }
     match code {
         RegionCode::Bind { depth, .. } => {
-            count_a_binding(bitmap, region, depth, out);
+            count_a_binding(pyramid, region, depth, out);
             out.tree.push_value(BIND, CODE_WIDTH);
             if code.is_masked() {
                 out.counts.masked_bindings += 1;
@@ -194,12 +194,14 @@ fn write_a_mask_over_the_children(
     // written.
     let (mut mask, mut from) = (0u64, [None; CHILD_COUNT]);
     for (at, child) in region.children().into_iter().enumerate() {
-        from[at] = (0..DIRECTIONS.len()).find(|&direction| {
-            child.neighbour(direction).is_some_and(|beside| {
-                same_cells(bitmap, child, beside)
-                    && whole_region_encoded(&work.encoded_cells, beside)
-            })
-        });
+        if pyramid.copyable(child.level, child.x, child.y) {
+            from[at] = (0..DIRECTIONS.len()).find(|&direction| {
+                child.neighbour(direction).is_some_and(|beside| {
+                    same_cells(bitmap, child, beside)
+                        && whole_region_encoded(&work.encoded_cells, beside)
+                })
+            });
+        }
         if from[at].is_some() {
             mask |= 1 << at;
         }
@@ -249,7 +251,7 @@ fn write_the_cells(
 
 /// The counts that are about a binding giving up rather than about the
 /// code it wrote.
-fn count_a_binding(bitmap: &Bitmap, region: Region, depth: usize, out: &mut Encoded) {
+fn count_a_binding(pyramid: &Pyramid, region: Region, depth: usize, out: &mut Encoded) {
     out.counts.bindings += 1;
     if depth != deepest_depth(region.level) {
         return;
@@ -257,13 +259,9 @@ fn count_a_binding(bitmap: &Bitmap, region: Region, depth: usize, out: &mut Enco
     out.counts.bound_at_cells += 1;
     out.counts.cells_given_up[region.level] += tiles_at_depth(depth);
     // Whether a copy was there to be had and reading order took it
-    // away, or there was never one.
-    let matched = (0..DIRECTIONS.len()).any(|direction| {
-        region
-            .neighbour(direction)
-            .is_some_and(|from| crate::dsrn::region::same_cells(bitmap, region, from))
-    });
-    if matched {
+    // away, or there was never one, which the pyramid has already
+    // worked out.
+    if pyramid.copyable(region.level, region.x, region.y) {
         out.counts.copies_just_missed += 1;
     } else {
         out.counts.no_neighbour_matched += 1;

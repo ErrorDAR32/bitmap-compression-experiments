@@ -8,7 +8,7 @@
 //! is a second answer here, got by reading every cell of the tile,
 //! that the first is held to.
 
-use super::pyramid_data::{tile_side, tiles_across, Pyramid, CELL_LEVEL};
+use super::pyramid_data::{tile_side, tiles_across, Pyramid, CELL_LEVEL, DIRECTIONS};
 use crate::Bitmap;
 
 /// What a tile holds, by reading every cell of it.
@@ -26,6 +26,31 @@ pub fn tile_by_reading_the_cells(bitmap: &Bitmap, level: usize, x: usize, y: usi
     Some(first)
 }
 
+/// Whether a tile holds the same cells as a neighbour reading order
+/// puts before it, by reading every cell of both.
+pub fn copyable_by_reading_the_cells(
+    bitmap: &Bitmap,
+    level: usize,
+    x: usize,
+    y: usize,
+) -> bool {
+    let (side, across) = (tile_side(level), tiles_across(level) as isize);
+    DIRECTIONS.iter().any(|&(dx, dy)| {
+        let (at_x, at_y) = (x as isize + dx, y as isize + dy);
+        if at_x < 0 || at_y < 0 || at_x >= across {
+            return false;
+        }
+        let (mine_x, mine_y) = (x * side, y * side);
+        let (their_x, their_y) = (at_x as usize * side, at_y as usize * side);
+        (0..side).all(|row| {
+            (0..side).all(|col| {
+                bitmap.get((mine_x + col) as u8, (mine_y + row) as u8)
+                    == bitmap.get((their_x + col) as u8, (their_y + row) as u8)
+            })
+        })
+    })
+}
+
 /// Whether a pyramid agrees with the cells, at every tile of every
 /// level it holds.
 pub fn agrees_with_the_cells(pyramid: &Pyramid, bitmap: &Bitmap) -> Result<(), String> {
@@ -39,6 +64,14 @@ pub fn agrees_with_the_cells(pyramid: &Pyramid, bitmap: &Bitmap) -> Result<(), S
                     return Err(format!(
                         "level {level}, tile ({x}, {y}) of {across} across: \
                          the pyramid says {folded:?} and the cells say {read:?}"
+                    ));
+                }
+                let quick = pyramid.copyable(level, x, y);
+                let slow = copyable_by_reading_the_cells(bitmap, level, x, y);
+                if quick != slow {
+                    return Err(format!(
+                        "level {level}, tile ({x}, {y}) of {across} across: \
+                         the pyramid says copyable {quick} and the cells say {slow}"
                     ));
                 }
             }

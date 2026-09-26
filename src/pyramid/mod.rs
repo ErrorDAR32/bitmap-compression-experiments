@@ -18,5 +18,6 @@ pub mod pyramid_diag;
 
 pub use pyramid::tile_of_bitmap;
 pub use pyramid_data::{
-    tile_side, tiles_across, tiles_in_level, Pyramid, CELL_LEVEL, FINEST_LEVEL_HELD,
+    tile_side, tiles_across, tiles_in_level, Pyramid, CELL_LEVEL, DIRECTIONS,
+    FINEST_LEVEL_HELD,
 };

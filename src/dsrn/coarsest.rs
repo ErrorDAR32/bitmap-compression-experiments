@@ -19,7 +19,9 @@
 use crate::dsrn::cost::{
     below_the_grammar, cells_written_out, four_by_four_mask_size, whole_subtree_size,
 };
-use crate::dsrn::describable::{every_description, where_each_child_copies_from};
+use crate::dsrn::describable::{
+    every_way_of_covering_it, every_way_of_subdividing, where_each_child_copies_from,
+};
 use crate::dsrn::nesting::Knobs;
 use crate::dsrn::nesting_data::{Standing, Workspace};
 use crate::dsrn::region::{deepest_depth, Region};
@@ -65,7 +67,7 @@ pub fn coarsest(
     // cells match a neighbour at all -- the descent asks whether the
     // decoder will hold that neighbour.
     if knobs.four_by_four.applies_to(region) {
-        let copied = where_each_child_copies_from(work, bitmap, region, false)
+        let copied = where_each_child_copies_from(work, pyramid, bitmap, region, false)
             .iter()
             .filter(|from| from.is_some())
             .count();
@@ -74,28 +76,44 @@ pub fn coarsest(
         return;
     }
 
-    // Three times over, because what a region has to say depends on
-    // what is already standing over it, and there are three kinds of
-    // that: nothing, one thing said, and a binding's tiles. They go
-    // in this order because each is asked in terms of the last.
-    work.set_cost(region, cheapest_in(work, pyramid, bitmap, region, knobs, Standing::Nothing));
-    for standing in [false, true] {
-        let cost = if already_reads(pyramid, bitmap, region, standing) {
+    // Once for covering the whole of itself, and then again for each
+    // thing that could be standing over it, because that is all that
+    // subdividing depends on. There are three kinds: nothing, one
+    // thing said, and a binding's tiles at each size.
+    let covering_it = every_way_of_covering_it(work, bitmap, region, knobs, false)
+        .into_iter()
+        .map(|code| whole_subtree_size(work, region, code, Standing::Nothing))
+        .min()
+        .expect("every region can at least bind at one cell a tile");
+
+    let ask = |standing| cheapest_in(work, pyramid, bitmap, region, knobs, standing, covering_it);
+    let nothing_standing = ask(Standing::Nothing);
+    let putting_right = [false, true].map(|standing| {
+        if already_reads(pyramid, bitmap, region, standing) {
             0
         } else {
-            cheapest_in(work, pyramid, bitmap, region, knobs, Standing::Reads(standing))
-        };
-        work.set_cost_to_put_right(region, standing, cost);
+            ask(Standing::Reads(standing))
+        }
+    });
+    let under_tiles: Vec<usize> =
+        (0..=deepest_depth(region.level)).map(|depth| ask(Standing::Tiles(depth))).collect();
+
+    work.set_cost(region, nothing_standing);
+    for standing in [false, true] {
+        work.set_cost_to_put_right(region, standing, putting_right[standing as usize]);
     }
-    for depth in 0..=deepest_depth(region.level) {
-        let cost = cheapest_in(work, pyramid, bitmap, region, knobs, Standing::Tiles(depth));
+    for (depth, cost) in under_tiles.into_iter().enumerate() {
         work.set_cost_under_tiles(region, depth, cost);
     }
     let _ = CELL_LEVEL;
 }
 
 /// The cheapest thing a region could say, standing in what it stands
-/// in.
+/// in, given what it costs to cover the whole of itself.
+///
+/// Covering the whole of itself is the same price whatever it stands
+/// in, so it is priced once and handed in here. Only subdividing has
+/// to be asked again.
 fn cheapest_in(
     work: &Workspace,
     pyramid: &Pyramid,
@@ -103,12 +121,13 @@ fn cheapest_in(
     region: Region,
     knobs: Knobs,
     standing: Standing,
+    covering_it: usize,
 ) -> usize {
-    every_description(work, pyramid, bitmap, region, knobs, false, standing)
-        .into_iter()
+    every_way_of_subdividing(work, pyramid, bitmap, region, knobs, standing)
         .map(|code| whole_subtree_size(work, region, code, standing))
+        .chain(std::iter::once(covering_it))
         .min()
-        .expect("every region can at least bind at one cell a tile")
+        .expect("covering the whole of itself is always one of the ways")
 }
 
 /// Whether a region already reads what a binding above would say

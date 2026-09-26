@@ -8,7 +8,8 @@
 //! bitmap rather than one pass per level.
 
 use super::pyramid_data::{
-    tiles_across, Pyramid, CELL_LEVEL, FINEST_LEVEL_HELD, PYRAMID_LEVEL_BOUNDARIES,
+    tile_side, tiles_across, Pyramid, CELL_LEVEL, DIRECTIONS, FINEST_LEVEL_HELD,
+    PYRAMID_LEVEL_BOUNDARIES,
 };
 use crate::bitmap::bitmap_words::LINE_WORDS;
 use crate::Bitmap;
@@ -19,6 +20,38 @@ impl Pyramid {
         self.finest_level_from_the_cells(bitmap);
         for level in (0..FINEST_LEVEL_HELD).rev() {
             self.level_from_the_one_below(level);
+        }
+        for level in 0..=FINEST_LEVEL_HELD {
+            self.copyable_level(bitmap, level);
+        }
+    }
+
+    /// Which tiles of a level hold the same cells as a neighbour
+    /// reading order puts before them.
+    ///
+    /// This one does not fold. A tile matching the tile beside it
+    /// says nothing about whether the tile above them both matches
+    /// the one beside that, because at the level above they are two
+    /// tiles apart, not one. So it is read off the cells -- but a
+    /// row of a tile is a run of whole words, or a run inside one
+    /// word, so a row is one comparison rather than one a cell, and
+    /// the first row that differs ends it.
+    fn copyable_level(&mut self, bitmap: &Bitmap, level: usize) {
+        let (across, side) = (tiles_across(level), tile_side(level));
+        for y in 0..across {
+            for x in 0..across {
+                let copyable = DIRECTIONS.iter().any(|&(dx, dy)| {
+                    let (at_x, at_y) = (x as isize + dx, y as isize + dy);
+                    at_x >= 0
+                        && at_y >= 0
+                        && at_x < across as isize
+                        && same_tiles(bitmap, side, (x, y), (at_x as usize, at_y as usize))
+                });
+                if copyable {
+                    let (word, shift) = Self::bit_of_tile(level, x, y);
+                    self.copyable_tiles[word] |= 1 << shift;
+                }
+            }
         }
     }
 
@@ -102,6 +135,34 @@ impl Pyramid {
             (self.homogeneous_tile_values[at] >> shift) & mask,
         )
     }
+}
+
+/// Whether two tiles of the same size hold the same cells, read a
+/// word of a row at a time.
+///
+/// A tile's row is a run of `side` bits starting at a multiple of
+/// `side`, so it is either whole words or a run inside one word, and
+/// never straddles two.
+fn same_tiles(bitmap: &Bitmap, side: usize, a: (usize, usize), b: (usize, usize)) -> bool {
+    let (a_x, b_x) = (a.0 * side, b.0 * side);
+    for row in 0..side {
+        let mine = bitmap.row((a.1 * side + row) as u8);
+        let theirs = bitmap.row((b.1 * side + row) as u8);
+        if !same_run(mine, theirs, a_x, b_x, side) {
+            return false;
+        }
+    }
+    true
+}
+
+/// Whether two runs of `side` bits of two rows agree.
+fn same_run(mine: &[u64], theirs: &[u64], a_x: usize, b_x: usize, side: usize) -> bool {
+    if side >= 64 {
+        let words = side / 64;
+        return (0..words).all(|word| mine[a_x / 64 + word] == theirs[b_x / 64 + word]);
+    }
+    let mask = (1u64 << side) - 1;
+    (mine[a_x / 64] >> (a_x % 64)) & mask == (theirs[b_x / 64] >> (b_x % 64)) & mask
 }
 
 /// What a tile holds, taking the cells as level [`CELL_LEVEL`].

@@ -10,6 +10,8 @@
 //! that what it is and what can be asked of it read as one idea, and
 //! splitting them would cost a folder and a hop to say the same.
 
+pub use crate::pyramid::DIRECTIONS;
+
 use crate::pyramid::{tile_of_bitmap, tile_side, tiles_across, Pyramid, CELL_LEVEL};
 use crate::Bitmap;
 
@@ -32,10 +34,6 @@ pub const CHILD_COUNT: usize = CHILDREN.len();
 
 /// A mask naming every child.
 pub const EVERY_CHILD: u64 = 0b1111;
-
-/// Where a region may copy from: the four neighbours of its own size
-/// that reading order puts before it.
-pub const DIRECTIONS: [(isize, isize); 4] = [(-1, -1), (0, -1), (1, -1), (-1, 0)];
 
 impl Region {
     /// The whole bitmap.

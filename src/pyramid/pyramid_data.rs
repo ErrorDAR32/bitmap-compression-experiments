@@ -1,4 +1,4 @@
-//! What a pyramid is: two bit planes, one level to a plane.
+//! What a pyramid is: three bit planes, one level to a plane.
 //!
 //! # Levels
 //!
@@ -14,12 +14,20 @@
 //! cell coordinate. A tile is a level and a place in that level's
 //! plane, and so is a region.
 //!
-//! # The two planes
+//! # The three planes
 //!
-//! For every tile the pyramid holds two bits: whether the tile is
-//! homogeneous, and, where it is, what it holds. They are kept as
-//! separate planes rather than interleaved so that a level of either
-//! can be read a machine word at a time.
+//! For every tile the pyramid holds three bits: whether the tile is
+//! homogeneous, what it holds where it is, and whether it is
+//! copyable -- whether some neighbour of its own size that reading
+//! order puts before it holds the same cells.
+//!
+//! The third is there because the question is asked of nearly every
+//! region and the answer is nearly always no. Asked of the cells it
+//! costs a pass over the tile per direction; asked here it costs one
+//! bit, and the pass happens once, when the pyramid is built.
+//!
+//! They are kept as separate planes rather than interleaved so that a
+//! level of any of them can be read a machine word at a time.
 //!
 //! The cells are not held. Level 8 is the bitmap itself, and asking
 //! the pyramid about a cell would be storing the bitmap twice.
@@ -76,11 +84,16 @@ pub const PYRAMID_LEVEL_BOUNDARIES: [usize; FINEST_LEVEL_HELD + 2] = {
 /// Every word of one plane.
 pub const WORDS_IN_A_PLANE: usize = PYRAMID_LEVEL_BOUNDARIES[FINEST_LEVEL_HELD + 1];
 
-/// Whether each tile is homogeneous, and what the homogeneous ones
-/// hold.
+/// Where a tile may copy from: the four neighbours of its own size
+/// that reading order puts before it, as top left, above, top right,
+/// left.
+pub const DIRECTIONS: [(isize, isize); 4] = [(-1, -1), (0, -1), (1, -1), (-1, 0)];
+
+/// Whether each tile is homogeneous, what the homogeneous ones hold,
+/// and whether any of them could be copied rather than described.
 ///
 /// Held inline rather than boxed: a pyramid is built once and read in
-/// place, never moved, and the two planes together are under five
+/// place, never moved, and the three planes together are under seven
 /// kilobytes.
 pub struct Pyramid {
     /// A bit per tile, set where every cell of the tile agrees.
@@ -88,6 +101,9 @@ pub struct Pyramid {
     /// What a homogeneous tile holds. Meaningless where the tile is
     /// not homogeneous, which no reader looks at.
     pub(crate) homogeneous_tile_values: [u64; WORDS_IN_A_PLANE],
+    /// A bit per tile, set where some neighbour in [`DIRECTIONS`]
+    /// holds the same cells.
+    pub(crate) copyable_tiles: [u64; WORDS_IN_A_PLANE],
 }
 
 impl Default for Pyramid {
@@ -102,6 +118,7 @@ impl Pyramid {
         Self {
             homogeneous_tiles: [0; WORDS_IN_A_PLANE],
             homogeneous_tile_values: [0; WORDS_IN_A_PLANE],
+            copyable_tiles: [0; WORDS_IN_A_PLANE],
         }
     }
 
@@ -109,12 +126,24 @@ impl Pyramid {
     pub fn clear(&mut self) {
         self.homogeneous_tiles.fill(0);
         self.homogeneous_tile_values.fill(0);
+        self.copyable_tiles.fill(0);
     }
 
     /// Where a tile's bit sits in a plane.
     pub(crate) fn bit_of_tile(level: usize, x: usize, y: usize) -> (usize, usize) {
         let bit = y * tiles_across(level) + x;
         (PYRAMID_LEVEL_BOUNDARIES[level] + bit / 64, bit % 64)
+    }
+
+    /// Whether some neighbour reading order puts before this tile
+    /// holds the same cells, so that a region here could say copy
+    /// rather than say itself.
+    ///
+    /// It does not say which neighbour. It says whether it is worth
+    /// asking, and where it says no there is nothing to ask.
+    pub fn copyable(&self, level: usize, x: usize, y: usize) -> bool {
+        let (word, shift) = Self::bit_of_tile(level, x, y);
+        self.copyable_tiles[word] >> shift & 1 != 0
     }
 
     /// What the tile at `(x, y)` of `level` holds, if every cell of it
