@@ -7,7 +7,7 @@
 
 use crate::table::Table;
 use super::Bench;
-use crate::dsrn::Masking;
+use crate::dsrn::{Knobs, Masking};
 use crate::samples;
 
 pub fn run() {
@@ -27,7 +27,7 @@ pub fn run() {
         for masking in Masking::ALL {
             let (mut bits, mut binds, mut subs, mut copies) = (0usize, 0usize, 0usize, 0usize);
             for bitmap in &maps {
-                bits += bench.run(bitmap, masking);
+                bits += bench.run(bitmap, Knobs { masking, ..Knobs::default() });
                 binds += bench.out.counts.masked_bindings;
                 subs += bench.out.counts.masked_subdivides;
                 copies += bench.out.counts.masked_copies;

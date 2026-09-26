@@ -12,6 +12,7 @@
 //! from a run can be traced to the bitmaps it came from.
 
 use std::io::Write;
+use std::sync::OnceLock;
 
 /// The file that remembers the last seed a run used.
 pub const WHERE_THE_SEED_IS_KEPT: &str = "testing/last_seed";
@@ -23,6 +24,13 @@ pub const WHERE_THE_SEED_IS_KEPT: &str = "testing/last_seed";
 /// bitmaps without touching the file. Otherwise the file's seed is
 /// reused, which is the common case and the one that gets the note.
 pub fn seed_for_this_run() -> u64 {
+    // Settled once. A run that asks twice is one run and gets one
+    // seed and one note, however many families it walks.
+    static SETTLED: OnceLock<u64> = OnceLock::new();
+    *SETTLED.get_or_init(settle)
+}
+
+fn settle() -> u64 {
     let last = std::fs::read_to_string(WHERE_THE_SEED_IS_KEPT)
         .ok()
         .and_then(|held| held.trim().parse::<u64>().ok());

@@ -10,7 +10,7 @@
 //! Nothing here chooses. It lays out the options and lets
 //! [`super::cost`] price them.
 
-use crate::dsrn::nesting::Masking;
+use crate::dsrn::nesting::Knobs;
 use crate::dsrn::nesting_data::{RegionCode, RegionMask, Workspace};
 use crate::dsrn::region::{
     all_cells_clear, deepest_depth, same_cells, whole_region_encoded, Region, CHILD_COUNT,
@@ -68,17 +68,41 @@ fn children_matching(
     RegionMask(matching)
 }
 
+/// Which direction each child of a 4x4 can copy from, if any.
+///
+/// A child looks at its own four neighbours, not at the neighbours of
+/// the region above it: a 2x2 copying from the 2x2 beside it is the
+/// same question a region of any size asks, only asked of a child
+/// that will never be a region in its own right.
+pub fn where_each_child_copies_from(
+    work: &Workspace,
+    bitmap: &Bitmap,
+    region: Region,
+    encoded: bool,
+) -> [Option<usize>; CHILD_COUNT] {
+    let mut from = [None; CHILD_COUNT];
+    for (at, child) in region.children().into_iter().enumerate() {
+        from[at] = (0..DIRECTIONS.len()).find(|&direction| {
+            child.neighbour(direction).is_some_and(|beside| {
+                same_cells(bitmap, child, beside)
+                    && (!encoded || whole_region_encoded(&work.encoded_cells, beside))
+            })
+        });
+    }
+    from
+}
+
 /// Every description this region could give of itself.
 pub fn every_description(
     work: &Workspace,
     pyramid: &Pyramid,
     bitmap: &Bitmap,
     region: Region,
-    masking: Masking,
+    knobs: Knobs,
     encoded: bool,
 ) -> Vec<RegionCode> {
     let mut ways = Vec::new();
-    let may_mask = masking.allows(region);
+    let may_mask = knobs.masking.allows(region);
     let level = region.level;
 
     for depth in 0..=deepest_depth(level) {

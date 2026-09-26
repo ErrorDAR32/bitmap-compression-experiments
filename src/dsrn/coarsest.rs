@@ -14,9 +14,11 @@
 //! region look cheaper than it turns out to be, and the descent asks
 //! the real question before it writes anything.
 
-use crate::dsrn::cost::{below_the_grammar, cells_written_out, whole_subtree_size};
-use crate::dsrn::describable::every_description;
-use crate::dsrn::nesting::Masking;
+use crate::dsrn::cost::{
+    below_the_grammar, cells_written_out, four_by_four_mask_size, whole_subtree_size,
+};
+use crate::dsrn::describable::{every_description, where_each_child_copies_from};
+use crate::dsrn::nesting::Knobs;
 use crate::dsrn::nesting_data::Workspace;
 use crate::dsrn::region::Region;
 use crate::pyramid::{tile_of_bitmap, Pyramid, CELL_LEVEL};
@@ -28,7 +30,7 @@ pub fn coarsest(
     pyramid: &Pyramid,
     bitmap: &Bitmap,
     region: Region,
-    masking: Masking,
+    knobs: Knobs,
 ) {
     if region.is_a_cell() {
         work.set_coarsest_depth(region, 0);
@@ -40,7 +42,7 @@ pub fn coarsest(
         tile_of_bitmap(pyramid, bitmap, region.level, region.x, region.y).is_some();
     let mut deepest = 0;
     for child in region.children() {
-        coarsest(work, pyramid, bitmap, child, masking);
+        coarsest(work, pyramid, bitmap, child, knobs);
         deepest = deepest.max(work.coarsest_depth_of(child));
     }
     // One level finer than its deepest child, unless it is all one
@@ -54,7 +56,20 @@ pub fn coarsest(
         return;
     }
 
-    let cheapest = every_description(work, pyramid, bitmap, region, masking, false)
+    // A 4x4 that always masks has nothing to choose between. It costs
+    // what its children cost, and they are priced on whether their
+    // cells match a neighbour at all -- the descent asks whether the
+    // decoder will hold that neighbour.
+    if knobs.four_by_four.applies_to(region) {
+        let copied = where_each_child_copies_from(work, bitmap, region, false)
+            .iter()
+            .filter(|from| from.is_some())
+            .count();
+        work.set_cost(region, four_by_four_mask_size(copied));
+        return;
+    }
+
+    let cheapest = every_description(work, pyramid, bitmap, region, knobs, false)
         .into_iter()
         .map(|code| whole_subtree_size(work, region, code))
         .min()

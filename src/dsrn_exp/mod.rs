@@ -14,10 +14,11 @@
 //! | `masking_thresholds` | what does forbidding a mask below a size cost |
 
 pub mod emitted;
+pub mod four_by_four;
 pub mod masking_thresholds;
 pub mod where_the_bits_go;
 
-use crate::dsrn::{decode, encode, Encoded, Masking, Workspace};
+use crate::dsrn::{decode, encode, Encoded, Knobs, Workspace};
 use crate::pyramid::Pyramid;
 use crate::Bitmap;
 
@@ -47,18 +48,18 @@ impl Bench {
 
     /// Encodes a bitmap and decodes it again, and stops everything if
     /// a cell does not come back.
-    pub fn run(&mut self, bitmap: &Bitmap, masking: Masking) -> usize {
+    pub fn run(&mut self, bitmap: &Bitmap, knobs: Knobs) -> usize {
         self.pyramid.clear();
         self.pyramid.rebuild(bitmap);
-        encode(&self.pyramid, bitmap, masking, &mut self.work, &mut self.out);
-        decode(&self.out, &mut self.back);
+        encode(&self.pyramid, bitmap, knobs, &mut self.work, &mut self.out);
+        decode(&self.out, knobs, &mut self.back);
         for y in 0..=u8::MAX {
             for x in 0..=u8::MAX {
                 assert_eq!(
                     bitmap.get(x, y),
                     self.back.get(x, y),
-                    "masking {}: lost the cell at ({x}, {y})",
-                    masking.name()
+                    "{}: lost the cell at ({x}, {y})",
+                    knobs.name()
                 );
             }
         }

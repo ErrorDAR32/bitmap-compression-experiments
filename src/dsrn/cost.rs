@@ -59,6 +59,20 @@ pub fn description_size(code: RegionCode) -> usize {
     size
 }
 
+/// What a 4x4 spends when it always masks: the mask, and per child
+/// either a direction to copy from or its four cells.
+///
+/// There is no code. The region is bound by definition, so the only
+/// thing left to say is which children are copied, and from where.
+pub fn four_by_four_mask_size(children_copied: usize) -> usize {
+    CHILD_MASK_WIDTH
+        + children_copied * DIRECTION_WIDTH
+        + (CHILD_COUNT - children_copied) * CELLS_IN_A_CHILD
+}
+
+/// Cells in a child of a 4x4, which is the four of a 2x2.
+pub const CELLS_IN_A_CHILD: usize = 4;
+
 /// What a region costs when nothing is said about it at all: its cells
 /// written out, one bit each.
 pub fn cells_written_out(region: Region) -> usize {

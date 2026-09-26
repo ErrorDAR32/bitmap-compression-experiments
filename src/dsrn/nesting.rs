@@ -88,18 +88,76 @@ impl Masking {
     }
 }
 
+/// What the finest region with a grammar does with itself.
+///
+/// Masking never pays below a 4x4, which leaves the mask code unused
+/// there and raises the question of whether a 4x4 needs a code at
+/// all. [`FourByFour::AlwaysMasks`] says it does not: it is bound by
+/// definition, writes a four bit mask, and each of its 2x2 children
+/// is either a direction to copy from or its four cells written out.
+///
+/// The decoder has to know which of these was used, because they are
+/// different grammars rather than different choices within one.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum FourByFour {
+    /// The same grammar as any other region: a code, and everything
+    /// that code can say.
+    LikeAnyRegion,
+    /// No code. A mask, and a direction or four cells per child.
+    AlwaysMasks,
+}
+
+impl FourByFour {
+    pub const ALL: [FourByFour; 2] = [FourByFour::LikeAnyRegion, FourByFour::AlwaysMasks];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            FourByFour::LikeAnyRegion => "a 4x4 says what any region says",
+            FourByFour::AlwaysMasks => "a 4x4 always masks its four children",
+        }
+    }
+
+    /// Whether this region is one the rule is about.
+    pub fn applies_to(self, region: Region) -> bool {
+        self == FourByFour::AlwaysMasks && region.level == FINEST_LEVEL_WITH_A_GRAMMAR
+    }
+}
+
+/// Everything about an encode that is a choice rather than the
+/// algorithm.
+///
+/// One value rather than a parameter each, so that adding a knob is a
+/// field and not a change to every signature between here and where
+/// it is read.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct Knobs {
+    pub masking: Masking,
+    pub four_by_four: FourByFour,
+}
+
+impl Default for Knobs {
+    fn default() -> Self {
+        Self { masking: Masking::Anywhere, four_by_four: FourByFour::LikeAnyRegion }
+    }
+}
+
+impl Knobs {
+    pub fn name(self) -> String {
+        format!("masking {}, and {}", self.masking.name(), self.four_by_four.name())
+    }
+}
+
 /// Encodes the bitmap. The pyramid must already hold it.
 pub fn encode(
     pyramid: &Pyramid,
     bitmap: &Bitmap,
-    masking: Masking,
+    knobs: Knobs,
     work: &mut Workspace,
     out: &mut Encoded,
 ) {
     out.clear();
     work.encoded_cells.reset();
     let whole = Region::whole_bitmap();
-    coarsest(work, pyramid, bitmap, whole, masking);
-    encode_region(work, pyramid, bitmap, whole, masking, out);
-    let _ = FINEST_LEVEL_WITH_A_GRAMMAR;
+    coarsest(work, pyramid, bitmap, whole, knobs);
+    encode_region(work, pyramid, bitmap, whole, knobs, out);
 }

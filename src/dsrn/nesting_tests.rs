@@ -9,7 +9,7 @@
 use crate::dsrn::cost::{description_size, tile_size_field_width};
 use crate::dsrn::nesting_data::{RegionCode, RegionMask, CHILD_MASK_WIDTH, CODE_WIDTH};
 use crate::dsrn::region::tiles_at_depth;
-use crate::dsrn::{decode, encode, Encoded, Masking, Workspace};
+use crate::dsrn::{decode, encode, Encoded, FourByFour, Knobs, Masking, Workspace};
 use crate::pyramid::{Pyramid, CELL_LEVEL};
 use crate::{samples, Bitmap};
 
@@ -43,25 +43,36 @@ fn every_case() -> Vec<Bitmap> {
     cases
 }
 
+/// Every setting of every knob.
+fn every_setting() -> Vec<Knobs> {
+    let mut all = Vec::new();
+    for masking in Masking::ALL {
+        for four_by_four in FourByFour::ALL {
+            all.push(Knobs { masking, four_by_four });
+        }
+    }
+    all
+}
+
 /// The encoding comes back the bitmap that went in. Nothing else about
 /// it matters if this is ever false.
 #[test]
 fn every_encoding_comes_back_the_bitmap_that_went_in() {
     let (mut pyramid, mut work) = (Pyramid::new(), Workspace::new());
     let (mut out, mut back) = (Encoded::default(), Bitmap::new());
-    for masking in Masking::ALL {
+    for knobs in every_setting() {
         for (case, bitmap) in every_case().iter().enumerate() {
             pyramid.clear();
             pyramid.rebuild(bitmap);
-            encode(&pyramid, bitmap, masking, &mut work, &mut out);
-            decode(&out, &mut back);
+            encode(&pyramid, bitmap, knobs, &mut work, &mut out);
+            decode(&out, knobs, &mut back);
             for y in 0..=u8::MAX {
                 for x in 0..=u8::MAX {
                     assert_eq!(
                         bitmap.get(x, y),
                         back.get(x, y),
-                        "masking {}, case {case}, differs at ({x}, {y})",
-                        masking.name()
+                        "{}, case {case}, differs at ({x}, {y})",
+                        knobs.name()
                     );
                 }
             }
@@ -94,16 +105,16 @@ fn a_binding_writes_nothing_for_what_it_hands_on() {
     let (mut pyramid, mut work) = (Pyramid::new(), Workspace::new());
     let mut out = Encoded::default();
     let mut masked = 0;
-    for masking in Masking::ALL {
+    for knobs in every_setting() {
         for (case, bitmap) in every_case().iter().enumerate() {
             pyramid.clear();
             pyramid.rebuild(bitmap);
-            encode(&pyramid, bitmap, masking, &mut work, &mut out);
+            encode(&pyramid, bitmap, knobs, &mut work, &mut out);
             assert_eq!(
                 out.counts.accounted,
                 out.bits(),
-                "masking {}, case {case}: bits written and bits accounted for differ",
-                masking.name()
+                "{}, case {case}: bits written and bits accounted for differ",
+                knobs.name()
             );
             masked += out.counts.masked_bindings;
         }
@@ -122,7 +133,8 @@ fn forbidding_a_mask_never_makes_an_encoding_smaller() {
         pyramid.rebuild(bitmap);
         let mut last = 0;
         for masking in Masking::ALL {
-            encode(&pyramid, bitmap, masking, &mut work, &mut out);
+            let knobs = Knobs { masking, ..Knobs::default() };
+            encode(&pyramid, bitmap, knobs, &mut work, &mut out);
             assert!(
                 out.bits() >= last,
                 "masking {} came out smaller than a looser rule",
@@ -177,8 +189,8 @@ fn a_reused_workspace_does_not_leak_the_last_bitmap() {
     for bitmap in every_case() {
         pyramid.clear();
         pyramid.rebuild(&bitmap);
-        encode(&pyramid, &bitmap, Masking::Anywhere, &mut work, &mut out);
-        decode(&out, &mut back);
+        encode(&pyramid, &bitmap, Knobs::default(), &mut work, &mut out);
+        decode(&out, Knobs::default(), &mut back);
         assert_eq!(bitmap.count_set(), back.count_set());
     }
 }

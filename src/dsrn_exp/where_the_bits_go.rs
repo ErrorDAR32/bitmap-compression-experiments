@@ -5,11 +5,11 @@ use crate::table::Table;
 use super::Bench;
 use crate::dsrn::cost::tile_size_field_width;
 use crate::dsrn::nesting_data::CODE_WIDTH;
-use crate::dsrn::Masking;
+use crate::dsrn::Knobs;
 use crate::pyramid::{tile_side, CELL_LEVEL};
 use crate::samples;
 
-pub fn run(masking: Masking) {
+pub fn run(knobs: Knobs) {
     let mut bench = Bench::new();
 
     let mut cells = [0usize; CELL_LEVEL + 1];
@@ -18,7 +18,7 @@ pub fn run(masking: Masking) {
 
     for (_, maps) in samples::every_family() {
         for bitmap in &maps {
-            bench.run(bitmap, masking);
+            bench.run(bitmap, knobs);
             let c = bench.out.counts;
             for level in 0..=CELL_LEVEL {
                 cells[level] += c.cells_given_up[level];

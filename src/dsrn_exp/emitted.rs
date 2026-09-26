@@ -3,7 +3,7 @@
 
 use crate::table::Table;
 use super::Bench;
-use crate::dsrn::Masking;
+use crate::dsrn::Knobs;
 use crate::{samples, Bitmap};
 
 /// A checkerboard of squares `side` cells across.
@@ -38,14 +38,14 @@ pub fn known_patterns() -> Vec<(String, Bitmap)> {
     ]
 }
 
-pub fn run(masking: Masking) {
+pub fn run(knobs: Knobs) {
     let mut bench = Bench::new();
 
     println!("\n  Every bitmap comes back the one that went in, or this stops.\n");
     println!("  patterns whose right answer is known.\n");
     let mut t = Table::new(&["pattern", "tree\nbits", "payload\nbits", "all of it\nbits"]);
     for (name, bitmap) in known_patterns() {
-        bench.run(&bitmap, masking);
+        bench.run(&bitmap, knobs);
         t.row(&[
             name,
             bench.out.tree.len().to_string(),
@@ -68,7 +68,7 @@ pub fn run(masking: Masking) {
     for (name, maps) in samples::every_family() {
         let (mut tree, mut payload) = (0usize, 0usize);
         for bitmap in &maps {
-            bench.run(bitmap, masking);
+            bench.run(bitmap, knobs);
             tree += bench.out.tree.len();
             payload += bench.out.payload.len();
         }
@@ -91,7 +91,7 @@ pub fn run(masking: Masking) {
     let mut n = 0usize;
     for (_, maps) in samples::every_family() {
         for bitmap in &maps {
-            bench.run(bitmap, masking);
+            bench.run(bitmap, knobs);
             let c = bench.out.counts;
             for (slot, got) in [
                 c.bindings,

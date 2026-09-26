@@ -10,15 +10,19 @@
 //! decoder will really be able to make.
 
 use crate::dsrn::cost::{
-    below_the_grammar, description_size, tile_size_field_width, whole_subtree_size,
+    below_the_grammar, description_size, four_by_four_mask_size, tile_size_field_width,
+    whole_subtree_size,
 };
 use crate::dsrn::describable::every_description;
-use crate::dsrn::nesting::Masking;
+use crate::dsrn::nesting::Knobs;
 use crate::dsrn::nesting_data::{
     Encoded, RegionCode, Workspace, BIND, CHILD_MASK_WIDTH, CODE_WIDTH, COPY, DIRECTION_WIDTH,
     MASK, SUBDIVIDE,
 };
-use crate::dsrn::region::{deepest_depth, tiles_at_depth, Region, CHILD_COUNT, DIRECTIONS};
+use crate::dsrn::region::{
+    deepest_depth, same_cells, tiles_at_depth, whole_region_encoded, Region, CHILD_COUNT,
+    DIRECTIONS,
+};
 use crate::pyramid::{tile_of_bitmap, Pyramid};
 use crate::Bitmap;
 
@@ -28,7 +32,7 @@ pub fn encode_region(
     pyramid: &Pyramid,
     bitmap: &Bitmap,
     region: Region,
-    masking: Masking,
+    knobs: Knobs,
     out: &mut Encoded,
 ) {
     if below_the_grammar(region) {
@@ -36,7 +40,12 @@ pub fn encode_region(
         return;
     }
 
-    let code = every_description(work, pyramid, bitmap, region, masking, true)
+    if knobs.four_by_four.applies_to(region) {
+        write_a_mask_over_the_children(work, pyramid, bitmap, region, out);
+        return;
+    }
+
+    let code = every_description(work, pyramid, bitmap, region, knobs, true)
         .into_iter()
         .min_by_key(|&code| whole_subtree_size(work, region, code))
         .expect("every region can at least bind at one cell a tile");
@@ -113,10 +122,60 @@ pub fn encode_region(
     for (at, child) in region.children().into_iter().enumerate() {
         if !mask.covers(at) {
             out.counts.children_made_regions += 1;
-            encode_region(work, pyramid, bitmap, child, masking, out);
+            encode_region(work, pyramid, bitmap, child, knobs, out);
         }
     }
     let _ = CHILD_COUNT;
+}
+
+/// A 4x4 that always masks: a four bit mask, then per child in
+/// reading order either a direction to copy from or its four cells.
+///
+/// No code. The region is bound by definition, and the mask is the
+/// only thing left to say about it. A child is written before the
+/// next is looked at, so a child may copy from the one beside it.
+fn write_a_mask_over_the_children(
+    work: &mut Workspace,
+    pyramid: &Pyramid,
+    bitmap: &Bitmap,
+    region: Region,
+    out: &mut Encoded,
+) {
+    // Child by child, in reading order, because a child may copy from
+    // the one beside it and so may only be asked once that one is
+    // written.
+    let (mut mask, mut from) = (0u64, [None; CHILD_COUNT]);
+    for (at, child) in region.children().into_iter().enumerate() {
+        from[at] = (0..DIRECTIONS.len()).find(|&direction| {
+            child.neighbour(direction).is_some_and(|beside| {
+                same_cells(bitmap, child, beside)
+                    && whole_region_encoded(&work.encoded_cells, beside)
+            })
+        });
+        if from[at].is_some() {
+            mask |= 1 << at;
+        }
+        work.mark_encoded(child);
+    }
+
+    let copied = mask.count_ones() as usize;
+    out.counts.four_by_four_masks += 1;
+    out.counts.children_copied += copied;
+    out.counts.accounted += four_by_four_mask_size(copied);
+    out.tree.push_value(mask, CHILD_MASK_WIDTH);
+    for (at, child) in region.children().into_iter().enumerate() {
+        match from[at] {
+            Some(direction) => out.tree.push_value(direction as u64, DIRECTION_WIDTH),
+            None => {
+                for cell in child.tiles_at_depth(deepest_depth(child.level)) {
+                    let value = tile_of_bitmap(pyramid, bitmap, cell.level, cell.x, cell.y)
+                        .expect("a cell is all one thing");
+                    out.payload.push(value);
+                    out.counts.cells_written += 1;
+                }
+            }
+        }
+    }
 }
 
 /// A region below the grammar: its cells, in reading order, and no

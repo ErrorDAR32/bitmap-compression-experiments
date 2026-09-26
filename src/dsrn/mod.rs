@@ -31,5 +31,5 @@ pub mod region;
 pub mod stream;
 
 pub use decode::decode;
-pub use nesting::{encode, Masking};
+pub use nesting::{encode, FourByFour, Knobs, Masking};
 pub use nesting_data::{CodeCounts, Encoded, Workspace};

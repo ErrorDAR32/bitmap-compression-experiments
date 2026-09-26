@@ -117,6 +117,10 @@ pub struct CodeCounts {
     pub children_left_clear: usize,
     /// Regions below the grammar, which wrote their cells and no code.
     pub below_the_grammar: usize,
+    /// 4x4s that masked their four children by definition, and how
+    /// many of those children were copied rather than written out.
+    pub four_by_four_masks: usize,
+    pub children_copied: usize,
     /// Regions bound at one cell a tile, and the payload bits that
     /// went out one cell at a time -- the encoding at its floor.
     pub bound_at_cells: usize,
@@ -209,6 +213,19 @@ impl Workspace {
 
     pub fn set_cost(&mut self, region: Region, cost: usize) {
         self.cheapest_description[region.level][Self::at(region)] = cost;
+    }
+
+    /// Takes a region's cells back off the encoded map, so that a
+    /// pass over its children can be made again from nothing.
+    pub fn unmark_region(&mut self, region: Region) {
+        let (x, y) = region.top_left_cell();
+        let side = region.side_in_cells();
+        self.encoded_cells.unset_rect(
+            x as i64,
+            y as i64,
+            (x + side - 1) as i64,
+            (y + side - 1) as i64,
+        );
     }
 
     /// Marks every cell of a region encoded.

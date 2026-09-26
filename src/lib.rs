@@ -12,7 +12,7 @@
 //! once and fed bitmap after bitmap:
 //!
 //! ```
-//! use bitmap::dsrn::{decode, encode, Encoded, Masking, Workspace};
+//! use bitmap::dsrn::{decode, encode, Encoded, Knobs, Workspace};
 //! use bitmap::pyramid::Pyramid;
 //! use bitmap::Bitmap;
 //!
@@ -24,8 +24,8 @@
 //! let (mut out, mut back) = (Encoded::default(), Bitmap::new());
 //!
 //! pyramid.rebuild(&bitmap);
-//! encode(&pyramid, &bitmap, Masking::Anywhere, &mut work, &mut out);
-//! decode(&out, &mut back);
+//! encode(&pyramid, &bitmap, Knobs::default(), &mut work, &mut out);
+//! decode(&out, Knobs::default(), &mut back);
 //! assert_eq!(back.count_set(), bitmap.count_set());
 //! ```
 //!
