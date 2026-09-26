@@ -200,6 +200,11 @@ pub struct Counts {
     pub copies_just_missed: usize,
     /// And the ones with no matching neighbour at all.
     pub no_neighbour_matched: usize,
+    /// Every bit this encode believes it wrote, added up one region
+    /// at a time from the mask arithmetic rather than from the loops
+    /// that write them. If it is not [`Encoded::bits`], one of the
+    /// two is wrong.
+    pub accounted: usize,
 }
 
 /// What an encode produces.
@@ -230,12 +235,19 @@ impl Encoded {
 /// four means no mask at all, and no mark to introduce one.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Says {
-    Bind { depth: usize, alone: u64 },
+    Bind { level: usize, depth: usize, alone: u64 },
     Subdivide { alone: u64 },
     Copy { dir: usize, alone: u64 },
 }
 
 impl Says {
+    /// The children the description covers. The rest become regions.
+    fn alone(self) -> u64 {
+        match self {
+            Says::Bind { alone, .. } | Says::Subdivide { alone } | Says::Copy { alone, .. } => alone,
+        }
+    }
+
     fn masked(self) -> bool {
         match self {
             // Subdividing is masked whenever it leaves any child
@@ -380,31 +392,49 @@ fn child_of_tile(region: Region, depth: usize, tile: Region) -> usize {
     (row >= half) as usize * 2 + (col >= half) as usize
 }
 
-/// What a description costs, given which children it leaves alone.
+/// What a description spends on itself: everything but the regions
+/// it hands on.
 ///
 /// The mark and the mask are paid only when there is a mask -- when
 /// the operation leaves every child alone (or, for subdividing, none)
 /// there is nothing to say and nothing to pay.
-fn cost_of_saying(work: &Workspace, region: Region, says: Says) -> usize {
+///
+/// The payload term is the whole of the answer to "does a binding
+/// emit bits for tiles inside a region it handed on": it does not.
+/// A masked binding pays one bit per tile of the children it keeps,
+/// and the children it hands on are not counted here or anywhere --
+/// they pay for themselves.
+fn bits_of_its_own(says: Says) -> usize {
     let mut cost = CODE + if says.masked() { CODE + CHILD_MASK } else { 0 };
-    let (alone, own) = match says {
-        Says::Bind { depth, alone } => {
-            cost += size_width(region.level);
-            // A payload bit for every tile of every child it keeps.
+    match says {
+        Says::Bind { depth, alone, .. } => {
+            cost += size_width_of(says);
             cost += if alone == EVERY_CHILD {
                 tiles(depth)
             } else {
                 alone.count_ones() as usize * tiles(depth - 1)
             };
-            (alone, true)
         }
-        Says::Subdivide { alone } => (alone, true),
-        Says::Copy { alone, .. } => {
-            cost += DIRECTION;
-            (alone, true)
-        }
-    };
-    let _ = own;
+        Says::Subdivide { .. } => {}
+        Says::Copy { .. } => cost += DIRECTION,
+    }
+    cost
+}
+
+/// A binding carries its region's level so that its tile size field
+/// can be measured without the region to hand.
+fn size_width_of(says: Says) -> usize {
+    match says {
+        Says::Bind { level, .. } => size_width(level),
+        _ => 0,
+    }
+}
+
+/// What a description costs all told: what it spends on itself, and
+/// what the regions it hands on will spend.
+fn cost_of_saying(work: &Workspace, region: Region, says: Says) -> usize {
+    let mut cost = bits_of_its_own(says);
+    let alone = says.alone();
     for (bit, child) in children_of(region).into_iter().enumerate() {
         if alone >> bit & 1 == 0 {
             cost += work.cost_of(child);
@@ -446,14 +476,14 @@ fn every_way(
     for depth in 0..=region.level {
         // Unmasked: every tile of the region has to be homogeneous.
         if depth >= work.finest_of(region) {
-            ways.push(Says::Bind { depth, alone: EVERY_CHILD });
+            ways.push(Says::Bind { level: region.level, depth, alone: EVERY_CHILD });
         }
         // Masked: only the children it keeps have to be, and a mask
         // names children, so there have to be children to name.
         if depth >= 1 && may_mask {
             let alone = kept_by_a_binding(work, region, depth);
             if alone != EVERY_CHILD {
-                ways.push(Says::Bind { depth, alone });
+                ways.push(Says::Bind { level: region.level, depth, alone });
             }
         }
     }
@@ -566,6 +596,7 @@ fn describe(
         .min_by_key(|&says| cost_of_saying(work, region, says))
         .expect("every region can at least bind at one cell a tile");
 
+    out.counts.accounted += bits_of_its_own(says);
     if let Says::Bind { depth, .. } = says {
         out.counts.bindings += 1;
         if region.level == depth && region.level > 0 {
@@ -583,9 +614,7 @@ fn describe(
         }
     }
 
-    let alone = match says {
-        Says::Bind { alone, .. } | Says::Subdivide { alone } | Says::Copy { alone, .. } => alone,
-    };
+    let alone = says.alone();
     if says.masked() {
         out.tree.push(MASK, CODE);
     }
@@ -863,14 +892,54 @@ mod tests {
     /// description writes no mark and no mask.
     #[test]
     fn an_unmasked_description_pays_for_no_mask() {
-        let region = Region { level: 4, x: 0, y: 0 };
-        let work = Workspace::new();
-        let whole = Says::Bind { depth: 2, alone: EVERY_CHILD };
+        let whole = Says::Bind { level: 4, depth: 2, alone: EVERY_CHILD };
         assert!(!whole.masked());
-        assert_eq!(cost_of_saying(&work, region, whole), CODE + size_width(4) + tiles(2));
-        assert!(Says::Bind { depth: 2, alone: 0b0111 }.masked());
+        assert_eq!(bits_of_its_own(whole), CODE + size_width(4) + tiles(2));
+
+        // Masked, it pays the mark, the mask, and a payload bit for
+        // every tile of the three children it kept -- and nothing at
+        // all for the one it handed on.
+        let handing_one_on = Says::Bind { level: 4, depth: 2, alone: 0b0111 };
+        assert!(handing_one_on.masked());
+        assert_eq!(
+            bits_of_its_own(handing_one_on),
+            CODE + CODE + CHILD_MASK + size_width(4) + 3 * tiles(1)
+        );
         assert!(!Says::Subdivide { alone: 0 }.masked());
         assert!(Says::Subdivide { alone: 0b0001 }.masked());
+    }
+
+    /// Every bit written is one region's own, and a binding writes
+    /// none for a tile inside a region it handed on.
+    ///
+    /// The count is built from the mask arithmetic -- a kept child is
+    /// worth one payload bit per tile, a handed on child is worth
+    /// nothing -- and the encoding is built by walking tiles and
+    /// skipping the ones inside a handed on child. They come from
+    /// different code, so if a binding ever paid for a tile it gave
+    /// away they would not agree.
+    #[test]
+    fn a_binding_writes_nothing_for_what_it_hands_on() {
+        let (mut pyramid, mut work) = (Pyramid::new(), Workspace::new());
+        let mut out = Encoded::default();
+        let mut masked = 0;
+        for masking in Masking::ALL {
+            for (case, bits) in cases().iter().enumerate() {
+                pyramid.clear();
+                pyramid.rebuild(bits);
+                encode(&pyramid, bits, masking, &mut work, &mut out);
+                assert_eq!(
+                    out.counts.accounted,
+                    out.bits(),
+                    "masking {}, case {case}: the bits written and the bits accounted for differ",
+                    masking.name()
+                );
+                masked += out.counts.masked_bindings;
+            }
+        }
+        // And the check is not vacuous: bindings that hand children
+        // on do happen in these cases.
+        assert!(masked > 0, "no binding in the whole corpus handed a child on");
     }
 
     /// Forbidding a mask cannot lose a cell, only bits. Every
