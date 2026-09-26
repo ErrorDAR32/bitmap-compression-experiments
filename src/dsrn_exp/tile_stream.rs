@@ -74,70 +74,77 @@ enum Owner {
 
 /// Decodes a stream written by [`encode`].
 ///
-/// A tile's header is read once, at its top-left corner, exactly as
-/// [`encode`] wrote it -- but its cells are filled in lazily, one at a
-/// time, in step with the same row-major walk, rather than all at once
-/// from whatever the source holds right now. That is what makes a
-/// copy safe regardless of how its source is made up: the one source
-/// cell a given target cell needs is always the one directly behind
-/// it in this same order -- the same row, an earlier column, or an
-/// earlier row entirely -- so it is always already filled by the time
-/// it is read, whether that source was one tile or several.
+/// Two passes, because they answer two different questions. The
+/// first reads every header, once each, at its tile's top-left
+/// corner -- the fixed positions [`encode`] wrote them at, which
+/// cannot depend on anything being resolved yet. The second resolves
+/// what every cell actually holds: a bound cell resolves at once, and
+/// a copy asks for the one cell it needs and, if that is not resolved
+/// yet, simply leaves itself for the next pass to ask again. It does
+/// not matter whether the source is one tile or several, or whether
+/// it is itself waiting on something -- a copy always names a
+/// neighbour reading order puts before it, so there is no cycle, and
+/// leaving the unready ones for another pass always finishes.
 pub fn decode(stream: &EncodedBitmap) -> Bitmap {
-    let mut bitmap = Bitmap::new();
-    let mut filled = Bitmap::new();
     let mut owner: Vec<Option<Owner>> = vec![None; 256 * 256];
     let mut at = 0usize;
 
     for y in 0..=u8::MAX {
         for x in 0..=u8::MAX {
-            if filled.get(x, y) {
+            let idx = y as usize * 256 + x as usize;
+            if owner[idx].is_some() {
                 continue;
             }
-            let idx = y as usize * 256 + x as usize;
-            let says = match owner[idx] {
-                Some(says) => says,
-                None => {
-                    // A new tile starts here: read its header and mark
-                    // its whole footprint owned, so the rest of it
-                    // does not read the stream again.
-                    let bound = stream.take(at, CODE_WIDTH) == BOUND;
-                    at += CODE_WIDTH;
-                    let level = stream.take(at, SIZE_WIDTH) as usize + 1;
-                    at += SIZE_WIDTH;
-                    let side = tile_side(level);
-                    let says = if bound {
-                        let value = stream.take(at, VALUE_WIDTH) != 0;
-                        at += VALUE_WIDTH;
-                        Owner::Bound(value)
-                    } else {
-                        let direction = stream.take(at, DIRECTION_WIDTH) as usize;
-                        at += DIRECTION_WIDTH;
-                        Owner::Copied(direction, side)
-                    };
-                    for row in 0..side {
-                        for col in 0..side {
-                            owner[(y as usize + row) * 256 + (x as usize + col)] = Some(says);
-                        }
-                    }
-                    says
-                }
+            let bound = stream.take(at, CODE_WIDTH) == BOUND;
+            at += CODE_WIDTH;
+            let level = stream.take(at, SIZE_WIDTH) as usize + 1;
+            at += SIZE_WIDTH;
+            let side = tile_side(level);
+            let says = if bound {
+                let value = stream.take(at, VALUE_WIDTH) != 0;
+                at += VALUE_WIDTH;
+                Owner::Bound(value)
+            } else {
+                let direction = stream.take(at, DIRECTION_WIDTH) as usize;
+                at += DIRECTION_WIDTH;
+                Owner::Copied(direction, side)
             };
-
-            let value = match says {
-                Owner::Bound(value) => value,
-                Owner::Copied(direction, side) => {
-                    let (dx, dy) = DIRECTIONS[direction];
-                    let fx = (x as isize + dx * side as isize) as u8;
-                    let fy = (y as isize + dy * side as isize) as u8;
-                    bitmap.get(fx, fy)
+            for row in 0..side {
+                for col in 0..side {
+                    owner[(y as usize + row) * 256 + (x as usize + col)] = Some(says);
                 }
-            };
-            if value {
-                bitmap.set(x, y);
             }
-            filled.set(x, y);
         }
+    }
+
+    let mut bitmap = Bitmap::new();
+    let mut resolved = Bitmap::new();
+    let mut left = 256 * 256;
+    while left > 0 {
+        let before = left;
+        for y in 0..=u8::MAX {
+            for x in 0..=u8::MAX {
+                if resolved.get(x, y) {
+                    continue;
+                }
+                let value = match owner[y as usize * 256 + x as usize].expect("every cell got an owner in the first pass") {
+                    Owner::Bound(value) => Some(value),
+                    Owner::Copied(direction, side) => {
+                        let (dx, dy) = DIRECTIONS[direction];
+                        let fx = (x as isize + dx * side as isize) as u8;
+                        let fy = (y as isize + dy * side as isize) as u8;
+                        resolved.get(fx, fy).then(|| bitmap.get(fx, fy))
+                    }
+                };
+                let Some(value) = value else { continue };
+                if value {
+                    bitmap.set(x, y);
+                }
+                resolved.set(x, y);
+                left -= 1;
+            }
+        }
+        assert!(left < before, "nothing resolved in a whole pass: a cycle exists that should be impossible");
     }
     bitmap
 }
