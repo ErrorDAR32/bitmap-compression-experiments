@@ -5,15 +5,16 @@
 //! cost of every way it could go before committing to any of it. This
 //! is the opposite kind of pass: there are no regions, no standing, no
 //! recursive cost tables. There is a plane and a size, biggest first,
-//! and one rule at each size: a tile that is one thing, or that
-//! matches a same-size neighbour reading order puts before it and
-//! that neighbour is already decided, gets placed and claimed; a tile
-//! that is neither is left for the next, finer size to try on its own
-//! four quarters. Tiles never overlap, so a size that has already
-//! claimed a tile is a size no finer pass ever has to look at again,
-//! and by the time the pass reaches 1x1 every remaining cell is, on
-//! its own, one thing -- so the pass always finishes and always
-//! covers the whole bitmap.
+//! and one rule at each size: a tile that is one thing, or that holds
+//! the same cells as a same-size neighbour, gets placed and claimed; a
+//! tile that is neither is left for the next, finer size to try on its
+//! own four quarters. Both checks read the bitmap directly and answer
+//! at once -- the bitmap never changes, so there is nothing for either
+//! one to wait on, whatever order tiles get visited in. Tiles never
+//! overlap, so a size that has already claimed a tile is a size no
+//! finer pass ever has to look at again, and by the time the pass
+//! reaches 1x1 every remaining cell is, on its own, one thing -- so
+//! the pass always finishes and always covers the whole bitmap.
 //!
 //! This file only decides which tiles that rule would place. It does
 //! not write a bitstream: there is nothing here yet that says how a
@@ -75,16 +76,15 @@ pub fn greedy_tile_pass(pyramid: &Pyramid, bitmap: &Bitmap) -> GreedyTileCounts 
                 if tile_of_bitmap(pyramid, bitmap, level, x, y).is_some() {
                     counts.bound_at_level[level] += 1;
                 } else if pyramid.copyable(level, x, y) {
-                    // Priced the same optimistic way DSRN's own
-                    // bottom-up pass prices a copy: by content alone,
-                    // not by whether the neighbour happens to have
-                    // been decided as one tile yet. Whether some order
-                    // can actually deliver it is a later question.
+                    // A same-size neighbour holds the same cells,
+                    // read straight from the bitmap -- true or false
+                    // the moment it is asked, not something to wait
+                    // for the encoder to have decided.
                     counts.copied_at_level[level] += 1;
                 } else {
-                    // Neither one thing nor a copy of anything already
-                    // decided: left for this tile's four quarters, one
-                    // level finer, to each try for themselves.
+                    // Neither one thing nor a match for any same-size
+                    // neighbour: left for this tile's four quarters,
+                    // one level finer, to each try for themselves.
                     continue;
                 }
                 claim(&mut claimed, tile);
@@ -100,7 +100,6 @@ fn claim(claimed: &mut Bitmap, tile: Region) {
     let side = tile.side_in_cells();
     claimed.set_rect(x as i64, y as i64, (x + side - 1) as i64, (y + side - 1) as i64);
 }
-
 
 /// Compares the greedy pass against the region-based encoder at its
 /// best known setting, in the one currency both understand: how many
@@ -136,20 +135,13 @@ pub fn run() {
         }
 
         let n = maps.len();
-        println!("
-  {family}, {n} bitmaps. tiles a bitmap, by size.
-");
+        println!("\n  {family}, {n} bitmaps. tiles a bitmap, by size.\n");
         let mut t = Table::new(&[
-            "tile side
-in cells",
-            "dsrn
-bound",
-            "dsrn
-copied",
-            "greedy
-bound",
-            "greedy
-copied",
+            "tile side\nin cells",
+            "dsrn\nbound",
+            "dsrn\ncopied",
+            "greedy\nbound",
+            "greedy\ncopied",
         ]);
         let (mut dsrn_total, mut greedy_total) = (0usize, 0usize);
         for level in 0..=CELL_LEVEL {
@@ -166,8 +158,7 @@ copied",
         }
         t.print();
         println!(
-            "
-  total tiles a bitmap: dsrn {}, greedy {} ({:+.1}%)",
+            "\n  total tiles a bitmap: dsrn {}, greedy {} ({:+.1}%)",
             dsrn_total / n,
             greedy_total / n,
             100.0 * (greedy_total as f64 - dsrn_total as f64) / dsrn_total as f64
