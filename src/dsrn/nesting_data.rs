@@ -212,9 +212,15 @@ pub struct CodeCounts {
     /// and the ones taken whole from a neighbour.
     pub four_by_fours_already_right: usize,
     pub four_by_fours_copied_whole: usize,
+    /// And the ones that said nothing at all, leaving the whole of
+    /// themselves to the binding above.
+    pub four_by_fours_left_whole: usize,
     /// What the already right ones spent saying what they had no way
     /// of not saying.
     pub bits_spent_on_being_already_right: usize,
+    /// What each of the four codes was said, and what each spent.
+    pub four_by_four_said: [usize; 4],
+    pub four_by_four_spent: [usize; 4],
     /// Regions bound at one cell a tile, and the payload bits that
     /// went out one cell at a time -- the encoding at its floor.
     pub bound_at_cells: usize,

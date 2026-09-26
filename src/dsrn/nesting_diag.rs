@@ -12,8 +12,9 @@ use crate::dsrn::nesting_data::{
     DIRECTION_WIDTH, FINEST_LEVEL_WITH_A_GRAMMAR, MASK, SUBDIVIDE,
 };
 use crate::dsrn::four_by_four::{
-    BIND_OR_SKIP_WIDTH, CELLS_IN_A_CHILD, COPY_OR_LEAVE_WIDTH, MASKED, MASKED_OR_NOT_WIDTH,
-    TILES_OF_ONE, TILE_SIZE_WIDTH, THE_REST_COPY, BIND as BIND_AT_A_FOUR_BY_FOUR,
+    CELLS_IN_A_CHILD, COPY_OR_LEAVE_WIDTH, FIRST_WIDTH, MASKED, MASKED_OR_NOT_WIDTH,
+    SECOND_WIDTH, THE_REST_COPY, TILES_OF_ONE, TILE_SIZE_WIDTH, BIND as BINDS_AT_A_FOUR_BY_FOUR,
+    COPY as COPIES_AT_A_FOUR_BY_FOUR,
 };
 use crate::dsrn::nesting::Knobs;
 use crate::dsrn::region::{deepest_depth, tiles_at_depth, Region, CHILD_COUNT};
@@ -34,37 +35,40 @@ pub fn explain(out: &Encoded, knobs: Knobs) -> String {
 fn retell_its_own_grammar(
     at: &mut (usize, usize),
     out: &Encoded,
-    region: Region,
     where_it_is: &str,
     said: &mut String,
 ) {
-    let binds = take(at, out, BIND_OR_SKIP_WIDTH) == BIND_AT_A_FOUR_BY_FOUR;
+    let binds = take(at, out, FIRST_WIDTH) == BINDS_AT_A_FOUR_BY_FOUR;
     let at_ones = binds && take(at, out, TILE_SIZE_WIDTH) == TILES_OF_ONE;
+    let copies = !binds && take(at, out, SECOND_WIDTH) == COPIES_AT_A_FOUR_BY_FOUR;
+    let whence = copies.then(|| WHENCE[take(at, out, DIRECTION_WIDTH) as usize]);
     let masked = take(at, out, MASKED_OR_NOT_WIDTH) == MASKED;
-    if at_ones && !masked {
-        take(at, out, DIRECTION_WIDTH);
-        said.push_str(&format!("{where_it_is}: the whole of it, copied\n"));
-        return;
-    }
     let (mask, the_rest_copy) = if masked {
         let mask = RegionMask(take(at, out, CHILD_MASK_WIDTH));
         (mask, take(at, out, COPY_OR_LEAVE_WIDTH) == THE_REST_COPY)
-    } else {
+    } else if binds || copies {
         (RegionMask::EVERY, false)
+    } else {
+        (RegionMask::NONE, false)
     };
+
     for child_at in 0..CHILD_COUNT {
         if mask.describes(child_at) {
-            at.1 += if binds && !at_ones { 1 } else { CELLS_IN_A_CHILD };
+            if binds {
+                at.1 += if at_ones { CELLS_IN_A_CHILD } else { 1 };
+            } else if !copies {
+                at.1 += CELLS_IN_A_CHILD;
+            }
         } else if the_rest_copy {
             take(at, out, DIRECTION_WIDTH);
         }
     }
-    let takes = if !binds {
-        "skips to"
-    } else if at_ones {
-        "binds at one cell a tile"
-    } else {
-        "binds at one 2x2 a tile"
+
+    let takes = match (binds, at_ones, whence) {
+        (_, _, Some(whence)) => format!("takes from {whence}"),
+        (true, false, _) => "binds at one 2x2 a tile".to_string(),
+        (true, true, _) => "binds at one cell a tile".to_string(),
+        _ => "skips to".to_string(),
     };
     let rest = if the_rest_copy { "copy" } else { "are left to the binding above" };
     said.push_str(&format!(
@@ -93,7 +97,7 @@ fn retell(
     let where_it_is = format!("{:width$}{side}x{side} at ({x}, {y})", "", width = deep * 2);
 
     if knobs.four_by_four.is_its_own_grammar(region) {
-        retell_its_own_grammar(at, out, region, &where_it_is, said);
+        retell_its_own_grammar(at, out, &where_it_is, said);
         return;
     }
 

@@ -27,12 +27,13 @@ pub fn run() {
             "already right\na bitmap",
             "copied whole\na bitmap",
             "bits the already\nright spent",
+            "left whole\na bitmap",
         ]);
         let mut first = 0f64;
         for four_by_four in FourByFour::ALL {
             let knobs = Knobs { four_by_four, ..Knobs::default() };
             let (mut bits, mut said, mut copied, mut right) = (0usize, 0usize, 0usize, 0usize);
-            let (mut whole, mut wasted) = (0usize, 0usize);
+            let (mut whole, mut wasted, mut left) = (0usize, 0usize, 0usize);
             for bitmap in &maps {
                 bits += bench.run(bitmap, knobs);
                 let counts = bench.out.counts;
@@ -43,6 +44,7 @@ pub fn run() {
                 right += counts.four_by_fours_already_right;
                 whole += counts.four_by_fours_copied_whole;
                 wasted += counts.bits_spent_on_being_already_right;
+                left += counts.four_by_fours_left_whole;
             }
             let n = maps.len();
             if four_by_four == FourByFour::LikeAnyRegion {
@@ -57,6 +59,32 @@ pub fn run() {
                 (right / n).to_string(),
                 (whole / n).to_string(),
                 (wasted / n).to_string(),
+                (left / n).to_string(),
+            ]);
+        }
+        t.print();
+
+        println!();
+        let mut t = Table::new(&["what a 4x4 said", "times\na bitmap", "bits\na bitmap"]);
+        let knobs = Knobs { four_by_four: FourByFour::ItsOwnGrammar, ..Knobs::default() };
+        let (mut said, mut spent) = ([0usize; 4], [0usize; 4]);
+        for bitmap in &maps {
+            bench.run(bitmap, knobs);
+            for which in 0..4 {
+                said[which] += bench.out.counts.four_by_four_said[which];
+                spent[which] += bench.out.counts.four_by_four_spent[which];
+            }
+        }
+        let n = maps.len();
+        for (which, name) in
+            ["bind at one 2x2 a tile", "bind at one cell a tile", "skip", "copy"]
+                .into_iter()
+                .enumerate()
+        {
+            t.row(&[
+                name.to_string(),
+                (said[which] / n).to_string(),
+                (spent[which] / n).to_string(),
             ]);
         }
         t.print();

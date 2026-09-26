@@ -9,63 +9,58 @@
 //!
 //! ```text
 //! 0     bind, then a bit: 2x2 tiles or 1x1
-//! 1     skip
+//! 10    skip
+//! 11    the whole of it copied, then two bits of direction
 //! then
-//! 0     unmasked: the code takes all four children
-//! 1     masked: four bits saying which it takes, then a bit
+//! 0     no child mask: the code takes all four, and skipping with
+//!       no mask takes none, which leaves the whole of it to the
+//!       binding above
+//! 1     a child mask: four bits saying which children the code
+//!       takes, then a bit
 //!       0   the ones it does not take copy, each from a neighbour
 //!           of its own
 //!       1   the ones it does not take are left to the closest
 //!           binding above
 //! ```
 //!
-//! What the code takes it says outright: a binding writes a bit per
-//! tile of it, and a skip leaves it to be a region of its own, which
-//! for a 2x2 means its four cells. What the code does not take is
-//! either copied or already right.
+//! What the code takes it says outright. A binding writes a bit per
+//! tile of it, which is one bit at 2x2 tiles and four at 1x1. A skip
+//! leaves it to be a region of its own, which for a 2x2 is its four
+//! cells. A copy takes it from the neighbour it named. What the code
+//! does not take is either copied on its own account or already
+//! right.
 //!
-//! There are three readings that carry no mask and four things
-//! wanting one, so one of them has to go. The one dropped is skipping
-//! and taking nothing -- a 4x4 saying that the whole of it is already
-//! right -- because a region is only described at all when the region
-//! above it named it, and a region above only names a child that is
-//! not already right. Nothing can reach it, so it is free.
-//!
-//! What it says instead is the one thing the rest of this grammar
-//! cannot: the whole 4x4 copied from one neighbour, in five bits
-//! rather than the fifteen it would cost to say it four times over.
-//! Skipping and taking all four writes the four children out raw, and
-//! is a bit cheaper for it.
-//!
-//! ```text
-//! 1 0                                the four children, raw
-//! 0 1 0 then two bits of direction   the whole of it, copied
-//! ```
-//!
-//! Two bits buy what four used to. The general grammar spends two on
-//! the code and two more on the tile size to say what this says in
-//! two altogether, and it has no way at all to say that a 2x2 copies.
-//! What it still says for one bit less is a 4x4 bound at one tile,
-//! which here costs three bits and four rather than three and one.
+//! Three bits say the four things a 4x4 is usually saying: all one
+//! thing a child (bind at 2x2 tiles), all sixteen cells (bind at 1x1),
+//! and none of my business (skip). Five say the whole of it copied.
+//! The general grammar spends four before it has said anything at
+//! all, and has no way to say that a 2x2 copies.
 
 use crate::dsrn::cost::cost_of_a_child;
-use crate::dsrn::describable::{children_standing_gets_wrong, where_each_child_copies_from};
+use crate::dsrn::describable::{
+    children_standing_gets_wrong, standing_one_level_down, where_each_child_copies_from,
+};
 use crate::dsrn::nesting::Knobs;
-use crate::dsrn::nesting_data::{RegionMask, Standing, Workspace, CHILD_MASK_WIDTH};
-use crate::dsrn::region::{Region, CHILD_COUNT};
+use crate::dsrn::nesting_data::{
+    RegionMask, Standing, Workspace, CHILD_MASK_WIDTH, DIRECTION_WIDTH,
+};
+use crate::dsrn::region::{same_cells, whole_region_encoded, Region, CHILD_COUNT, DIRECTIONS};
 use crate::pyramid::{tile_of_bitmap, Pyramid};
 use crate::Bitmap;
 
-/// The widths, in bits. Every one of them is one bit, which is the
-/// point of the thing.
-pub const BIND_OR_SKIP_WIDTH: usize = 1;
+/// The widths, in bits. Every one of them is one bit but the mask and
+/// the direction, which is the point of the thing.
+pub const FIRST_WIDTH: usize = 1;
+pub const SECOND_WIDTH: usize = 1;
 pub const TILE_SIZE_WIDTH: usize = 1;
 pub const MASKED_OR_NOT_WIDTH: usize = 1;
 pub const COPY_OR_LEAVE_WIDTH: usize = 1;
 
 /// The values those bits take.
 pub const BIND: u64 = 0;
-pub const SKIP: u64 = 1;
+pub const NOT_BIND: u64 = 1;
+pub const SKIP: u64 = 0;
+pub const COPY: u64 = 1;
 pub const TILES_OF_FOUR: u64 = 0;
 pub const TILES_OF_ONE: u64 = 1;
 pub const UNMASKED: u64 = 0;
@@ -78,7 +73,7 @@ pub const CELLS_IN_A_CHILD: usize = 4;
 
 /// What the code does with a child it takes.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum WhatItTakes {
+pub enum TheCode {
     /// A bit per child: the one thing that child holds.
     BindAtFours,
     /// Four bits per child: its cells, one tile each.
@@ -86,13 +81,35 @@ pub enum WhatItTakes {
     /// The child becomes a region of its own, which for a 2x2 is its
     /// four cells and no code.
     Skip,
+    /// The child is taken from the same neighbour the whole region
+    /// would have been.
+    Copied { direction: usize },
+}
+
+impl TheCode {
+    /// What one child it takes costs in payload.
+    pub fn what_taking_it_costs(self) -> usize {
+        match self {
+            TheCode::BindAtFours => 1,
+            TheCode::BindAtOnes | TheCode::Skip => CELLS_IN_A_CHILD,
+            TheCode::Copied { .. } => 0,
+        }
+    }
+
+    /// What the code itself costs, before any mask.
+    pub fn size(self) -> usize {
+        FIRST_WIDTH
+            + match self {
+                TheCode::BindAtFours | TheCode::BindAtOnes => TILE_SIZE_WIDTH,
+                TheCode::Skip => SECOND_WIDTH,
+                TheCode::Copied { .. } => SECOND_WIDTH + DIRECTION_WIDTH,
+            }
+    }
 }
 
 /// What becomes of a child the code does not take.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum WhatItLeaves {
-    /// Nothing: there is no mask, and the code takes all four.
-    Nothing,
     /// It copies, from a neighbour of its own.
     Copies,
     /// It is left to the closest binding above, which already says
@@ -102,63 +119,38 @@ pub enum WhatItLeaves {
 
 /// What a 4x4 says.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum FourByFourSays {
-    /// The whole of it, taken from one neighbour. Written in the one
-    /// reading of the code that would otherwise say what skipping
-    /// says for a bit less.
-    CopiedWhole { direction: usize },
-    /// What the code takes, and what becomes of the rest.
-    Said { takes: WhatItTakes, mask: RegionMask, leaves: WhatItLeaves },
+pub struct FourByFourSays {
+    pub code: TheCode,
+    /// No mask means the code takes all four -- except a skip, which
+    /// then takes none and leaves the whole region to the binding
+    /// above.
+    pub mask: Option<(RegionMask, WhatItLeaves)>,
 }
 
 impl FourByFourSays {
     /// Whether a child is one the code takes.
     pub fn takes_it(self, child: usize) -> bool {
-        match self {
-            FourByFourSays::CopiedWhole { .. } => true,
-            FourByFourSays::Said { mask, leaves, .. } => {
-                leaves == WhatItLeaves::Nothing || mask.describes(child)
-            }
+        match self.mask {
+            Some((mask, _)) => mask.describes(child),
+            None => self.code != TheCode::Skip,
         }
     }
 
     /// What the header costs: the code, and the mask where there is
     /// one.
     pub fn header_size(self) -> usize {
-        let code = BIND_OR_SKIP_WIDTH + MASKED_OR_NOT_WIDTH;
-        match self {
-            FourByFourSays::CopiedWhole { .. } => {
-                code + TILE_SIZE_WIDTH + crate::dsrn::nesting_data::DIRECTION_WIDTH
-            }
-            FourByFourSays::Said { takes, leaves, .. } => {
-                let code = code + usize::from(takes != WhatItTakes::Skip) * TILE_SIZE_WIDTH;
-                if leaves == WhatItLeaves::Nothing {
-                    code
-                } else {
-                    code + CHILD_MASK_WIDTH + COPY_OR_LEAVE_WIDTH
-                }
-            }
-        }
-    }
-}
-
-/// What one child costs the 4x4 that took it.
-fn what_taking_it_costs(takes: WhatItTakes) -> usize {
-    match takes {
-        WhatItTakes::BindAtFours => 1,
-        WhatItTakes::BindAtOnes | WhatItTakes::Skip => CELLS_IN_A_CHILD,
+        self.code.size()
+            + MASKED_OR_NOT_WIDTH
+            + if self.mask.is_some() { CHILD_MASK_WIDTH + COPY_OR_LEAVE_WIDTH } else { 0 }
     }
 }
 
 /// Everything a 4x4 could say, and what each would cost all told.
 ///
-/// The three ways of taking a child and the two ways of leaving one
-/// make six, and then there is taking all four and leaving none,
-/// which makes nine. Each is priced child by child, because which
-/// children a mask names is settled one child at a time: a child goes
-/// wherever it is cheaper, and if it cannot go where the code takes
-/// it, it has to be left, and if it cannot be left either, that way
-/// of saying it is not open.
+/// Each way is priced child by child, because which children a mask
+/// names is settled one child at a time: a child goes wherever it is
+/// cheaper, and if it can neither be taken nor left, that way of
+/// saying it is not open at all.
 pub fn every_way_a_four_by_four_can_say_it(
     work: &Workspace,
     pyramid: &Pyramid,
@@ -175,50 +167,59 @@ pub fn every_way_a_four_by_four_can_say_it(
     let wrong = children_standing_gets_wrong(work, pyramid, bitmap, region, standing);
     let from = where_each_child_copies_from(work, pyramid, bitmap, region, encoded);
     let children = region.children();
-    let one_thing = children.map(|child| {
-        tile_of_bitmap(pyramid, bitmap, child.level, child.x, child.y).is_some()
-    });
-    let below = crate::dsrn::describable::standing_one_level_down(work, standing, region);
+    let one_thing = children
+        .map(|child| tile_of_bitmap(pyramid, bitmap, child.level, child.x, child.y).is_some());
+    let below = standing_one_level_down(work, standing, region);
 
-    // The whole of it from one neighbour, where there is one to take
-    // it from.
+    let mut codes = vec![TheCode::BindAtFours, TheCode::BindAtOnes, TheCode::Skip];
     if pyramid.copyable(region.level, region.x, region.y) {
-        if let Some(direction) = a_neighbour_holding_the_same(work, bitmap, region, encoded) {
-            let says = FourByFourSays::CopiedWhole { direction };
-            ways.push((says, says.header_size()));
-        }
+        codes.extend(
+            (0..DIRECTIONS.len())
+                .filter(|&direction| a_neighbour_worth_copying(work, bitmap, region, direction, encoded))
+                .map(|direction| TheCode::Copied { direction }),
+        );
     }
 
-    for takes in [WhatItTakes::BindAtFours, WhatItTakes::BindAtOnes, WhatItTakes::Skip] {
-        // A binding at one tile a child can only take a child that is
-        // all one thing, or the bit it writes for it would be a lie.
-        let may_take = |at: usize| takes != WhatItTakes::BindAtFours || one_thing[at];
-        let taking = what_taking_it_costs(takes);
+    for code in codes {
+        let may_take = |at: usize| match code {
+            TheCode::BindAtFours => one_thing[at],
+            TheCode::Copied { direction } => {
+                children_the_copy_holds(work, bitmap, region, direction, encoded).describes(at)
+            }
+            _ => true,
+        };
+        let taking = code.what_taking_it_costs();
 
-        // Taking all four at one tile a cell is the reading that now
-        // says copy, so it is not one of these. Skipping and taking
-        // all four writes them raw, which is what it would have
-        // written anyway, a bit cheaper.
-        if takes != WhatItTakes::BindAtOnes && (0..CHILD_COUNT).all(may_take) {
-            let says = FourByFourSays::Said {
-                takes,
-                mask: RegionMask::EVERY,
-                leaves: WhatItLeaves::Nothing,
+        // No mask at all. A skip then takes nothing, and the whole
+        // region is left to the binding above, which only works where
+        // the whole of it is already right.
+        let takes_none = code == TheCode::Skip;
+        let open = if takes_none {
+            wrong == RegionMask::NONE
+        } else {
+            (0..CHILD_COUNT).all(may_take)
+        };
+        if open {
+            let says = FourByFourSays { code, mask: None };
+            let left = if takes_none {
+                (0..CHILD_COUNT)
+                    .map(|at| cost_of_a_child(work, children[at], below, false))
+                    .sum()
+            } else {
+                CHILD_COUNT * taking
             };
-            ways.push((says, says.header_size() + CHILD_COUNT * taking));
+            ways.push((says, says.header_size() + left));
         }
 
         for leaves in [WhatItLeaves::Copies, WhatItLeaves::LeftToABinding] {
             let (mut mask, mut size) = (0u64, 0usize);
             let mut open = true;
             for (at, child) in children.into_iter().enumerate() {
-                // What it costs to be left rather than taken, where
-                // being left is even allowed.
                 let left = match leaves {
-                    WhatItLeaves::Copies => from[at].map(|_| crate::dsrn::nesting_data::DIRECTION_WIDTH),
-                    WhatItLeaves::LeftToABinding => (!wrong.describes(at))
-                        .then(|| cost_of_a_child(work, child, below, false)),
-                    WhatItLeaves::Nothing => None,
+                    WhatItLeaves::Copies => from[at].map(|_| DIRECTION_WIDTH),
+                    WhatItLeaves::LeftToABinding => {
+                        (!wrong.describes(at)).then(|| cost_of_a_child(work, child, below, false))
+                    }
                 };
                 match (may_take(at).then_some(taking), left) {
                     (Some(taken), Some(left)) if left < taken => size += left,
@@ -230,8 +231,8 @@ pub fn every_way_a_four_by_four_can_say_it(
                     (None, None) => open = false,
                 }
             }
-            let says = FourByFourSays::Said { takes, mask: RegionMask(mask), leaves };
-            if open && RegionMask(mask) != RegionMask::EVERY {
+            let says = FourByFourSays { code, mask: Some((RegionMask(mask), leaves)) };
+            if open {
                 ways.push((says, says.header_size() + size));
             }
         }
@@ -239,21 +240,37 @@ pub fn every_way_a_four_by_four_can_say_it(
     ways
 }
 
-/// A neighbour of the region's own size holding the same cells, and
-/// one the decoder will be holding by the time it is asked for.
-fn a_neighbour_holding_the_same(
+/// Which children of a region a copy in a direction would hold right.
+fn children_the_copy_holds(
     work: &Workspace,
     bitmap: &Bitmap,
     region: Region,
+    direction: usize,
     encoded: bool,
-) -> Option<usize> {
-    (0..crate::dsrn::region::DIRECTIONS.len()).find(|&direction| {
-        region.neighbour(direction).is_some_and(|from| {
-            crate::dsrn::region::same_cells(bitmap, region, from)
-                && (!encoded
-                    || crate::dsrn::region::whole_region_encoded(&work.encoded_cells, from))
-        })
-    })
+) -> RegionMask {
+    let Some(from) = region.neighbour(direction) else { return RegionMask::NONE };
+    let theirs = from.children();
+    let mut held = 0;
+    for (at, mine) in region.children().into_iter().enumerate() {
+        if same_cells(bitmap, mine, theirs[at])
+            && (!encoded || whole_region_encoded(&work.encoded_cells, theirs[at]))
+        {
+            held |= 1 << at;
+        }
+    }
+    RegionMask(held)
+}
+
+/// Whether a direction is worth naming at all: the neighbour is on
+/// the bitmap and holds at least one of this region's children.
+fn a_neighbour_worth_copying(
+    work: &Workspace,
+    bitmap: &Bitmap,
+    region: Region,
+    direction: usize,
+    encoded: bool,
+) -> bool {
+    children_the_copy_holds(work, bitmap, region, direction, encoded) != RegionMask::NONE
 }
 
 /// The cheapest of them.
@@ -269,5 +286,5 @@ pub fn what_a_four_by_four_says(
     every_way_a_four_by_four_can_say_it(work, pyramid, bitmap, region, knobs, encoded, standing)
         .into_iter()
         .min_by_key(|&(_, size)| size)
-        .expect("a 4x4 can always skip, which takes every child at four bits")
+        .expect("a 4x4 can always bind at one cell a tile, which takes every child")
 }

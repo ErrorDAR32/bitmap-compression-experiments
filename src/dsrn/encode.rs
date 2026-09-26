@@ -25,15 +25,15 @@ use crate::dsrn::describable::{
     every_description, standing_under, where_each_child_copies_from,
 };
 use crate::dsrn::four_by_four::{
-    what_a_four_by_four_says, FourByFourSays, WhatItLeaves, WhatItTakes, BIND_OR_SKIP_WIDTH, COPY_OR_LEAVE_WIDTH,
-    MASKED, MASKED_OR_NOT_WIDTH, TILES_OF_FOUR, TILES_OF_ONE, TILE_SIZE_WIDTH, UNMASKED,
-    BIND as BIND_AT_A_FOUR_BY_FOUR, SKIP as SKIP_AT_A_FOUR_BY_FOUR,
-    THE_REST_ARE_LEFT, THE_REST_COPY,
+    what_a_four_by_four_says, TheCode, WhatItLeaves, BIND, COPY, COPY_OR_LEAVE_WIDTH, FIRST_WIDTH,
+    MASKED, MASKED_OR_NOT_WIDTH, NOT_BIND, SECOND_WIDTH, SKIP, THE_REST_ARE_LEFT, THE_REST_COPY,
+    TILES_OF_FOUR, TILES_OF_ONE, TILE_SIZE_WIDTH, UNMASKED,
 };
 use crate::dsrn::nesting::Knobs;
 use crate::dsrn::nesting_data::{
-    Encoded, RegionCode, Standing, Workspace, A_SIZE_THAT_MEANS_COPY, BIND, CHILD_MASK_WIDTH,
-    CODE_WIDTH, COPY, DIRECTION_WIDTH, MASK, SUBDIVIDE,
+    Encoded, RegionCode, RegionMask, Standing, Workspace, A_SIZE_THAT_MEANS_COPY,
+    BIND as BIND_CODE, CHILD_MASK_WIDTH, CODE_WIDTH, COPY as COPY_CODE, DIRECTION_WIDTH, MASK,
+    SUBDIVIDE,
 };
 use crate::dsrn::region::{
     deepest_depth, same_cells, tiles_at_depth, whole_region_encoded, Region, CHILD_COUNT,
@@ -90,7 +90,7 @@ pub fn encode_region(
     match code {
         RegionCode::Bind { depth, .. } => {
             count_a_binding(pyramid, region, depth, out);
-            out.tree.push_value(BIND, CODE_WIDTH);
+            out.tree.push_value(BIND_CODE, CODE_WIDTH);
             if code.is_masked() {
                 out.counts.masked_bindings += 1;
                 out.tree.push_value(mask.0, CHILD_MASK_WIDTH);
@@ -107,7 +107,7 @@ pub fn encode_region(
         }
         RegionCode::Copy { direction, .. } => {
             out.counts.copies += 1;
-            out.tree.push_value(COPY, CODE_WIDTH);
+            out.tree.push_value(COPY_CODE, CODE_WIDTH);
             if code.is_masked() {
                 out.counts.masked_copies += 1;
                 out.tree.push_value(mask.0, CHILD_MASK_WIDTH);
@@ -121,7 +121,7 @@ pub fn encode_region(
             out.counts.four_by_fours_copying_each_child += 1;
             out.counts.children_copying_themselves += mask.described();
             out.counts.children_left_to_a_binding += mask.left_to_a_binding();
-            out.tree.push_value(BIND, CODE_WIDTH);
+            out.tree.push_value(BIND_CODE, CODE_WIDTH);
             out.tree
                 .push_value(A_SIZE_THAT_MEANS_COPY, tile_size_field_width(region.level));
             out.tree.push_value(mask.0, CHILD_MASK_WIDTH);
@@ -227,58 +227,54 @@ fn write_what_a_four_by_four_says(
     out: &mut Encoded,
 ) {
     let (says, _) = what_a_four_by_four_says(work, pyramid, bitmap, region, knobs, true, standing);
+    let from = where_each_child_copies_from(work, pyramid, bitmap, region, true);
     out.counts.four_by_fours_in_their_own_grammar += 1;
     let already_right = crate::dsrn::describable::children_standing_gets_wrong(
         work, pyramid, bitmap, region, standing,
-    ) == crate::dsrn::nesting_data::RegionMask::NONE;
+    ) == RegionMask::NONE;
     let spent_so_far = out.counts.accounted;
     if already_right {
         out.counts.four_by_fours_already_right += 1;
     }
     out.counts.accounted += says.header_size();
 
-    let (takes, mask, leaves) = match says {
-        FourByFourSays::CopiedWhole { direction } => {
+    match says.code {
+        TheCode::BindAtFours | TheCode::BindAtOnes => {
+            out.tree.push_value(BIND, FIRST_WIDTH);
+            let size =
+                if says.code == TheCode::BindAtOnes { TILES_OF_ONE } else { TILES_OF_FOUR };
+            out.tree.push_value(size, TILE_SIZE_WIDTH);
+        }
+        TheCode::Skip => {
+            out.tree.push_value(NOT_BIND, FIRST_WIDTH);
+            out.tree.push_value(SKIP, SECOND_WIDTH);
+            if says.mask.is_none() {
+                out.counts.four_by_fours_left_whole += 1;
+            }
+        }
+        TheCode::Copied { direction } => {
             out.counts.copies += 1;
             out.counts.four_by_fours_copied_whole += 1;
-            out.tree.push_value(BIND_AT_A_FOUR_BY_FOUR, BIND_OR_SKIP_WIDTH);
-            out.tree.push_value(TILES_OF_ONE, TILE_SIZE_WIDTH);
-            out.tree.push_value(UNMASKED, MASKED_OR_NOT_WIDTH);
+            out.tree.push_value(NOT_BIND, FIRST_WIDTH);
+            out.tree.push_value(COPY, SECOND_WIDTH);
             out.tree.push_value(direction as u64, DIRECTION_WIDTH);
-            work.mark_encoded(region);
-            if already_right {
-                out.counts.bits_spent_on_being_already_right +=
-                    out.counts.accounted - spent_so_far;
-            }
-            return;
         }
-        FourByFourSays::Said { takes, mask, leaves } => (takes, mask, leaves),
-    };
-
-    out.tree.push_value(
-        match takes {
-            WhatItTakes::Skip => SKIP_AT_A_FOUR_BY_FOUR,
-            _ => BIND_AT_A_FOUR_BY_FOUR,
-        },
-        BIND_OR_SKIP_WIDTH,
-    );
-    if takes != WhatItTakes::Skip {
-        let size = if takes == WhatItTakes::BindAtOnes { TILES_OF_ONE } else { TILES_OF_FOUR };
-        out.tree.push_value(size, TILE_SIZE_WIDTH);
     }
-    let masked = leaves != WhatItLeaves::Nothing;
-    out.tree.push_value(if masked { MASKED } else { UNMASKED }, MASKED_OR_NOT_WIDTH);
-    if masked {
-        out.tree.push_value(mask.0, CHILD_MASK_WIDTH);
-        let rest = if leaves == WhatItLeaves::Copies { THE_REST_COPY } else { THE_REST_ARE_LEFT };
-        out.tree.push_value(rest, COPY_OR_LEAVE_WIDTH);
+    match says.mask {
+        None => out.tree.push_value(UNMASKED, MASKED_OR_NOT_WIDTH),
+        Some((mask, leaves)) => {
+            out.tree.push_value(MASKED, MASKED_OR_NOT_WIDTH);
+            out.tree.push_value(mask.0, CHILD_MASK_WIDTH);
+            let rest =
+                if leaves == WhatItLeaves::Copies { THE_REST_COPY } else { THE_REST_ARE_LEFT };
+            out.tree.push_value(rest, COPY_OR_LEAVE_WIDTH);
+        }
     }
 
-    let from = where_each_child_copies_from(work, pyramid, bitmap, region, true);
     for (at, child) in region.children().into_iter().enumerate() {
         if !says.takes_it(at) {
-            match leaves {
-                WhatItLeaves::Copies => {
+            match says.mask {
+                Some((_, WhatItLeaves::Copies)) => {
                     let direction = from[at].expect("a child left to copy was offered a direction");
                     out.tree.push_value(direction as u64, DIRECTION_WIDTH);
                     out.counts.accounted += DIRECTION_WIDTH;
@@ -288,32 +284,43 @@ fn write_what_a_four_by_four_says(
                 // Left to the binding above, which writes it. Where
                 // there is no binding above it stays clear, and clear
                 // is something the decoder holds.
-                WhatItLeaves::LeftToABinding => {
+                _ => {
                     out.counts.children_left_to_a_binding += 1;
                     if standing == Standing::Clear {
                         work.mark_encoded(child);
                     }
                 }
-                WhatItLeaves::Nothing => unreachable!("it takes every child"),
             }
             continue;
         }
-        match takes {
-            WhatItTakes::BindAtFours => {
+        match says.code {
+            TheCode::BindAtFours => {
                 let value = tile_of_bitmap(pyramid, bitmap, child.level, child.x, child.y)
                     .expect("a child bound at one tile is all one thing");
                 out.payload.push(value);
                 out.counts.accounted += 1;
                 work.mark_encoded(child);
             }
-            WhatItTakes::BindAtOnes | WhatItTakes::Skip => {
+            TheCode::BindAtOnes | TheCode::Skip => {
                 write_the_cells(work, pyramid, bitmap, child, out);
             }
+            // The cells come from the neighbour the code named, and
+            // the decoder reads them there. Nothing is written for it
+            // beyond the direction already in the header.
+            TheCode::Copied { .. } => work.mark_encoded(child),
         }
     }
     if already_right {
         out.counts.bits_spent_on_being_already_right += out.counts.accounted - spent_so_far;
     }
+    let which = match says.code {
+        TheCode::BindAtFours => 0,
+        TheCode::BindAtOnes => 1,
+        TheCode::Skip => 2,
+        TheCode::Copied { .. } => 3,
+    };
+    out.counts.four_by_four_said[which] += 1;
+    out.counts.four_by_four_spent[which] += out.counts.accounted - spent_so_far;
 }
 
 /// A 4x4 that always masks: a four bit mask, then per child in

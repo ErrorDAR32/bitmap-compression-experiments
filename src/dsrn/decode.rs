@@ -18,8 +18,9 @@ use crate::dsrn::nesting_data::{
     DIRECTION_WIDTH, FINEST_LEVEL_WITH_A_GRAMMAR, MASK, SUBDIVIDE,
 };
 use crate::dsrn::four_by_four::{
-    BIND_OR_SKIP_WIDTH, COPY_OR_LEAVE_WIDTH, MASKED, MASKED_OR_NOT_WIDTH, TILES_OF_ONE,
-    TILE_SIZE_WIDTH, THE_REST_COPY, BIND as BIND_AT_A_FOUR_BY_FOUR,
+    COPY_OR_LEAVE_WIDTH, FIRST_WIDTH, MASKED, MASKED_OR_NOT_WIDTH, SECOND_WIDTH, THE_REST_COPY,
+    TILES_OF_ONE, TILE_SIZE_WIDTH, BIND as BINDS_AT_A_FOUR_BY_FOUR,
+    COPY as COPIES_AT_A_FOUR_BY_FOUR,
 };
 use crate::dsrn::region::{deepest_depth, Region, CHILD_COUNT, DIRECTIONS};
 use crate::Bitmap;
@@ -178,22 +179,23 @@ fn read_what_a_four_by_four_says(
     region: Region,
     covered_from_above: bool,
 ) {
-    let binds = reading.take(out, BIND_OR_SKIP_WIDTH) == BIND_AT_A_FOUR_BY_FOUR;
+    let binds = reading.take(out, FIRST_WIDTH) == BINDS_AT_A_FOUR_BY_FOUR;
     let at_ones = binds && reading.take(out, TILE_SIZE_WIDTH) == TILES_OF_ONE;
-    let masked = reading.take(out, MASKED_OR_NOT_WIDTH) == MASKED;
-    // Binding at one tile a cell and taking all four would say what
-    // skipping and taking all four says, so it says this instead.
-    if at_ones && !masked {
+    let copies = !binds && reading.take(out, SECOND_WIDTH) == COPIES_AT_A_FOUR_BY_FOUR;
+    let taken_from = copies.then(|| {
         let direction = reading.take(out, DIRECTION_WIDTH) as usize;
-        let from = region.neighbour(direction).expect("a copy names a neighbour on the bitmap");
-        copy_cells(&mut reading.taken, bitmap, region, from);
-        return;
-    }
+        region.neighbour(direction).expect("a copy names a neighbour on the bitmap").children()
+    });
+    let masked = reading.take(out, MASKED_OR_NOT_WIDTH) == MASKED;
     let (mask, the_rest_copy) = if masked {
         let mask = RegionMask(reading.take(out, CHILD_MASK_WIDTH));
         (mask, reading.take(out, COPY_OR_LEAVE_WIDTH) == THE_REST_COPY)
-    } else {
+    } else if binds || copies {
         (RegionMask::EVERY, false)
+    } else {
+        // Skipping with no mask takes nothing: the whole of it is the
+        // binding above's to fill.
+        (RegionMask::NONE, false)
     };
 
     for (at, child) in region.children().into_iter().enumerate() {
@@ -208,6 +210,11 @@ fn read_what_a_four_by_four_says(
             } else if !covered_from_above {
                 take_region(reading, child);
             }
+            continue;
+        }
+        if let Some(theirs) = taken_from {
+            copy_cells(&mut reading.taken, bitmap, child, theirs[at]);
+            take_region(reading, child);
             continue;
         }
         if binds && !at_ones {
