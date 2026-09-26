@@ -146,6 +146,9 @@ fn size_width(level: usize) -> usize {
 #[derive(Default, Clone, Copy)]
 pub struct Counts {
     pub bindings: usize,
+    /// Bindings of more than one tile, which are the ones that spend
+    /// a bit saying whether they subdivide.
+    pub bindings_that_pay_the_flag: usize,
     pub subdividing_bindings: usize,
     pub subdivides: usize,
     pub copies: usize,
@@ -547,6 +550,7 @@ fn describe(
             out.tree.push(BIND, CODE);
             out.tree.push(depth as u64, size_width(region.level));
             if depth > 0 && subtrees == Subtrees::On {
+                out.counts.bindings_that_pay_the_flag += 1;
                 out.tree.push((handed != 0) as u64, SUBDIVIDES);
             }
             if handed != 0 {
@@ -631,6 +635,96 @@ impl Reading {
         got
     }
 }
+
+/// Walks an encoding's tree and writes out what each region says,
+/// one line a region, indented by how deep it sits.
+///
+/// It reads the same fields in the same order the decoder does, so a
+/// stream it cannot walk is a stream the decoder cannot read either.
+pub fn explain(out: &Encoded, subtrees: Subtrees) -> String {
+    let mut said = String::new();
+    let mut reading = Reading::default();
+    retell(&mut reading, out, subtrees, Region { level: LEVELS, x: 0, y: 0 }, 0, &mut said);
+    said
+}
+
+fn retell(
+    reading: &mut Reading,
+    out: &Encoded,
+    subtrees: Subtrees,
+    region: Region,
+    deep: usize,
+    said: &mut String,
+) {
+    let side = 1usize << region.level;
+    let (x, y, _, _) = cells(region);
+    let where_it_is = format!("{:width$}{side}x{side} at ({x}, {y})", "", width = deep * 2);
+    match reading.take(out, CODE) {
+        BIND => {
+            let depth = reading.take(out, size_width(region.level)) as usize;
+            let handed = if depth > 0
+                && subtrees == Subtrees::On
+                && reading.take(out, SUBDIVIDES) == 1
+            {
+                reading.take(out, CHILD_MASK)
+            } else {
+                0
+            };
+            let tile = 1usize << (region.level - depth);
+            let filled = tiles_of(region, depth)
+                .into_iter()
+                .filter(|tile| {
+                    handed == 0 || handed >> child_of_tile(region, depth, *tile) & 1 == 0
+                })
+                .count();
+            for tile in tiles_of(region, depth) {
+                if handed == 0 || handed >> child_of_tile(region, depth, tile) & 1 == 0 {
+                    reading.value(out);
+                }
+            }
+            said.push_str(&format!(
+                "{where_it_is}: bind at {tile}x{tile} tiles, {filled} of them"
+            ));
+            if handed != 0 {
+                said.push_str(&format!(", handing down {}", handed.count_ones()));
+            }
+            said.push('\n');
+            for (bit, child) in children_of(region).into_iter().enumerate() {
+                if handed >> bit & 1 == 1 {
+                    retell(reading, out, subtrees, child, deep + 1, said);
+                }
+            }
+        }
+        COPY => {
+            let dir = reading.take(out, DIRECTION) as usize;
+            said.push_str(&format!("{where_it_is}: copy from {}\n", WHENCE[dir]));
+        }
+        MASKED_COPY => {
+            let dir = reading.take(out, DIRECTION) as usize;
+            let deferred = reading.take(out, CHILD_MASK);
+            said.push_str(&format!(
+                "{where_it_is}: copy from {}, but for {} of its children\n",
+                WHENCE[dir],
+                deferred.count_ones()
+            ));
+            for (bit, child) in children_of(region).into_iter().enumerate() {
+                if deferred >> bit & 1 == 1 {
+                    retell(reading, out, subtrees, child, deep + 1, said);
+                }
+            }
+        }
+        _ => {
+            said.push_str(&format!("{where_it_is}: subdivide\n"));
+            for child in children_of(region) {
+                retell(reading, out, subtrees, child, deep + 1, said);
+            }
+        }
+    }
+}
+
+/// The directions a copy may name, in the order [`DIRECTIONS`] has
+/// them.
+const WHENCE: [&str; 4] = ["the top left", "above", "the top right", "the left"];
 
 /// Reads the bitmap back.
 pub fn decode(out: &Encoded, subtrees: Subtrees, bits: &mut BitMatrix) {

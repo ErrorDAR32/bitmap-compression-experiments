@@ -7,8 +7,8 @@
 //! several values where one would do.
 //!
 //! So the gap between the two is the whole of what a rule that lets a
-//! binding cover part of a region and subdivide for the rest could
-//! claim. If there is no gap there is nothing to claim.
+//! binding fill part of a region and hand the rest to its subtree
+//! could win. If there is no gap there is nothing to win.
 
 use bitmatrix::dsrn::passes::{encode, Encoded, Workspace};
 use bitmatrix::dsrn::rules::Ruleset;

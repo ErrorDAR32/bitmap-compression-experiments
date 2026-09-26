@@ -172,7 +172,7 @@ fn main() {
 
     println!("\n  what the nesting encoder's codes are, over the whole corpus.\n");
     let mut t = Table::new(&["code", "a bitmap"]);
-    let mut totals = [0usize; 11];
+    let mut totals = [0usize; 12];
     let mut n = 0usize;
     for shape in samples::SHAPES {
         for bits in shape.timed() {
@@ -188,6 +188,7 @@ fn main() {
             let c = rooms.nest_out.counts;
             let row = [
                 c.bindings,
+                c.bindings_that_pay_the_flag,
                 c.subdividing_bindings,
                 c.subtree_bindings,
                 c.subdivides,
@@ -207,6 +208,7 @@ fn main() {
     }
     for (slot, name) in [
         "bindings",
+        "of those, bindings that pay the flag",
         "of those, bindings that subdivide",
         "children they handed down",
         "subdivides",
