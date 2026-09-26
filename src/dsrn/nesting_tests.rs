@@ -194,3 +194,46 @@ fn a_reused_workspace_does_not_leak_the_last_bitmap() {
         assert_eq!(bitmap.count_set(), back.count_set());
     }
 }
+
+
+/// A parent absorbs a homogeneous child into its own binding at no
+/// cost to the child, and only keeps a heterogeneous child as a
+/// region of its own.
+///
+/// Four 4x4 tiles under one 8x8: three homogeneous (one set, two
+/// clear -- the canvas default) and one a checkerboard. The 8x8
+/// should bind at 4x4 tiles and describe only the checkerboard one
+/// again; the other three should never become 4x4 regions at all,
+/// because the 8x8's own binding already covers them with a shared
+/// payload bit each.
+#[test]
+fn a_parent_absorbs_every_homogeneous_child_and_keeps_only_the_rest() {
+    let mut bitmap = Bitmap::new();
+    bitmap.set_rect(0, 0, 3, 3);
+    for y in 4..8 {
+        for x in 4..8 {
+            if (x + y) % 2 == 0 {
+                bitmap.set(x, y);
+            }
+        }
+    }
+    let mut pyramid = Pyramid::new();
+    pyramid.rebuild(&bitmap);
+    let (mut work, mut out) = (Workspace::new(), Encoded::default());
+    let knobs = Knobs { four_by_four: FourByFour::ItsOwnGrammar, ..Knobs::default() };
+    encode(&pyramid, &bitmap, knobs, &mut work, &mut out);
+    assert_eq!(
+        out.counts.four_by_fours_in_their_own_grammar, 1,
+        "three of the four 4x4 tiles are homogeneous and should cost \
+         the parent's binding one shared bit each, not a region of \
+         their own"
+    );
+
+    let mut back = Bitmap::new();
+    decode(&out, knobs, &mut back);
+    for y in 0..=u8::MAX {
+        for x in 0..=u8::MAX {
+            assert_eq!(bitmap.get(x, y), back.get(x, y), "differs at ({x}, {y})");
+        }
+    }
+}
