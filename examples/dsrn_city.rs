@@ -6,7 +6,7 @@
 //! families belong in the same table: a result on one is half a
 //! result.
 
-use bitmatrix::dsrn::nesting;
+use bitmatrix::dsrn::nesting::{self, Masking};
 use bitmatrix::dsrn::Pyramid;
 use bitmatrix::{samples, BitMatrix};
 
@@ -32,7 +32,7 @@ fn main() {
         for bits in &maps {
             pyramid.clear();
             pyramid.rebuild(bits);
-            nesting::encode(&pyramid, bits, &mut work, &mut out);
+            nesting::encode(&pyramid, bits, Masking::Anywhere, &mut work, &mut out);
             nesting::decode(&out, &mut back);
             let whole =
                 (0..=u8::MAX).all(|y| (0..=u8::MAX).all(|x| bits.get(x, y) == back.get(x, y)));

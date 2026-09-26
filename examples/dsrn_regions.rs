@@ -7,7 +7,7 @@
 //! gives up, was there a neighbour holding the same cells that the
 //! decoder simply would not have yet?
 
-use bitmatrix::dsrn::nesting;
+use bitmatrix::dsrn::nesting::{self, Masking};
 use bitmatrix::dsrn::{Pyramid, LEVELS};
 use bitmatrix::samples;
 
@@ -27,7 +27,7 @@ fn main() {
         for bits in shape.timed() {
             pyramid.clear();
             pyramid.rebuild(&bits);
-            nesting::encode(&pyramid, &bits, &mut work, &mut out);
+            nesting::encode(&pyramid, &bits, Masking::Anywhere, &mut work, &mut out);
             let c = out.counts;
             for level in 0..=LEVELS {
                 cells[level] += c.cells_given_up[level];

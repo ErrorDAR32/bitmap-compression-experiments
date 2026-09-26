@@ -5,7 +5,7 @@
 //! numbers are read. A smaller encoding that loses a cell is not a
 //! smaller encoding.
 
-use bitmatrix::dsrn::nesting;
+use bitmatrix::dsrn::nesting::{self, Masking};
 use bitmatrix::dsrn::Pyramid;
 use bitmatrix::{samples, BitMatrix};
 
@@ -47,7 +47,7 @@ impl Room {
     fn run(&mut self, bits: &BitMatrix) {
         self.pyramid.clear();
         self.pyramid.rebuild(bits);
-        nesting::encode(&self.pyramid, bits, &mut self.work, &mut self.out);
+        nesting::encode(&self.pyramid, bits, Masking::Anywhere, &mut self.work, &mut self.out);
         nesting::decode(&self.out, &mut self.back);
         for y in 0..=u8::MAX {
             for x in 0..=u8::MAX {
@@ -140,7 +140,7 @@ fn main() {
         for bits in shape.timed() {
             room.pyramid.clear();
             room.pyramid.rebuild(&bits);
-            nesting::encode(&room.pyramid, &bits, &mut room.work, &mut room.out);
+            nesting::encode(&room.pyramid, &bits, Masking::Anywhere, &mut room.work, &mut room.out);
             let c = room.out.counts;
             let row = [
                 c.bindings,

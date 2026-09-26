@@ -12,7 +12,7 @@
 //! built once and fed bitmap after bitmap:
 //!
 //! ```
-//! use bitmatrix::dsrn::nesting::{decode, encode, Encoded, Workspace};
+//! use bitmatrix::dsrn::nesting::{decode, encode, Encoded, Masking, Workspace};
 //! use bitmatrix::dsrn::Pyramid;
 //! use bitmatrix::BitMatrix;
 //!
@@ -24,7 +24,7 @@
 //! let (mut out, mut back) = (Encoded::default(), BitMatrix::new());
 //!
 //! pyramid.rebuild(&bits);
-//! encode(&pyramid, &bits, &mut work, &mut out);
+//! encode(&pyramid, &bits, Masking::Anywhere, &mut work, &mut out);
 //! decode(&out, &mut back);
 //! assert_eq!(back.count_set(), bits.count_set());
 //! ```

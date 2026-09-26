@@ -75,6 +75,61 @@ use crate::dsrn::stream::Bits;
 use crate::dsrn::{Pyramid, LEVELS};
 use crate::BitMatrix;
 
+/// The smallest region allowed to mask.
+///
+/// Masking is only ever paid for where it is used, so forbidding it
+/// cannot make an encoding smaller by itself -- it can only take an
+/// option away from a region that would have chosen it. What it can
+/// change is everything above: a region's cost is what its children
+/// cost, so a rule that makes small regions dearer makes their
+/// parents choose differently.
+///
+/// Nothing in the stream says which of these was used. A mask is a
+/// code the decoder reads when it finds it, so this is a rule the
+/// encoder keeps to and the decoder never needs to know.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Masking {
+    /// Any region with children, which is anything above a cell.
+    Anywhere,
+    From4,
+    From8,
+    From16,
+}
+
+impl Masking {
+    pub const ALL: [Masking; 4] =
+        [Masking::Anywhere, Masking::From4, Masking::From8, Masking::From16];
+
+    /// The side of the smallest region that may mask.
+    pub fn smallest(self) -> usize {
+        1 << self.level()
+    }
+
+    /// That region's level.
+    fn level(self) -> usize {
+        match self {
+            Masking::Anywhere => 1,
+            Masking::From4 => 2,
+            Masking::From8 => 3,
+            Masking::From16 => 4,
+        }
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Masking::Anywhere => "anywhere",
+            Masking::From4 => "4x4 and larger",
+            Masking::From8 => "8x8 and larger",
+            Masking::From16 => "16x16 and larger",
+        }
+    }
+
+    /// Whether a region is allowed to mask.
+    fn allows(self, region: Region) -> bool {
+        region.level >= self.level()
+    }
+}
+
 /// The two bit code every region writes.
 const BIND: u64 = 0b00;
 const SUBDIVIDE: u64 = 0b01;
@@ -382,9 +437,11 @@ fn every_way(
     pyramid: &Pyramid,
     bits: &BitMatrix,
     region: Region,
+    masking: Masking,
     written: bool,
 ) -> Vec<Says> {
     let mut ways = Vec::new();
+    let may_mask = masking.allows(region);
 
     for depth in 0..=region.level {
         // Unmasked: every tile of the region has to be homogeneous.
@@ -393,7 +450,7 @@ fn every_way(
         }
         // Masked: only the children it keeps have to be, and a mask
         // names children, so there have to be children to name.
-        if depth >= 1 && region.level > 0 {
+        if depth >= 1 && may_mask {
             let alone = kept_by_a_binding(work, region, depth);
             if alone != EVERY_CHILD {
                 ways.push(Says::Bind { depth, alone });
@@ -410,7 +467,7 @@ fn every_way(
                 clear |= 1 << bit;
             }
         }
-        if clear != 0 && clear != EVERY_CHILD {
+        if may_mask && clear != 0 && clear != EVERY_CHILD {
             ways.push(Says::Subdivide { alone: clear });
         }
 
@@ -431,7 +488,7 @@ fn every_way(
                     alone |= 1 << bit;
                 }
             }
-            if alone != 0 {
+            if may_mask && alone != 0 {
                 ways.push(Says::Copy { dir, alone });
             }
         }
@@ -450,7 +507,13 @@ fn every_way(
 /// -- and it does not have to. Pricing a copy at four bits only ever
 /// makes a region look cheaper than it turns out to be, and the
 /// descent asks the real question before it writes anything.
-fn survey(work: &mut Workspace, pyramid: &Pyramid, bits: &BitMatrix, region: Region) {
+fn survey(
+    work: &mut Workspace,
+    pyramid: &Pyramid,
+    bits: &BitMatrix,
+    region: Region,
+    masking: Masking,
+) {
     let at = Workspace::at(region);
 
     if region.level == 0 {
@@ -462,25 +525,31 @@ fn survey(work: &mut Workspace, pyramid: &Pyramid, bits: &BitMatrix, region: Reg
     let plain = homogeneous(pyramid, bits, region).is_some();
     let mut deepest = 0;
     for child in children_of(region) {
-        survey(work, pyramid, bits, child);
+        survey(work, pyramid, bits, child, masking);
         deepest = deepest.max(work.finest_of(child));
     }
     work.finest[region.level][at] = if plain { 0 } else { (deepest + 1) as u8 };
 
     let mut best = usize::MAX;
-    for says in every_way(work, pyramid, bits, region, false) {
+    for says in every_way(work, pyramid, bits, region, masking, false) {
         best = best.min(cost_of_saying(work, region, says));
     }
     work.cost[region.level][at] = best;
 }
 
 /// Encodes the bitmap. The pyramid must already hold it.
-pub fn encode(pyramid: &Pyramid, bits: &BitMatrix, work: &mut Workspace, out: &mut Encoded) {
+pub fn encode(
+    pyramid: &Pyramid,
+    bits: &BitMatrix,
+    masking: Masking,
+    work: &mut Workspace,
+    out: &mut Encoded,
+) {
     out.clear();
     work.written.words.fill(0);
     let whole = Region { level: LEVELS, x: 0, y: 0 };
-    survey(work, pyramid, bits, whole);
-    describe(work, pyramid, bits, whole, out);
+    survey(work, pyramid, bits, whole, masking);
+    describe(work, pyramid, bits, whole, masking, out);
 }
 
 /// Describes one region, and whatever its description leaves out.
@@ -489,9 +558,10 @@ fn describe(
     pyramid: &Pyramid,
     bits: &BitMatrix,
     region: Region,
+    masking: Masking,
     out: &mut Encoded,
 ) {
-    let says = every_way(work, pyramid, bits, region, true)
+    let says = every_way(work, pyramid, bits, region, masking, true)
         .into_iter()
         .min_by_key(|&says| cost_of_saying(work, region, says))
         .expect("every region can at least bind at one cell a tile");
@@ -582,7 +652,7 @@ fn describe(
     for (bit, child) in children_of(region).into_iter().enumerate() {
         if region.level > 0 && alone >> bit & 1 == 0 {
             out.counts.children_made_regions += 1;
-            describe(work, pyramid, bits, child, out);
+            describe(work, pyramid, bits, child, masking, out);
         }
     }
 }
@@ -750,14 +820,21 @@ mod tests {
     fn the_encoding_comes_back_the_bitmap_that_went_in() {
         let (mut pyramid, mut work) = (Pyramid::new(), Workspace::new());
         let (mut out, mut back) = (Encoded::default(), BitMatrix::new());
-        for (case, bits) in cases().iter().enumerate() {
-            pyramid.clear();
-            pyramid.rebuild(bits);
-            encode(&pyramid, bits, &mut work, &mut out);
-            decode(&out, &mut back);
-            for y in 0..=u8::MAX {
-                for x in 0..=u8::MAX {
-                    assert_eq!(bits.get(x, y), back.get(x, y), "case {case} differs at ({x}, {y})");
+        for masking in Masking::ALL {
+            for (case, bits) in cases().iter().enumerate() {
+                pyramid.clear();
+                pyramid.rebuild(bits);
+                encode(&pyramid, bits, masking, &mut work, &mut out);
+                decode(&out, &mut back);
+                for y in 0..=u8::MAX {
+                    for x in 0..=u8::MAX {
+                        assert_eq!(
+                            bits.get(x, y),
+                            back.get(x, y),
+                            "masking {}, case {case}, differs at ({x}, {y})",
+                            masking.name()
+                        );
+                    }
                 }
             }
         }
@@ -775,7 +852,7 @@ mod tests {
         for bits in [BitMatrix::new(), full] {
             pyramid.clear();
             pyramid.rebuild(&bits);
-            encode(&pyramid, &bits, &mut work, &mut out);
+            encode(&pyramid, &bits, Masking::Anywhere, &mut work, &mut out);
             assert_eq!(out.counts.bindings, 1);
             assert_eq!(out.counts.masked_bindings, 0);
             assert_eq!(out.bits(), CODE + size_width(LEVELS) + 1);
@@ -796,6 +873,30 @@ mod tests {
         assert!(Says::Subdivide { alone: 0b0001 }.masked());
     }
 
+    /// Forbidding a mask cannot lose a cell, only bits. Every
+    /// threshold is round tripped above; this holds the other half:
+    /// that a stricter rule never comes out smaller, since all it
+    /// does is take an option away.
+    #[test]
+    fn forbidding_a_mask_never_makes_an_encoding_smaller() {
+        let (mut pyramid, mut work) = (Pyramid::new(), Workspace::new());
+        let mut out = Encoded::default();
+        for bits in cases().iter().take(12) {
+            pyramid.clear();
+            pyramid.rebuild(bits);
+            let mut last = 0;
+            for masking in Masking::ALL {
+                encode(&pyramid, bits, masking, &mut work, &mut out);
+                assert!(
+                    out.bits() >= last,
+                    "masking {} came out smaller than a looser rule",
+                    masking.name()
+                );
+                last = out.bits();
+            }
+        }
+    }
+
     /// A workspace holds the last bitmap's survey, so an encode must
     /// leave nothing of it readable.
     #[test]
@@ -805,7 +906,7 @@ mod tests {
         for bits in [checkerboard(1), BitMatrix::new(), checkerboard(3)] {
             pyramid.clear();
             pyramid.rebuild(&bits);
-            encode(&pyramid, &bits, &mut work, &mut out);
+            encode(&pyramid, &bits, Masking::Anywhere, &mut work, &mut out);
             decode(&out, &mut back);
             assert_eq!(bits.count_set(), back.count_set());
         }
