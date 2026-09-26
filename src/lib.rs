@@ -46,10 +46,9 @@
 //!
 //! | [`table`] | printing any of it, which every experiment does the same way |
 //!
-//! `docs/design_statements.md` is what the layout and the names are
-//! for, and `docs/testing_protocol.md` is how a change to any of it
-//! gets measured. Both are worth reading before trusting a number in
-//! these comments or a shape in this tree.
+//! `docs/design_statements.md` is what every decision here is weighed
+//! against, and `docs/testing_protocol.md` is how a change to any of
+//! it gets measured.
 
 pub mod bitmap;
 pub mod table;
