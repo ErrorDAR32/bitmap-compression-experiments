@@ -609,7 +609,9 @@ fn precompute_natural_finest(grid: &[Vec<Option<Says>>], excluded: &[Vec<bool>])
 /// unmasked areas can never overlap by construction.
 ///
 /// Returns the node and how many of `decide_tiles`' own tiles it
-/// absorbed -- zero for `Masked`.
+/// absorbed -- zero for `Masked`, except when what is reclaimed is an
+/// existing tile bigger than the resolution, credited as one, the same
+/// as it would have counted absorbed into an `Unmasked` list.
 fn build_mask_node(
     grid: &[Vec<Option<Says>>],
     gathered: &[Vec<Gathered>],
@@ -641,8 +643,15 @@ fn build_mask_node(
         // `region` itself is one whole placed tile, bigger than the
         // resolution (the only way it could reach here rather than
         // the `Unmasked` branch above) -- reclaim it whole, in the one
-        // leaf this costs, rather than let it repeat.
-        return Some((MaskNode::Masked, 0));
+        // leaf this costs, rather than let it repeat. Credited as one
+        // constituent, the same as it would have been counted as part
+        // of an `Unmasked` list before there was anywhere cheaper for
+        // it to go: reclaiming it is strictly better than repeating it
+        // ever was, never worse, so it should count for at least as
+        // much towards `compose_complex_tiles`' own ratio, not fall to
+        // zero the way a genuinely unabsorbable `Copied` tile or 1x1
+        // remnant does.
+        return Some((MaskNode::Masked, 1));
     }
     let mut nodes: [Option<MaskNode>; 4] = [None, None, None, None];
     let (mut constituents, mut any_unmasked) = (0usize, false);
@@ -653,7 +662,15 @@ fn build_mask_node(
         nodes[i] = Some(node);
     }
     if !any_unmasked {
-        Some((MaskNode::Masked, 0)) // nothing reclaimed below -- cheaper to mask the whole of it
+        // Cheaper to mask the whole of `region` in one leaf than to
+        // pay a subdivide bit and four separate masked leaves to say
+        // the same thing -- a bitstream-shape choice only, so whatever
+        // `constituents` the four children already earned (an oversized
+        // tile reclaimed at one of them credits the same as it would
+        // unmasked) carries over unchanged; only genuinely unabsorbable
+        // children (a `Copied` tile, a 1x1 remnant, an already-collapsed
+        // group of only those) ever leave it at zero.
+        Some((MaskNode::Masked, constituents))
     } else {
         Some((MaskNode::Subdivided(Box::new(nodes.map(Option::unwrap))), constituents))
     }
