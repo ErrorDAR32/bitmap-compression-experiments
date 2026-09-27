@@ -66,7 +66,7 @@
 
 use crate::dsrn::region::{Region, DIRECTIONS};
 use crate::dsrn::stream::EncodedBitmap;
-use crate::dsrn_exp::greedy_tiles::{compose_complex_tiles, decide_tiles, MaskNode, PlacedTile, Says};
+use crate::dsrn_exp::greedy_tiles::{compose_complex_tiles, decide_tiles, PlacedTile, Says};
 use crate::pyramid::{tiles_across, tiles_in_level, Pyramid, CELL_LEVEL};
 use crate::Bitmap;
 
@@ -77,31 +77,15 @@ const DIRECTION_WIDTH: usize = 2;
 const VALUE_WIDTH: usize = 1;
 const COMPLEX_FLAG_WIDTH: usize = 1;
 const RESOLUTION_WIDTH: usize = 3;
+const MASK_FLAG_WIDTH: usize = 1;
+const CHILD_MASK_WIDTH: usize = 4;
 
 const COPY: u64 = 0;
 const BIND: u64 = 1;
 const SIMPLE: u64 = 0;
 const COMPLEX: u64 = 1;
-
-/// Whether there is any mask at all -- `0` skips straight to the flat,
-/// unmasked payload every complex tile used to be.
-const MASK_PRESENT_WIDTH: usize = 1;
-const NO_MASKING: u64 = 0;
-const MASKING: u64 = 1;
-
-/// A [`MaskNode`] above the complex tile's own tile size: leaf (decide
-/// masked or unmasked right here) or subdivide (ask the same of this
-/// area's own four children, at half the size). A node already at the
-/// tile size skips this bit -- there is nothing finer to subdivide
-/// into, so it is always a leaf.
-const MASK_NODE_LEAF_WIDTH: usize = 1;
-const MASK_NODE_LEAF: u64 = 1;
-const MASK_NODE_SUBDIVIDE: u64 = 0;
-
-/// A [`MaskNode`] leaf's own decision.
-const MASK_STATE_WIDTH: usize = 1;
-const MASK_MASKED: u64 = 0;
-const MASK_UNMASKED: u64 = 1;
+const UNMASKED: u64 = 0;
+const MASKED: u64 = 1;
 
 /// What [`decide_tiles`] said about every region, by level -- a
 /// region not in here was left to something finer, or is not a
@@ -175,26 +159,42 @@ fn encode_region(lookup: &TileLookup, region: Region, covered: &mut Bitmap, out:
             out.push_value(value as u64, VALUE_WIDTH);
             mark_covered(covered, region);
         }
-        Some(Says::Complex { depth, mask }) => {
+        Some(Says::Complex { depth, mask, values }) => {
             debug_assert!(complex_allowed, "a complex tile can never nest inside another's mask");
             out.push_value(1, LEAF_WIDTH);
             out.push_value(BIND, CODE_WIDTH);
             out.push_value(COMPLEX, COMPLEX_FLAG_WIDTH);
-            out.push_value((depth - 1) as u64, RESOLUTION_WIDTH);
-            let limit_level = region.level + depth;
-            if mask.iter().all(|node| matches!(node, MaskNode::Unmasked(_))) {
-                out.push_value(NO_MASKING, MASK_PRESENT_WIDTH);
-                for node in &mask {
-                    let MaskNode::Unmasked(values) = node else { unreachable!() };
-                    for &value in values {
-                        out.push_value(value as u64, VALUE_WIDTH);
+            if mask == 0 {
+                out.push_value(UNMASKED, MASK_FLAG_WIDTH);
+            } else {
+                out.push_value(MASKED, MASK_FLAG_WIDTH);
+                out.push_value(mask as u64, CHILD_MASK_WIDTH);
+                for (i, child) in region.children().into_iter().enumerate() {
+                    if mask & (1 << i) != 0 {
+                        // A masked child is always one whole `Bound`
+                        // tile of its own -- never anything `gather`
+                        // would have had to recurse to confirm -- so
+                        // this call always takes the plain `Bound` arm
+                        // above, complex-flag skipped since nesting a
+                        // complex tile in a mask is forbidden.
+                        encode_region(lookup, child, covered, out, false);
                     }
                 }
+            }
+            out.push_value((depth - 1) as u64, RESOLUTION_WIDTH);
+            for value in values {
+                out.push_value(value as u64, VALUE_WIDTH);
+            }
+            if mask == 0 {
                 mark_covered(covered, region);
             } else {
-                out.push_value(MASKING, MASK_PRESENT_WIDTH);
-                for (child, node) in region.children().into_iter().zip(&mask) {
-                    encode_mask_node(lookup, child, limit_level, node, covered, out);
+                // A masked child covered itself already, via its own
+                // recursive call above -- only the unmasked children
+                // are this region's own to mark.
+                for (i, child) in region.children().into_iter().enumerate() {
+                    if mask & (1 << i) == 0 {
+                        mark_covered(covered, child);
+                    }
                 }
             }
         }
@@ -210,66 +210,6 @@ fn encode_region(lookup: &TileLookup, region: Region, covered: &mut Bitmap, out:
             for child in region.children() {
                 encode_region(lookup, child, covered, out, complex_allowed);
             }
-        }
-    }
-}
-
-/// Writes one [`MaskNode`] of a complex tile's mask, for `region`, down
-/// to `limit_level` -- the complex tile's own tile size, the finest a
-/// mask ever goes. `Unmasked` writes its own resolution tile values
-/// right here, in reading order. `Masked` writes one ordinary region,
-/// right here, with nesting a complex tile inside it forbidden.
-/// `Subdivided` asks the same of `region`'s own four children, at half
-/// the size -- which is how a masked area can still give part of
-/// itself back to the complex tile, however many times that happens on
-/// the way down. A node already at `limit_level` skips the leaf bit
-/// entirely: there is nothing finer to subdivide into, so it is always
-/// a leaf.
-fn encode_mask_node(
-    lookup: &TileLookup,
-    region: Region,
-    limit_level: usize,
-    node: &MaskNode,
-    covered: &mut Bitmap,
-    out: &mut EncodedBitmap,
-) {
-    if region.level == limit_level {
-        match node {
-            MaskNode::Unmasked(values) => {
-                out.push_value(MASK_UNMASKED, MASK_STATE_WIDTH);
-                for &value in values {
-                    out.push_value(value as u64, VALUE_WIDTH);
-                }
-                mark_covered(covered, region);
-            }
-            MaskNode::Masked => {
-                out.push_value(MASK_MASKED, MASK_STATE_WIDTH);
-                encode_region(lookup, region, covered, out, false);
-            }
-            MaskNode::Subdivided(_) => unreachable!("a mask never subdivides below the complex tile's own tile size"),
-        }
-        return;
-    }
-
-    match node {
-        MaskNode::Subdivided(children) => {
-            out.push_value(MASK_NODE_SUBDIVIDE, MASK_NODE_LEAF_WIDTH);
-            for (child, node) in region.children().into_iter().zip(children.iter()) {
-                encode_mask_node(lookup, child, limit_level, node, covered, out);
-            }
-        }
-        MaskNode::Unmasked(values) => {
-            out.push_value(MASK_NODE_LEAF, MASK_NODE_LEAF_WIDTH);
-            out.push_value(MASK_UNMASKED, MASK_STATE_WIDTH);
-            for &value in values {
-                out.push_value(value as u64, VALUE_WIDTH);
-            }
-            mark_covered(covered, region);
-        }
-        MaskNode::Masked => {
-            out.push_value(MASK_NODE_LEAF, MASK_NODE_LEAF_WIDTH);
-            out.push_value(MASK_MASKED, MASK_STATE_WIDTH);
-            encode_region(lookup, region, covered, out, false);
         }
     }
 }
@@ -349,24 +289,41 @@ fn decode_region(
             *at += COMPLEX_FLAG_WIDTH;
         }
         if complex {
-            let depth = stream.take(*at, RESOLUTION_WIDTH) as usize + 1;
-            *at += RESOLUTION_WIDTH;
-            let limit_level = region.level + depth;
-            let masking = stream.take(*at, MASK_PRESENT_WIDTH) == MASKING;
-            *at += MASK_PRESENT_WIDTH;
-            if masking {
-                for child in region.children() {
-                    decode_mask_node(stream, at, child, limit_level, covered, owner);
-                }
-            } else {
-                for child in region.children() {
-                    for tile in child.tiles_at_depth(limit_level - child.level) {
-                        let value = stream.take(*at, VALUE_WIDTH) != 0;
-                        *at += VALUE_WIDTH;
-                        mark_owner(owner, tile, Owner::Bound(value));
+            let masked = stream.take(*at, MASK_FLAG_WIDTH) == MASKED;
+            *at += MASK_FLAG_WIDTH;
+            let mask = if masked {
+                let mask = stream.take(*at, CHILD_MASK_WIDTH) as u8;
+                *at += CHILD_MASK_WIDTH;
+                for (i, child) in region.children().into_iter().enumerate() {
+                    if mask & (1 << i) != 0 {
+                        // Always one whole `Bound` tile of its own, so
+                        // this always reads back through the plain
+                        // `Bound` arm above, complex-flag skipped.
+                        decode_region(stream, at, child, covered, owner, false);
                     }
                 }
+                mask
+            } else {
+                0
+            };
+            let depth = stream.take(*at, RESOLUTION_WIDTH) as usize + 1;
+            *at += RESOLUTION_WIDTH;
+            for tile in region.tiles_at_depth(depth) {
+                if mask & (1 << region.child_holding(depth, tile)) != 0 {
+                    continue; // covered by the masked child's own definition
+                }
+                let value = stream.take(*at, VALUE_WIDTH) != 0;
+                *at += VALUE_WIDTH;
+                mark_owner(owner, tile, Owner::Bound(value));
+            }
+            if mask == 0 {
                 mark_covered(covered, region);
+            } else {
+                for (i, child) in region.children().into_iter().enumerate() {
+                    if mask & (1 << i) == 0 {
+                        mark_covered(covered, child);
+                    }
+                }
             }
             return;
         } else {
@@ -382,52 +339,6 @@ fn decode_region(
         mark_owner(owner, region, Owner::Copied { direction, side: region.side_in_cells(), far });
     }
     mark_covered(covered, region);
-}
-
-/// Reads one [`MaskNode`], mirroring [`encode_mask_node`] exactly.
-fn decode_mask_node(
-    stream: &EncodedBitmap,
-    at: &mut usize,
-    region: Region,
-    limit_level: usize,
-    covered: &mut Bitmap,
-    owner: &mut [Option<Owner>],
-) {
-    if region.level == limit_level {
-        let unmasked = stream.take(*at, MASK_STATE_WIDTH) == MASK_UNMASKED;
-        *at += MASK_STATE_WIDTH;
-        if unmasked {
-            let value = stream.take(*at, VALUE_WIDTH) != 0;
-            *at += VALUE_WIDTH;
-            mark_owner(owner, region, Owner::Bound(value));
-            mark_covered(covered, region);
-        } else {
-            decode_region(stream, at, region, covered, owner, false);
-        }
-        return;
-    }
-
-    let leaf = stream.take(*at, MASK_NODE_LEAF_WIDTH) == MASK_NODE_LEAF;
-    *at += MASK_NODE_LEAF_WIDTH;
-    if !leaf {
-        for child in region.children() {
-            decode_mask_node(stream, at, child, limit_level, covered, owner);
-        }
-        return;
-    }
-
-    let unmasked = stream.take(*at, MASK_STATE_WIDTH) == MASK_UNMASKED;
-    *at += MASK_STATE_WIDTH;
-    if unmasked {
-        for tile in region.tiles_at_depth(limit_level - region.level) {
-            let value = stream.take(*at, VALUE_WIDTH) != 0;
-            *at += VALUE_WIDTH;
-            mark_owner(owner, tile, Owner::Bound(value));
-        }
-        mark_covered(covered, region);
-    } else {
-        decode_region(stream, at, region, covered, owner, false);
-    }
 }
 
 /// Records every cell of a region as sharing one owner.
