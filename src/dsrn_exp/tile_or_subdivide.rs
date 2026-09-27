@@ -18,27 +18,27 @@
 //! # The grammar
 //!
 //! ```text
-//! (at any level down to 4x4)
+//! (at any level down to one above cells)
 //! 1: leaf -- this region is exactly one placed tile
 //!    0: copy   + 1 far/near bit + 2 direction bits
 //!    1: bind   + 1 value bit
-//! 0: subdivide -- recurse into all four children, unless this
-//!    region is itself 4x4, in which case it is a hole instead: its
-//!    four children are never tracked by this tree at all.
+//! 0: subdivide -- recurse into all four children
+//!
+//! (one level above cells, in place of the above)
+//! 1: this 2x2 is a homogeneous placed tile + 1 value bit
+//! 0: it is not -- its four cells are holes, no further bits
 //! ```
 //!
-//! 4x4 is as fine as this tree ever goes. A 4x4 that is one placed
-//! tile still gets the ordinary leaf treatment -- a copy, at 5 bits,
-//! or a bind, at 3, both well under the 16 raw bits its cells would
-//! otherwise cost. A 4x4 that is *not* one placed tile is a hole: its
-//! whole 4x4 is left to the trailing raw pass rather than recursing
-//! into 2x2s and 1x1s the tree would only mark up further, since
-//! whatever decide_tiles found smaller than 4x4 there is at most a
-//! handful of cells not worth a structural bit apiece to place.
+//! One level above cells never offers copy, and never subdivides
+//! further, since cells are not tracked by this tree at all: a 2x2
+//! that is only copyable, or that decide_tiles only managed to cover
+//! with 1x1 tiles, is left entirely to the trailing raw pass, at one
+//! bit a cell -- cheaper than a copy's own header for one tile that
+//! small, and there is nothing finer here to subdivide into.
 //!
-//! Whatever the tree never covers -- everything below 4x4 inside a
-//! hole -- gets exactly one raw bit a cell, in reading order, once
-//! the tree is done. Decoding is two passes, exactly like
+//! Whatever the tree never covers -- 1x1 tiles and skipped 2x2s alike
+//! -- gets exactly one raw bit a cell, in reading order, once the tree
+//! is done. Decoding is two passes, exactly like
 //! [`crate::dsrn_exp::tile_stream`]: a copy is chosen on content alone
 //! by [`decide_tiles`], so its source may not be resolved yet by the
 //! time the tree reaches it, and may even be a hole the trailing pass
@@ -109,6 +109,19 @@ pub fn encode(pyramid: &Pyramid, bitmap: &Bitmap) -> EncodedBitmap {
 }
 
 fn encode_region(lookup: &TileLookup, region: Region, covered: &mut Bitmap, out: &mut EncodedBitmap) {
+    if region.level == CELL_LEVEL - 1 {
+        if let Some(Says::Bound(value)) = lookup.get(region) {
+            out.push_value(1, LEAF_WIDTH);
+            out.push_value(value as u64, VALUE_WIDTH);
+            mark_covered(covered, region);
+        } else {
+            // Either copyable only, or decide_tiles only reached it
+            // with 1x1 tiles beneath -- either way, a hole.
+            out.push_value(0, LEAF_WIDTH);
+        }
+        return;
+    }
+
     match lookup.get(region) {
         Some(Says::Bound(value)) => {
             out.push_value(1, LEAF_WIDTH);
@@ -125,12 +138,8 @@ fn encode_region(lookup: &TileLookup, region: Region, covered: &mut Bitmap, out:
         }
         None => {
             out.push_value(0, LEAF_WIDTH);
-            // 4x4 is as fine as this tree goes: with no placed tile
-            // matching it, it is a hole outright, not a subdivision.
-            if region.level < CELL_LEVEL - 2 {
-                for child in region.children() {
-                    encode_region(lookup, child, covered, out);
-                }
+            for child in region.children() {
+                encode_region(lookup, child, covered, out);
             }
         }
     }
@@ -176,14 +185,19 @@ fn decode_region(stream: &EncodedBitmap, at: &mut usize, region: Region, covered
     let leaf = stream.take(*at, LEAF_WIDTH) != 0;
     *at += LEAF_WIDTH;
 
+    if region.level == CELL_LEVEL - 1 {
+        if leaf {
+            let value = stream.take(*at, VALUE_WIDTH) != 0;
+            *at += VALUE_WIDTH;
+            mark_owner(owner, region, Owner::Bound(value));
+            mark_covered(covered, region);
+        }
+        return;
+    }
+
     if !leaf {
-        // 4x4 is as fine as this tree goes: a "not a leaf" here is a
-        // hole, not an invitation to recurse into 2x2s and 1x1s the
-        // tree never wrote.
-        if region.level < CELL_LEVEL - 2 {
-            for child in region.children() {
-                decode_region(stream, at, child, covered, owner);
-            }
+        for child in region.children() {
+            decode_region(stream, at, child, covered, owner);
         }
         return;
     }
