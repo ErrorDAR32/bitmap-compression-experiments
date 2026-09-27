@@ -1,179 +1,102 @@
-//! Pairing the greedy pass's precomputed facts with an actual
-//! quadtree: a real, round-tripping codec.
+//! Pairing the greedy pass's already-perfect tiling with a quadtree
+//! that just has to say where each tile is.
 //!
-//! At every region: try a whole-region copy first, since it is
-//! cheapest, chosen purely on whether its cells agree with a
-//! candidate's -- never on whether that candidate has been decided
-//! yet, since the bitmap it is read from does not change no matter
-//! what order anything gets described in. Failing that, look at the
-//! region's own four children -- the one fixed size this scheme ever
-//! tiles at, since the pyramid already answers "is this child
-//! homogeneous" in one lookup. If every child is homogeneous, bind
-//! all four and stop. If describing the homogeneous ones costs less
-//! than leaving the rest as one bit a cell, bind the ones that are and
-//! subdivide into the ones that are not. Otherwise nothing here is
-//! worth saying, and the tree simply does not go any further: no bits
-//! are spent recording that, the region's cells stay uncovered, and a
-//! trailing pass fills every cell the tree never touched with its own
-//! raw bit, at the very end of the stream. A region one level above
-//! cells never even tries to tile -- its children are single cells,
-//! always "homogeneous" trivially, so tiling them would always
-//! "succeed" while never once compressing anything; leaving them as
-//! holes for the trailing pass is strictly cheaper.
+//! The tiles themselves are never decided here -- [`decide_tiles`]
+//! already found the biggest-first, best set of homogeneous and
+//! copyable tiles once, for the whole bitmap, and that set is treated
+//! as fixed. All this file adds is a cheap way to say *where* each one
+//! is: a plain quadtree, subdivided only where it has to be to reach a
+//! tile that isn't the whole of the region it would otherwise bind.
+//! Reaching a region that is itself exactly one placed tile costs one
+//! bit to say so, whatever that tile's size; a region that isn't one
+//! whole tile costs one bit to say it subdivides, then the same
+//! question again for each of its four children. Nothing here
+//! searches for a size or compares a payload against leftover cells --
+//! the answer for every region is already known from the tile set, so
+//! building the tree is a lookup, not a decision.
 //!
 //! # The grammar
 //!
 //! ```text
-//! 1: bind
-//!   0: copy   + 1 far/near bit + 2 direction bits
-//!   1: tiling + 3 size bits (always this region's own children)
-//!   + 1 subdivide bit
-//!     (if set) + 4 bit mask
-//!   (if tiling) 1 value bit for every child the mask does not name
-//!   (if the subdivide bit was set) recurse into every child the mask names
-//! 0: nothing here -- one region above cells, this is a hole, stop
-//!    (any other level) recurse into all four children, unconditionally
+//! (at any level down to one above cells)
+//! 1: leaf -- this region is exactly one placed tile
+//!    0: copy   + 1 far/near bit + 2 direction bits
+//!    1: bind   + 1 value bit
+//! 0: subdivide -- recurse into all four children
+//!
+//! (one level above cells, in place of the above)
+//! 1: this 2x2 is a homogeneous placed tile + 1 value bit
+//! 0: it is not -- its four cells are holes, no further bits
 //! ```
 //!
-//! (trailing, once the tree is done) one bit for every cell the tree
-//! never covered, in reading order
+//! One level above cells never offers copy, and never subdivides
+//! further, since cells are not tracked by this tree at all: a 2x2
+//! that is only copyable, or that decide_tiles only managed to cover
+//! with 1x1 tiles, is left entirely to the trailing raw pass, at one
+//! bit a cell -- cheaper than a copy's own header for one tile that
+//! small, and there is nothing finer here to subdivide into.
 //!
-//! The mask has to come before the tiling's value bits: a decoder
-//! cannot know how many bits to read, or for which children, before
-//! it knows which children the mask is deferring. A plain "recurse
-//! into all four" needs no mask at all -- there is nothing here to
-//! defer, so every child gets visited.
-//!
-//! Since a copy's source is chosen on content alone, it may not be
-//! resolved yet by the time the tree reaches it, and it may even be a
-//! hole the trailing pass has not read yet. Decoding is therefore two
-//! passes, exactly like [`crate::dsrn_exp::tile_stream`]: first the
-//! tree's own structure and the trailing raw bits are read in one
-//! linear sweep, recording what every cell is -- a value, or a
-//! direction to read one from -- without resolving any of it yet;
-//! then values are resolved by repeated sweeps, a copy deferring to
-//! the next sweep whenever its source is not resolved yet. No cycle is
-//! possible: a copy always names something reading order puts before
-//! it, so this always finishes, backed by an assertion rather than
+//! Whatever the tree never covers -- 1x1 tiles and skipped 2x2s alike
+//! -- gets exactly one raw bit a cell, in reading order, once the tree
+//! is done. Decoding is two passes, exactly like
+//! [`crate::dsrn_exp::tile_stream`]: a copy is chosen on content alone
+//! by [`decide_tiles`], so its source may not be resolved yet by the
+//! time the tree reaches it, and may even be a hole the trailing pass
+//! has not read yet. The tree and the trailing bits are read first,
+//! recording every cell as a value or a direction to read one from;
+//! then values are resolved by repeated sweeps, deferring a copy to
+//! the next one whenever its source is not resolved yet. No cycle is
+//! possible -- a copy always names something reading order puts before
+//! it -- so this always finishes, backed by an assertion rather than
 //! blind trust.
 
-use crate::dsrn::region::{same_cells, Region, DIRECTIONS};
+use crate::dsrn::region::{Region, DIRECTIONS};
 use crate::dsrn::stream::EncodedBitmap;
-use crate::dsrn_exp::greedy_tiles::FarCopyable;
-use crate::pyramid::{tile_of_bitmap, Pyramid, CELL_LEVEL};
+use crate::dsrn_exp::greedy_tiles::{decide_tiles, PlacedTile, Says};
+use crate::pyramid::{tiles_across, tiles_in_level, Pyramid, CELL_LEVEL};
 use crate::Bitmap;
 
-/// One size the region's own four children could be tiled at: which
-/// are entirely covered by homogeneous tiles of that size (only
-/// homogeneous -- copies are not considered here), the tiles that
-/// cover them, and the resulting payload and leftover.
-struct TilingAt {
-    depth: usize,
-    covered: [bool; 4],
-    tiles: [Vec<Region>; 4],
-    payload: usize,
-    leftover: usize,
-}
-
-/// Every size the region's own four children could be tiled at, one
-/// child's own depth below the region at a time, biggest tiles (depth
-/// one, the children themselves) first. A child counts as covered at
-/// a size only if every one of its own tiles at that size is
-/// homogeneous -- there is no partial credit inside one child, since
-/// naming a size names it for everything the tiling covers.
-fn tiling_sizes<'a>(
-    pyramid: &'a Pyramid,
-    bitmap: &'a Bitmap,
-    children: &'a [Region; 4],
-    finest_depth: usize,
-) -> impl Iterator<Item = TilingAt> + 'a {
-    (1..=finest_depth).map(move |depth| {
-        let child_depth = depth - 1;
-        let mut covered = [false; 4];
-        let mut tiles: [Vec<Region>; 4] = Default::default();
-        let mut payload = 0usize;
-        let mut leftover = 0usize;
-        for i in 0..4 {
-            let child = children[i];
-            let child_tiles = child.tiles_at_depth(child_depth);
-            let all_homogeneous =
-                child_tiles.iter().all(|tile| tile_of_bitmap(pyramid, bitmap, tile.level, tile.x, tile.y).is_some());
-            if all_homogeneous {
-                covered[i] = true;
-                payload += child_tiles.len();
-                tiles[i] = child_tiles;
-            } else {
-                let side = child.side_in_cells();
-                leftover += side * side;
-            }
-        }
-        TilingAt { depth, covered, tiles, payload, leftover }
-    })
-}
-
-/// The best size to tile the region's own four children at, if any is
-/// worth using at all: whichever size's payload plus leftover cells
-/// sums smallest -- the coarsest size worth using naturally has the
-/// smallest such sum, since a deeper size only adds more value bits to
-/// buy back cells that were already cheaper left as leftover. If even
-/// the smallest sum does not actually beat its own leftover (or cover
-/// everything outright), no size here is worth it at all.
-fn best_tiling(pyramid: &Pyramid, bitmap: &Bitmap, children: &[Region; 4], finest_depth: usize) -> Option<TilingAt> {
-    tiling_sizes(pyramid, bitmap, children, finest_depth)
-        .filter(|candidate| candidate.payload > 0)
-        .min_by_key(|candidate| candidate.payload + candidate.leftover)
-        .filter(|candidate| candidate.leftover == 0 || candidate.payload < candidate.leftover)
-}
-
-const BIND_WIDTH: usize = 1;
+const LEAF_WIDTH: usize = 1;
 const CODE_WIDTH: usize = 1;
 const FAR_WIDTH: usize = 1;
 const DIRECTION_WIDTH: usize = 2;
-const SIZE_WIDTH: usize = 3;
-const SUBDIVIDE_WIDTH: usize = 1;
-const MASK_WIDTH: usize = 4;
+const VALUE_WIDTH: usize = 1;
 
 const COPY: u64 = 0;
-const TILING: u64 = 1;
+const BIND: u64 = 1;
 
-/// Which direction a whole region copies from, if any, and whether
-/// that is a near neighbour of the region itself or a far one of its
-/// parent -- decided purely on whether the cells agree, the same
-/// static fact regardless of what has been described so far.
-///
-/// The pyramid's own `copyable` bit, and the greedy tiler's matching
-/// `FarCopyable` cache, are precomputed once a bitmap and answered in
-/// O(1); without them, every region that fails both would still pay
-/// for up to four full `same_cells` scans it was never going to use.
-fn copy_choice(pyramid: &Pyramid, far_copyable: &FarCopyable, bitmap: &Bitmap, region: Region) -> Option<(bool, usize)> {
-    if pyramid.copyable(region.level, region.x, region.y) {
-        let near = (0..DIRECTIONS.len()).find(|&direction| {
-            region.neighbour(direction).is_some_and(|beside| same_cells(bitmap, region, beside))
-        });
-        if let Some(direction) = near {
-            return Some((false, direction));
-        }
-    }
-    if !far_copyable.get(region) {
-        return None;
-    }
-    let parent = Region { level: region.level - 1, x: region.x / 2, y: region.y / 2 };
-    let (child_dx, child_dy) = (region.x % 2, region.y % 2);
-    (0..DIRECTIONS.len()).find_map(|direction| {
-        let beside_parent = parent.neighbour(direction)?;
-        let far =
-            Region { level: region.level, x: beside_parent.x * 2 + child_dx, y: beside_parent.y * 2 + child_dy };
-        same_cells(bitmap, region, far).then_some((true, direction))
-    })
+/// What [`decide_tiles`] said about every region, by level -- a
+/// region not in here was left to something finer, or is not a
+/// region any placed tile lines up with.
+struct TileLookup {
+    says: Vec<Vec<Option<Says>>>,
 }
 
-/// Encodes a bitmap top-down from the whole bitmap inward, then fills
-/// every cell the tree left uncovered with its own raw bit.
+impl TileLookup {
+    fn build(pyramid: &Pyramid, bitmap: &Bitmap) -> Self {
+        let mut says: Vec<Vec<Option<Says>>> =
+            (0..=CELL_LEVEL).map(|level| vec![None; tiles_in_level(level)]).collect();
+        for PlacedTile { region, says: what } in decide_tiles(pyramid, bitmap) {
+            let across = tiles_across(region.level);
+            says[region.level][region.y * across + region.x] = Some(what);
+        }
+        Self { says }
+    }
+
+    fn get(&self, region: Region) -> Option<Says> {
+        let across = tiles_across(region.level);
+        self.says[region.level][region.y * across + region.x]
+    }
+}
+
+/// Encodes a bitmap: the tiles [`decide_tiles`] already found, said in
+/// as few structural bits as reaching each one costs, then one raw bit
+/// for every cell that leaves uncovered.
 pub fn encode(pyramid: &Pyramid, bitmap: &Bitmap) -> EncodedBitmap {
     let mut out = EncodedBitmap::default();
-    let far_copyable = FarCopyable::build(bitmap);
+    let lookup = TileLookup::build(pyramid, bitmap);
     let mut covered = Bitmap::new();
-    encode_region(pyramid, &far_copyable, bitmap, Region::whole_bitmap(), &mut covered, &mut out);
+    encode_region(&lookup, Region::whole_bitmap(), &mut covered, &mut out);
 
     for y in 0..=u8::MAX {
         for x in 0..=u8::MAX {
@@ -185,71 +108,40 @@ pub fn encode(pyramid: &Pyramid, bitmap: &Bitmap) -> EncodedBitmap {
     out
 }
 
-fn encode_region(
-    pyramid: &Pyramid,
-    far_copyable: &FarCopyable,
-    bitmap: &Bitmap,
-    region: Region,
-    covered: &mut Bitmap,
-    out: &mut EncodedBitmap,
-) {
-    if let Some((far, direction)) = copy_choice(pyramid, far_copyable, bitmap, region) {
-        out.push_value(1, BIND_WIDTH);
-        out.push_value(COPY, CODE_WIDTH);
-        out.push_value(far as u64, FAR_WIDTH);
-        out.push_value(direction as u64, DIRECTION_WIDTH);
-        out.push_value(0, SUBDIVIDE_WIDTH);
-        mark_covered(covered, region);
-        return;
-    }
-
+fn encode_region(lookup: &TileLookup, region: Region, covered: &mut Bitmap, out: &mut EncodedBitmap) {
     if region.level == CELL_LEVEL - 1 {
-        // Its children are single cells, always homogeneous trivially:
-        // tiling them would always "succeed" while never compressing
-        // anything. Leave them as holes for the trailing raw pass.
-        out.push_value(0, BIND_WIDTH);
-        return;
-    }
-
-    let children = region.children();
-    let finest_depth = CELL_LEVEL - 1 - region.level;
-
-    if let Some(tiling) = best_tiling(pyramid, bitmap, &children, finest_depth) {
-        out.push_value(1, BIND_WIDTH);
-        out.push_value(TILING, CODE_WIDTH);
-        out.push_value((region.level + tiling.depth - 1) as u64, SIZE_WIDTH);
-        let subdivide = !tiling.covered.iter().all(|&c| c);
-        out.push_value(subdivide as u64, SUBDIVIDE_WIDTH);
-        if subdivide {
-            let mask: u64 = (0..4).filter(|&i| !tiling.covered[i]).map(|i| 1 << i).sum();
-            out.push_value(mask, MASK_WIDTH);
-        }
-        for i in 0..4 {
-            if tiling.covered[i] {
-                for tile in &tiling.tiles[i] {
-                    let value = tile_of_bitmap(pyramid, bitmap, tile.level, tile.x, tile.y)
-                        .expect("every tile named here was checked homogeneous above");
-                    out.push_value(value as u64, 1);
-                    mark_covered(covered, *tile);
-                }
-            }
-        }
-        if subdivide {
-            for i in 0..4 {
-                if !tiling.covered[i] {
-                    encode_region(pyramid, far_copyable, bitmap, children[i], covered, out);
-                }
-            }
+        if let Some(Says::Bound(value)) = lookup.get(region) {
+            out.push_value(1, LEAF_WIDTH);
+            out.push_value(value as u64, VALUE_WIDTH);
+            mark_covered(covered, region);
+        } else {
+            // Either copyable only, or decide_tiles only reached it
+            // with 1x1 tiles beneath -- either way, a hole.
+            out.push_value(0, LEAF_WIDTH);
         }
         return;
     }
 
-    // Nothing here is worth saying. No mask, no bits beyond the bind
-    // bit itself: every child gets visited, since there is nothing to
-    // defer.
-    out.push_value(0, BIND_WIDTH);
-    for child in children {
-        encode_region(pyramid, far_copyable, bitmap, child, covered, out);
+    match lookup.get(region) {
+        Some(Says::Bound(value)) => {
+            out.push_value(1, LEAF_WIDTH);
+            out.push_value(BIND, CODE_WIDTH);
+            out.push_value(value as u64, VALUE_WIDTH);
+            mark_covered(covered, region);
+        }
+        Some(Says::Copied { far, direction }) => {
+            out.push_value(1, LEAF_WIDTH);
+            out.push_value(COPY, CODE_WIDTH);
+            out.push_value(far as u64, FAR_WIDTH);
+            out.push_value(direction as u64, DIRECTION_WIDTH);
+            mark_covered(covered, region);
+        }
+        None => {
+            out.push_value(0, LEAF_WIDTH);
+            for child in region.children() {
+                encode_region(lookup, child, covered, out);
+            }
+        }
     }
 }
 
@@ -290,13 +182,20 @@ pub fn decode(stream: &EncodedBitmap) -> Bitmap {
 }
 
 fn decode_region(stream: &EncodedBitmap, at: &mut usize, region: Region, covered: &mut Bitmap, owner: &mut [Option<Owner>]) {
-    let bind = stream.take(*at, BIND_WIDTH) != 0;
-    *at += BIND_WIDTH;
+    let leaf = stream.take(*at, LEAF_WIDTH) != 0;
+    *at += LEAF_WIDTH;
 
-    if !bind {
-        if region.level == CELL_LEVEL - 1 {
-            return;
+    if region.level == CELL_LEVEL - 1 {
+        if leaf {
+            let value = stream.take(*at, VALUE_WIDTH) != 0;
+            *at += VALUE_WIDTH;
+            mark_owner(owner, region, Owner::Bound(value));
+            mark_covered(covered, region);
         }
+        return;
+    }
+
+    if !leaf {
         for child in region.children() {
             decode_region(stream, at, child, covered, owner);
         }
@@ -305,60 +204,18 @@ fn decode_region(stream: &EncodedBitmap, at: &mut usize, region: Region, covered
 
     let code = stream.take(*at, CODE_WIDTH);
     *at += CODE_WIDTH;
-
-    if code == COPY {
+    if code == BIND {
+        let value = stream.take(*at, VALUE_WIDTH) != 0;
+        *at += VALUE_WIDTH;
+        mark_owner(owner, region, Owner::Bound(value));
+    } else {
         let far = stream.take(*at, FAR_WIDTH) != 0;
         *at += FAR_WIDTH;
         let direction = stream.take(*at, DIRECTION_WIDTH) as usize;
         *at += DIRECTION_WIDTH;
-        let subdivide = stream.take(*at, SUBDIVIDE_WIDTH) != 0;
-        *at += SUBDIVIDE_WIDTH;
         mark_owner(owner, region, Owner::Copied { direction, side: region.side_in_cells(), far });
-        mark_covered(covered, region);
-        if subdivide {
-            let mask = stream.take(*at, MASK_WIDTH);
-            *at += MASK_WIDTH;
-            let children = region.children();
-            for i in 0..4 {
-                if mask & (1 << i) != 0 {
-                    decode_region(stream, at, children[i], covered, owner);
-                }
-            }
-        }
-        return;
     }
-
-    let tile_level = stream.take(*at, SIZE_WIDTH) as usize + 1;
-    *at += SIZE_WIDTH;
-    let child_depth = tile_level - region.level - 1;
-    let subdivide = stream.take(*at, SUBDIVIDE_WIDTH) != 0;
-    *at += SUBDIVIDE_WIDTH;
-    let mask = if subdivide {
-        let mask = stream.take(*at, MASK_WIDTH);
-        *at += MASK_WIDTH;
-        mask
-    } else {
-        0
-    };
-
-    let children = region.children();
-    for i in 0..4 {
-        if mask & (1 << i) == 0 {
-            for tile in children[i].tiles_at_depth(child_depth) {
-                let value = stream.take(*at, 1) != 0;
-                *at += 1;
-                mark_owner(owner, tile, Owner::Bound(value));
-                mark_covered(covered, tile);
-            }
-        }
-    }
-    if subdivide {
-        for i in 0..4 {
-            if mask & (1 << i) != 0 {
-                decode_region(stream, at, children[i], covered, owner);
-            }
-        }
-    }
+    mark_covered(covered, region);
 }
 
 /// Records every cell of a region as sharing one owner.
