@@ -188,15 +188,12 @@ fn copy_choice(
 /// either: any one of the four not being `Bound` fails the whole
 /// group, whatever the other three look like.
 ///
-/// Never composes a tile whose children sit at [`CELL_LEVEL`] - 1 or
-/// [`CELL_LEVEL`] - 2. [`super::tile_or_subdivide`]'s tree already
-/// says a homogeneous one-above-cells region in two bits, cheaper than
-/// any header naming a resolution could; grouping four of those into
-/// one complex tile would cost 10 bits for what four such leaves and
-/// their parent's subdivide bit already say in 9. Every coarser level
-/// composes into a real saving: four ordinary three-bit leaves and the
-/// subdivide bit above them cost 13, against 10 for one complex tile
-/// naming them at once.
+/// This never looks at the bitmap, or at cells as such -- only at
+/// tiles decide_tiles already placed, whatever their size, a 1x1 tile
+/// included exactly like any other. What a composed tile is worth to
+/// whoever writes it out, at any given size, is that reader's own
+/// question to answer, not something to bake into how tiles are found
+/// here.
 pub fn compose_complex_tiles(tiles: Vec<PlacedTile>) -> Vec<PlacedTile> {
     let mut grid: Vec<Vec<Option<Says>>> =
         (0..=CELL_LEVEL).map(|level| vec![None; tiles_in_level(level)]).collect();
@@ -205,7 +202,7 @@ pub fn compose_complex_tiles(tiles: Vec<PlacedTile>) -> Vec<PlacedTile> {
         grid[region.level][region.y * across + region.x] = Some(says);
     }
 
-    for parent_level in 0..CELL_LEVEL.saturating_sub(2) {
+    for parent_level in 0..CELL_LEVEL {
         let across = tiles_across(parent_level);
         for y in 0..across {
             for x in 0..across {
