@@ -28,6 +28,11 @@ use crate::dsrn::region::{same_cells, Region, DIRECTIONS};
 use crate::pyramid::{same_tiles, tile_of_bitmap, tile_side, tiles_across, tiles_in_level, Pyramid, CELL_LEVEL};
 use crate::Bitmap;
 
+/// The least of a masked candidate's own resolution that has to be
+/// genuinely gathered, not excluded, before [`compose_complex_tiles`]
+/// will consider it at all. See the doc comment where it is used.
+const THREE_QUARTERS_GENUINE: f64 = 0.75;
+
 /// How many tiles the greedy pass placed, by level, and how many of
 /// those were copies or complex tiles rather than a bound value.
 ///
@@ -80,30 +85,51 @@ pub struct PlacedTile {
 pub enum Says {
     Bound(bool),
     Copied { far: bool, direction: usize },
-    /// `depth` levels below this region, every tile not under a masked
-    /// child is homogeneous -- not necessarily the same value as its
-    /// neighbours, or this region would have been one `Bound` tile
-    /// itself -- and `values` is every one of them, in reading order,
-    /// skipping every tile a masked child's footprint covers. `mask`
-    /// names which of this region's own four children (in
-    /// [`Region::children`] order) are excluded entirely.
-    ///
-    /// A masked child is always, itself, one single `Bound` tile
-    /// [`decide_tiles`] already placed there, coarser than this tile's
-    /// own resolution -- the one thing masking is for, as a baseline:
-    /// letting a large homogeneous tile the chosen resolution would
-    /// otherwise have decomposed into many repeated payload values
-    /// instead be read as the one plain leaf it already is, right where
-    /// it sits. Left untouched, unconsumed -- `compose_complex_tiles`
-    /// never masks anything else (a `Copied` tile, a still-subdivided
-    /// area, or an existing complex tile), so a masked child can never
-    /// itself need to say anything more than that one value, and never
-    /// needs excluding from a later round either: its `grid` entry is
-    /// still there, so nothing else can gather it in, and this tile's
-    /// own entry, once placed, is what stops anything coarser from ever
-    /// reaching in to look. `0` is no masking at all, the original
-    /// behaviour.
-    Complex { depth: usize, mask: u8, values: Vec<bool> },
+    /// `depth` levels below this region is the resolution every
+    /// `Unmasked` area of `mask` settles on -- one [`MaskNode`] for
+    /// each of this region's own four children, in [`Region::children`]
+    /// order, `Unmasked` for all four when there is no masking at all.
+    Complex { depth: usize, mask: [MaskNode; 4] },
+}
+
+/// One node of a complex tile's mask, over the area it covers.
+///
+/// A masked area is read as a plain region of its own, right where it
+/// sits in the tree -- nesting a complex tile inside it is forbidden,
+/// so it can only ever turn out `Bound`, `Copied`, or plain
+/// subdivision -- but that does not forbid a masked area's own
+/// children from being unmasked in turn: `Subdivided` asks the same
+/// question again of an area's own four children, at half its size and
+/// a quarter its area, which is what lets a masked area still give
+/// part of what is inside it back to the complex tile, however many
+/// times that happens on the way down. It never goes lower than the
+/// complex tile's own tile size -- there is nothing finer left for the
+/// complex tile itself to say about it -- so a node already at that
+/// size is always `Unmasked` or `Masked`, never `Subdivided`.
+///
+/// A `Masked` area can be any size, not only the complex tile's own
+/// direct-child size, since the tiles enclosed inside a complex tile
+/// come from the same greedy, size-ordered placement as everything
+/// else -- there is no reason for what gets excluded to line up with
+/// the complex tile's own four quarters any more than what gets
+/// absorbed does. The one thing that never changes size is the
+/// complex tile's own tile size, `Masked`'s floor: a masked area is
+/// always [`decide_tiles`]' own placement, or a whole area of several
+/// of its tiles none of which, on their own, reach that resolution --
+/// never something [`build_mask_node`] had to guess about, and never
+/// an existing complex tile, since nesting one inside another's mask
+/// is forbidden and there is nothing finer to isolate it into once its
+/// own single, whole grid entry is reached.
+#[derive(Clone)]
+pub enum MaskNode {
+    /// This whole area belongs to the complex tile: its own resolution
+    /// tile values, in the reading order [`Region::tiles_at_depth`]
+    /// uses for this exact area.
+    Unmasked(Vec<bool>),
+    /// This whole area is excluded, read as a plain region of its own.
+    Masked,
+    /// The same question asked again of this area's own four children.
+    Subdivided(Box<[MaskNode; 4]>),
 }
 
 /// Runs the greedy pass over one bitmap, biggest tiles first.
@@ -191,61 +217,59 @@ fn copy_choice(
 
 /// Groups [`decide_tiles`]'s own placed tiles into complex tiles: an
 /// aligned area, 4x4 or coarser, covered by `Bound` tiles none finer
-/// than 2x2 -- except wherever one of the area's own four direct
-/// children is masked out instead, said once at the coarsest resolution
-/// that still covers every one of its unmasked tiles, the smallest of
-/// their own sizes. A tile bigger than that resolution decomposes into
-/// that many repeats of its own value; nothing is ever cut, since every
-/// placed tile already lines up with the same power-of-two grid a
-/// candidate area does, so it is always either wholly inside that area
-/// or wholly outside it, never straddling the edge.
+/// than 2x2 -- except wherever some smaller area inside it is masked
+/// out instead, which excludes just that area rather than disqualifying
+/// the rest -- said once at the coarsest resolution that still covers
+/// every one of its unmasked tiles, the smallest of their own sizes. A
+/// tile bigger than that resolution decomposes into that many repeats
+/// of its own value; nothing is ever cut, since every placed tile
+/// already lines up with the same power-of-two grid a candidate area
+/// does, so it is always either wholly inside that area or wholly
+/// outside it, never straddling the edge. A masked area is left exactly
+/// as it stood before this tile composed, and forever excluded from
+/// composing into a complex tile of its own -- no nesting, at least for
+/// a first version of this -- so it can only ever turn out `Bound`,
+/// `Copied`, or plain subdivision, read as a region of its own wherever
+/// this tile is written out. Only `Bound` tiles ever compose, so a tile
+/// this pass just placed -- `Complex` -- never composes again into a
+/// coarser one, masked or not.
 ///
-/// A masked child is always, itself, one whole `Bound` tile
-/// `decide_tiles` already placed there -- nothing else is ever masked.
-/// As a baseline, that is the one thing masking is for: a large
-/// homogeneous tile the chosen resolution would otherwise have to
-/// decompose into many repeated payload values, read instead as the one
-/// plain leaf it already is. A `Copied` tile, a still-subdivided area,
-/// or an existing complex tile anywhere still un-masked disqualifies
-/// the whole area, exactly as if masking did not exist -- there is
-/// nothing to route around them with, at least for a first version of
-/// this. Only `Bound` tiles ever compose, so a tile this pass just
-/// placed -- `Complex` -- never composes again into a coarser one.
-///
-/// Masking one whole `Bound` tile can never reach the trouble a more
-/// general mask could: it is never `None` (there is nothing to
-/// recurse into, so no later round can ever place a new complex tile
-/// somewhere an existing one's mask will walk straight into when
-/// finally read back), and never an existing complex tile (so nesting
-/// one inside another's mask, which is forbidden, never arises). And
-/// once this tile is placed, its own `grid` entry is what stops
-/// anything coarser from ever reaching in to look at what it masked --
-/// the same protection an unmasked `Bound` tile already had.
+/// A masked area can be any size, found by [`build_mask_node`] the same
+/// way [`decide_tiles`] itself found tiles: try the whole area first,
+/// and only if that does not work, ask the same question again of its
+/// own four children, at half the size. What forces that recursion is
+/// either an existing `Copied` tile or a 1x1 remnant somewhere inside
+/// -- routable around by masking, since neither one ever needs the
+/// complex-flag bit a masked area's own recursive encoding skips -- or
+/// an existing complex tile, which is never routable around: nesting
+/// one inside another's mask is forbidden, and an existing complex
+/// tile is always one whole grid entry with nothing finer beneath it to
+/// isolate the rest of the candidate away from, so hitting one makes
+/// the whole candidate, at this depth, impossible rather than merely
+/// something to mask. [`gather`] tells these two apart, and
+/// [`build_mask_node`] never lets the second one bubble up as a mask.
 ///
 /// The naive greedy search this settled on, rather than biggest area
-/// first with no comparison: every valid area, of every size, position
-/// and masking of its own four children, is a candidate every round --
-/// masking is genuinely brute forced, all sixteen ways to include or
-/// exclude each of the four, since there is no cheaper way to know
-/// which exclusion (if any) improves the ratio below -- and the round
-/// commits exactly one -- the one absorbing the most of `decide_tiles`'
-/// own tiles for the fewest tiles its payload ends up naming,
-/// `constituents / payload`, breaking a tie toward the larger area.
-/// `payload` is a count of tiles, not a count of bits: how many tiles
-/// at the resolution the area settles on it takes to cover its
-/// *unmasked* footprint, one value bit each -- a masked child's own
-/// footprint is never counted, on either side of the ratio. That ratio
-/// is 1.0 exactly when every one of an area's constituents is already
-/// sized to that resolution -- nothing decomposed, nothing repeated --
-/// and falls the further below it the more a bigger constituent's
-/// single value gets repeated across several payload tiles for nothing
-/// a coarser resolution would have had to repeat at all -- exactly the
-/// case masking a large constituent out of the payload fixes, by taking
-/// both its one constituent and its many repeated payload tiles out of
-/// the ratio at once. Picking one candidate can only remove others -- an
-/// area it just absorbed cannot be gathered into anything else, and
-/// neither can whatever it left masked, since that tile's own `grid`
-/// entry is untouched and still there -- never add one, so re-scanning
+/// first with no comparison: every valid area, of every size and
+/// position, is tried at every resolution it could possibly settle on,
+/// coarsest tile size to finest, and the round commits exactly one --
+/// the one absorbing the most of `decide_tiles`' own tiles for the
+/// fewest tiles the resolution names in total, `constituents / (side *
+/// side)`, breaking a tie toward the larger area. `side * side` is the
+/// resolution's own tile count over the *whole* candidate, masked or
+/// not -- unlike an ordinary complex tile's payload, this never shrinks
+/// just because something was excluded, or masking would always look
+/// free and nothing would ever stop it from excluding everything down
+/// to what technically gathers best, however little that leaves to
+/// actually say. Counting the full area instead means masking only ever
+/// pays for itself when what it excludes was dragging the ratio down by
+/// more than the area it costs to give up -- a small obstruction in an
+/// otherwise-uniform area is nearly free to route around; excluding
+/// most of the area for the sake of a good ratio over what little is
+/// left is not, since the parts given up still count against it.
+/// Picking one candidate can only remove others -- an area it just
+/// absorbed cannot be gathered into anything else, and neither can
+/// whatever it left masked, forever -- never add one, so re-scanning
 /// every candidate from scratch each round is wasteful but never wrong,
 /// and the round after nothing qualifies is where this stops.
 ///
@@ -259,69 +283,134 @@ pub fn compose_complex_tiles(tiles: Vec<PlacedTile>) -> Vec<PlacedTile> {
         grid[region.level][region.y * across + region.x] = Some(says);
     }
 
+    // Everything a masked area ever covers, at every level down to
+    // cells -- set the moment `build_mask_node` settles on `Masked` for
+    // it, and never cleared, so no later round can compose any of it
+    // into a complex tile of its own. No nesting, at least for a first
+    // version of this: a masked area only ever gives part of itself
+    // back to the one complex tile that masked it in the first place,
+    // by unmasking one of its own children in turn -- never by becoming
+    // a whole new complex tile of its own.
+    let mut excluded: Vec<Vec<bool>> = (0..=CELL_LEVEL).map(|level| vec![false; tiles_in_level(level)]).collect();
+
     // Every possible complex tile, tried again from scratch each round:
     // committing one can only ever remove candidates (an area it just
     // absorbed can no longer be gathered into anything else), never add
     // one, so re-scanning is wasteful but never wrong.
     loop {
-        let mut best: Option<(f64, usize, Region, u8, usize, Vec<(Region, bool)>)> = None;
+        // `gather`'s own result for a region never depends on the
+        // `limit_level` a candidate happens to be trying, only on
+        // `grid` and `excluded` -- both fixed for the whole of one
+        // round -- so it is computed once a round, bottom-up, rather
+        // than fresh for every depth of every candidate region, which
+        // is what an unbounded, per-depth recursive `gather` would
+        // otherwise cost: the same subtree, walked again from scratch,
+        // for every one of up to eight depths, at every position still
+        // open to composing.
+        let gathered = precompute_gathered(&grid, &excluded);
+
+        // The one resolution actually worth trying for a region: the
+        // deepest level any of its own unobstructed `Bound` tiles
+        // already reaches, ignoring whatever a `Copied` or `Complex`
+        // tile in the way would need (masked out, they need no
+        // resolution of their own). Any resolution coarser than this
+        // would lose real content; anything finer only forces content
+        // that is already fine enough to repeat itself for nothing --
+        // both are pure loss, so unlike `gathered`, only ever this one
+        // depth a region is worth trying at all, never a range to
+        // search.
+        let natural_finest = precompute_natural_finest(&grid, &excluded);
+
+        let mut best: Option<(f64, usize, Region, usize, [MaskNode; 4])> = None;
         for level in 0..=(CELL_LEVEL - 2) {
             let across = tiles_across(level);
             for y in 0..across {
                 for x in 0..across {
-                    if grid[level][y * across + x].is_some() {
-                        // Already one placed tile, or a complex tile
-                        // from an earlier round -- nothing left here
-                        // for a coarser one to find.
+                    let idx = y * across + x;
+                    if grid[level][idx].is_some() || excluded[level][idx] {
+                        // Already one placed tile, a complex tile from
+                        // an earlier round, or forever excluded by an
+                        // ancestor complex tile's own mask -- nothing
+                        // left here for a coarser one to find.
                         continue;
                     }
+                    let Some(limit_level) = natural_finest[level][idx] else { continue };
                     let region = Region { level, x, y };
-                    // Every way to mask the region's own four children,
-                    // short of masking all four (nothing left to say).
-                    for mask in 0u8..0b1111 {
-                        let Some((finest, constituents)) = gather_masked(&grid, region, mask) else {
-                            continue;
+                    let depth = limit_level - level;
+                    let mut nodes: [Option<MaskNode>; 4] = [None, None, None, None];
+                    let mut constituents = 0usize;
+                    let mut possible = true;
+                    for (i, child) in region.children().into_iter().enumerate() {
+                        let Some((node, node_constituents)) = build_mask_node(&grid, &gathered, child, limit_level)
+                        else {
+                            // An existing complex tile sits somewhere
+                            // in here with no room left to isolate
+                            // around it -- this region is impossible.
+                            possible = false;
+                            break;
                         };
-                        let side = 1usize << (finest - level);
-                        let child_side = side / 2;
-                        let masked = mask.count_ones() as usize;
-                        // A count of tiles at the resolution this area
-                        // would settle on, not a count of bits -- one
-                        // value bit each, so the two happen to
-                        // coincide -- over the unmasked footprint only.
-                        let payload = side * side - masked * child_side * child_side;
-                        // How many of decide_tiles' own tiles this
-                        // absorbs against how many payload tiles it
-                        // costs to say them -- 1.0 at its best, when
-                        // every one of them is already at the
-                        // resolution this settles on, and falling the
-                        // further from it the more a bigger
-                        // constituent's single value gets repeated
-                        // across payload tiles a coarser resolution
-                        // wouldn't have had to repeat at all.
-                        let ratio = constituents.len() as f64 / payload as f64;
-                        let area = region.side_in_cells() * region.side_in_cells();
-                        let better = match best {
-                            Some((best_ratio, best_area, ..)) => {
-                                ratio > best_ratio || (ratio == best_ratio && area > best_area)
-                            }
-                            None => true,
-                        };
-                        if better {
-                            best = Some((ratio, area, region, mask, finest, constituents));
+                        constituents += node_constituents;
+                        nodes[i] = Some(node);
+                    }
+                    let all_unmasked = nodes.iter().all(|node| matches!(node, Some(MaskNode::Unmasked(_))));
+                    if !possible || constituents == 0 {
+                        continue; // nothing gained at this resolution at all
+                    }
+                    if depth == 1 && !all_unmasked {
+                        // Masking a whole direct child pays for itself
+                        // only once the shared header is amortized over
+                        // decomposing it into more than one payload
+                        // tile -- at depth 1 a child is never
+                        // decomposed at all (it already is the
+                        // resolution), so excluding one here can only
+                        // ever shrink the header's own payoff and add
+                        // the excluded child's own tag bit on top, a
+                        // net loss every time, whatever it is that
+                        // would have been excluded.
+                        continue;
+                    }
+                    let side = 1usize << depth;
+                    let payload = side * side;
+                    let ratio = constituents as f64 / payload as f64;
+                    if ratio < THREE_QUARTERS_GENUINE {
+                        // Masking still pays a small, fixed tax on the
+                        // header's own amortization for every child it
+                        // excludes (see the depth == 1 case above, where
+                        // that tax is never worth paying at all): below
+                        // this floor, too little of the resolution is
+                        // genuinely gathered for the shared header to be
+                        // worth it over reaching everything by plain
+                        // subdivision instead, whatever the untaxed
+                        // ratio alone suggests. Not a tight bound -- an
+                        // exact one would mean pricing every candidate
+                        // against its own real alternative, the
+                        // subtree-by-subtree cost comparison this
+                        // module exists specifically to avoid -- just
+                        // the cheapest floor that stopped a real,
+                        // measured regression on bitmaps with plenty of
+                        // small, un-composable content in the way.
+                        continue;
+                    }
+                    let area = region.side_in_cells() * region.side_in_cells();
+                    let better = match best {
+                        Some((best_ratio, best_area, ..)) => {
+                            ratio > best_ratio || (ratio == best_ratio && area > best_area)
                         }
+                        None => true,
+                    };
+                    if better {
+                        best = Some((ratio, area, region, depth, nodes.map(Option::unwrap)));
                     }
                 }
             }
         }
-        let Some((_, _, region, mask, finest, constituents)) = best else { break };
-        consume_masked(&mut grid, region, mask);
+        let Some((_, _, region, depth, nodes)) = best else { break };
+        for (child, node) in region.children().into_iter().zip(&nodes) {
+            consume_mask_tree(&mut grid, child, node);
+            exclude_mask_tree(&mut excluded, child, node);
+        }
         let across = tiles_across(region.level);
-        grid[region.level][region.y * across + region.x] = Some(Says::Complex {
-            depth: finest - region.level,
-            mask,
-            values: flatten(region, finest, mask, &constituents),
-        });
+        grid[region.level][region.y * across + region.x] = Some(Says::Complex { depth, mask: nodes });
     }
 
     grid.into_iter()
@@ -336,71 +425,221 @@ pub fn compose_complex_tiles(tiles: Vec<PlacedTile>) -> Vec<PlacedTile> {
         .collect()
 }
 
-/// Whether every placed tile under `region` is `Bound` and none of
-/// them finer than 2x2 -- and if so, the finest level among them and
-/// every one of them, region and value, in no particular order.
-/// `None` the moment a `Copied` tile or a 1x1 turns up anywhere in the
-/// subtree, without touching `grid` at all: this only looks, it never
-/// commits to anything until the whole area has been confirmed.
-fn gather(grid: &[Vec<Option<Says>>], region: Region) -> Option<(usize, Vec<(Region, bool)>)> {
-    if region.level == CELL_LEVEL {
-        return None; // a 1x1 tile never takes part in a complex tile
+/// What [`gather`] found over a region: every tile under it is `Bound`
+/// (`Whole`); something under it can never take part in a complex tile
+/// at all but is routable around by masking, an existing `Copied` tile
+/// or a 1x1 remnant (`Disqualified`); or something under it is an
+/// existing complex tile, which is never routable around -- nesting one
+/// inside another's mask is forbidden, and it is always one whole grid
+/// entry with nothing finer beneath it to isolate the rest of a
+/// candidate away from (`Blocked`). The distinction is what keeps
+/// [`build_mask_node`] from ever masking over an existing complex tile
+/// the way it safely can an existing `Copied` tile: `Blocked` has to
+/// win over `Disqualified` whenever both turn up among a region's own
+/// children, since a sibling that merely disqualifies must never hide
+/// one that outright blocks.
+enum Gathered {
+    Whole { finest: usize, constituents: Vec<(Region, bool)> },
+    Disqualified,
+    Blocked,
+}
+
+/// [`Gathered`] for every region, bottom-up: whether every placed tile
+/// under it is `Bound` and none of them finer than 2x2, and if so, the
+/// finest level among them and every one of them, region and value, in
+/// no particular order -- otherwise, whether an existing complex tile
+/// is anywhere in the way or this is merely ordinary disqualified
+/// content. `excluded` disqualifies a region at every level, not only
+/// where a mask tree first named it: an area some earlier round already
+/// masked must never be gathered into a different complex tile's own
+/// payload. Computed once for the whole grid, since the answer for a
+/// region depends only on `grid` and `excluded`, both fixed for the
+/// round this is called from -- never on the `limit_level` whatever
+/// candidate composing them happens to be trying, so recomputing it
+/// once for every depth of every still-open position, the way a
+/// recursive `gather` starting fresh each time would, would only ever
+/// walk the same unchanged subtrees again.
+fn precompute_gathered(grid: &[Vec<Option<Says>>], excluded: &[Vec<bool>]) -> Vec<Vec<Gathered>> {
+    let mut cache: Vec<Vec<Gathered>> = (0..=CELL_LEVEL).map(|_| Vec::new()).collect();
+    for level in (0..=CELL_LEVEL).rev() {
+        let across = tiles_across(level);
+        let mut row = Vec::with_capacity(across * across);
+        for y in 0..across {
+            for x in 0..across {
+                let region = Region { level, x, y };
+                let idx = y * across + x;
+                row.push(if level == CELL_LEVEL || excluded[level][idx] {
+                    Gathered::Disqualified // a 1x1 tile never takes part in a complex tile
+                } else {
+                    match &grid[level][idx] {
+                        Some(Says::Bound(value)) => {
+                            Gathered::Whole { finest: level, constituents: vec![(region, *value)] }
+                        }
+                        Some(Says::Copied { .. }) => Gathered::Disqualified,
+                        Some(Says::Complex { .. }) => Gathered::Blocked,
+                        None => {
+                            let mut finest = level;
+                            let mut constituents = Vec::new();
+                            let (mut blocked, mut disqualified) = (false, false);
+                            for child in region.children() {
+                                let child_across = tiles_across(child.level);
+                                match &cache[child.level][child.y * child_across + child.x] {
+                                    Gathered::Whole { finest: child_finest, constituents: child_constituents } => {
+                                        finest = finest.max(*child_finest);
+                                        constituents.extend(child_constituents.iter().copied());
+                                    }
+                                    Gathered::Disqualified => disqualified = true,
+                                    Gathered::Blocked => blocked = true,
+                                }
+                            }
+                            // Every child is checked, whatever the
+                            // first one finds: a `Blocked` child must
+                            // never be hidden behind a `Disqualified`
+                            // one.
+                            if blocked {
+                                Gathered::Blocked
+                            } else if disqualified {
+                                Gathered::Disqualified
+                            } else {
+                                Gathered::Whole { finest, constituents }
+                            }
+                        }
+                    }
+                });
+            }
+        }
+        cache[level] = row;
     }
+    cache
+}
+
+/// The deepest level any unobstructed `Bound` tile under `region`
+/// reaches, or `None` if there is nothing absorbable under it at all.
+/// A `Copied` or `Complex` tile contributes no depth requirement of its
+/// own -- masked out, they need no resolution to be read back, so they
+/// must never force one on everything around them the way an
+/// unbounded, blindly-searched depth would. Computed once a round, the
+/// same way [`precompute_gathered`] is: it depends only on `grid` and
+/// `excluded`, fixed for the round, not on any candidate trying it.
+fn precompute_natural_finest(grid: &[Vec<Option<Says>>], excluded: &[Vec<bool>]) -> Vec<Vec<Option<usize>>> {
+    let mut cache: Vec<Vec<Option<usize>>> = (0..=CELL_LEVEL).map(|_| Vec::new()).collect();
+    for level in (0..=CELL_LEVEL).rev() {
+        let across = tiles_across(level);
+        let mut row = Vec::with_capacity(across * across);
+        for y in 0..across {
+            for x in 0..across {
+                let idx = y * across + x;
+                row.push(if level == CELL_LEVEL || excluded[level][idx] {
+                    None
+                } else {
+                    match &grid[level][idx] {
+                        Some(Says::Bound(_)) => Some(level),
+                        Some(_) => None, // Copied or Complex -- no depth requirement of its own
+                        None => {
+                            let region = Region { level, x, y };
+                            region
+                                .children()
+                                .into_iter()
+                                .filter_map(|child| {
+                                    let child_across = tiles_across(child.level);
+                                    cache[child.level][child.y * child_across + child.x]
+                                })
+                                .max()
+                        }
+                    }
+                });
+            }
+        }
+        cache[level] = row;
+    }
+    cache
+}
+
+/// Builds one [`MaskNode`] for `region`, given `limit_level` -- the
+/// complex tile's own chosen tile size, the finest a mask is ever
+/// allowed to go, and `gathered`, [`precompute_gathered`]'s own result
+/// for every region this round. `region` itself being an existing
+/// complex tile is checked first and is always fatal: nesting one
+/// inside another's mask is forbidden, and it is one whole grid entry
+/// with nothing finer beneath it to recurse into instead, so `None`
+/// propagates straight out -- this `limit_level`, for the candidate
+/// that reached here, is impossible. Otherwise: if the whole of
+/// `region` gathers at `limit_level` or coarser, it is `Unmasked`,
+/// decomposed into `limit_level`-sized tiles same as a plain complex
+/// tile always has been. If `region` is already at `limit_level`
+/// itself, there is nothing finer to try, so anything short of that is
+/// final -- `Masked`, unless an existing complex tile was found
+/// somewhere finer than `limit_level` inside it (`Gathered::Blocked`),
+/// which is just as fatal here as finding one at `region` itself: a
+/// masked area is read back by recursing into it at whatever depth is
+/// actually there, not stopping at `limit_level`, so nesting is exactly
+/// as forbidden three levels down as it is right here. Otherwise, the
+/// same question is asked again of `region`'s own four children, at
+/// half the size; if none of them managed anything either, `region` is
+/// simply `Masked` whole, rather than a `Subdivided` of four `Masked`
+/// children that would only cost more to say the same thing. Returns
+/// the node and how many of `decide_tiles`' own tiles it absorbed --
+/// zero for `Masked`.
+fn build_mask_node(
+    grid: &[Vec<Option<Says>>],
+    gathered: &[Vec<Gathered>],
+    region: Region,
+    limit_level: usize,
+) -> Option<(MaskNode, usize)> {
     let across = tiles_across(region.level);
-    match grid[region.level][region.y * across + region.x] {
-        Some(Says::Bound(value)) => Some((region.level, vec![(region, value)])),
-        Some(_) => None, // Copied, or already Complex -- disqualified
-        None => {
-            let mut finest = region.level;
-            let mut constituents = Vec::new();
-            for child in region.children() {
-                let (child_finest, mut child_constituents) = gather(grid, child)?;
-                finest = finest.max(child_finest);
-                constituents.append(&mut child_constituents);
-            }
-            Some((finest, constituents))
+    let idx = region.y * across + region.x;
+    if let Some(Says::Complex { .. }) = &grid[region.level][idx] {
+        return None;
+    }
+
+    let here = &gathered[region.level][idx];
+    if let Gathered::Whole { finest, constituents } = here {
+        if *finest <= limit_level {
+            let values = flatten(region, limit_level, constituents);
+            let n = constituents.len();
+            return Some((MaskNode::Unmasked(values), n));
         }
     }
-}
-
-/// [`gather`], but over only the children `mask` does not name -- a
-/// named child is skipped entirely, left for whatever it already was.
-/// Requires every un-named child to still gather successfully: masking
-/// only ever removes a child from consideration, it does not relax
-/// what the rest of them have to be. `mask == 0` gathers all four,
-/// exactly [`gather`] itself would over `region`.
-///
-/// A named child may only be one whole `Bound` tile of its own --
-/// `decide_tiles`' own placement, read directly off `grid`, never
-/// anything `gather` would have had to recurse to confirm. That is the
-/// one thing masking is for, as a baseline (see `compose_complex_tiles`):
-/// nothing else -- a `Copied` tile, a still-subdivided area, or an
-/// existing complex tile -- is ever masked, so a masked child is always
-/// a single, already-terminal leaf, never something reading it back
-/// could mistake for more than that, and never something a later round
-/// could place anything new inside of either.
-fn gather_masked(grid: &[Vec<Option<Says>>], region: Region, mask: u8) -> Option<(usize, Vec<(Region, bool)>)> {
-    let mut finest = region.level;
-    let mut constituents = Vec::new();
+    if region.level == limit_level {
+        return match here {
+            Gathered::Blocked => None,
+            _ => Some((MaskNode::Masked, 0)),
+        };
+    }
+    let mut nodes: [Option<MaskNode>; 4] = [None, None, None, None];
+    let (mut constituents, mut any_unmasked) = (0usize, false);
     for (i, child) in region.children().into_iter().enumerate() {
-        if mask & (1 << i) != 0 {
-            let across = tiles_across(child.level);
-            if !matches!(grid[child.level][child.y * across + child.x], Some(Says::Bound(_))) {
-                return None; // only a whole existing Bound tile may be masked
-            }
-            continue;
-        }
-        let (child_finest, mut child_constituents) = gather(grid, child)?;
-        finest = finest.max(child_finest);
-        constituents.append(&mut child_constituents);
+        let (node, node_constituents) = build_mask_node(grid, gathered, child, limit_level)?;
+        any_unmasked |= !matches!(node, MaskNode::Masked);
+        constituents += node_constituents;
+        nodes[i] = Some(node);
     }
-    Some((finest, constituents))
+    if !any_unmasked {
+        Some((MaskNode::Masked, 0)) // nothing reclaimed below -- cheaper to mask the whole of it
+    } else {
+        Some((MaskNode::Subdivided(Box::new(nodes.map(Option::unwrap))), constituents))
+    }
 }
 
-/// Removes every tile [`gather`] just confirmed from `grid`, so the
-/// region composing them stops being visible as anything smaller.
-/// Follows exactly the path `gather` found, so it never reaches a
-/// region `gather` did not already accept.
+/// Removes every tile a [`MaskNode::Unmasked`] absorbed from `grid`, so
+/// the area composing them stops being visible as anything smaller. A
+/// `Masked` area is left untouched -- it was never gathered into
+/// anything -- and a `Subdivided` one recurses into its own children.
+fn consume_mask_tree(grid: &mut [Vec<Option<Says>>], region: Region, node: &MaskNode) {
+    match node {
+        MaskNode::Unmasked(_) => consume(grid, region),
+        MaskNode::Masked => {}
+        MaskNode::Subdivided(children) => {
+            for (child, node) in region.children().into_iter().zip(children.iter()) {
+                consume_mask_tree(grid, child, node);
+            }
+        }
+    }
+}
+
+/// Removes every tile [`gather`] just confirmed from `grid`. Follows
+/// exactly the path `gather` found, so it never reaches a region
+/// `gather` did not already accept.
 fn consume(grid: &mut [Vec<Option<Says>>], region: Region) {
     let across = tiles_across(region.level);
     if grid[region.level][region.y * across + region.x].take().is_some() {
@@ -411,25 +650,40 @@ fn consume(grid: &mut [Vec<Option<Says>>], region: Region) {
     }
 }
 
-/// [`consume`], but only over the children `mask` does not name -- a
-/// masked child is a whole `Bound` tile of its own and is left exactly
-/// as it was: still there for whatever reads this complex tile back to
-/// find, and, being still there, still exactly what stops any later
-/// round from ever placing something new in its place.
-fn consume_masked(grid: &mut [Vec<Option<Says>>], region: Region, mask: u8) {
-    for (i, child) in region.children().into_iter().enumerate() {
-        if mask & (1 << i) == 0 {
-            consume(grid, child);
+/// Marks every `Masked` area of `node`'s own subtree, and everything
+/// below it down to cells, forever excluded from composing into a
+/// complex tile of its own -- called once, when the mask tree naming
+/// it is committed, never undone. An `Unmasked` area needs nothing:
+/// [`consume_mask_tree`] already cleared it to `None`, and `gather`
+/// never succeeds over a `None` subtree with nothing left inside it.
+fn exclude_mask_tree(excluded: &mut [Vec<bool>], region: Region, node: &MaskNode) {
+    match node {
+        MaskNode::Unmasked(_) => {}
+        MaskNode::Masked => exclude_subtree(excluded, region),
+        MaskNode::Subdivided(children) => {
+            for (child, node) in region.children().into_iter().zip(children.iter()) {
+                exclude_mask_tree(excluded, child, node);
+            }
+        }
+    }
+}
+
+/// Marks `region` and its whole subtree, down to cells, excluded.
+fn exclude_subtree(excluded: &mut [Vec<bool>], region: Region) {
+    let across = tiles_across(region.level);
+    excluded[region.level][region.y * across + region.x] = true;
+    if region.level < CELL_LEVEL {
+        for child in region.children() {
+            exclude_subtree(excluded, child);
         }
     }
 }
 
 /// Lays `constituents` out at `finest`, in the reading order
-/// [`Region::tiles_at_depth`] reads a resolution back in, skipping
-/// every tile that falls under one of `mask`'s named children -- a
+/// [`Region::tiles_at_depth`] reads a resolution back in -- a
 /// constituent coarser than `finest` fills every one of its own
 /// positions at that resolution with the same repeated value.
-fn flatten(region: Region, finest: usize, mask: u8, constituents: &[(Region, bool)]) -> Vec<bool> {
+fn flatten(region: Region, finest: usize, constituents: &[(Region, bool)]) -> Vec<bool> {
     let side = 1usize << (finest - region.level);
     let mut values = vec![None; side * side];
     for &(constituent, value) in constituents {
@@ -438,14 +692,7 @@ fn flatten(region: Region, finest: usize, mask: u8, constituents: &[(Region, boo
             values[local_y * side + local_x] = Some(value);
         }
     }
-    let depth = finest - region.level;
-    region
-        .tiles_at_depth(depth)
-        .into_iter()
-        .enumerate()
-        .filter(|&(_, tile)| mask & (1 << region.child_holding(depth, tile)) == 0)
-        .map(|(i, _)| values[i].expect("every unmasked position covered by exactly one constituent"))
-        .collect()
+    values.into_iter().map(|value| value.expect("every position covered by exactly one constituent")).collect()
 }
 
 /// Whether a tile could far-copy: whether some same-size neighbour of
