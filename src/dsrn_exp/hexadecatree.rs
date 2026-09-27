@@ -1,54 +1,48 @@
-//! [`super::tile_or_subdivide`], but the tree above 4x4 has sixteen
-//! children a node instead of four.
+//! [`super::tile_or_subdivide`], but 256, 64 and 16 spell their leaf
+//! or subdivide choice in a cheaper code, sized for what a copy costs
+//! there rather than splitting the difference with a bind.
 //!
-//! Same pairing, with one difference: [`decide_tiles`] is restricted
-//! here to exactly the sizes this tree can make a node of --
-//! [`levels`] -- rather than every size down to a cell. 128 and 32 are
-//! never tried and never a node in this tree at all; a homogeneous or
-//! copyable area at one of those sizes is simply found again, at one
-//! size finer, by each of its own four quarters -- more tiles for that
-//! area, never a lost one, since every cell is still exactly as one
-//! thing as it always was. This only says *where* each tile is: the
-//! only thing different from `tile_or_subdivide` is how coarse a jump
-//! "not one whole tile, look closer" is allowed to be. From the whole
-//! bitmap down to 4x4, one subdivide bit skips two quadtree levels at
-//! once -- 256, 64, 16, 4, sixteen children a node -- instead of one.
-//!
-//! Below 4x4 nothing changes at all: the ordinary one-level-a-jump
-//! quadtree, the same 2x2 special case, and the same trailing raw pass
-//! for whatever the tree leaves uncovered, exactly as
-//! `tile_or_subdivide` already does it -- "restricted to available
-//! node sizes, to keep compatibility" is the whole of the idea, not a
-//! reason to also rebuild the part that already works.
+//! `tile_or_subdivide`'s grammar spends the same header whatever a
+//! region says: a leaf-or-subdivide bit, then, for a leaf, a code bit
+//! for bind or copy. At 256, 64 and 16 that is replaced by a single
+//! prefix code -- one bit for copy, two for anything else -- so a copy
+//! there costs one bit less, a bind or a subdivide one bit more. 128
+//! and 32, the sizes that jumping straight from 256 to 64 to 16 would
+//! otherwise skip, come back for free: the second bit's two meanings
+//! are bind and *subdivide into four*, an ordinary one-level-down
+//! subdivide rather than the large jump the name might suggest, so a
+//! region at one of those in-between sizes is simply asked the
+//! question again, at 4x4's plain grammar, and [`decide_tiles`] never
+//! has to be restricted to fewer sizes than it already tries. Every
+//! level still asks exactly once, at exactly one size -- this only
+//! changes what asking costs, not what gets asked.
 //!
 //! # The grammar
 //!
 //! ```text
 //! (at 256, 64 and 16)
+//! 1: copy   + 1 far/near bit + 2 direction bits
+//! 0: 1: subdivide -- recurse into all four children, one level down
+//!    0: bind + 1 value bit
+//!
+//! (at 128, 32, 8 and 4x4, the plain grammar)
 //! 1: leaf -- this region is exactly one placed tile
 //!    0: copy   + 1 far/near bit + 2 direction bits
 //!    1: bind   + 1 value bit
-//! 0: subdivide -- recurse into all sixteen grandchildren two levels down
-//!
-//! (at 4x4, in the ordinary quadtree grammar again)
-//! 1: leaf, same as above
-//! 0: subdivide -- recurse into all four 2x2 children
+//! 0: subdivide -- recurse into all four children
 //!
 //! (at 2x2, same special case as tile_or_subdivide)
 //! 1: this 2x2 is a homogeneous placed tile + 1 value bit
 //! 0: it is not -- its four cells are holes, no further bits
 //! ```
 //!
-//! Node sizes are therefore restricted to 256, 64, 16, 4, 2 and 1 --
-//! the last one only ever as a raw trailing bit, never a node of its
-//! own, same as `tile_or_subdivide`. Decoding is the same two-pass
-//! deferred resolution for the same reason: a copy is chosen on
-//! content alone, so its source may not be resolved yet by the time
-//! the tree reaches it.
+//! Decoding is the same two-pass deferred resolution for the same
+//! reason: a copy is chosen on content alone, so its source may not be
+//! resolved yet by the time the tree reaches it.
 
 use crate::dsrn::region::{Region, DIRECTIONS};
 use crate::dsrn::stream::EncodedBitmap;
-use crate::dsrn_exp::greedy_tiles::{decide_tiles, PlacedTile, Says};
+use crate::dsrn_exp::greedy_tiles::{decide_tiles, PlacedTile, Says, EVERY_LEVEL};
 use crate::dsrn_exp::tile_or_subdivide::Breakdown;
 use crate::pyramid::{tiles_across, tiles_in_level, Pyramid, CELL_LEVEL};
 use crate::Bitmap;
@@ -62,31 +56,20 @@ const VALUE_WIDTH: usize = 1;
 const COPY: u64 = 0;
 const BIND: u64 = 1;
 
-/// How many quadtree levels one subdivide jumps, from a region at
-/// this level: two above 4x4, for the sixteen-child hexadecatree
-/// levels, one from 4x4 down, for the ordinary quadtree.
-fn jump(level: usize) -> usize {
-    if level < CELL_LEVEL - 2 {
-        2
-    } else {
-        1
-    }
-}
+/// The cheap code's own two bits, each on its own: whether this is a
+/// copy at all, and, when it is not, whether the four children get
+/// asked again or this is a bind.
+const FIRST_WIDTH: usize = 1;
+const SECOND_WIDTH: usize = 1;
+const COPY_FIRST: u64 = 1;
+const NOT_COPY: u64 = 0;
+const SUBDIVIDE_SECOND: u64 = 1;
+const BIND_SECOND: u64 = 0;
 
-/// The levels this tree can ever place a leaf at, coarsest first --
-/// exactly the levels [`jump`] lands a subdivide on, walked from the
-/// whole bitmap down to cells. [`decide_tiles`] is restricted to
-/// these, so it never places a tile at a size (128, 32 or 8) this
-/// tree could never make a node of, and finds the same content at a
-/// size that is one of these instead.
-fn levels() -> Vec<usize> {
-    let mut found = vec![0];
-    let mut level = 0;
-    while level < CELL_LEVEL {
-        level += jump(level);
-        found.push(level);
-    }
-    found
+/// Whether a region gets the cheap copy-favouring code (256, 64, 16)
+/// rather than the plain grammar every other level above 2x2 uses.
+fn favours_copy(level: usize) -> bool {
+    level < CELL_LEVEL - 2 && level % 2 == 0
 }
 
 /// What [`decide_tiles`] said about every region, by level -- a
@@ -100,7 +83,7 @@ impl TileLookup {
     fn build(pyramid: &Pyramid, bitmap: &Bitmap) -> Self {
         let mut says: Vec<Vec<Option<Says>>> =
             (0..=CELL_LEVEL).map(|level| vec![None; tiles_in_level(level)]).collect();
-        for PlacedTile { region, says: what } in decide_tiles(pyramid, bitmap, &levels()) {
+        for PlacedTile { region, says: what } in decide_tiles(pyramid, bitmap, &EVERY_LEVEL) {
             let across = tiles_across(region.level);
             says[region.level][region.y * across + region.x] = Some(what);
         }
@@ -165,6 +148,35 @@ fn encode_region(
         return;
     }
 
+    if favours_copy(region.level) {
+        match lookup.get(region) {
+            Some(Says::Copied { far, direction }) => {
+                out.push_value(COPY_FIRST, FIRST_WIDTH);
+                out.push_value(far as u64, FAR_WIDTH);
+                out.push_value(direction as u64, DIRECTION_WIDTH);
+                breakdown.structure += FIRST_WIDTH + FAR_WIDTH + DIRECTION_WIDTH;
+                mark_covered(covered, region);
+            }
+            Some(Says::Bound(value)) => {
+                out.push_value(NOT_COPY, FIRST_WIDTH);
+                out.push_value(BIND_SECOND, SECOND_WIDTH);
+                out.push_value(value as u64, VALUE_WIDTH);
+                breakdown.structure += FIRST_WIDTH + SECOND_WIDTH;
+                breakdown.payload += VALUE_WIDTH;
+                mark_covered(covered, region);
+            }
+            None => {
+                out.push_value(NOT_COPY, FIRST_WIDTH);
+                out.push_value(SUBDIVIDE_SECOND, SECOND_WIDTH);
+                breakdown.structure += FIRST_WIDTH + SECOND_WIDTH;
+                for child in region.children() {
+                    encode_region(lookup, child, covered, out, breakdown);
+                }
+            }
+        }
+        return;
+    }
+
     match lookup.get(region) {
         Some(Says::Bound(value)) => {
             out.push_value(1, LEAF_WIDTH);
@@ -185,7 +197,7 @@ fn encode_region(
         None => {
             out.push_value(0, LEAF_WIDTH);
             breakdown.structure += LEAF_WIDTH;
-            for child in region.tiles_at_depth(jump(region.level)) {
+            for child in region.children() {
                 encode_region(lookup, child, covered, out, breakdown);
             }
         }
@@ -229,10 +241,9 @@ pub fn decode(stream: &EncodedBitmap) -> Bitmap {
 }
 
 fn decode_region(stream: &EncodedBitmap, at: &mut usize, region: Region, covered: &mut Bitmap, owner: &mut [Option<Owner>]) {
-    let leaf = stream.take(*at, LEAF_WIDTH) != 0;
-    *at += LEAF_WIDTH;
-
     if region.level == CELL_LEVEL - 1 {
+        let leaf = stream.take(*at, LEAF_WIDTH) != 0;
+        *at += LEAF_WIDTH;
         if leaf {
             let value = stream.take(*at, VALUE_WIDTH) != 0;
             *at += VALUE_WIDTH;
@@ -242,8 +253,38 @@ fn decode_region(stream: &EncodedBitmap, at: &mut usize, region: Region, covered
         return;
     }
 
+    if favours_copy(region.level) {
+        let first = stream.take(*at, FIRST_WIDTH);
+        *at += FIRST_WIDTH;
+        if first == COPY_FIRST {
+            let far = stream.take(*at, FAR_WIDTH) != 0;
+            *at += FAR_WIDTH;
+            let direction = stream.take(*at, DIRECTION_WIDTH) as usize;
+            *at += DIRECTION_WIDTH;
+            mark_owner(owner, region, Owner::Copied { direction, side: region.side_in_cells(), far });
+            mark_covered(covered, region);
+            return;
+        }
+        let second = stream.take(*at, SECOND_WIDTH);
+        *at += SECOND_WIDTH;
+        if second == SUBDIVIDE_SECOND {
+            for child in region.children() {
+                decode_region(stream, at, child, covered, owner);
+            }
+        } else {
+            let value = stream.take(*at, VALUE_WIDTH) != 0;
+            *at += VALUE_WIDTH;
+            mark_owner(owner, region, Owner::Bound(value));
+            mark_covered(covered, region);
+        }
+        return;
+    }
+
+    let leaf = stream.take(*at, LEAF_WIDTH) != 0;
+    *at += LEAF_WIDTH;
+
     if !leaf {
-        for child in region.tiles_at_depth(jump(region.level)) {
+        for child in region.children() {
             decode_region(stream, at, child, covered, owner);
         }
         return;
