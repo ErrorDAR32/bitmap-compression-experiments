@@ -98,15 +98,15 @@ impl Shape {
 /// where both algorithms work hardest and where the gap between them
 /// is widest.
 pub const SHAPES: [Shape; 9] = [
-    Shape { name: "sparse scattered", density: 0.05, cluster: 0.00, timed: 40, tested: 2 },
-    Shape { name: "sparse ragged", density: 0.05, cluster: 0.70, timed: 40, tested: 2 },
-    Shape { name: "sparse blobs", density: 0.05, cluster: 0.95, timed: 40, tested: 2 },
-    Shape { name: "middling scattered", density: 0.20, cluster: 0.00, timed: 12, tested: 1 },
-    Shape { name: "middling ragged", density: 0.20, cluster: 0.70, timed: 12, tested: 1 },
-    Shape { name: "middling blobs", density: 0.20, cluster: 0.95, timed: 12, tested: 1 },
-    Shape { name: "dense scattered", density: 0.50, cluster: 0.00, timed: 4, tested: 1 },
-    Shape { name: "dense ragged", density: 0.50, cluster: 0.70, timed: 4, tested: 1 },
-    Shape { name: "dense blobs", density: 0.50, cluster: 0.95, timed: 4, tested: 1 },
+    Shape { name: "sparse scattered", density: 0.05, cluster: 0.00, timed: 20, tested: 2 },
+    Shape { name: "sparse ragged", density: 0.05, cluster: 0.70, timed: 20, tested: 2 },
+    Shape { name: "sparse blobs", density: 0.05, cluster: 0.95, timed: 20, tested: 2 },
+    Shape { name: "middling scattered", density: 0.20, cluster: 0.00, timed: 6, tested: 1 },
+    Shape { name: "middling ragged", density: 0.20, cluster: 0.70, timed: 6, tested: 1 },
+    Shape { name: "middling blobs", density: 0.20, cluster: 0.95, timed: 6, tested: 1 },
+    Shape { name: "dense scattered", density: 0.50, cluster: 0.00, timed: 2, tested: 1 },
+    Shape { name: "dense ragged", density: 0.50, cluster: 0.70, timed: 2, tested: 1 },
+    Shape { name: "dense blobs", density: 0.50, cluster: 0.95, timed: 2, tested: 1 },
 ];
 
 /// Which of them a general benchmark runs on: enough content to be

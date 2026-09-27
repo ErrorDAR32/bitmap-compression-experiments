@@ -78,10 +78,10 @@ impl Plan {
 /// The layouts worth measuring on: blocks from a twelfth of the
 /// bitmap down to a twentieth, and streets narrow and wide.
 pub const PLANS: [Plan; 4] = [
-    Plan { name: "blocks of 28, streets of 4", pitch: 32, street: 4, courtyards: 2, timed: 24, tested: 2 },
-    Plan { name: "blocks of 24, streets of 8", pitch: 32, street: 8, courtyards: 3, timed: 24, tested: 2 },
-    Plan { name: "blocks of 60, streets of 4", pitch: 64, street: 4, courtyards: 6, timed: 24, tested: 2 },
-    Plan { name: "blocks of 12, streets of 4", pitch: 16, street: 4, courtyards: 1, timed: 24, tested: 2 },
+    Plan { name: "blocks of 28, streets of 4", pitch: 32, street: 4, courtyards: 2, timed: 12, tested: 2 },
+    Plan { name: "blocks of 24, streets of 8", pitch: 32, street: 8, courtyards: 3, timed: 12, tested: 2 },
+    Plan { name: "blocks of 60, streets of 4", pitch: 64, street: 4, courtyards: 6, timed: 12, tested: 2 },
+    Plan { name: "blocks of 12, streets of 4", pitch: 16, street: 4, courtyards: 1, timed: 12, tested: 2 },
 ];
 
 /// A run of cities from consecutive seeds, built one at a time.
