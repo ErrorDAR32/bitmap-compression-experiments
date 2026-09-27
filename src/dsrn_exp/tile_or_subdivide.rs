@@ -9,11 +9,16 @@
 //! tile that isn't the whole of the region it would otherwise bind.
 //! Reaching a region that is itself exactly one placed tile costs one
 //! bit to say so, whatever that tile's size; a region that isn't one
-//! whole tile costs one bit to say it subdivides, then the same
-//! question again for each of its four children. Nothing here
-//! searches for a size or compares a payload against leftover cells --
-//! the answer for every region is already known from the tile set, so
-//! building the tree is a lookup, not a decision.
+//! whole tile costs one bit to say it subdivides. Nothing here searches
+//! for a size or compares a payload against leftover cells -- the
+//! answer for every region is already known from the tile set, so
+//! building the tree is a lookup, not a decision. The one exception is
+//! how far a subdivide jumps, and even that is decided the same way:
+//! if none of a region's four children is itself a placed tile either,
+//! all four are only going to say "subdivide" too, so one shared bit
+//! says that once and jumps straight to the sixteen grandchildren,
+//! instead of four separate children each spending their own bit to
+//! say the same thing apart.
 //!
 //! # The grammar
 //!
@@ -22,12 +27,26 @@
 //! 1: leaf -- this region is exactly one placed tile
 //!    0: copy   + 1 far/near bit + 2 direction bits
 //!    1: bind   + 1 value bit
-//! 0: subdivide -- recurse into all four children
+//! 0: subdivide
+//!    (more than two levels above cells) + 1 jump bit
+//!      1: none of the four children is a placed tile either --
+//!         go straight to the sixteen grandchildren
+//!      0: recurse into the four children as usual
+//!    (exactly two levels above cells) recurse into the four children;
+//!    no jump bit, since their own children are one above cells, where
+//!    this tree stops tracking depth entirely
 //!
 //! (one level above cells, in place of the above)
 //! 1: this 2x2 is a homogeneous placed tile + 1 value bit
 //! 0: it is not -- its four cells are holes, no further bits
 //! ```
+//!
+//! The jump is never a comparison either: whenever it is checkable at
+//! all (whenever none of the four children is a placed tile), taking
+//! it is strictly cheaper than not, since it replaces four children's
+//! worth of "subdivide" bits with the one bit that already had to be
+//! spent to ask the question. There is no case where checking and
+//! declining is better than checking and taking it.
 //!
 //! One level above cells never offers copy, and never subdivides
 //! further, since cells are not tracked by this tree at all: a 2x2
@@ -61,6 +80,7 @@ const CODE_WIDTH: usize = 1;
 const FAR_WIDTH: usize = 1;
 const DIRECTION_WIDTH: usize = 2;
 const VALUE_WIDTH: usize = 1;
+const SKIP_WIDTH: usize = 1;
 
 const COPY: u64 = 0;
 const BIND: u64 = 1;
@@ -138,8 +158,33 @@ fn encode_region(lookup: &TileLookup, region: Region, covered: &mut Bitmap, out:
         }
         None => {
             out.push_value(0, LEAF_WIDTH);
-            for child in region.children() {
-                encode_region(lookup, child, covered, out);
+            // One level above cells is the finest this tree tracks, so
+            // a region two levels above cells has nothing to jump past
+            // -- its children are handled by the 2x2 case directly,
+            // and there is no choice of depth left to make.
+            if region.level < CELL_LEVEL - 2 {
+                let children = region.children();
+                let skip_two = children.iter().all(|&child| lookup.get(child).is_none());
+                out.push_value(skip_two as u64, SKIP_WIDTH);
+                if skip_two {
+                    // None of the four children is itself a placed
+                    // tile, so all four would only say "subdivide"
+                    // too -- one shared bit says that once instead of
+                    // four separate ones saying it apart.
+                    for child in children {
+                        for grandchild in child.children() {
+                            encode_region(lookup, grandchild, covered, out);
+                        }
+                    }
+                } else {
+                    for child in children {
+                        encode_region(lookup, child, covered, out);
+                    }
+                }
+            } else {
+                for child in region.children() {
+                    encode_region(lookup, child, covered, out);
+                }
             }
         }
     }
@@ -196,8 +241,24 @@ fn decode_region(stream: &EncodedBitmap, at: &mut usize, region: Region, covered
     }
 
     if !leaf {
-        for child in region.children() {
-            decode_region(stream, at, child, covered, owner);
+        if region.level < CELL_LEVEL - 2 {
+            let skip_two = stream.take(*at, SKIP_WIDTH) != 0;
+            *at += SKIP_WIDTH;
+            if skip_two {
+                for child in region.children() {
+                    for grandchild in child.children() {
+                        decode_region(stream, at, grandchild, covered, owner);
+                    }
+                }
+            } else {
+                for child in region.children() {
+                    decode_region(stream, at, child, covered, owner);
+                }
+            }
+        } else {
+            for child in region.children() {
+                decode_region(stream, at, child, covered, owner);
+            }
         }
         return;
     }
