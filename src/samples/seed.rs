@@ -15,18 +15,40 @@
 //! Reusing a seed is often exactly what is wanted -- fixing something
 //! means holding the bitmaps still while the code moves. So this notes
 //! rather than refuses.
+//!
+//! But a seed held for too many runs in a row stops being one round's
+//! fixed point and starts being the only corpus every change has ever
+//! been measured against -- which is exactly the trap
+//! `docs/testing_protocol.md` warns about, and the one thing a note
+//! easy to miss in routine output cannot be trusted to prevent. So how
+//! many runs in a row a seed has gone unmoved travels in the same file
+//! as the seed itself, and a run that crosses
+//! [`RUNS_BEFORE_THE_SEED_IS_STALE`] gets a second, much louder line,
+//! naming the exact command that rolls a fresh one.
 
 use std::io::Write;
 use std::sync::OnceLock;
 
-/// The file that remembers the last seed a run used.
+/// The file that remembers the last seed a run used, and how many runs
+/// in a row it has gone unmoved.
 pub const WHERE_THE_SEED_IS_KEPT: &str = "testing/last_seed";
+
+/// How many runs a seed may go unmoved before a run says so loudly
+/// rather than in the one line every other run gets.
+///
+/// Picked to be a handful of iterate-and-measure cycles -- long enough
+/// that phase one of the testing protocol (fix, with the seed held
+/// still) is not nagged at on every single run, short enough that a
+/// seed is never forgotten for the length of a whole feature.
+const RUNS_BEFORE_THE_SEED_IS_STALE: u64 = 15;
 
 /// The seed a sample group starts from.
 ///
 /// `DSRN_SEED` in the environment wins, so a run can be pinned to any
-/// bitmaps without touching the file. Otherwise the file's seed is
-/// reused, which is the common case and the one that gets the note.
+/// bitmaps without touching the file, and picking one there always
+/// counts as moving the seed -- it is a deliberate choice, not reuse.
+/// Otherwise the file's seed is reused, which is the common case and
+/// the one that gets the note.
 pub fn seed_for_group(group: &str) -> u64 {
     let (seed, same_as_last) = settled();
     let _ = writeln!(
@@ -38,21 +60,43 @@ pub fn seed_for_group(group: &str) -> u64 {
 }
 
 /// The seed itself, read once however many groups ask for it, and
-/// written down for the next run to notice.
+/// written down -- with how many runs in a row it has now gone
+/// unmoved -- for the next run to notice.
 fn settled() -> (u64, bool) {
     static SETTLED: OnceLock<(u64, bool)> = OnceLock::new();
     *SETTLED.get_or_init(|| {
-        let last = std::fs::read_to_string(WHERE_THE_SEED_IS_KEPT)
-            .ok()
-            .and_then(|held| held.trim().parse::<u64>().ok());
-        let asked =
-            std::env::var("DSRN_SEED").ok().and_then(|it| it.trim().parse::<u64>().ok());
-        let seed = asked.or(last).unwrap_or(0);
+        let held = std::fs::read_to_string(WHERE_THE_SEED_IS_KEPT).ok();
+        let mut kept = held.iter().flat_map(|text| text.lines());
+        let last = kept.next().and_then(|line| line.trim().parse::<u64>().ok());
+        let runs_unmoved = kept.next().and_then(|line| line.trim().parse::<u64>().ok()).unwrap_or(0);
+
+        let asked = std::env::var("DSRN_SEED").ok().and_then(|it| it.trim().parse::<u64>().ok());
+        let (seed, runs_unmoved) = match asked {
+            Some(seed) => (seed, 1),
+            None => (last.unwrap_or(0), runs_unmoved + 1),
+        };
+
+        if runs_unmoved >= RUNS_BEFORE_THE_SEED_IS_STALE {
+            warn_the_seed_is_stale(seed, runs_unmoved);
+        }
 
         if let Some(folder) = std::path::Path::new(WHERE_THE_SEED_IS_KEPT).parent() {
             let _ = std::fs::create_dir_all(folder);
         }
-        let _ = std::fs::write(WHERE_THE_SEED_IS_KEPT, format!("{seed}\n"));
+        let _ = std::fs::write(WHERE_THE_SEED_IS_KEPT, format!("{seed}\n{runs_unmoved}\n"));
         (seed, Some(seed) == last)
     })
+}
+
+/// The line every other run does not get: loud on purpose, once a
+/// process rather than once a group, so a seed held long past
+/// [`RUNS_BEFORE_THE_SEED_IS_STALE`] cannot blend into the routine
+/// note and go unnoticed the way the seed this replaced did.
+fn warn_the_seed_is_stale(seed: u64, runs_unmoved: u64) {
+    let _ = writeln!(
+        std::io::stderr(),
+        "\n  !!! seed {seed} has gone {runs_unmoved} runs without moving -- roll a fresh one: \
+         DSRN_SEED=$(head -c8 /dev/urandom | od -An -tu8 | tr -d ' ') <run again>, then keep \
+         it for the next run so the new corpus gets checked twice, not tuned on once !!!\n"
+    );
 }
