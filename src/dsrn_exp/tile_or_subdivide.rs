@@ -21,13 +21,27 @@
 //! (at any level down to one above cells)
 //! 1: leaf -- this region is exactly one placed tile
 //!    0: copy   + 1 far/near bit + 2 direction bits
-//!    1: bind   + 1 value bit
+//!    1: bind
+//!       0: simple  -- 1 value bit
+//!       1: complex -- 3 resolution bits, then one value bit a tile,
+//!                     for every tile the resolution names below this
+//!                     region, in reading order
 //! 0: subdivide -- recurse into all four children
 //!
 //! (one level above cells, in place of the above)
 //! 1: this 2x2 is a homogeneous placed tile + 1 value bit
 //! 0: it is not -- its four cells are holes, no further bits
 //! ```
+//!
+//! A complex tile is a tile-aligned area [`decide_tiles`] found made
+//! of several smaller same-size tiles -- not necessarily agreeing with
+//! each other, or it would already be one simple bind -- which a plain
+//! quadtree could otherwise only reach by subdividing all the way down
+//! to each one, paying a full leaf of its own for every single tile
+//! even when none of them individually need anything a leaf offers
+//! beyond its one value bit. One header names the resolution once, and
+//! every tile under it costs exactly the one bit its value was always
+//! going to cost anyway.
 //!
 //! One level above cells never offers copy, and never subdivides
 //! further, since cells are not tracked by this tree at all: a 2x2
@@ -52,7 +66,7 @@
 
 use crate::dsrn::region::{Region, DIRECTIONS};
 use crate::dsrn::stream::EncodedBitmap;
-use crate::dsrn_exp::greedy_tiles::{decide_tiles, PlacedTile, Says};
+use crate::dsrn_exp::greedy_tiles::{compose_complex_tiles, decide_tiles, PlacedTile, Says};
 use crate::pyramid::{tiles_across, tiles_in_level, Pyramid, CELL_LEVEL};
 use crate::Bitmap;
 
@@ -61,9 +75,13 @@ const CODE_WIDTH: usize = 1;
 const FAR_WIDTH: usize = 1;
 const DIRECTION_WIDTH: usize = 2;
 const VALUE_WIDTH: usize = 1;
+const COMPLEX_FLAG_WIDTH: usize = 1;
+const RESOLUTION_WIDTH: usize = 3;
 
 const COPY: u64 = 0;
 const BIND: u64 = 1;
+const SIMPLE: u64 = 0;
+const COMPLEX: u64 = 1;
 
 /// What [`decide_tiles`] said about every region, by level -- a
 /// region not in here was left to something finer, or is not a
@@ -76,7 +94,7 @@ impl TileLookup {
     fn build(pyramid: &Pyramid, bitmap: &Bitmap) -> Self {
         let mut says: Vec<Vec<Option<Says>>> =
             (0..=CELL_LEVEL).map(|level| vec![None; tiles_in_level(level)]).collect();
-        for PlacedTile { region, says: what } in decide_tiles(pyramid, bitmap) {
+        for PlacedTile { region, says: what } in compose_complex_tiles(decide_tiles(pyramid, bitmap)) {
             let across = tiles_across(region.level);
             says[region.level][region.y * across + region.x] = Some(what);
         }
@@ -85,7 +103,7 @@ impl TileLookup {
 
     fn get(&self, region: Region) -> Option<Says> {
         let across = tiles_across(region.level);
-        self.says[region.level][region.y * across + region.x]
+        self.says[region.level][region.y * across + region.x].clone()
     }
 }
 
@@ -126,7 +144,18 @@ fn encode_region(lookup: &TileLookup, region: Region, covered: &mut Bitmap, out:
         Some(Says::Bound(value)) => {
             out.push_value(1, LEAF_WIDTH);
             out.push_value(BIND, CODE_WIDTH);
+            out.push_value(SIMPLE, COMPLEX_FLAG_WIDTH);
             out.push_value(value as u64, VALUE_WIDTH);
+            mark_covered(covered, region);
+        }
+        Some(Says::Complex { depth, values }) => {
+            out.push_value(1, LEAF_WIDTH);
+            out.push_value(BIND, CODE_WIDTH);
+            out.push_value(COMPLEX, COMPLEX_FLAG_WIDTH);
+            out.push_value((depth - 1) as u64, RESOLUTION_WIDTH);
+            for value in values {
+                out.push_value(value as u64, VALUE_WIDTH);
+            }
             mark_covered(covered, region);
         }
         Some(Says::Copied { far, direction }) => {
@@ -205,9 +234,21 @@ fn decode_region(stream: &EncodedBitmap, at: &mut usize, region: Region, covered
     let code = stream.take(*at, CODE_WIDTH);
     *at += CODE_WIDTH;
     if code == BIND {
-        let value = stream.take(*at, VALUE_WIDTH) != 0;
-        *at += VALUE_WIDTH;
-        mark_owner(owner, region, Owner::Bound(value));
+        let complex = stream.take(*at, COMPLEX_FLAG_WIDTH) == COMPLEX;
+        *at += COMPLEX_FLAG_WIDTH;
+        if complex {
+            let depth = stream.take(*at, RESOLUTION_WIDTH) as usize + 1;
+            *at += RESOLUTION_WIDTH;
+            for tile in region.tiles_at_depth(depth) {
+                let value = stream.take(*at, VALUE_WIDTH) != 0;
+                *at += VALUE_WIDTH;
+                mark_owner(owner, tile, Owner::Bound(value));
+            }
+        } else {
+            let value = stream.take(*at, VALUE_WIDTH) != 0;
+            *at += VALUE_WIDTH;
+            mark_owner(owner, region, Owner::Bound(value));
+        }
     } else {
         let far = stream.take(*at, FAR_WIDTH) != 0;
         *at += FAR_WIDTH;

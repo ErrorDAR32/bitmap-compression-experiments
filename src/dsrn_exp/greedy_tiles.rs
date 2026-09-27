@@ -25,50 +25,67 @@
 //! anything is spent on a grammar for it.
 
 use crate::dsrn::region::{same_cells, Region, DIRECTIONS};
-use crate::pyramid::{same_tiles, tile_of_bitmap, tile_side, tiles_across, Pyramid, CELL_LEVEL};
+use crate::pyramid::{same_tiles, tile_of_bitmap, tile_side, tiles_across, tiles_in_level, Pyramid, CELL_LEVEL};
 use crate::Bitmap;
 
 /// How many tiles the greedy pass placed, by level, and how many of
-/// those were copies rather than a bound value.
+/// those were copies or complex tiles rather than a bound value.
 ///
 /// Level 0 is the whole bitmap as one tile; level [`CELL_LEVEL`] is a
-/// single cell. A tile at level `CELL_LEVEL` is never a copy -- there
-/// is nothing smaller for its one cell to say but its own bit.
+/// single cell. A tile at level `CELL_LEVEL` is never a copy or a
+/// complex tile -- there is nothing smaller for its one cell to say
+/// but its own bit.
 #[derive(Default, Clone, Copy)]
 pub struct GreedyTileCounts {
     pub bound_at_level: [usize; CELL_LEVEL + 1],
     pub copied_at_level: [usize; CELL_LEVEL + 1],
+    pub complex_at_level: [usize; CELL_LEVEL + 1],
 }
 
 impl GreedyTileCounts {
     /// Every tile the pass placed, whatever its size or kind.
     pub fn total_tiles(&self) -> usize {
-        self.bound_at_level.iter().sum::<usize>() + self.copied_at_level.iter().sum::<usize>()
+        self.bound_at_level.iter().sum::<usize>()
+            + self.copied_at_level.iter().sum::<usize>()
+            + self.complex_at_level.iter().sum::<usize>()
     }
 
     /// Every tile that copied rather than carried its own value.
     pub fn total_copies(&self) -> usize {
         self.copied_at_level.iter().sum()
     }
+
+    /// Every tile that was a complex tile rather than one value.
+    pub fn total_complex(&self) -> usize {
+        self.complex_at_level.iter().sum()
+    }
 }
 
 /// A tile the greedy pass placed: where, and what it says about
 /// itself.
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub struct PlacedTile {
     pub region: Region,
     pub says: Says,
 }
 
-/// What a placed tile says: its own value, or a same-size area to
-/// copy, in [`crate::dsrn::region::DIRECTIONS`] order -- either a
-/// near neighbour of the tile itself, or, one level up, a neighbour
-/// of the tile's parent, at the child position the tile itself
-/// occupies within its own parent.
-#[derive(Clone, Copy)]
+/// What a placed tile says: its own value, a same-size area to copy,
+/// in [`crate::dsrn::region::DIRECTIONS`] order -- either a near
+/// neighbour of the tile itself, or, one level up, a neighbour of the
+/// tile's parent, at the child position the tile itself occupies
+/// within its own parent -- or, when it is neither one thing nor a
+/// match for a neighbour, a tile-aligned area made of several smaller
+/// same-size tiles instead.
+#[derive(Clone)]
 pub enum Says {
     Bound(bool),
     Copied { far: bool, direction: usize },
+    /// `depth` levels below this region, every tile is homogeneous --
+    /// not necessarily the same value as its neighbours, or this
+    /// region would have been one `Bound` tile itself -- and `values`
+    /// is every one of them, in reading order. No masking: every tile
+    /// at `depth` has to be homogeneous for this to count at all.
+    Complex { depth: usize, values: Vec<bool> },
 }
 
 /// Runs the greedy pass over one bitmap, biggest tiles first.
@@ -154,6 +171,82 @@ fn copy_choice(
     })
 }
 
+/// Groups [`decide_tiles`]'s own placed tiles into complex tiles where
+/// it can: wherever a tile-aligned area's four immediate children were
+/// each placed as their own `Bound` tile -- not necessarily to the
+/// same value, or the area would already be one `Bound` tile of its
+/// own -- the four are replaced by one `Complex` tile covering all of
+/// them.
+///
+/// A second pass over what the greedy pass already found, not a third
+/// thing the pass itself decides: every group this composes is four
+/// tiles decide_tiles already placed and verified on its own, so this
+/// can never claim something is homogeneous that is not. Only `Bound`
+/// children compose -- a `Copied` or already-`Complex` child does not,
+/// which is what keeps this to one level and stops a composed tile
+/// from ever being composed again into a coarser one. No masking
+/// either: any one of the four not being `Bound` fails the whole
+/// group, whatever the other three look like.
+///
+/// Never composes a tile whose children sit at [`CELL_LEVEL`] - 1 or
+/// [`CELL_LEVEL`] - 2. [`super::tile_or_subdivide`]'s tree already
+/// says a homogeneous one-above-cells region in two bits, cheaper than
+/// any header naming a resolution could; grouping four of those into
+/// one complex tile would cost 10 bits for what four such leaves and
+/// their parent's subdivide bit already say in 9. Every coarser level
+/// composes into a real saving: four ordinary three-bit leaves and the
+/// subdivide bit above them cost 13, against 10 for one complex tile
+/// naming them at once.
+pub fn compose_complex_tiles(tiles: Vec<PlacedTile>) -> Vec<PlacedTile> {
+    let mut grid: Vec<Vec<Option<Says>>> =
+        (0..=CELL_LEVEL).map(|level| vec![None; tiles_in_level(level)]).collect();
+    for PlacedTile { region, says } in tiles {
+        let across = tiles_across(region.level);
+        grid[region.level][region.y * across + region.x] = Some(says);
+    }
+
+    for parent_level in 0..CELL_LEVEL.saturating_sub(2) {
+        let across = tiles_across(parent_level);
+        for y in 0..across {
+            for x in 0..across {
+                let children = Region { level: parent_level, x, y }.children();
+                let all_bound = children.iter().all(|child| {
+                    let child_across = tiles_across(child.level);
+                    matches!(
+                        grid[child.level][child.y * child_across + child.x],
+                        Some(Says::Bound(_))
+                    )
+                });
+                if !all_bound {
+                    continue;
+                }
+                let values = children
+                    .iter()
+                    .map(|child| {
+                        let child_across = tiles_across(child.level);
+                        match grid[child.level][child.y * child_across + child.x].take() {
+                            Some(Says::Bound(value)) => value,
+                            _ => unreachable!("just confirmed every child is Bound"),
+                        }
+                    })
+                    .collect();
+                grid[parent_level][y * across + x] = Some(Says::Complex { depth: 1, values });
+            }
+        }
+    }
+
+    grid.into_iter()
+        .enumerate()
+        .flat_map(|(level, row)| {
+            let across = tiles_across(level);
+            row.into_iter().enumerate().filter_map(move |(i, says)| {
+                let region = Region { level, x: i % across, y: i / across };
+                says.map(|says| PlacedTile { region, says })
+            })
+        })
+        .collect()
+}
+
 /// Whether a tile could far-copy: whether some same-size neighbour of
 /// its own *parent*, at the child position this tile occupies within
 /// that parent, holds the same cells. Precomputed once a bitmap, for
@@ -210,6 +303,7 @@ pub fn greedy_tile_pass(pyramid: &Pyramid, bitmap: &Bitmap) -> GreedyTileCounts 
         match tile.says {
             Says::Bound(_) => counts.bound_at_level[tile.region.level] += 1,
             Says::Copied { .. } => counts.copied_at_level[tile.region.level] += 1,
+            Says::Complex { .. } => counts.complex_at_level[tile.region.level] += 1,
         }
     }
     counts
@@ -236,8 +330,8 @@ pub fn run() {
 
     for (family, maps) in samples::every_family() {
         let (mut dsrn_bound, mut dsrn_copied) = ([0usize; CELL_LEVEL + 1], [0usize; CELL_LEVEL + 1]);
-        let (mut greedy_bound, mut greedy_copied) =
-            ([0usize; CELL_LEVEL + 1], [0usize; CELL_LEVEL + 1]);
+        let (mut greedy_bound, mut greedy_copied, mut greedy_complex) =
+            ([0usize; CELL_LEVEL + 1], [0usize; CELL_LEVEL + 1], [0usize; CELL_LEVEL + 1]);
 
         for bitmap in &maps {
             pyramid.clear();
@@ -252,6 +346,7 @@ pub fn run() {
             for level in 0..=CELL_LEVEL {
                 greedy_bound[level] += greedy.bound_at_level[level];
                 greedy_copied[level] += greedy.copied_at_level[level];
+                greedy_complex[level] += greedy.complex_at_level[level];
             }
         }
 
@@ -263,6 +358,7 @@ pub fn run() {
             "dsrn\ncopied",
             "greedy\nbound",
             "greedy\ncopied",
+            "greedy\ncomplex",
         ]);
         let (mut dsrn_total, mut greedy_total) = (0usize, 0usize);
         for level in 0..=CELL_LEVEL {
@@ -273,9 +369,10 @@ pub fn run() {
                 (dsrn_copied[level] / n).to_string(),
                 (greedy_bound[level] / n).to_string(),
                 (greedy_copied[level] / n).to_string(),
+                (greedy_complex[level] / n).to_string(),
             ]);
             dsrn_total += dsrn_bound[level] + dsrn_copied[level];
-            greedy_total += greedy_bound[level] + greedy_copied[level];
+            greedy_total += greedy_bound[level] + greedy_copied[level] + greedy_complex[level];
         }
         t.print();
         println!(

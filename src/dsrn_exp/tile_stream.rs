@@ -69,6 +69,10 @@ pub fn encode(pyramid: &Pyramid, bitmap: &Bitmap) -> EncodedBitmap {
                 out.push_value(far as u64, FAR_WIDTH);
                 out.push_value(direction as u64, DIRECTION_WIDTH);
             }
+            // decide_tiles alone never composes a complex tile -- only
+            // compose_complex_tiles does, and this baseline never
+            // calls it.
+            Says::Complex { .. } => unreachable!("decide_tiles alone never places a complex tile"),
         }
     }
     out
