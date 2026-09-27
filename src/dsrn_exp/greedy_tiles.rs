@@ -25,9 +25,6 @@
 //! anything is spent on a grammar for it.
 
 use crate::dsrn::region::{same_cells, Region, DIRECTIONS};
-use crate::dsrn_exp::tile_or_subdivide::{
-    CODE_WIDTH, DIRECTION_WIDTH, FAR_WIDTH, LEAF_WIDTH, MASK_NODE_LEAF_WIDTH, MASK_STATE_WIDTH, VALUE_WIDTH,
-};
 use crate::pyramid::{same_tiles, tile_of_bitmap, tile_side, tiles_across, tiles_in_level, Pyramid, CELL_LEVEL};
 use crate::Bitmap;
 
@@ -312,12 +309,6 @@ pub fn compose_complex_tiles(tiles: Vec<PlacedTile>) -> Vec<PlacedTile> {
         // open to composing.
         let gathered = precompute_gathered(&grid, &excluded);
 
-        // The exact bit cost of reading any region back plain, whatever
-        // decide_tiles placed there -- fixed for the round the same way
-        // `gathered` is, and needed by `build_mask_node` to compare
-        // reclaiming a region against letting it repeat in the payload.
-        let region_cost = precompute_region_cost(&grid);
-
         // The one resolution actually worth trying for a region: the
         // deepest level any of its own unobstructed `Bound` tiles
         // already reaches, ignoring whatever a `Copied` or `Complex`
@@ -348,11 +339,9 @@ pub fn compose_complex_tiles(tiles: Vec<PlacedTile>) -> Vec<PlacedTile> {
                     let depth = limit_level - level;
                     let mut nodes: [Option<MaskNode>; 4] = [None, None, None, None];
                     let mut constituents = 0usize;
-                    let mut masked_variant_cost = 0u64;
                     let mut possible = true;
                     for (i, child) in region.children().into_iter().enumerate() {
-                        let Some((node, node_constituents, node_cost)) =
-                            build_mask_node(&grid, &gathered, &region_cost, child, limit_level)
+                        let Some((node, node_constituents)) = build_mask_node(&grid, &gathered, child, limit_level)
                         else {
                             // An existing complex tile sits somewhere
                             // in here with no room left to isolate
@@ -361,50 +350,10 @@ pub fn compose_complex_tiles(tiles: Vec<PlacedTile>) -> Vec<PlacedTile> {
                             break;
                         };
                         constituents += node_constituents;
-                        masked_variant_cost += node_cost;
                         nodes[i] = Some(node);
                     }
-                    if !possible {
-                        continue;
-                    }
-
-                    // `build_mask_node` prices each of the four nodes
-                    // above as if it always went through the ordinary
-                    // mask-tree grammar, but encode_region skips every
-                    // one of those bits once all four turn out
-                    // `Unmasked` -- read back as one shared list with no
-                    // mask tree at all. Whenever absorbing the whole
-                    // candidate outright is even possible, that true,
-                    // overhead-free cost is what reclaiming anything
-                    // inside it actually has to beat, not the
-                    // pessimistic per-node accounting above, which
-                    // otherwise risks masking something that only pays
-                    // for itself against a mask-tree overhead none of
-                    // the four nodes would have to spend in the end.
-                    if let Gathered::Whole { finest, constituents: whole_constituents } = &gathered[level][idx] {
-                        if *finest <= limit_level {
-                            let side_full = 1usize << depth;
-                            let fully_flat_cost = (side_full * side_full) as u64;
-                            if fully_flat_cost <= masked_variant_cost {
-                                for (i, child) in region.children().into_iter().enumerate() {
-                                    let child_across = tiles_across(child.level);
-                                    let child_idx = child.y * child_across + child.x;
-                                    let Gathered::Whole { constituents: child_constituents, .. } =
-                                        &gathered[child.level][child_idx]
-                                    else {
-                                        unreachable!(
-                                            "the whole candidate gathers, so every one of its own four children must too"
-                                        );
-                                    };
-                                    nodes[i] = Some(MaskNode::Unmasked(flatten(child, limit_level, child_constituents)));
-                                }
-                                constituents = whole_constituents.len();
-                            }
-                        }
-                    }
-
                     let all_unmasked = nodes.iter().all(|node| matches!(node, Some(MaskNode::Unmasked(_))));
-                    if constituents == 0 {
+                    if !possible || constituents == 0 {
                         continue; // nothing gained at this resolution at all
                     }
                     if depth == 1 && !all_unmasked {
@@ -606,120 +555,67 @@ fn precompute_natural_finest(grid: &[Vec<Option<Says>>], excluded: &[Vec<bool>])
     cache
 }
 
-/// The exact bit cost [`crate::dsrn_exp::tile_or_subdivide::encode_region`]
-/// would spend reading `region` back plain, with nesting a complex tile
-/// forbidden -- what reclaiming (masking) it actually costs, as opposed
-/// to what [`build_mask_node`] otherwise only had a structural yes/no
-/// answer for. A region that is itself an existing complex tile has no
-/// such cost: nesting one inside another's mask is forbidden, so this
-/// is never asked of one -- [`Gathered::Blocked`] is how a caller knows
-/// to never ask. Computed once a round, bottom-up, the same way
-/// [`precompute_gathered`] and [`precompute_natural_finest`] are: it
-/// depends only on `grid`, fixed for the round, never on any candidate
-/// or `limit_level` trying it.
-fn precompute_region_cost(grid: &[Vec<Option<Says>>]) -> Vec<Vec<u64>> {
-    let mut cache: Vec<Vec<u64>> = (0..=CELL_LEVEL).map(|_| Vec::new()).collect();
-    for level in (0..=CELL_LEVEL).rev() {
-        let across = tiles_across(level);
-        let mut row = Vec::with_capacity(across * across);
-        for y in 0..across {
-            for x in 0..across {
-                let idx = y * across + x;
-                row.push(if level == CELL_LEVEL {
-                    // A 1x1 tile claimed by a coarser ancestor never
-                    // gets its own grid entry at all -- and never gets
-                    // asked about here either, the same way `gathered`
-                    // never recurses a `None` this deep: nothing has a
-                    // finer child than a cell to fall back on.
-                    match grid[level][idx] {
-                        Some(Says::Bound(_)) => (LEAF_WIDTH + CODE_WIDTH + VALUE_WIDTH) as u64,
-                        _ => u64::MAX,
-                    }
-                } else if level == CELL_LEVEL - 1 {
-                    if matches!(grid[level][idx], Some(Says::Bound(_))) {
-                        (LEAF_WIDTH + VALUE_WIDTH) as u64
-                    } else {
-                        // A hole: one bit to say so, then one raw bit a
-                        // cell from the trailing pass, for all four.
-                        LEAF_WIDTH as u64 + 4
-                    }
-                } else {
-                    match &grid[level][idx] {
-                        Some(Says::Bound(_)) => (LEAF_WIDTH + CODE_WIDTH + VALUE_WIDTH) as u64,
-                        Some(Says::Copied { .. }) => (LEAF_WIDTH + CODE_WIDTH + FAR_WIDTH + DIRECTION_WIDTH) as u64,
-                        Some(Says::Complex { .. }) => u64::MAX, // never read back plain -- nesting is forbidden
-                        None => {
-                            // A region an ancestor's own coarser tile
-                            // already claims recurses into children that
-                            // were never placed either, all the way to
-                            // one already `u64::MAX` above -- never a
-                            // real region [`build_mask_node`] actually
-                            // visits, so a saturating sum here just
-                            // keeps that from panicking on overflow
-                            // rather than needing to mean anything.
-                            let region = Region { level, x, y };
-                            region.children().into_iter().fold(LEAF_WIDTH as u64, |cost, child| {
-                                let child_across = tiles_across(child.level);
-                                cost.saturating_add(cache[child.level][child.y * child_across + child.x])
-                            })
-                        }
-                    }
-                });
-            }
-        }
-        cache[level] = row;
-    }
-    cache
-}
-
 /// Builds one [`MaskNode`] for `region`, given `limit_level` -- the
 /// complex tile's own chosen tile size, the finest a mask is ever
-/// allowed to go -- `gathered`, [`precompute_gathered`]'s own result for
-/// every region this round, and `region_cost`, [`precompute_region_cost`]'s
-/// own result. `region` itself being an existing complex tile is checked
-/// first and is always fatal: nesting one inside another's mask is
-/// forbidden, and it is one whole grid entry with nothing finer beneath
-/// it to recurse into instead, so `None` propagates straight out -- this
-/// `limit_level`, for the candidate that reached here, is impossible.
+/// allowed to go, and `gathered`, [`precompute_gathered`]'s own result
+/// for every region this round. `region` itself being an existing
+/// complex tile is checked first and is always fatal: nesting one
+/// inside another's mask is forbidden, and it is one whole grid entry
+/// with nothing finer beneath it to recurse into instead, so `None`
+/// propagates straight out -- this `limit_level`, for the candidate
+/// that reached here, is impossible.
 ///
-/// Otherwise, whenever the whole of `region` gathers at `limit_level` or
-/// coarser, absorbing it as one shared list of resolution-tile values is
-/// on the table, same as a plain complex tile always has decomposed --
-/// and, so long as nothing it absorbs is actually coarser than
-/// `limit_level` itself, that is always the cheapest thing on offer:
-/// every constituent already costs exactly the one value bit
-/// [`flatten`] gives it, so reclaiming any of it can only ever add bits
-/// on top. Something under `region` bigger than `limit_level` changes
-/// that: repeating its one value across every resolution-tile slot it
-/// would otherwise fill is a real cost, one worth comparing against
-/// reclaiming it (or the whole of `region`) instead -- which
-/// [`mask_or_subdivide`] does, trying both masking `region` outright and
-/// asking the same question again of its own four children, and this
-/// picks whichever of that and the absorbed-whole option costs fewer
-/// bits.
+/// Otherwise: if the whole of `region` gathers at `limit_level` or
+/// coarser *and* none of what it gathers is actually bigger than
+/// `limit_level` itself, it is `Unmasked`, decomposed into
+/// `limit_level`-sized tiles same as a plain complex tile always has
+/// been -- every one of those constituents already costs exactly its
+/// one value bit, so there is nothing masking could improve on there.
+/// A constituent bigger than `limit_level` changes that: read as part
+/// of the flat list, its one value would have to repeat across every
+/// resolution-tile slot it covers, so it is masked out instead --
+/// unconditionally, not by comparing anything, since an existing
+/// placed tile is always cheaper reclaimed whole than repeated (and,
+/// being one placed tile already, has no reason to be masked in more
+/// than one piece). If `region` itself *is* that oversized tile (one
+/// whole `Bound` tile, coarser than `limit_level`), it is masked right
+/// here, in a single leaf -- the fewest masked areas reclaiming it
+/// could ever cost. Otherwise the same question is asked again of
+/// `region`'s own four children, at half the size, which is how an
+/// oversized tile buried inside an otherwise-fine area still gets
+/// isolated from the rest without dragging anything else down with it.
 ///
 /// If `region` is already at `limit_level` itself there is nothing
-/// finer to try at all, so whatever is not absorbed whole is masked
-/// whole in turn -- unless an existing complex tile was found somewhere
-/// finer than `limit_level` inside it ([`Gathered::Blocked`]), which is
-/// just as fatal here as finding one at `region` itself: a masked area
-/// is read back by recursing into it at whatever depth is actually
-/// there, not stopping at `limit_level`, so nesting is exactly as
-/// forbidden three levels down as it is right here.
+/// finer to try, so anything short of being absorbed whole is final --
+/// `Masked`, unless an existing complex tile was found somewhere finer
+/// than `limit_level` inside it (`Gathered::Blocked`), which is just as
+/// fatal here as finding one at `region` itself: a masked area is read
+/// back by recursing into it at whatever depth is actually there, not
+/// stopping at `limit_level`, so nesting is exactly as forbidden three
+/// levels down as it is right here. Otherwise, the same question is
+/// asked again of `region`'s own four children; if none of them
+/// managed anything either, `region` is simply `Masked` whole, rather
+/// than a `Subdivided` of four `Masked` children that would only cost
+/// more to say the same thing.
 ///
-/// Returns the node, how many of `decide_tiles`' own tiles it absorbed
-/// -- zero for a masked node -- and the exact bit cost of writing it,
-/// mirroring [`crate::dsrn_exp::tile_or_subdivide::encode_mask_node`]
-/// (except at the complex tile's own four direct children, where an
-/// all-`Unmasked` mask skips every bit this counts -- accounted for by
-/// [`compose_complex_tiles`] itself, never by this).
+/// Every one of these choices is forced, never compared: minimizing
+/// both how many areas end up masked and how many resolution-tile
+/// slots are left remaining in the flat list is exactly what "mask an
+/// oversized tile whole, in one piece, and nothing else" already does,
+/// with no bit-cost arithmetic needed to see it. The mask tree's own
+/// grammar -- leaf-or-subdivide, then masked-or-unmasked -- means a
+/// region is always classified as exactly one of `Unmasked`, `Masked`
+/// or `Subdivided`, never more than one at once, so masked and
+/// unmasked areas can never overlap by construction.
+///
+/// Returns the node and how many of `decide_tiles`' own tiles it
+/// absorbed -- zero for `Masked`.
 fn build_mask_node(
     grid: &[Vec<Option<Says>>],
     gathered: &[Vec<Gathered>],
-    region_cost: &[Vec<u64>],
     region: Region,
     limit_level: usize,
-) -> Option<(MaskNode, usize, u64)> {
+) -> Option<(MaskNode, usize)> {
     let across = tiles_across(region.level);
     let idx = region.y * across + region.x;
     if let Some(Says::Complex { .. }) = &grid[region.level][idx] {
@@ -727,89 +623,39 @@ fn build_mask_node(
     }
 
     let here = &gathered[region.level][idx];
-    let leaf_marker = if region.level < limit_level { MASK_NODE_LEAF_WIDTH as u64 } else { 0 };
-
     if let Gathered::Whole { finest, constituents } = here {
-        if *finest <= limit_level {
-            let side = 1usize << (limit_level - region.level);
+        let coarser_than_resolution = constituents.iter().any(|&(constituent, _)| constituent.level < limit_level);
+        if *finest <= limit_level && !coarser_than_resolution {
             let values = flatten(region, limit_level, constituents);
             let n = constituents.len();
-            let cost = leaf_marker + MASK_STATE_WIDTH as u64 + (side * side) as u64;
-            let whole = (MaskNode::Unmasked(values), n, cost);
-
-            let coarser_than_resolution = constituents.iter().any(|&(constituent, _)| constituent.level < limit_level);
-            if !coarser_than_resolution || region.level == limit_level {
-                return Some(whole);
-            }
-            let alt = mask_or_subdivide(grid, gathered, region_cost, region, limit_level, here)?;
-            return Some(cheaper(whole, alt));
+            return Some((MaskNode::Unmasked(values), n));
         }
     }
-
     if region.level == limit_level {
         return match here {
             Gathered::Blocked => None,
-            _ => Some((MaskNode::Masked, 0, MASK_STATE_WIDTH as u64 + region_cost[region.level][idx])),
+            _ => Some((MaskNode::Masked, 0)),
         };
     }
-
-    mask_or_subdivide(grid, gathered, region_cost, region, limit_level, here)
-}
-
-/// The cheaper of masking the whole of `region` outright -- read back as
-/// a plain region of its own, forbidden only when [`Gathered::Blocked`]
-/// says an existing complex tile is somewhere inside with no room to
-/// isolate around it -- or asking the same question again of its own
-/// four children. Never called with `region.level == limit_level`:
-/// there is nothing finer left to subdivide into there, and
-/// [`build_mask_node`] handles that depth entirely on its own.
-fn mask_or_subdivide(
-    grid: &[Vec<Option<Says>>],
-    gathered: &[Vec<Gathered>],
-    region_cost: &[Vec<u64>],
-    region: Region,
-    limit_level: usize,
-    here: &Gathered,
-) -> Option<(MaskNode, usize, u64)> {
-    let across = tiles_across(region.level);
-    let idx = region.y * across + region.x;
-
-    let masked_option = (!matches!(here, Gathered::Blocked)).then(|| {
-        (MaskNode::Masked, 0usize, MASK_NODE_LEAF_WIDTH as u64 + MASK_STATE_WIDTH as u64 + region_cost[region.level][idx])
-    });
-
+    if matches!(grid[region.level][idx], Some(Says::Bound(_))) {
+        // `region` itself is one whole placed tile, bigger than the
+        // resolution (the only way it could reach here rather than
+        // the `Unmasked` branch above) -- reclaim it whole, in the one
+        // leaf this costs, rather than let it repeat.
+        return Some((MaskNode::Masked, 0));
+    }
     let mut nodes: [Option<MaskNode>; 4] = [None, None, None, None];
-    let mut constituents = 0usize;
-    let mut cost = MASK_NODE_LEAF_WIDTH as u64;
+    let (mut constituents, mut any_unmasked) = (0usize, false);
     for (i, child) in region.children().into_iter().enumerate() {
-        let (node, node_constituents, node_cost) = build_mask_node(grid, gathered, region_cost, child, limit_level)?;
+        let (node, node_constituents) = build_mask_node(grid, gathered, child, limit_level)?;
+        any_unmasked |= !matches!(node, MaskNode::Masked);
         constituents += node_constituents;
-        cost += node_cost;
         nodes[i] = Some(node);
     }
-    let all_masked = nodes.iter().all(|node| matches!(node, Some(MaskNode::Masked)));
-    let subdivide_option = if all_masked {
-        // Nothing reclaimed below at all -- cheaper to mask the whole
-        // of `region` in one leaf than to pay a subdivide bit and four
-        // separate masked leaves to say the same thing. A subtree with
-        // no complex tile inside (guaranteed, or one of the four calls
-        // above would already have propagated `None`) always allows
-        // masking outright, so this is never `None` here.
-        debug_assert!(masked_option.is_some(), "a subtree with no complex tile inside can always be masked outright");
-        masked_option.clone()
+    if !any_unmasked {
+        Some((MaskNode::Masked, 0)) // nothing reclaimed below -- cheaper to mask the whole of it
     } else {
-        Some((MaskNode::Subdivided(Box::new(nodes.map(Option::unwrap))), constituents, cost))
-    };
-
-    [masked_option, subdivide_option].into_iter().flatten().min_by_key(|&(_, _, cost)| cost)
-}
-
-/// Whichever of two same-area candidate [`MaskNode`]s costs fewer bits.
-fn cheaper(a: (MaskNode, usize, u64), b: (MaskNode, usize, u64)) -> (MaskNode, usize, u64) {
-    if a.2 <= b.2 {
-        a
-    } else {
-        b
+        Some((MaskNode::Subdivided(Box::new(nodes.map(Option::unwrap))), constituents))
     }
 }
 
