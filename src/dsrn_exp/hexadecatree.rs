@@ -49,6 +49,7 @@
 use crate::dsrn::region::{Region, DIRECTIONS};
 use crate::dsrn::stream::EncodedBitmap;
 use crate::dsrn_exp::greedy_tiles::{decide_tiles, PlacedTile, Says};
+use crate::dsrn_exp::tile_or_subdivide::Breakdown;
 use crate::pyramid::{tiles_across, tiles_in_level, Pyramid, CELL_LEVEL};
 use crate::Bitmap;
 
@@ -116,31 +117,50 @@ impl TileLookup {
 /// as few structural bits as reaching each one costs, then one raw bit
 /// for every cell that leaves uncovered.
 pub fn encode(pyramid: &Pyramid, bitmap: &Bitmap) -> EncodedBitmap {
+    encode_with_breakdown(pyramid, bitmap).0
+}
+
+/// The same as [`encode`], with a running count of how many of its
+/// bits are structure against payload -- the same split
+/// [`super::tile_or_subdivide::encode_with_breakdown`] reports, so the
+/// two are directly comparable.
+pub fn encode_with_breakdown(pyramid: &Pyramid, bitmap: &Bitmap) -> (EncodedBitmap, Breakdown) {
     let mut out = EncodedBitmap::default();
+    let mut breakdown = Breakdown::default();
     let lookup = TileLookup::build(pyramid, bitmap);
     let mut covered = Bitmap::new();
-    encode_region(&lookup, Region::whole_bitmap(), &mut covered, &mut out);
+    encode_region(&lookup, Region::whole_bitmap(), &mut covered, &mut out, &mut breakdown);
 
     for y in 0..=u8::MAX {
         for x in 0..=u8::MAX {
             if !covered.get(x, y) {
                 out.push_value(bitmap.get(x, y) as u64, 1);
+                breakdown.payload += 1;
             }
         }
     }
-    out
+    (out, breakdown)
 }
 
-fn encode_region(lookup: &TileLookup, region: Region, covered: &mut Bitmap, out: &mut EncodedBitmap) {
+fn encode_region(
+    lookup: &TileLookup,
+    region: Region,
+    covered: &mut Bitmap,
+    out: &mut EncodedBitmap,
+    breakdown: &mut Breakdown,
+) {
     if region.level == CELL_LEVEL - 1 {
         if let Some(Says::Bound(value)) = lookup.get(region) {
             out.push_value(1, LEAF_WIDTH);
             out.push_value(value as u64, VALUE_WIDTH);
+            breakdown.structure += LEAF_WIDTH;
+            breakdown.payload += VALUE_WIDTH;
             mark_covered(covered, region);
         } else {
             // Either copyable only, or decide_tiles only reached it
             // with 1x1 tiles beneath -- either way, a hole.
             out.push_value(0, LEAF_WIDTH);
+            breakdown.structure += LEAF_WIDTH;
         }
         return;
     }
@@ -150,6 +170,8 @@ fn encode_region(lookup: &TileLookup, region: Region, covered: &mut Bitmap, out:
             out.push_value(1, LEAF_WIDTH);
             out.push_value(BIND, CODE_WIDTH);
             out.push_value(value as u64, VALUE_WIDTH);
+            breakdown.structure += LEAF_WIDTH + CODE_WIDTH;
+            breakdown.payload += VALUE_WIDTH;
             mark_covered(covered, region);
         }
         Some(Says::Copied { far, direction }) => {
@@ -157,12 +179,14 @@ fn encode_region(lookup: &TileLookup, region: Region, covered: &mut Bitmap, out:
             out.push_value(COPY, CODE_WIDTH);
             out.push_value(far as u64, FAR_WIDTH);
             out.push_value(direction as u64, DIRECTION_WIDTH);
+            breakdown.structure += LEAF_WIDTH + CODE_WIDTH + FAR_WIDTH + DIRECTION_WIDTH;
             mark_covered(covered, region);
         }
         None => {
             out.push_value(0, LEAF_WIDTH);
+            breakdown.structure += LEAF_WIDTH;
             for child in region.tiles_at_depth(jump(region.level)) {
-                encode_region(lookup, child, covered, out);
+                encode_region(lookup, child, covered, out, breakdown);
             }
         }
     }
@@ -299,16 +323,27 @@ pub fn run() {
         (Pyramid::new(), Workspace::new(), crate::dsrn::Encoded::default());
 
     for (family, maps) in samples::every_family() {
-        let (mut dsrn_bits, mut quad_bits, mut hexadeca_bits) = (0usize, 0usize, 0usize);
+        let mut dsrn_bits = 0usize;
+        let (mut dsrn_tree, mut dsrn_payload) = (0usize, 0usize);
+        let mut quad = Breakdown::default();
+        let mut hexadeca = Breakdown::default();
         for bitmap in &maps {
             pyramid.clear();
             pyramid.rebuild(bitmap);
             dsrn_encode(&pyramid, bitmap, knobs, &mut work, &mut dsrn_out);
             dsrn_bits += dsrn_out.bits();
-            quad_bits += super::tile_or_subdivide::encode(&pyramid, bitmap).len();
-            hexadeca_bits += encode(&pyramid, bitmap).len();
+            dsrn_tree += dsrn_out.tree.len();
+            dsrn_payload += dsrn_out.payload.len();
+            let (_, quad_breakdown) = super::tile_or_subdivide::encode_with_breakdown(&pyramid, bitmap);
+            let (_, hexadeca_breakdown) = encode_with_breakdown(&pyramid, bitmap);
+            quad.structure += quad_breakdown.structure;
+            quad.payload += quad_breakdown.payload;
+            hexadeca.structure += hexadeca_breakdown.structure;
+            hexadeca.payload += hexadeca_breakdown.payload;
         }
         let n = maps.len();
+        let quad_bits = quad.total();
+        let hexadeca_bits = hexadeca.total();
         println!(
             "\n  {family}, {n} bitmaps: dsrn {} bits a bitmap, tile-or-subdivide {} ({:+.1}%), hexadecatree {} ({:+.1}%)",
             dsrn_bits / n,
@@ -316,6 +351,18 @@ pub fn run() {
             100.0 * (quad_bits as f64 - dsrn_bits as f64) / dsrn_bits as f64,
             hexadeca_bits / n,
             100.0 * (hexadeca_bits as f64 - dsrn_bits as f64) / dsrn_bits as f64
+        );
+        println!(
+            "    structure vs payload, a bitmap: dsrn {}/{} ({:.1}% structure), tile-or-subdivide {}/{} ({:.1}%), hexadecatree {}/{} ({:.1}%)",
+            dsrn_tree / n,
+            dsrn_payload / n,
+            100.0 * dsrn_tree as f64 / dsrn_bits as f64,
+            quad.structure / n,
+            quad.payload / n,
+            100.0 * quad.structure as f64 / quad_bits as f64,
+            hexadeca.structure / n,
+            hexadeca.payload / n,
+            100.0 * hexadeca.structure as f64 / hexadeca_bits as f64
         );
     }
 }

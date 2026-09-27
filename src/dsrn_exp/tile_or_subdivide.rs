@@ -89,35 +89,70 @@ impl TileLookup {
     }
 }
 
+/// How many bits went to saying *where* a tile is (every leaf marker,
+/// code, far/direction field, and hole marker) against how many went
+/// to saying what a cell or tile is actually worth (every bind value,
+/// and every trailing raw bit). The two always sum to the stream's own
+/// length -- nothing here is a separate accounting, only a running
+/// split of the same pushes [`encode`] already makes.
+#[derive(Default, Clone, Copy)]
+pub struct Breakdown {
+    pub structure: usize,
+    pub payload: usize,
+}
+
+impl Breakdown {
+    pub fn total(&self) -> usize {
+        self.structure + self.payload
+    }
+}
+
 /// Encodes a bitmap: the tiles [`decide_tiles`] already found, said in
 /// as few structural bits as reaching each one costs, then one raw bit
 /// for every cell that leaves uncovered.
 pub fn encode(pyramid: &Pyramid, bitmap: &Bitmap) -> EncodedBitmap {
+    encode_with_breakdown(pyramid, bitmap).0
+}
+
+/// The same as [`encode`], with a running count of how many of its
+/// bits are structure against payload.
+pub fn encode_with_breakdown(pyramid: &Pyramid, bitmap: &Bitmap) -> (EncodedBitmap, Breakdown) {
     let mut out = EncodedBitmap::default();
+    let mut breakdown = Breakdown::default();
     let lookup = TileLookup::build(pyramid, bitmap);
     let mut covered = Bitmap::new();
-    encode_region(&lookup, Region::whole_bitmap(), &mut covered, &mut out);
+    encode_region(&lookup, Region::whole_bitmap(), &mut covered, &mut out, &mut breakdown);
 
     for y in 0..=u8::MAX {
         for x in 0..=u8::MAX {
             if !covered.get(x, y) {
                 out.push_value(bitmap.get(x, y) as u64, 1);
+                breakdown.payload += 1;
             }
         }
     }
-    out
+    (out, breakdown)
 }
 
-fn encode_region(lookup: &TileLookup, region: Region, covered: &mut Bitmap, out: &mut EncodedBitmap) {
+fn encode_region(
+    lookup: &TileLookup,
+    region: Region,
+    covered: &mut Bitmap,
+    out: &mut EncodedBitmap,
+    breakdown: &mut Breakdown,
+) {
     if region.level == CELL_LEVEL - 1 {
         if let Some(Says::Bound(value)) = lookup.get(region) {
             out.push_value(1, LEAF_WIDTH);
             out.push_value(value as u64, VALUE_WIDTH);
+            breakdown.structure += LEAF_WIDTH;
+            breakdown.payload += VALUE_WIDTH;
             mark_covered(covered, region);
         } else {
             // Either copyable only, or decide_tiles only reached it
             // with 1x1 tiles beneath -- either way, a hole.
             out.push_value(0, LEAF_WIDTH);
+            breakdown.structure += LEAF_WIDTH;
         }
         return;
     }
@@ -127,6 +162,8 @@ fn encode_region(lookup: &TileLookup, region: Region, covered: &mut Bitmap, out:
             out.push_value(1, LEAF_WIDTH);
             out.push_value(BIND, CODE_WIDTH);
             out.push_value(value as u64, VALUE_WIDTH);
+            breakdown.structure += LEAF_WIDTH + CODE_WIDTH;
+            breakdown.payload += VALUE_WIDTH;
             mark_covered(covered, region);
         }
         Some(Says::Copied { far, direction }) => {
@@ -134,12 +171,14 @@ fn encode_region(lookup: &TileLookup, region: Region, covered: &mut Bitmap, out:
             out.push_value(COPY, CODE_WIDTH);
             out.push_value(far as u64, FAR_WIDTH);
             out.push_value(direction as u64, DIRECTION_WIDTH);
+            breakdown.structure += LEAF_WIDTH + CODE_WIDTH + FAR_WIDTH + DIRECTION_WIDTH;
             mark_covered(covered, region);
         }
         None => {
             out.push_value(0, LEAF_WIDTH);
+            breakdown.structure += LEAF_WIDTH;
             for child in region.children() {
-                encode_region(lookup, child, covered, out);
+                encode_region(lookup, child, covered, out, breakdown);
             }
         }
     }
