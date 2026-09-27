@@ -80,12 +80,22 @@ pub struct PlacedTile {
 pub enum Says {
     Bound(bool),
     Copied { far: bool, direction: usize },
-    /// `depth` levels below this region, every tile is homogeneous --
-    /// not necessarily the same value as its neighbours, or this
-    /// region would have been one `Bound` tile itself -- and `values`
-    /// is every one of them, in reading order. No masking: every tile
-    /// at `depth` has to be homogeneous for this to count at all.
-    Complex { depth: usize, values: Vec<bool> },
+    /// `depth` levels below this region, every tile not under a masked
+    /// child is homogeneous -- not necessarily the same value as its
+    /// neighbours, or this region would have been one `Bound` tile
+    /// itself -- and `values` is every one of them, in reading order,
+    /// skipping every tile a masked child's footprint covers. `mask`
+    /// names which of this region's own four children (in
+    /// [`Region::children`] order) are excluded entirely: a masked
+    /// child is left exactly as it was before this region composed --
+    /// still whatever `decide_tiles` already put there -- and is read
+    /// as a plain region of its own wherever this tile is written out.
+    /// A masked child is forever excluded from composing into a
+    /// complex tile of its own, or into any other -- see
+    /// [`compose_complex_tiles`] -- so it can only ever be `Bound`,
+    /// `Copied`, or subdivided further, never `Complex` itself. `0` is
+    /// no masking at all, the original behaviour.
+    Complex { depth: usize, mask: u8, values: Vec<bool> },
 }
 
 /// Runs the greedy pass over one bitmap, biggest tiles first.
@@ -172,41 +182,57 @@ fn copy_choice(
 }
 
 /// Groups [`decide_tiles`]'s own placed tiles into complex tiles: an
-/// aligned area, 4x4 or coarser, entirely covered by `Bound` tiles
-/// none finer than 2x2, said once at the coarsest resolution that
-/// still covers every one of them -- the smallest of their own sizes.
-/// A tile bigger than that resolution decomposes into that many
-/// repeats of its own value; nothing is ever cut, since every placed
-/// tile already lines up with the same power-of-two grid a candidate
-/// area does, so it is always either wholly inside that area or wholly
-/// outside it, never straddling the edge. A `Copied` tile or a 1x1
-/// anywhere inside disqualifies the whole area, whatever the rest of
-/// it looks like: no masking, and no resolution finer than 2x2. Only
-/// `Bound` tiles ever compose, so a tile this pass just placed --
-/// `Complex` -- never composes again into a coarser one.
+/// aligned area, 4x4 or coarser, covered by `Bound` tiles none finer
+/// than 2x2 -- except wherever one of the area's own four direct
+/// children is masked out, which excludes that whole child instead of
+/// disqualifying the rest -- said once at the coarsest resolution that
+/// still covers every one of its unmasked tiles, the smallest of their
+/// own sizes. A tile bigger than that resolution decomposes into that
+/// many repeats of its own value; nothing is ever cut, since every
+/// placed tile already lines up with the same power-of-two grid a
+/// candidate area does, so it is always either wholly inside that area
+/// or wholly outside it, never straddling the edge. A masked child is
+/// left exactly as it stood before this tile composed, and forever
+/// excluded from composing into a complex tile of its own -- no
+/// nesting, at least for a first version of this -- so it can only
+/// ever turn out `Bound`, `Copied`, or plain subdivision, read as a
+/// region of its own wherever this tile is written out. A `Copied`
+/// tile or a 1x1 anywhere still un-masked disqualifies the whole area,
+/// whatever the rest of it looks like. Only `Bound` tiles ever
+/// compose, so a tile this pass just placed -- `Complex` -- never
+/// composes again into a coarser one, masked or not.
 ///
 /// The naive greedy search this settled on, rather than biggest area
-/// first with no comparison: every valid area, of every size and at
-/// every position, is a candidate every round, and the round commits
-/// exactly one -- the one absorbing the most of `decide_tiles`' own
-/// tiles for the fewest tiles its payload ends up naming,
-/// `constituents / payload`, breaking a tie toward the larger area.
-/// `payload` is a count of tiles, not a count of bits: how many tiles
-/// at the resolution this area settles on it takes to cover it, one
-/// value bit each. That ratio is 1.0 exactly when every one of an
-/// area's constituents is already sized to that resolution -- nothing
-/// decomposed, nothing repeated -- and falls the further below it the
-/// more a bigger constituent's single value gets repeated across
-/// several payload tiles for nothing a coarser resolution would have
-/// had to repeat at all -- which is exactly what favouring the ratio
-/// closest to one avoids: the failure this replaced, where the single
-/// biggest area that merely *qualified* could drag an otherwise-uniform
-/// region down to whatever resolution its one smallest tile demanded.
+/// first with no comparison: every valid area, of every size, position
+/// and masking of its own four children, is a candidate every round --
+/// masking is genuinely brute forced, all sixteen ways to include or
+/// exclude each of the four, since there is no cheaper way to know
+/// which exclusion (if any) improves the ratio below -- and the round
+/// commits exactly one candidate -- the one absorbing the most of
+/// `decide_tiles`' own tiles for the fewest tiles its payload ends up
+/// naming, `constituents / payload`, breaking a tie toward the larger
+/// area. `payload` is a count of tiles, not a count of bits: how many
+/// tiles at the resolution this area settles on it takes to cover its
+/// *unmasked* footprint, one value bit each -- a masked child's own
+/// footprint is never counted, on either side of the ratio. That ratio
+/// is 1.0 exactly when every one of an area's constituents is already
+/// sized to that resolution -- nothing decomposed, nothing repeated --
+/// and falls the further below it the more a bigger constituent's
+/// single value gets repeated across several payload tiles for nothing
+/// a coarser resolution would have had to repeat at all -- which is
+/// exactly what favouring the ratio closest to one avoids: the failure
+/// this replaced, where the single biggest area that merely *qualified*
+/// could drag an otherwise-uniform region down to whatever resolution
+/// its one smallest tile demanded. Masking a child that itself would
+/// have dragged the resolution down is the same fix applied one level
+/// finer: excluding it can only ever raise the resolution (never lower
+/// it), which the ratio search is what decides is worth the area lost.
 /// Picking one candidate can only remove others -- an area it just
-/// absorbed cannot be gathered into anything else -- never add one, so
-/// re-scanning every candidate from scratch each round is wasteful but
-/// never wrong, and the round after nothing qualifies is where this
-/// stops.
+/// absorbed cannot be gathered into anything else, and neither can
+/// whatever it left masked, until some later round composes that on
+/// its own account -- never add one, so re-scanning every candidate
+/// from scratch each round is wasteful but never wrong, and the round
+/// after nothing qualifies is where this stops.
 ///
 /// This never looks at the bitmap, or at cells as such -- only at
 /// tiles decide_tiles already placed, whatever their size.
@@ -218,56 +244,78 @@ pub fn compose_complex_tiles(tiles: Vec<PlacedTile>) -> Vec<PlacedTile> {
         grid[region.level][region.y * across + region.x] = Some(says);
     }
 
+    // Everything a masked child's own subtree ever covers, at every
+    // level down to cells -- set the moment a mask names that child,
+    // and never cleared, so no later round can compose any of it into
+    // a complex tile of its own. No nesting, at least for a first
+    // version of this.
+    let mut excluded: Vec<Vec<bool>> = (0..=CELL_LEVEL).map(|level| vec![false; tiles_in_level(level)]).collect();
+
     // Every possible complex tile, tried again from scratch each round:
     // committing one can only ever remove candidates (an area it just
     // absorbed can no longer be gathered into anything else), never add
     // one, so re-scanning is wasteful but never wrong.
     loop {
-        let mut best: Option<(f64, usize, Region, usize, Vec<(Region, bool)>)> = None;
+        let mut best: Option<(f64, usize, Region, u8, usize, Vec<(Region, bool)>)> = None;
         for level in 0..=(CELL_LEVEL - 2) {
             let across = tiles_across(level);
             for y in 0..across {
                 for x in 0..across {
-                    if grid[level][y * across + x].is_some() {
-                        // Already one placed tile, or a complex tile
-                        // from an earlier round -- nothing left here
-                        // for a coarser one to find.
+                    if grid[level][y * across + x].is_some() || excluded[level][y * across + x] {
+                        // Already one placed tile, a complex tile from
+                        // an earlier round, or forever excluded by
+                        // some ancestor's own mask -- nothing left
+                        // here for a coarser one to find.
                         continue;
                     }
                     let region = Region { level, x, y };
-                    let Some((finest, constituents)) = gather(&grid, region) else { continue };
-                    let side = 1usize << (finest - level);
-                    // A count of tiles at the resolution this area
-                    // would settle on, not a count of bits -- one
-                    // value bit each, so the two happen to coincide.
-                    let payload = side * side;
-                    // How many of decide_tiles' own tiles this absorbs
-                    // against how many payload tiles it costs to say
-                    // them -- 1.0 at its best, when every one of them
-                    // is already at the resolution this settles on,
-                    // and falling the further from it the more a
-                    // bigger constituent's single value gets repeated
-                    // across payload tiles a coarser resolution
-                    // wouldn't have had to repeat at all.
-                    let ratio = constituents.len() as f64 / payload as f64;
-                    let area = region.side_in_cells() * region.side_in_cells();
-                    let better = match best {
-                        Some((best_ratio, best_area, ..)) => {
-                            ratio > best_ratio || (ratio == best_ratio && area > best_area)
+                    // Every way to mask the region's own four children,
+                    // short of masking all four (nothing left to say).
+                    for mask in 0u8..0b1111 {
+                        let Some((finest, constituents)) = gather_masked(&grid, region, mask) else {
+                            continue;
+                        };
+                        let side = 1usize << (finest - level);
+                        let child_side = side / 2;
+                        let masked = mask.count_ones() as usize;
+                        // A count of tiles at the resolution this area
+                        // would settle on, not a count of bits -- one
+                        // value bit each, so the two happen to
+                        // coincide -- over the unmasked footprint only.
+                        let payload = side * side - masked * child_side * child_side;
+                        // How many of decide_tiles' own tiles this
+                        // absorbs against how many payload tiles it
+                        // costs to say them -- 1.0 at its best, when
+                        // every one of them is already at the
+                        // resolution this settles on, and falling the
+                        // further from it the more a bigger
+                        // constituent's single value gets repeated
+                        // across payload tiles a coarser resolution
+                        // wouldn't have had to repeat at all.
+                        let ratio = constituents.len() as f64 / payload as f64;
+                        let area = region.side_in_cells() * region.side_in_cells();
+                        let better = match best {
+                            Some((best_ratio, best_area, ..)) => {
+                                ratio > best_ratio || (ratio == best_ratio && area > best_area)
+                            }
+                            None => true,
+                        };
+                        if better {
+                            best = Some((ratio, area, region, mask, finest, constituents));
                         }
-                        None => true,
-                    };
-                    if better {
-                        best = Some((ratio, area, region, finest, constituents));
                     }
                 }
             }
         }
-        let Some((_, _, region, finest, constituents)) = best else { break };
-        consume(&mut grid, region);
+        let Some((_, _, region, mask, finest, constituents)) = best else { break };
+        consume_masked(&mut grid, region, mask);
+        exclude_masked(&mut excluded, region, mask);
         let across = tiles_across(region.level);
-        grid[region.level][region.y * across + region.x] =
-            Some(Says::Complex { depth: finest - region.level, values: flatten(region, finest, &constituents) });
+        grid[region.level][region.y * across + region.x] = Some(Says::Complex {
+            depth: finest - region.level,
+            mask,
+            values: flatten(region, finest, mask, &constituents),
+        });
     }
 
     grid.into_iter()
@@ -309,6 +357,27 @@ fn gather(grid: &[Vec<Option<Says>>], region: Region) -> Option<(usize, Vec<(Reg
     }
 }
 
+/// [`gather`], but over only the children `mask` does not name -- a
+/// named child is skipped entirely, left for whatever it already was
+/// (or a later round's own composing) rather than gathered into this
+/// one. Requires every un-named child to still gather successfully:
+/// masking only ever removes a child from consideration, it does not
+/// relax what the rest of them have to be. `mask == 0` gathers all
+/// four, exactly [`gather`] itself would over `region`.
+fn gather_masked(grid: &[Vec<Option<Says>>], region: Region, mask: u8) -> Option<(usize, Vec<(Region, bool)>)> {
+    let mut finest = region.level;
+    let mut constituents = Vec::new();
+    for (i, child) in region.children().into_iter().enumerate() {
+        if mask & (1 << i) != 0 {
+            continue; // masked out -- not this tile's business
+        }
+        let (child_finest, mut child_constituents) = gather(grid, child)?;
+        finest = finest.max(child_finest);
+        constituents.append(&mut child_constituents);
+    }
+    Some((finest, constituents))
+}
+
 /// Removes every tile [`gather`] just confirmed from `grid`, so the
 /// region composing them stops being visible as anything smaller.
 /// Follows exactly the path `gather` found, so it never reaches a
@@ -323,11 +392,46 @@ fn consume(grid: &mut [Vec<Option<Says>>], region: Region) {
     }
 }
 
+/// [`consume`], but only over the children `mask` does not name -- a
+/// masked child is left untouched, exactly as [`gather_masked`] found
+/// it, for a later round to compose (or not) on its own account.
+fn consume_masked(grid: &mut [Vec<Option<Says>>], region: Region, mask: u8) {
+    for (i, child) in region.children().into_iter().enumerate() {
+        if mask & (1 << i) == 0 {
+            consume(grid, child);
+        }
+    }
+}
+
+/// Marks every child `mask` names, and everything below it down to
+/// cells, forever excluded from composing into a complex tile of its
+/// own -- called once, when the mask naming it is committed, never
+/// undone.
+fn exclude_masked(excluded: &mut [Vec<bool>], region: Region, mask: u8) {
+    for (i, child) in region.children().into_iter().enumerate() {
+        if mask & (1 << i) != 0 {
+            exclude_subtree(excluded, child);
+        }
+    }
+}
+
+/// Marks `region` and its whole subtree, down to cells, excluded.
+fn exclude_subtree(excluded: &mut [Vec<bool>], region: Region) {
+    let across = tiles_across(region.level);
+    excluded[region.level][region.y * across + region.x] = true;
+    if region.level < CELL_LEVEL {
+        for child in region.children() {
+            exclude_subtree(excluded, child);
+        }
+    }
+}
+
 /// Lays `constituents` out at `finest`, in the reading order
-/// [`Region::tiles_at_depth`] reads a resolution back in -- a
+/// [`Region::tiles_at_depth`] reads a resolution back in, skipping
+/// every tile that falls under one of `mask`'s named children -- a
 /// constituent coarser than `finest` fills every one of its own
 /// positions at that resolution with the same repeated value.
-fn flatten(region: Region, finest: usize, constituents: &[(Region, bool)]) -> Vec<bool> {
+fn flatten(region: Region, finest: usize, mask: u8, constituents: &[(Region, bool)]) -> Vec<bool> {
     let side = 1usize << (finest - region.level);
     let mut values = vec![None; side * side];
     for &(constituent, value) in constituents {
@@ -336,7 +440,14 @@ fn flatten(region: Region, finest: usize, constituents: &[(Region, bool)]) -> Ve
             values[local_y * side + local_x] = Some(value);
         }
     }
-    values.into_iter().map(|value| value.expect("every position covered by exactly one constituent")).collect()
+    let depth = finest - region.level;
+    region
+        .tiles_at_depth(depth)
+        .into_iter()
+        .enumerate()
+        .filter(|&(_, tile)| mask & (1 << region.child_holding(depth, tile)) == 0)
+        .map(|(i, _)| values[i].expect("every unmasked position covered by exactly one constituent"))
+        .collect()
 }
 
 /// Whether a tile could far-copy: whether some same-size neighbour of

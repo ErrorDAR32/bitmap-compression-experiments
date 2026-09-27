@@ -77,11 +77,15 @@ const DIRECTION_WIDTH: usize = 2;
 const VALUE_WIDTH: usize = 1;
 const COMPLEX_FLAG_WIDTH: usize = 1;
 const RESOLUTION_WIDTH: usize = 3;
+const MASK_FLAG_WIDTH: usize = 1;
+const CHILD_MASK_WIDTH: usize = 4;
 
 const COPY: u64 = 0;
 const BIND: u64 = 1;
 const SIMPLE: u64 = 0;
 const COMPLEX: u64 = 1;
+const UNMASKED: u64 = 0;
+const MASKED: u64 = 1;
 
 /// What [`decide_tiles`] said about every region, by level -- a
 /// region not in here was left to something finer, or is not a
@@ -148,15 +152,42 @@ fn encode_region(lookup: &TileLookup, region: Region, covered: &mut Bitmap, out:
             out.push_value(value as u64, VALUE_WIDTH);
             mark_covered(covered, region);
         }
-        Some(Says::Complex { depth, values }) => {
+        Some(Says::Complex { depth, mask, values }) => {
             out.push_value(1, LEAF_WIDTH);
             out.push_value(BIND, CODE_WIDTH);
             out.push_value(COMPLEX, COMPLEX_FLAG_WIDTH);
+            if mask == 0 {
+                out.push_value(UNMASKED, MASK_FLAG_WIDTH);
+            } else {
+                out.push_value(MASKED, MASK_FLAG_WIDTH);
+                out.push_value(mask as u64, CHILD_MASK_WIDTH);
+                for (i, child) in region.children().into_iter().enumerate() {
+                    if mask & (1 << i) != 0 {
+                        // A masked child is a region of its own, read
+                        // right here, in reading order -- whatever it
+                        // turns out to be, including another complex
+                        // tile with a mask of its own.
+                        encode_region(lookup, child, covered, out);
+                    }
+                }
+            }
             out.push_value((depth - 1) as u64, RESOLUTION_WIDTH);
             for value in values {
                 out.push_value(value as u64, VALUE_WIDTH);
             }
-            mark_covered(covered, region);
+            if mask == 0 {
+                mark_covered(covered, region);
+            } else {
+                // A masked child covered itself, and left a hole of
+                // its own uncovered if that is what it turned out to
+                // be -- only the unmasked children are this region's
+                // to mark.
+                for (i, child) in region.children().into_iter().enumerate() {
+                    if mask & (1 << i) == 0 {
+                        mark_covered(covered, child);
+                    }
+                }
+            }
         }
         Some(Says::Copied { far, direction }) => {
             out.push_value(1, LEAF_WIDTH);
@@ -237,13 +268,40 @@ fn decode_region(stream: &EncodedBitmap, at: &mut usize, region: Region, covered
         let complex = stream.take(*at, COMPLEX_FLAG_WIDTH) == COMPLEX;
         *at += COMPLEX_FLAG_WIDTH;
         if complex {
+            let masked = stream.take(*at, MASK_FLAG_WIDTH) == MASKED;
+            *at += MASK_FLAG_WIDTH;
+            let mask = if masked {
+                let mask = stream.take(*at, CHILD_MASK_WIDTH) as u8;
+                *at += CHILD_MASK_WIDTH;
+                for (i, child) in region.children().into_iter().enumerate() {
+                    if mask & (1 << i) != 0 {
+                        decode_region(stream, at, child, covered, owner);
+                    }
+                }
+                mask
+            } else {
+                0
+            };
             let depth = stream.take(*at, RESOLUTION_WIDTH) as usize + 1;
             *at += RESOLUTION_WIDTH;
             for tile in region.tiles_at_depth(depth) {
+                if mask & (1 << region.child_holding(depth, tile)) != 0 {
+                    continue; // covered by the masked child's own definition
+                }
                 let value = stream.take(*at, VALUE_WIDTH) != 0;
                 *at += VALUE_WIDTH;
                 mark_owner(owner, tile, Owner::Bound(value));
             }
+            if mask == 0 {
+                mark_covered(covered, region);
+            } else {
+                for (i, child) in region.children().into_iter().enumerate() {
+                    if mask & (1 << i) == 0 {
+                        mark_covered(covered, child);
+                    }
+                }
+            }
+            return;
         } else {
             let value = stream.take(*at, VALUE_WIDTH) != 0;
             *at += VALUE_WIDTH;
