@@ -71,33 +71,13 @@ pub enum Says {
     Copied { far: bool, direction: usize },
 }
 
-/// Every level a tile could be, coarsest first -- what [`decide_tiles`]
-/// runs when nothing restricts it to fewer sizes.
-pub const EVERY_LEVEL: [usize; CELL_LEVEL + 1] = {
-    let mut levels = [0; CELL_LEVEL + 1];
-    let mut level = 0;
-    while level <= CELL_LEVEL {
-        levels[level] = level;
-        level += 1;
-    }
-    levels
-};
-
-/// Runs the greedy pass over one bitmap, biggest tiles first, trying
-/// only the sizes named in `levels`.
-///
-/// A size left out is never tried, whatever it would have found: a
-/// homogeneous or copyable area at that size is left to its four
-/// quarters, one of the sizes still in `levels`, to each claim for
-/// themselves. That only ever costs more tiles, never a wrong one --
-/// the same content is still there to place, just at sizes the caller
-/// can actually make a node of.
-pub fn decide_tiles(pyramid: &Pyramid, bitmap: &Bitmap, levels: &[usize]) -> Vec<PlacedTile> {
+/// Runs the greedy pass over one bitmap, biggest tiles first.
+pub fn decide_tiles(pyramid: &Pyramid, bitmap: &Bitmap) -> Vec<PlacedTile> {
     let mut claimed = Bitmap::new();
     let mut placed = Vec::new();
     let far_copyable = FarCopyable::build(bitmap);
 
-    for level in levels.iter().copied() {
+    for level in 0..=CELL_LEVEL {
         let across = tiles_across(level);
         for y in 0..across {
             for x in 0..across {
@@ -226,7 +206,7 @@ impl FarCopyable {
 /// kind -- what [`super::greedy_tiles::run`] compares against dsrn.
 pub fn greedy_tile_pass(pyramid: &Pyramid, bitmap: &Bitmap) -> GreedyTileCounts {
     let mut counts = GreedyTileCounts::default();
-    for tile in decide_tiles(pyramid, bitmap, &EVERY_LEVEL) {
+    for tile in decide_tiles(pyramid, bitmap) {
         match tile.says {
             Says::Bound(_) => counts.bound_at_level[tile.region.level] += 1,
             Says::Copied { .. } => counts.copied_at_level[tile.region.level] += 1,

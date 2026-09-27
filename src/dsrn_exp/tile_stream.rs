@@ -32,7 +32,7 @@
 
 use crate::dsrn::region::DIRECTIONS;
 use crate::dsrn::stream::EncodedBitmap;
-use crate::dsrn_exp::greedy_tiles::{decide_tiles, PlacedTile, Says, EVERY_LEVEL};
+use crate::dsrn_exp::greedy_tiles::{decide_tiles, PlacedTile, Says};
 use crate::pyramid::{tile_side, Pyramid};
 use crate::Bitmap;
 
@@ -48,7 +48,7 @@ const COPIED: u64 = 0;
 /// Encodes a bitmap: decides the greedy pass's tiles, then writes
 /// them out in reading order.
 pub fn encode(pyramid: &Pyramid, bitmap: &Bitmap) -> EncodedBitmap {
-    let mut tiles = decide_tiles(pyramid, bitmap, &EVERY_LEVEL);
+    let mut tiles = decide_tiles(pyramid, bitmap);
     tiles.sort_by_key(|tile| {
         let (x, y) = tile.region.top_left_cell();
         (y, x) // row-major: the same order decode() walks cells in
