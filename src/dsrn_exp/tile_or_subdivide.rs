@@ -9,16 +9,11 @@
 //! tile that isn't the whole of the region it would otherwise bind.
 //! Reaching a region that is itself exactly one placed tile costs one
 //! bit to say so, whatever that tile's size; a region that isn't one
-//! whole tile costs one bit to say it subdivides. Nothing here searches
-//! for a size or compares a payload against leftover cells -- the
-//! answer for every region is already known from the tile set, so
-//! building the tree is a lookup, not a decision. The one exception is
-//! how far a subdivide jumps past each child, and even that is decided
-//! the same way, one child at a time: a child confirmed not to be a
-//! placed tile itself is only ever going to say "subdivide" on its own
-//! behalf, so a shared, per-child mask bit says that once for it and
-//! jumps straight to its four children, instead of that child spending
-//! its own bit to say the same thing again.
+//! whole tile costs one bit to say it subdivides, then the same
+//! question again for each of its four children. Nothing here
+//! searches for a size or compares a payload against leftover cells --
+//! the answer for every region is already known from the tile set, so
+//! building the tree is a lookup, not a decision.
 //!
 //! # The grammar
 //!
@@ -27,14 +22,7 @@
 //! 1: leaf -- this region is exactly one placed tile
 //!    0: copy   + 1 far/near bit + 2 direction bits
 //!    1: bind   + 1 value bit
-//! 0: subdivide
-//!    (more than two levels above cells) + 4 bit mask, one bit a child
-//!      1: this child is confirmed not a placed tile -- go straight
-//!         to its four children (this region's grandchildren)
-//!      0: recurse into this child as usual
-//!    (exactly two levels above cells) recurse into the four children;
-//!    no mask, since their own children are one above cells, where
-//!    this tree stops tracking depth entirely
+//! 0: subdivide -- recurse into all four children
 //!
 //! (one level above cells, in place of the above)
 //! 1: this 2x2 is a homogeneous placed tile + 1 value bit
@@ -73,7 +61,6 @@ const CODE_WIDTH: usize = 1;
 const FAR_WIDTH: usize = 1;
 const DIRECTION_WIDTH: usize = 2;
 const VALUE_WIDTH: usize = 1;
-const MASK_WIDTH: usize = 4;
 
 const COPY: u64 = 0;
 const BIND: u64 = 1;
@@ -151,32 +138,8 @@ fn encode_region(lookup: &TileLookup, region: Region, covered: &mut Bitmap, out:
         }
         None => {
             out.push_value(0, LEAF_WIDTH);
-            // One level above cells is the finest this tree tracks, so
-            // a region two levels above cells has nothing to jump past
-            // -- its children are handled by the 2x2 case directly,
-            // and there is no choice of depth left to make.
-            if region.level < CELL_LEVEL - 2 {
-                let children = region.children();
-                let mask: u64 =
-                    (0..4).filter(|&i| lookup.get(children[i]).is_none()).map(|i| 1 << i).sum();
-                out.push_value(mask, MASK_WIDTH);
-                for (i, child) in children.into_iter().enumerate() {
-                    if mask & (1 << i) != 0 {
-                        // Confirmed not a placed tile itself, so its
-                        // own leaf bit would only ever say "no" --
-                        // the mask already said that, straight to its
-                        // four children instead of asking it again.
-                        for grandchild in child.children() {
-                            encode_region(lookup, grandchild, covered, out);
-                        }
-                    } else {
-                        encode_region(lookup, child, covered, out);
-                    }
-                }
-            } else {
-                for child in region.children() {
-                    encode_region(lookup, child, covered, out);
-                }
+            for child in region.children() {
+                encode_region(lookup, child, covered, out);
             }
         }
     }
@@ -233,22 +196,8 @@ fn decode_region(stream: &EncodedBitmap, at: &mut usize, region: Region, covered
     }
 
     if !leaf {
-        if region.level < CELL_LEVEL - 2 {
-            let mask = stream.take(*at, MASK_WIDTH);
-            *at += MASK_WIDTH;
-            for (i, child) in region.children().into_iter().enumerate() {
-                if mask & (1 << i) != 0 {
-                    for grandchild in child.children() {
-                        decode_region(stream, at, grandchild, covered, owner);
-                    }
-                } else {
-                    decode_region(stream, at, child, covered, owner);
-                }
-            }
-        } else {
-            for child in region.children() {
-                decode_region(stream, at, child, covered, owner);
-            }
+        for child in region.children() {
+            decode_region(stream, at, child, covered, owner);
         }
         return;
     }
