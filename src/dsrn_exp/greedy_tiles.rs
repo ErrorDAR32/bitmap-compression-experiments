@@ -188,18 +188,22 @@ fn copy_choice(
 /// The naive greedy search this settled on, rather than biggest area
 /// first with no comparison: every valid area, of every size and at
 /// every position, is a candidate every round, and the round commits
-/// exactly one -- the one absorbing the most tiles a payload bit,
+/// exactly one -- the one absorbing the most of `decide_tiles`' own
+/// tiles for the fewest tiles its payload ends up naming,
 /// `constituents / payload`, breaking a tie toward the larger area.
-/// That ratio is 1.0 exactly when every one of an area's tiles is
-/// already sized to the resolution it settles on, and falls the
-/// further below it the more a bigger constituent's repeated value
-/// pads the payload for nothing a coarser resolution would have had to
-/// say anyway -- which is exactly what favouring the ratio closest to
-/// one avoids: the failure this replaced, where the single biggest
-/// area that merely *qualified* could drag an otherwise-uniform region
-/// down to whatever resolution its one smallest tile demanded. Picking
-/// one candidate can only remove others -- an area it just absorbed
-/// cannot be gathered into anything else -- never add one, so
+/// `payload` is a count of tiles, not a count of bits: how many tiles
+/// at the resolution this area settles on it takes to cover it, one
+/// value bit each. That ratio is 1.0 exactly when every one of an
+/// area's constituents is already sized to that resolution -- nothing
+/// decomposed, nothing repeated -- and falls the further below it the
+/// more a bigger constituent's single value gets repeated across
+/// several payload tiles for nothing a coarser resolution would have
+/// had to repeat at all -- which is exactly what favouring the ratio
+/// closest to one avoids: the failure this replaced, where the single
+/// biggest area that merely *qualified* could drag an otherwise-uniform
+/// region down to whatever resolution its one smallest tile demanded.
+/// Picking one candidate can only remove others -- an area it just
+/// absorbed cannot be gathered into anything else -- never add one, so
 /// re-scanning every candidate from scratch each round is wasteful but
 /// never wrong, and the round after nothing qualifies is where this
 /// stops.
@@ -233,14 +237,18 @@ pub fn compose_complex_tiles(tiles: Vec<PlacedTile>) -> Vec<PlacedTile> {
                     let region = Region { level, x, y };
                     let Some((finest, constituents)) = gather(&grid, region) else { continue };
                     let side = 1usize << (finest - level);
+                    // A count of tiles at the resolution this area
+                    // would settle on, not a count of bits -- one
+                    // value bit each, so the two happen to coincide.
                     let payload = side * side;
-                    // How many tiles this absorbs against how many
-                    // payload bits it costs to say them -- 1.0 at its
-                    // best, when every one of them is already at the
-                    // resolution this settles on, and falling the
-                    // further from it the more a bigger constituent's
-                    // repeated value pads the payload out for nothing
-                    // a coarser resolution wouldn't have said instead.
+                    // How many of decide_tiles' own tiles this absorbs
+                    // against how many payload tiles it costs to say
+                    // them -- 1.0 at its best, when every one of them
+                    // is already at the resolution this settles on,
+                    // and falling the further from it the more a
+                    // bigger constituent's single value gets repeated
+                    // across payload tiles a coarser resolution
+                    // wouldn't have had to repeat at all.
                     let ratio = constituents.len() as f64 / payload as f64;
                     let area = region.side_in_cells() * region.side_in_cells();
                     let better = match best {

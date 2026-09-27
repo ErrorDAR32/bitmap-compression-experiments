@@ -49,7 +49,7 @@ taken immediately, whatever a finer size might also have found. This
 is `decide_tiles`' whole file: it produces a flat `Vec<PlacedTile>`
 and writes no bits.
 
-### Pass two: `compose_complex_tiles` -- the candidate absorbing the most tiles a payload bit
+### Pass two: `compose_complex_tiles` -- the candidate absorbing the most tiles a payload tile
 
 A second, separate pass over `decide_tiles`' own output, not a third
 thing the tiler itself decides. A complex tile is an aligned area, 4x4
@@ -69,12 +69,14 @@ and at every position, is a candidate every round, and the round
 commits exactly one -- the one with the highest `constituents /
 payload` ratio, breaking a tie toward the larger area. `constituents`
 is how many of `decide_tiles`' own placed tiles the area absorbs;
-`payload` is how many value bits saying them at the chosen resolution
-costs. That ratio is `1.0` exactly when every one of an area's tiles is
-already sized to the resolution it settles on -- no repeated values at
-all -- and falls the further below it the more a bigger constituent's
-repeated value pads the payload out for nothing a coarser resolution
-would have had to say anyway. Picking one candidate can only ever
+`payload` is a count of tiles too, not of bits -- how many tiles at the
+resolution the area settles on it takes to cover it, one value bit
+each, so the two counts happen to coincide. That ratio is `1.0` exactly
+when every one of an area's constituents is already sized to that
+resolution -- nothing decomposed, nothing repeated -- and falls the
+further below it the more a bigger constituent's single value gets
+repeated across several payload tiles for nothing a coarser resolution
+would have had to repeat at all. Picking one candidate can only ever
 remove others from contention (an area it just absorbed cannot be
 gathered into anything else); it never creates a new one, so
 re-scanning every candidate from scratch each round is wasteful but
