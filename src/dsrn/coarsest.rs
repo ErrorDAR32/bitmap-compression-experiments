@@ -90,28 +90,38 @@ pub fn coarsest(
 
     // A 4x4 in its own grammar has its own list of ways, so it is
     // asked its own way.
-    let ask = |standing| {
+    //
+    // Takes the workspace as its own argument, borrowed fresh each
+    // call, rather than capturing it: `Standing::Tiles(0)` reads this
+    // very region's own put-right costs (what its binding would say
+    // over its children), so those have to already be the ones just
+    // found below, written to the workspace before this is asked
+    // again -- a capture would hold the workspace borrowed across
+    // that write and forbid it.
+    let ask = |work: &Workspace, standing| {
         if knobs.four_by_four.is_its_own_grammar(region) {
             what_a_four_by_four_says(work, pyramid, bitmap, region, knobs, false, standing).1
         } else {
             cheapest_in(work, pyramid, bitmap, region, knobs, standing, covering_it)
         }
     };
-    let nothing_standing = ask(Standing::Nothing);
+    let nothing_standing = ask(work, Standing::Nothing);
     let putting_right = [false, true].map(|standing| {
         if already_reads(pyramid, bitmap, region, standing) {
             0
         } else {
-            ask(Standing::Reads(standing))
+            ask(work, Standing::Reads(standing))
         }
     });
-    let under_tiles: Vec<usize> =
-        (0..=deepest_depth(region.level)).map(|depth| ask(Standing::Tiles(depth))).collect();
 
     work.set_cost(region, nothing_standing);
     for standing in [false, true] {
         work.set_cost_to_put_right(region, standing, putting_right[standing as usize]);
     }
+
+    let under_tiles: Vec<usize> = (0..=deepest_depth(region.level))
+        .map(|depth| ask(work, Standing::Tiles(depth)))
+        .collect();
     for (depth, cost) in under_tiles.into_iter().enumerate() {
         work.set_cost_under_tiles(region, depth, cost);
     }
