@@ -3,15 +3,14 @@
 //!
 //! The tiles themselves are never decided here -- [`decide_tiles`]
 //! already found the biggest-first, best set of homogeneous and
-//! copyable tiles once, for the whole bitmap, and [`compose_complex_tiles`]
-//! already decided which of them group into a complex tile; both sets
-//! are treated as fixed. All this file adds is a cheap way to say
-//! *where* each one is: a plain quadtree, subdivided only where it has
-//! to be to reach a tile that isn't the whole of the region it would
-//! otherwise bind. Reaching a region that is itself exactly one placed
-//! tile costs one bit to say so, whatever that tile's size; a region
-//! that isn't one whole tile costs one bit to say it subdivides, then
-//! the same question again for each of its four children. Nothing here
+//! copyable tiles once, for the whole bitmap, and that set is treated
+//! as fixed. All this file adds is a cheap way to say *where* each one
+//! is: a plain quadtree, subdivided only where it has to be to reach a
+//! tile that isn't the whole of the region it would otherwise bind.
+//! Reaching a region that is itself exactly one placed tile costs one
+//! bit to say so, whatever that tile's size; a region that isn't one
+//! whole tile costs one bit to say it subdivides, then the same
+//! question again for each of its four children. Nothing here
 //! searches for a size or compares a payload against leftover cells --
 //! the answer for every region is already known from the tile set, so
 //! building the tree is a lookup, not a decision.
@@ -24,47 +23,32 @@
 //!    0: copy   + 1 far/near bit + 2 direction bits
 //!    1: bind
 //!       0: simple  -- 1 value bit
-//!       1: complex -- this region's own four children, each its own
-//!                     node (below)
+//!       1: complex -- 3 resolution bits, then one value bit a tile,
+//!                     for every tile the resolution names below this
+//!                     region, in reading order
 //! 0: subdivide -- recurse into all four children
 //!
 //! (one level above cells, in place of the above)
 //! 1: this 2x2 is a homogeneous placed tile + 1 value bit
 //! 0: it is not -- its four cells are holes, no further bits
-//!
-//! (a complex tile's own node, for a region above a cell)
-//! 1: leaf
-//!    0: masked -- this region, described as itself (the region
-//!                 grammar above), never as another complex tile
-//!    1: unmasked -- 1 value bit, covering this whole region
-//! 0: subdivide -- the same question asked again of this region's own
-//!                 four children
-//!
-//! (a complex tile's own node, for a cell)
-//! 1 value bit, nothing else -- masking one never pays for itself, so
-//! this is always what a cell's own node turns out to be
 //! ```
 //!
-//! A complex tile is an aligned area [`compose_complex_tiles`] found
-//! cheaper to describe as one header than to leave to ordinary
-//! subdivision -- see its own doc comment, and `greedy_tiles::compute`'s,
-//! for how that is decided. Once chosen, a complex tile has no
-//! resolution or size of its own to name: each of its four children is
-//! its own recursive node, subdividing only as far as it needs to
-//! before either declaring one value for the whole of whatever area it
-//! stopped at, or handing the rest back to the ordinary region grammar.
-//! Nothing under a complex tile's own node can be another complex tile
-//! -- nesting is forbidden, mirrored here as `complex_allowed = false`
-//! threaded through every region a node hands back.
+//! A complex tile is a tile-aligned area [`decide_tiles`] found made
+//! of several smaller same-size tiles -- not necessarily agreeing with
+//! each other, or it would already be one simple bind -- which a plain
+//! quadtree could otherwise only reach by subdividing all the way down
+//! to each one, paying a full leaf of its own for every single tile
+//! even when none of them individually need anything a leaf offers
+//! beyond its one value bit. One header names the resolution once, and
+//! every tile under it costs exactly the one bit its value was always
+//! going to cost anyway.
 //!
 //! One level above cells never offers copy, and never subdivides
-//! further, since cells are not tracked by the *region* grammar at all
-//! (a complex tile's own node grammar is not so restricted, and can
-//! reach individual cells if that is where it settles): a 2x2 that is
-//! only copyable, or that decide_tiles only managed to cover with 1x1
-//! tiles, is left entirely to the trailing raw pass, at one bit a cell
-//! -- cheaper than a copy's own header for one tile that small, and
-//! there is nothing finer here to subdivide into.
+//! further, since cells are not tracked by this tree at all: a 2x2
+//! that is only copyable, or that decide_tiles only managed to cover
+//! with 1x1 tiles, is left entirely to the trailing raw pass, at one
+//! bit a cell -- cheaper than a copy's own header for one tile that
+//! small, and there is nothing finer here to subdivide into.
 //!
 //! Whatever the tree never covers -- 1x1 tiles and skipped 2x2s alike
 //! -- gets exactly one raw bit a cell, in reading order, once the tree
@@ -80,32 +64,68 @@
 //! it -- so this always finishes, backed by an assertion rather than
 //! blind trust.
 
-use crate::dsrn::region::{Region, DIRECTIONS};
+use crate::dsrn::region::{deepest_depth, Region, DIRECTIONS};
 use crate::dsrn::stream::EncodedBitmap;
-use crate::dsrn_exp::greedy_tiles::{
-    compose_complex_tiles, decide_tiles, Node, PlacedTile, Says, CODE_WIDTH, COMPLEX_FLAG_WIDTH, DIRECTION_WIDTH,
-    FAR_WIDTH, LEAF_WIDTH, NODE_LEAF_WIDTH, NODE_STATE_WIDTH, VALUE_WIDTH,
-};
+use crate::dsrn_exp::greedy_tiles::{compose_complex_tiles, decide_tiles, MaskNode, PlacedTile, Says};
 use crate::pyramid::{tiles_across, tiles_in_level, Pyramid, CELL_LEVEL};
 use crate::Bitmap;
+
+const LEAF_WIDTH: usize = 1;
+const CODE_WIDTH: usize = 1;
+const FAR_WIDTH: usize = 1;
+const DIRECTION_WIDTH: usize = 2;
+const VALUE_WIDTH: usize = 1;
+const COMPLEX_FLAG_WIDTH: usize = 1;
 
 const COPY: u64 = 0;
 const BIND: u64 = 1;
 const SIMPLE: u64 = 0;
 const COMPLEX: u64 = 1;
 
-/// A [`Node`] above a cell: leaf (decide masked or unmasked right
-/// here) or subdivide (ask the same of this area's own four children,
-/// at half the size). A cell skips this bit entirely -- there is
-/// nothing finer to subdivide into, and masking one never pays for
-/// itself either, so `greedy_tiles::compute` never produces anything
-/// but a plain leaf there.
-const NODE_SUBDIVIDE: u64 = 0;
-const NODE_LEAF: u64 = 1;
+/// Whether there is any mask at all -- `0` skips straight to the flat,
+/// unmasked payload every complex tile used to be.
+const MASK_PRESENT_WIDTH: usize = 1;
+const NO_MASKING: u64 = 0;
+const MASKING: u64 = 1;
 
-/// A [`Node`] leaf's own decision.
-const NODE_MASKED: u64 = 0;
-const NODE_UNMASKED: u64 = 1;
+/// A [`MaskNode`] above the complex tile's own tile size: leaf (decide
+/// masked or unmasked right here) or subdivide (ask the same of this
+/// area's own four children, at half the size). A node already at the
+/// tile size skips this bit -- there is nothing finer to subdivide
+/// into, so it is always a leaf.
+const MASK_NODE_LEAF_WIDTH: usize = 1;
+const MASK_NODE_LEAF: u64 = 1;
+const MASK_NODE_SUBDIVIDE: u64 = 0;
+
+/// How many bits it takes to name a `depth - 1` value at `region.level`
+/// -- a complex tile's own resolution field, sized to what a region at
+/// that level could actually need rather than a flat width everywhere.
+/// `depth` never exceeds [`deepest_depth`] (there is nothing finer than
+/// a cell to decompose into), so `depth - 1` never exceeds
+/// `deepest_depth - 1`, and a region's own level is already known from
+/// its place in the tree -- free context, not a bit anyone has to
+/// spend. Almost every complex tile settles at a level fine enough for
+/// this to matter: measured on the full sample corpus, none formed
+/// above level 3, and a flat 3-bit field wasted 1 bit a tile at level 4
+/// or 5 and 2 at level 6, where the overwhelming majority of them are.
+fn resolution_width(level: usize) -> usize {
+    bits_to_name(deepest_depth(level))
+}
+
+/// How many bits it takes to name one of `count` values, `0`-indexed --
+/// `0` when there is only one, since nothing is left to say.
+fn bits_to_name(count: usize) -> usize {
+    let mut bits = 0;
+    while (1usize << bits) < count {
+        bits += 1;
+    }
+    bits
+}
+
+/// A [`MaskNode`] leaf's own decision.
+const MASK_STATE_WIDTH: usize = 1;
+const MASK_MASKED: u64 = 0;
+const MASK_UNMASKED: u64 = 1;
 
 /// What [`decide_tiles`] said about every region, by level -- a
 /// region not in here was left to something finer, or is not a
@@ -151,7 +171,7 @@ pub fn encode(pyramid: &Pyramid, bitmap: &Bitmap) -> EncodedBitmap {
 }
 
 /// `complex_allowed` is `false` anywhere under a complex tile's own
-/// node tree -- nesting a complex tile there is forbidden, so a region
+/// mask -- nesting a complex tile there is forbidden, so a region
 /// there can only ever be `Bound`, `Copied`, or subdivided, never
 /// `Complex`, and the complex-flag bit every bind would otherwise pay
 /// is skipped entirely: there is nothing left for it to distinguish.
@@ -179,13 +199,35 @@ fn encode_region(lookup: &TileLookup, region: Region, covered: &mut Bitmap, out:
             out.push_value(value as u64, VALUE_WIDTH);
             mark_covered(covered, region);
         }
-        Some(Says::Complex(nodes)) => {
+        Some(Says::Complex { depth, mask }) => {
             debug_assert!(complex_allowed, "a complex tile can never nest inside another's mask");
             out.push_value(1, LEAF_WIDTH);
             out.push_value(BIND, CODE_WIDTH);
             out.push_value(COMPLEX, COMPLEX_FLAG_WIDTH);
-            for (child, node) in region.children().into_iter().zip(nodes.iter()) {
-                encode_node(lookup, child, node, covered, out);
+            out.push_value((depth - 1) as u64, resolution_width(region.level));
+            let limit_level = region.level + depth;
+            let all_unmasked = mask.iter().all(|node| matches!(node, MaskNode::Unmasked(_)));
+            debug_assert!(depth > 1 || all_unmasked, "masking never pays for itself at depth 1");
+            // At depth 1 every child already sits at the resolution, so
+            // masking one can only ever cost more than it saves (see
+            // compose_complex_tiles' own doc comment) -- never chosen
+            // there, so the mask-present bit would carry zero
+            // information at depth 1: skipped entirely, on both sides.
+            if depth > 1 {
+                out.push_value(if all_unmasked { NO_MASKING } else { MASKING }, MASK_PRESENT_WIDTH);
+            }
+            if all_unmasked {
+                for node in &mask {
+                    let MaskNode::Unmasked(values) = node else { unreachable!() };
+                    for &value in values {
+                        out.push_value(value as u64, VALUE_WIDTH);
+                    }
+                }
+                mark_covered(covered, region);
+            } else {
+                for (child, node) in region.children().into_iter().zip(&mask) {
+                    encode_mask_node(lookup, child, limit_level, node, covered, out);
+                }
             }
         }
         Some(Says::Copied { far, direction }) => {
@@ -204,41 +246,61 @@ fn encode_region(lookup: &TileLookup, region: Region, covered: &mut Bitmap, out:
     }
 }
 
-/// Writes one [`Node`] of a complex tile's own subtree, for `region`.
-/// `Leaf` writes its one value right here, covering the whole of
-/// `region` however big it turned out to be. `Masked` writes `region`
-/// as an ordinary region instead, with nesting a complex tile inside
-/// it forbidden. `Subdivided` asks the same of `region`'s own four
-/// children, at half the size -- which is how a node reaches all the
-/// way down to individual cells when that turns out cheapest, with no
-/// resolution or size announced anywhere to say how far it went. A
-/// cell (`region.level == CELL_LEVEL`) skips the leaf/subdivide and
-/// masked/unmasked bits entirely: see `greedy_tiles::compute`'s own
-/// doc comment for why a cell is always a plain leaf.
-fn encode_node(lookup: &TileLookup, region: Region, node: &Node, covered: &mut Bitmap, out: &mut EncodedBitmap) {
-    if region.level == CELL_LEVEL {
-        let Node::Leaf(value) = node else { unreachable!("a cell is always a leaf") };
-        out.push_value(*value as u64, VALUE_WIDTH);
-        mark_covered(covered, region);
+/// Writes one [`MaskNode`] of a complex tile's mask, for `region`, down
+/// to `limit_level` -- the complex tile's own tile size, the finest a
+/// mask ever goes. `Unmasked` writes its own resolution tile values
+/// right here, in reading order. `Masked` writes one ordinary region,
+/// right here, with nesting a complex tile inside it forbidden.
+/// `Subdivided` asks the same of `region`'s own four children, at half
+/// the size -- which is how a masked area can still give part of
+/// itself back to the complex tile, however many times that happens on
+/// the way down. A node already at `limit_level` skips the leaf bit
+/// entirely: there is nothing finer to subdivide into, so it is always
+/// a leaf.
+fn encode_mask_node(
+    lookup: &TileLookup,
+    region: Region,
+    limit_level: usize,
+    node: &MaskNode,
+    covered: &mut Bitmap,
+    out: &mut EncodedBitmap,
+) {
+    if region.level == limit_level {
+        match node {
+            MaskNode::Unmasked(values) => {
+                out.push_value(MASK_UNMASKED, MASK_STATE_WIDTH);
+                for &value in values {
+                    out.push_value(value as u64, VALUE_WIDTH);
+                }
+                mark_covered(covered, region);
+            }
+            MaskNode::Masked => {
+                out.push_value(MASK_MASKED, MASK_STATE_WIDTH);
+                encode_region(lookup, region, covered, out, false);
+            }
+            MaskNode::Subdivided(_) => unreachable!("a mask never subdivides below the complex tile's own tile size"),
+        }
         return;
     }
 
     match node {
-        Node::Subdivided(children) => {
-            out.push_value(NODE_SUBDIVIDE, NODE_LEAF_WIDTH);
+        MaskNode::Subdivided(children) => {
+            out.push_value(MASK_NODE_SUBDIVIDE, MASK_NODE_LEAF_WIDTH);
             for (child, node) in region.children().into_iter().zip(children.iter()) {
-                encode_node(lookup, child, node, covered, out);
+                encode_mask_node(lookup, child, limit_level, node, covered, out);
             }
         }
-        Node::Leaf(value) => {
-            out.push_value(NODE_LEAF, NODE_LEAF_WIDTH);
-            out.push_value(NODE_UNMASKED, NODE_STATE_WIDTH);
-            out.push_value(*value as u64, VALUE_WIDTH);
+        MaskNode::Unmasked(values) => {
+            out.push_value(MASK_NODE_LEAF, MASK_NODE_LEAF_WIDTH);
+            out.push_value(MASK_UNMASKED, MASK_STATE_WIDTH);
+            for &value in values {
+                out.push_value(value as u64, VALUE_WIDTH);
+            }
             mark_covered(covered, region);
         }
-        Node::Masked => {
-            out.push_value(NODE_LEAF, NODE_LEAF_WIDTH);
-            out.push_value(NODE_MASKED, NODE_STATE_WIDTH);
+        MaskNode::Masked => {
+            out.push_value(MASK_NODE_LEAF, MASK_NODE_LEAF_WIDTH);
+            out.push_value(MASK_MASKED, MASK_STATE_WIDTH);
             encode_region(lookup, region, covered, out, false);
         }
     }
@@ -281,8 +343,8 @@ pub fn decode(stream: &EncodedBitmap) -> Bitmap {
 }
 
 /// `complex_allowed` mirrors [`encode_region`]'s own: `false` anywhere
-/// under a complex tile's own node tree, where the complex-flag bit
-/// was never written at all, so it must not be read either.
+/// under a complex tile's mask, where the complex-flag bit was never
+/// written at all, so it must not be read either.
 fn decode_region(
     stream: &EncodedBitmap,
     at: &mut usize,
@@ -319,8 +381,33 @@ fn decode_region(
             *at += COMPLEX_FLAG_WIDTH;
         }
         if complex {
-            for child in region.children() {
-                decode_node(stream, at, child, covered, owner);
+            let width = resolution_width(region.level);
+            let depth = stream.take(*at, width) as usize + 1;
+            *at += width;
+            let limit_level = region.level + depth;
+            // The mask-present bit was never written at depth 1 (see
+            // encode_region's own comment) -- it must not be read
+            // either, since masking is never chosen there.
+            let masking = if depth > 1 {
+                let masking = stream.take(*at, MASK_PRESENT_WIDTH) == MASKING;
+                *at += MASK_PRESENT_WIDTH;
+                masking
+            } else {
+                false
+            };
+            if masking {
+                for child in region.children() {
+                    decode_mask_node(stream, at, child, limit_level, covered, owner);
+                }
+            } else {
+                for child in region.children() {
+                    for tile in child.tiles_at_depth(limit_level - child.level) {
+                        let value = stream.take(*at, VALUE_WIDTH) != 0;
+                        *at += VALUE_WIDTH;
+                        mark_owner(owner, tile, Owner::Bound(value));
+                    }
+                }
+                mark_covered(covered, region);
             }
             return;
         } else {
@@ -338,31 +425,46 @@ fn decode_region(
     mark_covered(covered, region);
 }
 
-/// Reads one [`Node`], mirroring [`encode_node`] exactly.
-fn decode_node(stream: &EncodedBitmap, at: &mut usize, region: Region, covered: &mut Bitmap, owner: &mut [Option<Owner>]) {
-    if region.level == CELL_LEVEL {
-        let value = stream.take(*at, VALUE_WIDTH) != 0;
-        *at += VALUE_WIDTH;
-        mark_owner(owner, region, Owner::Bound(value));
-        mark_covered(covered, region);
-        return;
-    }
-
-    let leaf = stream.take(*at, NODE_LEAF_WIDTH) == NODE_LEAF;
-    *at += NODE_LEAF_WIDTH;
-    if !leaf {
-        for child in region.children() {
-            decode_node(stream, at, child, covered, owner);
+/// Reads one [`MaskNode`], mirroring [`encode_mask_node`] exactly.
+fn decode_mask_node(
+    stream: &EncodedBitmap,
+    at: &mut usize,
+    region: Region,
+    limit_level: usize,
+    covered: &mut Bitmap,
+    owner: &mut [Option<Owner>],
+) {
+    if region.level == limit_level {
+        let unmasked = stream.take(*at, MASK_STATE_WIDTH) == MASK_UNMASKED;
+        *at += MASK_STATE_WIDTH;
+        if unmasked {
+            let value = stream.take(*at, VALUE_WIDTH) != 0;
+            *at += VALUE_WIDTH;
+            mark_owner(owner, region, Owner::Bound(value));
+            mark_covered(covered, region);
+        } else {
+            decode_region(stream, at, region, covered, owner, false);
         }
         return;
     }
 
-    let unmasked = stream.take(*at, NODE_STATE_WIDTH) == NODE_UNMASKED;
-    *at += NODE_STATE_WIDTH;
+    let leaf = stream.take(*at, MASK_NODE_LEAF_WIDTH) == MASK_NODE_LEAF;
+    *at += MASK_NODE_LEAF_WIDTH;
+    if !leaf {
+        for child in region.children() {
+            decode_mask_node(stream, at, child, limit_level, covered, owner);
+        }
+        return;
+    }
+
+    let unmasked = stream.take(*at, MASK_STATE_WIDTH) == MASK_UNMASKED;
+    *at += MASK_STATE_WIDTH;
     if unmasked {
-        let value = stream.take(*at, VALUE_WIDTH) != 0;
-        *at += VALUE_WIDTH;
-        mark_owner(owner, region, Owner::Bound(value));
+        for tile in region.tiles_at_depth(limit_level - region.level) {
+            let value = stream.take(*at, VALUE_WIDTH) != 0;
+            *at += VALUE_WIDTH;
+            mark_owner(owner, tile, Owner::Bound(value));
+        }
         mark_covered(covered, region);
     } else {
         decode_region(stream, at, region, covered, owner, false);
