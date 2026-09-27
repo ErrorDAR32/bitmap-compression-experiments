@@ -70,11 +70,11 @@ use crate::dsrn_exp::greedy_tiles::{compose_complex_tiles, decide_tiles, MaskNod
 use crate::pyramid::{tiles_across, tiles_in_level, Pyramid, CELL_LEVEL};
 use crate::Bitmap;
 
-const LEAF_WIDTH: usize = 1;
-const CODE_WIDTH: usize = 1;
-const FAR_WIDTH: usize = 1;
-const DIRECTION_WIDTH: usize = 2;
-const VALUE_WIDTH: usize = 1;
+pub(crate) const LEAF_WIDTH: usize = 1;
+pub(crate) const CODE_WIDTH: usize = 1;
+pub(crate) const FAR_WIDTH: usize = 1;
+pub(crate) const DIRECTION_WIDTH: usize = 2;
+pub(crate) const VALUE_WIDTH: usize = 1;
 const COMPLEX_FLAG_WIDTH: usize = 1;
 
 const COPY: u64 = 0;
@@ -93,7 +93,7 @@ const MASKING: u64 = 1;
 /// area's own four children, at half the size). A node already at the
 /// tile size skips this bit -- there is nothing finer to subdivide
 /// into, so it is always a leaf.
-const MASK_NODE_LEAF_WIDTH: usize = 1;
+pub(crate) const MASK_NODE_LEAF_WIDTH: usize = 1;
 const MASK_NODE_LEAF: u64 = 1;
 const MASK_NODE_SUBDIVIDE: u64 = 0;
 
@@ -123,7 +123,7 @@ fn bits_to_name(count: usize) -> usize {
 }
 
 /// A [`MaskNode`] leaf's own decision.
-const MASK_STATE_WIDTH: usize = 1;
+pub(crate) const MASK_STATE_WIDTH: usize = 1;
 const MASK_MASKED: u64 = 0;
 const MASK_UNMASKED: u64 = 1;
 

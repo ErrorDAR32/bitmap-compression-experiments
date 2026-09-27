@@ -217,6 +217,76 @@ masking capability to reach that the narrower version could not already
 reach at its own direct-child depth. Measured on a fresh seed via
 `cargo run --release --bin dsrn_exp -- subdivide`.
 
+**`build_mask_node` now also reclaims an existing `Bound` tile bigger
+than the complex tile's own resolution, when that is genuinely
+cheaper than repeating its one value across every resolution-tile slot
+it would otherwise fill -- not just the `Copied`-tile and 1x1-remnant
+obstructions the recursion already had to route around.** Before this,
+whenever everything under a candidate area gathered (`Gathered::Whole`)
+at the resolution or coarser, the whole area was absorbed as one flat
+list unconditionally, however oversized one of its own constituents
+was: a 4x4-sized `Bound` tile sitting inside an otherwise 1x1-resolution
+candidate paid for 16 repeated payload bits with no alternative ever
+considered. `precompute_region_cost` now prices, once a round and
+bottom-up like `precompute_gathered` and `precompute_natural_finest`
+already are, exactly what reading any region back plain would cost
+(`encode_region`'s own bit count, nesting a complex tile forbidden);
+`build_mask_node` compares that reclaim cost (a mask-tree leaf, plus
+the region's own plain encoding) against the repeat cost (one value bit
+per resolution-tile slot the oversized tile covers) whenever a
+candidate's own `Gathered::Whole` list contains a constituent coarser
+than the resolution, and only then -- an area with nothing coarser than
+its own resolution inside it is already, provably, at its cheapest as a
+flat list, so this never even has to look further in the common case.
+`mask_or_subdivide` extends the same comparison one level further: it
+also asks whether reclaiming an entire coarser region outright, in one
+mask-tree leaf, beats asking the same question again of its own four
+children -- both compared against just letting the whole area repeat,
+never against each other in isolation.
+
+One further correction was needed once this was in: `build_mask_node`
+prices a masked candidate's own bits as if it always goes through the
+ordinary mask-tree grammar (a leaf bit, then a masked/unmasked bit),
+but `encode_region`'s complex-tile arm skips every one of those bits
+entirely whenever all four of a candidate's own direct children turn
+out `Unmasked` -- read back as one shared list with no mask tree at
+all. Comparing a masked candidate's real, mask-tree-priced cost against
+an *unmasked* whole area's pessimistic, same-priced cost occasionally
+made reclaiming something look cheaper than it truly was once that free
+lunch is accounted for. `compose_complex_tiles` now re-checks, after
+collecting all four of a candidate's own top-level nodes, whether
+absorbing the *entire* candidate outright is even possible
+(`Gathered::Whole` for the candidate's own region, not just each of its
+four children individually) and, if its true, overhead-free cost beats
+the sum of what the four nodes actually cost, overrides them back to a
+plain flat list. This is what the four top-level children are actually
+compared against, not the four nodes' own local, mask-tree-priced
+choices.
+
+**Measured, honestly: no change on either sample family.** Both "laid
+out like a city" and "grown like a blob" landed on bit-for-bit
+identical totals before and after this change, on more than one fresh
+seed, cross-checked directly against the unmodified composer. Directly
+instrumenting the search confirmed why: the comparison is exercised
+constantly (millions of times across the corpus, since every candidate
+at every round re-tries it), and a `Bound` tile coarser than a
+candidate's own resolution does turn up and get reclaimed sometimes --
+but every one of the sample bitmaps checked this way produced the
+*exact* same encoded length whether or not that reclaim happened, down
+to the bit, meaning the specific candidates it actually changes are
+never the ones this pipeline's own greedy round-by-round search ends up
+choosing on this corpus. The capability is real and bit-exact by
+construction (it only ever picks whichever of "reclaim" or "repeat"
+[`precompute_region_cost`] and the ordinary mask-tree costs say is
+actually cheaper, never a heuristic guess), and the sample generators
+here evidently do not produce much of the "an oversized tile sits
+inside an otherwise-good, finer-resolution complex tile candidate"
+pattern it exists for. It costs real time to search for: roughly 50%
+slower across the full test suite (which re-runs `compose_complex_tiles`
+over the whole sample corpus more than once), since `build_mask_node`
+can no longer stop the instant a candidate area gathers -- it must also
+weigh reclaiming whatever inside it turns out to be oversized.
+
 ## The tree grammar
 
 `TileLookup` is exactly this two-pass output, indexed by region so the
