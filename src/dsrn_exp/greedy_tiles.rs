@@ -171,29 +171,32 @@ fn copy_choice(
     })
 }
 
-/// Groups [`decide_tiles`]'s own placed tiles into complex tiles where
-/// it can: wherever a tile-aligned area's four immediate children were
-/// each placed as their own `Bound` tile -- not necessarily to the
-/// same value, or the area would already be one `Bound` tile of its
-/// own -- the four are replaced by one `Complex` tile covering all of
-/// them.
+/// Groups [`decide_tiles`]'s own placed tiles into complex tiles: an
+/// aligned area, 4x4 or coarser, entirely covered by `Bound` tiles
+/// none finer than 2x2, said once at the coarsest resolution that
+/// still covers every one of them -- the smallest of their own sizes.
+/// A tile bigger than that resolution decomposes into that many
+/// repeats of its own value; nothing is ever cut, since every placed
+/// tile already lines up with the same power-of-two grid a candidate
+/// area does, so it is always either wholly inside that area or wholly
+/// outside it, never straddling the edge.
 ///
-/// A second pass over what the greedy pass already found, not a third
-/// thing the pass itself decides: every group this composes is four
-/// tiles decide_tiles already placed and verified on its own, so this
-/// can never claim something is homogeneous that is not. Only `Bound`
-/// children compose -- a `Copied` or already-`Complex` child does not,
-/// which is what keeps this to one level and stops a composed tile
-/// from ever being composed again into a coarser one. No masking
-/// either: any one of the four not being `Bound` fails the whole
-/// group, whatever the other three look like.
+/// Tried biggest area first, exactly the way [`decide_tiles`] tries
+/// its own tile sizes: an area that qualifies is claimed outright, at
+/// no cost to check, and one that does not is simply left for its own
+/// four quarters, one size finer, to each try again for themselves --
+/// no comparison, ever, between a coarse area and a finer alternative.
+/// A `Copied` tile or a 1x1 anywhere inside disqualifies the whole
+/// area, whatever the rest of it looks like: no masking, and no
+/// resolution finer than 2x2. Only `Bound` tiles ever compose, so a
+/// tile this pass just placed -- `Complex` -- never composes again
+/// into a coarser one.
 ///
 /// This never looks at the bitmap, or at cells as such -- only at
-/// tiles decide_tiles already placed, whatever their size, a 1x1 tile
-/// included exactly like any other. What a composed tile is worth to
-/// whoever writes it out, at any given size, is that reader's own
-/// question to answer, not something to bake into how tiles are found
-/// here.
+/// tiles decide_tiles already placed, whatever their size. What a
+/// composed tile is worth to whoever writes it out is that reader's
+/// own question to answer, not something to bake into how tiles are
+/// found here.
 pub fn compose_complex_tiles(tiles: Vec<PlacedTile>) -> Vec<PlacedTile> {
     let mut grid: Vec<Vec<Option<Says>>> =
         (0..=CELL_LEVEL).map(|level| vec![None; tiles_in_level(level)]).collect();
@@ -202,32 +205,26 @@ pub fn compose_complex_tiles(tiles: Vec<PlacedTile>) -> Vec<PlacedTile> {
         grid[region.level][region.y * across + region.x] = Some(says);
     }
 
-    for parent_level in 0..CELL_LEVEL {
-        let across = tiles_across(parent_level);
+    let mut claimed = Bitmap::new();
+    for level in 0..=(CELL_LEVEL - 2) {
+        let across = tiles_across(level);
         for y in 0..across {
             for x in 0..across {
-                let children = Region { level: parent_level, x, y }.children();
-                let all_bound = children.iter().all(|child| {
-                    let child_across = tiles_across(child.level);
-                    matches!(
-                        grid[child.level][child.y * child_across + child.x],
-                        Some(Says::Bound(_))
-                    )
-                });
-                if !all_bound {
+                let region = Region { level, x, y };
+                let (cx, cy) = region.top_left_cell();
+                if claimed.get(cx as u8, cy as u8) {
                     continue;
                 }
-                let values = children
-                    .iter()
-                    .map(|child| {
-                        let child_across = tiles_across(child.level);
-                        match grid[child.level][child.y * child_across + child.x].take() {
-                            Some(Says::Bound(value)) => value,
-                            _ => unreachable!("just confirmed every child is Bound"),
-                        }
-                    })
-                    .collect();
-                grid[parent_level][y * across + x] = Some(Says::Complex { depth: 1, values });
+                if grid[level][y * across + x].is_some() {
+                    // Already one placed tile of its own -- nothing
+                    // finer for a complex tile to say about it.
+                    continue;
+                }
+                let Some((finest, constituents)) = gather(&grid, region) else { continue };
+                consume(&mut grid, region);
+                grid[level][y * across + x] =
+                    Some(Says::Complex { depth: finest - level, values: flatten(region, finest, &constituents) });
+                claim(&mut claimed, region);
             }
         }
     }
@@ -242,6 +239,63 @@ pub fn compose_complex_tiles(tiles: Vec<PlacedTile>) -> Vec<PlacedTile> {
             })
         })
         .collect()
+}
+
+/// Whether every placed tile under `region` is `Bound` and none of
+/// them finer than 2x2 -- and if so, the finest level among them and
+/// every one of them, region and value, in no particular order.
+/// `None` the moment a `Copied` tile or a 1x1 turns up anywhere in the
+/// subtree, without touching `grid` at all: this only looks, it never
+/// commits to anything until the whole area has been confirmed.
+fn gather(grid: &[Vec<Option<Says>>], region: Region) -> Option<(usize, Vec<(Region, bool)>)> {
+    if region.level == CELL_LEVEL {
+        return None; // a 1x1 tile never takes part in a complex tile
+    }
+    let across = tiles_across(region.level);
+    match grid[region.level][region.y * across + region.x] {
+        Some(Says::Bound(value)) => Some((region.level, vec![(region, value)])),
+        Some(_) => None, // Copied, or already Complex -- disqualified
+        None => {
+            let mut finest = region.level;
+            let mut constituents = Vec::new();
+            for child in region.children() {
+                let (child_finest, mut child_constituents) = gather(grid, child)?;
+                finest = finest.max(child_finest);
+                constituents.append(&mut child_constituents);
+            }
+            Some((finest, constituents))
+        }
+    }
+}
+
+/// Removes every tile [`gather`] just confirmed from `grid`, so the
+/// region composing them stops being visible as anything smaller.
+/// Follows exactly the path `gather` found, so it never reaches a
+/// region `gather` did not already accept.
+fn consume(grid: &mut [Vec<Option<Says>>], region: Region) {
+    let across = tiles_across(region.level);
+    if grid[region.level][region.y * across + region.x].take().is_some() {
+        return;
+    }
+    for child in region.children() {
+        consume(grid, child);
+    }
+}
+
+/// Lays `constituents` out at `finest`, in the reading order
+/// [`Region::tiles_at_depth`] reads a resolution back in -- a
+/// constituent coarser than `finest` fills every one of its own
+/// positions at that resolution with the same repeated value.
+fn flatten(region: Region, finest: usize, constituents: &[(Region, bool)]) -> Vec<bool> {
+    let side = 1usize << (finest - region.level);
+    let mut values = vec![None; side * side];
+    for &(constituent, value) in constituents {
+        for tile in constituent.tiles_at_depth(finest - constituent.level) {
+            let (local_x, local_y) = (tile.x - region.x * side, tile.y - region.y * side);
+            values[local_y * side + local_x] = Some(value);
+        }
+    }
+    values.into_iter().map(|value| value.expect("every position covered by exactly one constituent")).collect()
 }
 
 /// Whether a tile could far-copy: whether some same-size neighbour of

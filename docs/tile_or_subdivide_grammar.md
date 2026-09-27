@@ -1,12 +1,15 @@
-# tile_or_subdivide's grammar
+# The Greedy Complex Tiler's grammar
 
 What every bit in a `dsrn_exp::tile_or_subdivide` encoding means, and
-what decides the tiling it describes in the first place. A reference,
-not a tutorial -- for the reasoning behind a choice, read
-`src/dsrn_exp/greedy_tiles.rs` (the tiling) and
-`src/dsrn_exp/tile_or_subdivide.rs` (the tree that says where each tile
-is). This file only answers "the bitstream has a 1 here, what does
-that mean, and how did that tile come to exist at all."
+what decides the tiling it describes in the first place. "The Greedy
+Complex Tiler" is this whole pipeline's own name: `decide_tiles`'
+greedy, size-ordered tiling, `compose_complex_tiles`' grouping pass on
+top of it, and the quadtree in `tile_or_subdivide.rs` that says where
+each of their tiles is. A reference, not a tutorial -- for the
+reasoning behind a choice, read `src/dsrn_exp/greedy_tiles.rs` (the
+tiling) and `src/dsrn_exp/tile_or_subdivide.rs` (the tree). This file
+only answers "the bitstream has a 1 here, what does that mean, and how
+did that tile come to exist at all."
 
 Kept up to date by hand alongside those two files. If the code changes
 and this doesn't, this file is wrong, not the code.
@@ -46,30 +49,51 @@ taken immediately, whatever a finer size might also have found. This
 is `decide_tiles`' whole file: it produces a flat `Vec<PlacedTile>`
 and writes no bits.
 
-### Pass two: `compose_complex_tiles` -- grouping without searching
+### Pass two: `compose_complex_tiles` -- the biggest area that still fits one resolution
 
 A second, separate pass over `decide_tiles`' own output, not a third
-thing the tiler itself decides. For every tile-aligned area whose four
-immediate children are each present in the output as their own
-`Bound` tile -- not necessarily agreeing with each other, or the area
-would already be one `Bound` tile of its own -- the four are replaced
-by one `Complex { depth: 1, values }` tile covering all of them.
-`values` is the four children's values, in reading order.
+thing the tiler itself decides. A complex tile is an aligned area, 4x4
+or coarser, entirely covered by `Bound` tiles none finer than 2x2, said
+once at the **coarsest resolution that still covers every one of
+them** -- the smallest of their own sizes. A tile in the area bigger
+than that resolution decomposes into that many repeats of its own
+value; a `Copied` tile or a 1x1 tile anywhere in the area disqualifies
+the whole thing, whatever the rest of it looks like -- no masking, and
+no resolution finer than 2x2.
 
-- **No masking.** Any one of the four not being exactly `Bound` fails
-  the whole group, whatever the other three look like.
-- **No cascading.** Only a `Bound` child composes -- a `Copied` or an
-  already-`Complex` child does not -- so a tile this pass just composed
-  is never itself swept into a coarser one. `depth` is always exactly
-  `1` today; the field exists for a resolution wider than one level,
-  which nothing yet produces.
-- **Runs at every level**, a 1x1 tile included exactly like any other
-  size. This pass never looks at the bitmap or at cells as such, only
-  at tiles `decide_tiles` already placed and verified independently --
-  it cannot claim something is homogeneous that is not, and it has no
-  idea which sizes a given tree will find cheap or expensive to
-  represent. That is the reader's own question (see the 2x2 note
-  below), not this pass's.
+Tried exactly the way `decide_tiles` tries its own sizes: biggest area
+first (256 down to 4x4), and an area that qualifies is claimed
+outright, at no comparison against any alternative. An area that does
+not qualify is simply left for its own four quarters, one size finer,
+to each try again for themselves -- which is also what happens
+whenever a coarser area was disqualified only by something in one of
+its quarters, since the other three still each get their own, later,
+independent try. Only `Bound` tiles ever compose, so a tile this pass
+just placed -- `Complex` -- never composes again into a coarser one.
+
+This never looks at the bitmap, or at cells as such, only at tiles
+`decide_tiles` already placed and verified independently -- it cannot
+claim something is homogeneous that is not, and it has no idea which
+sizes a given tree will find cheap or expensive to represent. That is
+the reader's own question (see the 2x2 note below and the measured
+result at the end of this file), not this pass's.
+
+**A real failure mode this generalization introduced.** Composing the
+biggest area that fits *one* resolution, with no cost comparison, means
+a huge mostly-uniform area can be dragged down to a tiny resolution by
+a single small tile anywhere inside it -- one 2x2 courtyard cut into an
+otherwise solid 32x32 block forces the *entire* 32x32 into one complex
+tile at 2x2 resolution, 256 payload bits, where leaving it alone would
+have cost one big bind plus a small aside for the courtyard. Measured
+directly: on "laid out like a city" (which is exactly blocks-with-
+occasional-cutouts), this pass alone produces groups like a 32x32 area
+at 2x2 resolution and seventeen 16x16 areas at 2x2 resolution *a
+bitmap*, and the whole encoding regresses from +9.6% against dsrn
+(the one-level, four-same-size-siblings version this replaced) to
++34.2%. "Grown like a blob" barely moves (+0.2%, was +0.2%), since its
+content has no such big-uniform-area-with-a-small-exception pattern to
+begin with. Committed as measured, not reverted -- see the git history
+for `compose_complex_tiles` for the full account.
 
 ## The tree grammar
 
@@ -123,6 +147,16 @@ tile's `10` -- composing there is a net loss, and it is why the tree's
 hole, at no cost either way, since the special case would have ignored
 it regardless of whether `compose_complex_tiles` had produced it.
 
+This math assumes every one of the N constituents was, without
+composing, going to cost the *same* ordinary-leaf price -- true for
+the one-level, same-size case it was worked out for, but no longer the
+whole picture once a complex tile can engulf a large area at a small
+resolution. A constituent that was itself a large, cheap `Bound` tile
+(one leaf, whatever its size) gets decomposed into many repeated
+payload bits instead, and that cost is not in this formula at all --
+see the failure mode described under `compose_complex_tiles` above,
+where exactly this is what makes composing a bad trade in practice.
+
 **The trailing raw pass.** Whatever the tree never covers -- every hole
 a 2x2 leaves, and nothing else, since a 2x2 is the only place the tree
 ever gives up without describing something -- gets exactly one raw bit
@@ -145,27 +179,41 @@ names something reading order puts before it, the same `DIRECTIONS`
 guarantee dsrn's copies rely on -- so this is backed by an assertion,
 not blind trust, and always finishes.
 
-## The one thing dsrn can do that this cannot
+## The worst bitmap, and why it moves
 
-dsrn can say "give up entirely, here is every cell of me raw" for a
-region of **any size**, in one small header (see
-`docs/dsrn_grammar.md`'s bind-at-depth). This tree has no equivalent:
-reaching the conclusion "nothing here compresses" costs one subdivide
-bit *per level* walked down to 4x4, and its own 2x2-level findings
-(real copies, real complex groups) are simply discarded as holes once
-found there, per the break-even math above.
+The single worst bitmap against dsrn is not fixed -- it shifts every
+time `compose_complex_tiles`' own rule changes, since that rule decides
+which content gets punished. Two found so far, both worth keeping:
 
-Measured directly on the single worst bitmap found across both sample
-families (`samples::every_family()`, seed noted in `testing/last_seed`
-at the time): a "grown like a blob" sample with 32768 of 65536 cells
-set, scattered with no spatial correlation -- as close to incompressible
-as this crate's generator produces. dsrn: 65542 bits (one 6-bit header
-binding the whole bitmap at 1x1, then 65536 raw payload bits -- the
-theoretical floor). This tree: 81382 bits, +24.2%. The tiler found real
-structure at 2x2 that never made it into the stream: 5736 copyable 2x2s
-and 8648 complex groups (34592 cells), all thrown away as holes by the
-2x2 special case, on top of roughly 1300+ subdivide bits just to walk
-down from 256x256 to 4x4 and confirm there was nothing coarser to bind.
-On genuinely structure-free content, a scheme built around explicit
-per-level subdivision cannot match a scheme that can name "nothing
-here" once, at any size, in a fixed number of bits.
+**Structure-free content**, from before `compose_complex_tiles` could
+engulf more than one level: a "grown like a blob" sample, 32768 of
+65536 cells set, scattered with no spatial correlation -- as close to
+incompressible as this crate's generator produces. dsrn: 65542 bits
+(one 6-bit header binding the whole bitmap at 1x1, then 65536 raw
+payload bits -- the theoretical floor, see `docs/dsrn_grammar.md`'s
+bind-at-depth). This tree: 81382 bits, +24.2%. dsrn can say "give up
+entirely, here is every cell of me raw" for a region of *any size*, in
+one small header; this tree has no equivalent -- reaching "nothing
+here compresses" costs one subdivide bit *per level* walked down to
+4x4, and the tiler's own 2x2-level findings (5736 copyable 2x2s, 8648
+complex groups) were simply discarded as holes once found there.
+
+**A large uniform area with a small exception**, the current worst,
+after `compose_complex_tiles` gained the ability to engulf areas
+bigger than one level: a "laid out like a city" sample. dsrn: 3149
+bits. This tree: 6099, +93.7% -- worse, in relative terms, than the
+structure-free case above. One single complex tile at a 64x64 footprint
+was forced to 2x2 resolution by something small inside it, costing 1024
+payload bits for one region a big `Bound` tile plus a small aside would
+have covered far more cheaply; eighty-eight more complex tiles at 16x16
+footprints did the same thing at a smaller scale. See the
+"real failure mode" note under `compose_complex_tiles` above for the
+mechanism.
+
+The two failures are opposite in shape -- one is about a capability
+this tree does not have at all, the other about a capability
+(`compose_complex_tiles`) that actively backfires on exactly the
+content (blocks with small cutouts) it looks best-suited to. Re-run the
+search (`samples::every_family()`, worst ratio against dsrn) after any
+change to either pass, rather than trusting these numbers to still be
+the worst case.
