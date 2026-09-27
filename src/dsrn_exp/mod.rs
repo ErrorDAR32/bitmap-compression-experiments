@@ -17,6 +17,8 @@ pub mod emitted;
 pub mod four_by_four;
 pub mod greedy_tiles;
 mod greedy_tiles_tests;
+pub mod hexadecatree;
+mod hexadecatree_tests;
 pub mod masking_thresholds;
 pub mod tile_or_subdivide;
 mod tile_or_subdivide_tests;

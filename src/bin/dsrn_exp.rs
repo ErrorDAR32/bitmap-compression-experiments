@@ -6,8 +6,8 @@
 
 use bitmap::dsrn::{FourByFour, Knobs, Masking};
 use bitmap::dsrn_exp::{
-    emitted, four_by_four, greedy_tiles, masking_thresholds, tile_or_subdivide, tile_stream, tile_tree,
-    where_the_bits_go,
+    emitted, four_by_four, greedy_tiles, hexadecatree, masking_thresholds, tile_or_subdivide, tile_stream,
+    tile_tree, where_the_bits_go,
 };
 
 fn main() {
@@ -35,6 +35,7 @@ fn main() {
         "tree" => tile_tree::run(),
         "stream" => tile_stream::run(),
         "subdivide" => tile_or_subdivide::run(),
+        "hexadeca" => hexadecatree::run(),
         _ => {
             println!("  which test?\n");
             println!("    emitted [knobs]   what it emits, and what the codes are");
@@ -43,6 +44,7 @@ fn main() {
             println!("    4x4               what a 4x4 that always masks costs");
             println!("    tiles             the greedy tile pass against dsrn, tile for tile");
             println!("    subdivide         homogeneous tiles vs. subdividing, against dsrn");
+            println!("    hexadeca          the same tiling, but a 16-ary tree above 4x4");
             println!("\n  knobs: anywhere from4 from8 from16 | grammar always-masks");
         }
     }

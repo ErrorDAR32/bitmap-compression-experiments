@@ -1,58 +1,54 @@
-//! Pairing the greedy pass's already-perfect tiling with a quadtree
-//! that just has to say where each tile is.
+//! [`super::tile_or_subdivide`], but the tree above 4x4 has sixteen
+//! children a node instead of four.
 //!
-//! The tiles themselves are never decided here -- [`decide_tiles`]
-//! already found the biggest-first, best set of homogeneous and
-//! copyable tiles once, for the whole bitmap, and that set is treated
-//! as fixed. All this file adds is a cheap way to say *where* each one
-//! is: a plain quadtree, subdivided only where it has to be to reach a
-//! tile that isn't the whole of the region it would otherwise bind.
-//! Reaching a region that is itself exactly one placed tile costs one
-//! bit to say so, whatever that tile's size; a region that isn't one
-//! whole tile costs one bit to say it subdivides, then the same
-//! question again for each of its four children. Nothing here
-//! searches for a size or compares a payload against leftover cells --
-//! the answer for every region is already known from the tile set, so
-//! building the tree is a lookup, not a decision.
+//! Same pairing, with one difference: [`decide_tiles`] is restricted
+//! here to exactly the sizes this tree can make a node of --
+//! [`levels`] -- rather than every size down to a cell. 128 and 32 are
+//! never tried and never a node in this tree at all; a homogeneous or
+//! copyable area at one of those sizes is simply found again, at one
+//! size finer, by each of its own four quarters -- more tiles for that
+//! area, never a lost one, since every cell is still exactly as one
+//! thing as it always was. This only says *where* each tile is: the
+//! only thing different from `tile_or_subdivide` is how coarse a jump
+//! "not one whole tile, look closer" is allowed to be. From the whole
+//! bitmap down to 4x4, one subdivide bit skips two quadtree levels at
+//! once -- 256, 64, 16, 4, sixteen children a node -- instead of one.
+//!
+//! Below 4x4 nothing changes at all: the ordinary one-level-a-jump
+//! quadtree, the same 2x2 special case, and the same trailing raw pass
+//! for whatever the tree leaves uncovered, exactly as
+//! `tile_or_subdivide` already does it -- "restricted to available
+//! node sizes, to keep compatibility" is the whole of the idea, not a
+//! reason to also rebuild the part that already works.
 //!
 //! # The grammar
 //!
 //! ```text
-//! (at any level down to one above cells)
+//! (at 256, 64 and 16)
 //! 1: leaf -- this region is exactly one placed tile
 //!    0: copy   + 1 far/near bit + 2 direction bits
 //!    1: bind   + 1 value bit
-//! 0: subdivide -- recurse into all four children
+//! 0: subdivide -- recurse into all sixteen grandchildren two levels down
 //!
-//! (one level above cells, in place of the above)
+//! (at 4x4, in the ordinary quadtree grammar again)
+//! 1: leaf, same as above
+//! 0: subdivide -- recurse into all four 2x2 children
+//!
+//! (at 2x2, same special case as tile_or_subdivide)
 //! 1: this 2x2 is a homogeneous placed tile + 1 value bit
 //! 0: it is not -- its four cells are holes, no further bits
 //! ```
 //!
-//! One level above cells never offers copy, and never subdivides
-//! further, since cells are not tracked by this tree at all: a 2x2
-//! that is only copyable, or that decide_tiles only managed to cover
-//! with 1x1 tiles, is left entirely to the trailing raw pass, at one
-//! bit a cell -- cheaper than a copy's own header for one tile that
-//! small, and there is nothing finer here to subdivide into.
-//!
-//! Whatever the tree never covers -- 1x1 tiles and skipped 2x2s alike
-//! -- gets exactly one raw bit a cell, in reading order, once the tree
-//! is done. Decoding is two passes, exactly like
-//! [`crate::dsrn_exp::tile_stream`]: a copy is chosen on content alone
-//! by [`decide_tiles`], so its source may not be resolved yet by the
-//! time the tree reaches it, and may even be a hole the trailing pass
-//! has not read yet. The tree and the trailing bits are read first,
-//! recording every cell as a value or a direction to read one from;
-//! then values are resolved by repeated sweeps, deferring a copy to
-//! the next one whenever its source is not resolved yet. No cycle is
-//! possible -- a copy always names something reading order puts before
-//! it -- so this always finishes, backed by an assertion rather than
-//! blind trust.
+//! Node sizes are therefore restricted to 256, 64, 16, 4, 2 and 1 --
+//! the last one only ever as a raw trailing bit, never a node of its
+//! own, same as `tile_or_subdivide`. Decoding is the same two-pass
+//! deferred resolution for the same reason: a copy is chosen on
+//! content alone, so its source may not be resolved yet by the time
+//! the tree reaches it.
 
 use crate::dsrn::region::{Region, DIRECTIONS};
 use crate::dsrn::stream::EncodedBitmap;
-use crate::dsrn_exp::greedy_tiles::{decide_tiles, PlacedTile, Says, EVERY_LEVEL};
+use crate::dsrn_exp::greedy_tiles::{decide_tiles, PlacedTile, Says};
 use crate::pyramid::{tiles_across, tiles_in_level, Pyramid, CELL_LEVEL};
 use crate::Bitmap;
 
@@ -65,6 +61,33 @@ const VALUE_WIDTH: usize = 1;
 const COPY: u64 = 0;
 const BIND: u64 = 1;
 
+/// How many quadtree levels one subdivide jumps, from a region at
+/// this level: two above 4x4, for the sixteen-child hexadecatree
+/// levels, one from 4x4 down, for the ordinary quadtree.
+fn jump(level: usize) -> usize {
+    if level < CELL_LEVEL - 2 {
+        2
+    } else {
+        1
+    }
+}
+
+/// The levels this tree can ever place a leaf at, coarsest first --
+/// exactly the levels [`jump`] lands a subdivide on, walked from the
+/// whole bitmap down to cells. [`decide_tiles`] is restricted to
+/// these, so it never places a tile at a size (128, 32 or 8) this
+/// tree could never make a node of, and finds the same content at a
+/// size that is one of these instead.
+fn levels() -> Vec<usize> {
+    let mut found = vec![0];
+    let mut level = 0;
+    while level < CELL_LEVEL {
+        level += jump(level);
+        found.push(level);
+    }
+    found
+}
+
 /// What [`decide_tiles`] said about every region, by level -- a
 /// region not in here was left to something finer, or is not a
 /// region any placed tile lines up with.
@@ -76,7 +99,7 @@ impl TileLookup {
     fn build(pyramid: &Pyramid, bitmap: &Bitmap) -> Self {
         let mut says: Vec<Vec<Option<Says>>> =
             (0..=CELL_LEVEL).map(|level| vec![None; tiles_in_level(level)]).collect();
-        for PlacedTile { region, says: what } in decide_tiles(pyramid, bitmap, &EVERY_LEVEL) {
+        for PlacedTile { region, says: what } in decide_tiles(pyramid, bitmap, &levels()) {
             let across = tiles_across(region.level);
             says[region.level][region.y * across + region.x] = Some(what);
         }
@@ -138,7 +161,7 @@ fn encode_region(lookup: &TileLookup, region: Region, covered: &mut Bitmap, out:
         }
         None => {
             out.push_value(0, LEAF_WIDTH);
-            for child in region.children() {
+            for child in region.tiles_at_depth(jump(region.level)) {
                 encode_region(lookup, child, covered, out);
             }
         }
@@ -196,7 +219,7 @@ fn decode_region(stream: &EncodedBitmap, at: &mut usize, region: Region, covered
     }
 
     if !leaf {
-        for child in region.children() {
+        for child in region.tiles_at_depth(jump(region.level)) {
             decode_region(stream, at, child, covered, owner);
         }
         return;
@@ -265,8 +288,8 @@ fn resolve(owner: &[Option<Owner>]) -> Bitmap {
     bitmap
 }
 
-/// Bits against dsrn's own, in the same currency [`crate::dsrn_exp::tile_stream`]
-/// already compares in.
+/// Bits against dsrn's own, and against [`super::tile_or_subdivide`],
+/// in the same currency both already compare in.
 pub fn run() {
     use crate::dsrn::{encode as dsrn_encode, FourByFour, Knobs, Masking, Workspace};
     use crate::samples;
@@ -276,20 +299,23 @@ pub fn run() {
         (Pyramid::new(), Workspace::new(), crate::dsrn::Encoded::default());
 
     for (family, maps) in samples::every_family() {
-        let (mut dsrn_bits, mut our_bits) = (0usize, 0usize);
+        let (mut dsrn_bits, mut quad_bits, mut hexadeca_bits) = (0usize, 0usize, 0usize);
         for bitmap in &maps {
             pyramid.clear();
             pyramid.rebuild(bitmap);
             dsrn_encode(&pyramid, bitmap, knobs, &mut work, &mut dsrn_out);
             dsrn_bits += dsrn_out.bits();
-            our_bits += encode(&pyramid, bitmap).len();
+            quad_bits += super::tile_or_subdivide::encode(&pyramid, bitmap).len();
+            hexadeca_bits += encode(&pyramid, bitmap).len();
         }
         let n = maps.len();
         println!(
-            "\n  {family}, {n} bitmaps: dsrn {} bits a bitmap, tile-or-subdivide {} ({:+.1}%)",
+            "\n  {family}, {n} bitmaps: dsrn {} bits a bitmap, tile-or-subdivide {} ({:+.1}%), hexadecatree {} ({:+.1}%)",
             dsrn_bits / n,
-            our_bits / n,
-            100.0 * (our_bits as f64 - dsrn_bits as f64) / dsrn_bits as f64
+            quad_bits / n,
+            100.0 * (quad_bits as f64 - dsrn_bits as f64) / dsrn_bits as f64,
+            hexadeca_bits / n,
+            100.0 * (hexadeca_bits as f64 - dsrn_bits as f64) / dsrn_bits as f64
         );
     }
 }
