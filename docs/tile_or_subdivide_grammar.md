@@ -49,7 +49,7 @@ taken immediately, whatever a finer size might also have found. This
 is `decide_tiles`' whole file: it produces a flat `Vec<PlacedTile>`
 and writes no bits.
 
-### Pass two: `compose_complex_tiles` -- the biggest area that still fits one resolution
+### Pass two: `compose_complex_tiles` -- the candidate absorbing the most tiles a payload bit
 
 A second, separate pass over `decide_tiles`' own output, not a third
 thing the tiler itself decides. A complex tile is an aligned area, 4x4
@@ -59,41 +59,51 @@ them** -- the smallest of their own sizes. A tile in the area bigger
 than that resolution decomposes into that many repeats of its own
 value; a `Copied` tile or a 1x1 tile anywhere in the area disqualifies
 the whole thing, whatever the rest of it looks like -- no masking, and
-no resolution finer than 2x2.
+no resolution finer than 2x2. Only `Bound` tiles ever compose, so a
+tile this pass just placed -- `Complex` -- never composes again into a
+coarser one.
 
-Tried exactly the way `decide_tiles` tries its own sizes: biggest area
-first (256 down to 4x4), and an area that qualifies is claimed
-outright, at no comparison against any alternative. An area that does
-not qualify is simply left for its own four quarters, one size finer,
-to each try again for themselves -- which is also what happens
-whenever a coarser area was disqualified only by something in one of
-its quarters, since the other three still each get their own, later,
-independent try. Only `Bound` tiles ever compose, so a tile this pass
-just placed -- `Complex` -- never composes again into a coarser one.
+Which of the (possibly many) valid areas actually gets composed is a
+genuine greedy search, not a lookup: every valid area, of every size
+and at every position, is a candidate every round, and the round
+commits exactly one -- the one with the highest `constituents /
+payload` ratio, breaking a tie toward the larger area. `constituents`
+is how many of `decide_tiles`' own placed tiles the area absorbs;
+`payload` is how many value bits saying them at the chosen resolution
+costs. That ratio is `1.0` exactly when every one of an area's tiles is
+already sized to the resolution it settles on -- no repeated values at
+all -- and falls the further below it the more a bigger constituent's
+repeated value pads the payload out for nothing a coarser resolution
+would have had to say anyway. Picking one candidate can only ever
+remove others from contention (an area it just absorbed cannot be
+gathered into anything else); it never creates a new one, so
+re-scanning every candidate from scratch each round is wasteful but
+never wrong, and the round where nothing qualifies is where this stops.
 
 This never looks at the bitmap, or at cells as such, only at tiles
 `decide_tiles` already placed and verified independently -- it cannot
-claim something is homogeneous that is not, and it has no idea which
-sizes a given tree will find cheap or expensive to represent. That is
-the reader's own question (see the 2x2 note below and the measured
-result at the end of this file), not this pass's.
+claim something is homogeneous that is not.
 
-**A real failure mode this generalization introduced.** Composing the
-biggest area that fits *one* resolution, with no cost comparison, means
-a huge mostly-uniform area can be dragged down to a tiny resolution by
-a single small tile anywhere inside it -- one 2x2 courtyard cut into an
-otherwise solid 32x32 block forces the *entire* 32x32 into one complex
-tile at 2x2 resolution, 256 payload bits, where leaving it alone would
-have cost one big bind plus a small aside for the courtyard. Measured
-directly: on "laid out like a city" (which is exactly blocks-with-
-occasional-cutouts), this pass alone produces groups like a 32x32 area
-at 2x2 resolution and seventeen 16x16 areas at 2x2 resolution *a
-bitmap*, and the whole encoding regresses from +9.6% against dsrn
-(the one-level, four-same-size-siblings version this replaced) to
-+34.2%. "Grown like a blob" barely moves (+0.2%, was +0.2%), since its
-content has no such big-uniform-area-with-a-small-exception pattern to
-begin with. Committed as measured, not reverted -- see the git history
-for `compose_complex_tiles` for the full account.
+**An earlier version tried biggest area first, with no comparison at
+all**, and paid for it: a huge mostly-uniform area could be dragged
+down to a tiny resolution by a single small tile anywhere inside it --
+one 2x2 courtyard cut into an otherwise solid 32x32 block forced the
+*entire* 32x32 into one complex tile at 2x2 resolution, 256 payload
+bits, where leaving it alone would have cost one big bind plus a small
+aside for the courtyard. That version's ratio for such a case is
+exactly the giveaway: a handful of constituents against a payload in
+the hundreds, nowhere near `1.0` -- precisely the case the ratio search
+now loses to whatever else is available. Measured: "laid out like a
+city" (streets, blocks and occasional courtyard cutouts -- exactly the
+shape this failure needs) went from +9.6% against dsrn at the original
+one-level, four-same-size-siblings version, to +34.2% once composing
+could reach any size with no comparison, back down to **+9.3%** with
+the ratio search -- slightly better than where this started, now with
+the more general capability intact. "Grown like a blob" sat at +0.2%
+through all three versions, since its content never had a big-uniform-
+area-with-a-small-exception pattern to be punished for, or rewarded
+for fixing. Full history is in git; nothing here was reverted, each
+version was measured and kept.
 
 ## The tree grammar
 
@@ -183,37 +193,32 @@ not blind trust, and always finishes.
 
 The single worst bitmap against dsrn is not fixed -- it shifts every
 time `compose_complex_tiles`' own rule changes, since that rule decides
-which content gets punished. Two found so far, both worth keeping:
+which content gets punished. Re-run the search
+(`samples::every_family()`, worst ratio against dsrn) after any change
+to either pass, rather than trusting a number here to still be the
+worst case.
 
-**Structure-free content**, from before `compose_complex_tiles` could
-engulf more than one level: a "grown like a blob" sample, 32768 of
-65536 cells set, scattered with no spatial correlation -- as close to
+**With the ratio search in place, the worst bitmap is structure-free
+content again** -- the same "grown like a blob" sample, 32768 of 65536
+cells set, scattered with no spatial correlation, as close to
 incompressible as this crate's generator produces. dsrn: 65542 bits
 (one 6-bit header binding the whole bitmap at 1x1, then 65536 raw
 payload bits -- the theoretical floor, see `docs/dsrn_grammar.md`'s
-bind-at-depth). This tree: 81382 bits, +24.2%. dsrn can say "give up
-entirely, here is every cell of me raw" for a region of *any size*, in
-one small header; this tree has no equivalent -- reaching "nothing
-here compresses" costs one subdivide bit *per level* walked down to
-4x4, and the tiler's own 2x2-level findings (5736 copyable 2x2s, 8648
-complex groups) were simply discarded as holes once found there.
+bind-at-depth). This tree: 81219 bits, +23.9%, with **zero complex
+tiles composed anywhere in it** -- every candidate area in genuinely
+random-looking content has a 1x1 tile somewhere inside it, which
+disqualifies it outright, so `compose_complex_tiles` correctly finds
+nothing worth composing rather than forcing a bad one through. dsrn can
+say "give up entirely, here is every cell of me raw" for a region of
+*any size*, in one small header; this tree has no equivalent --
+reaching "nothing here compresses" costs one subdivide bit *per level*
+walked down to 4x4.
 
-**A large uniform area with a small exception**, the current worst,
-after `compose_complex_tiles` gained the ability to engulf areas
-bigger than one level: a "laid out like a city" sample. dsrn: 3149
-bits. This tree: 6099, +93.7% -- worse, in relative terms, than the
-structure-free case above. One single complex tile at a 64x64 footprint
-was forced to 2x2 resolution by something small inside it, costing 1024
-payload bits for one region a big `Bound` tile plus a small aside would
-have covered far more cheaply; eighty-eight more complex tiles at 16x16
-footprints did the same thing at a smaller scale. See the
-"real failure mode" note under `compose_complex_tiles` above for the
-mechanism.
-
-The two failures are opposite in shape -- one is about a capability
-this tree does not have at all, the other about a capability
-(`compose_complex_tiles`) that actively backfires on exactly the
-content (blocks with small cutouts) it looks best-suited to. Re-run the
-search (`samples::every_family()`, worst ratio against dsrn) after any
-change to either pass, rather than trusting these numbers to still be
-the worst case.
+**The large-uniform-area-with-a-small-exception failure the biggest-
+area-first version had is fixed.** That version's worst bitmap, a
+"laid out like a city" sample, regressed from +9.6% to +93.7% under it;
+under the ratio search the same family sits at +9.3% overall (see
+`compose_complex_tiles`'s own doc comment for the mechanism and the
+numbers) -- back below where complex tiles started, and no longer the
+worst case at all. The remaining gap on structure-free content is a
+capability this tree simply does not have, not a bug in either pass.

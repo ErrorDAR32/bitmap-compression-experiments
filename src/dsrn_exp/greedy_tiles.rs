@@ -179,24 +179,33 @@ fn copy_choice(
 /// repeats of its own value; nothing is ever cut, since every placed
 /// tile already lines up with the same power-of-two grid a candidate
 /// area does, so it is always either wholly inside that area or wholly
-/// outside it, never straddling the edge.
+/// outside it, never straddling the edge. A `Copied` tile or a 1x1
+/// anywhere inside disqualifies the whole area, whatever the rest of
+/// it looks like: no masking, and no resolution finer than 2x2. Only
+/// `Bound` tiles ever compose, so a tile this pass just placed --
+/// `Complex` -- never composes again into a coarser one.
 ///
-/// Tried biggest area first, exactly the way [`decide_tiles`] tries
-/// its own tile sizes: an area that qualifies is claimed outright, at
-/// no cost to check, and one that does not is simply left for its own
-/// four quarters, one size finer, to each try again for themselves --
-/// no comparison, ever, between a coarse area and a finer alternative.
-/// A `Copied` tile or a 1x1 anywhere inside disqualifies the whole
-/// area, whatever the rest of it looks like: no masking, and no
-/// resolution finer than 2x2. Only `Bound` tiles ever compose, so a
-/// tile this pass just placed -- `Complex` -- never composes again
-/// into a coarser one.
+/// The naive greedy search this settled on, rather than biggest area
+/// first with no comparison: every valid area, of every size and at
+/// every position, is a candidate every round, and the round commits
+/// exactly one -- the one absorbing the most tiles a payload bit,
+/// `constituents / payload`, breaking a tie toward the larger area.
+/// That ratio is 1.0 exactly when every one of an area's tiles is
+/// already sized to the resolution it settles on, and falls the
+/// further below it the more a bigger constituent's repeated value
+/// pads the payload for nothing a coarser resolution would have had to
+/// say anyway -- which is exactly what favouring the ratio closest to
+/// one avoids: the failure this replaced, where the single biggest
+/// area that merely *qualified* could drag an otherwise-uniform region
+/// down to whatever resolution its one smallest tile demanded. Picking
+/// one candidate can only remove others -- an area it just absorbed
+/// cannot be gathered into anything else -- never add one, so
+/// re-scanning every candidate from scratch each round is wasteful but
+/// never wrong, and the round after nothing qualifies is where this
+/// stops.
 ///
 /// This never looks at the bitmap, or at cells as such -- only at
-/// tiles decide_tiles already placed, whatever their size. What a
-/// composed tile is worth to whoever writes it out is that reader's
-/// own question to answer, not something to bake into how tiles are
-/// found here.
+/// tiles decide_tiles already placed, whatever their size.
 pub fn compose_complex_tiles(tiles: Vec<PlacedTile>) -> Vec<PlacedTile> {
     let mut grid: Vec<Vec<Option<Says>>> =
         (0..=CELL_LEVEL).map(|level| vec![None; tiles_in_level(level)]).collect();
@@ -205,28 +214,52 @@ pub fn compose_complex_tiles(tiles: Vec<PlacedTile>) -> Vec<PlacedTile> {
         grid[region.level][region.y * across + region.x] = Some(says);
     }
 
-    let mut claimed = Bitmap::new();
-    for level in 0..=(CELL_LEVEL - 2) {
-        let across = tiles_across(level);
-        for y in 0..across {
-            for x in 0..across {
-                let region = Region { level, x, y };
-                let (cx, cy) = region.top_left_cell();
-                if claimed.get(cx as u8, cy as u8) {
-                    continue;
+    // Every possible complex tile, tried again from scratch each round:
+    // committing one can only ever remove candidates (an area it just
+    // absorbed can no longer be gathered into anything else), never add
+    // one, so re-scanning is wasteful but never wrong.
+    loop {
+        let mut best: Option<(f64, usize, Region, usize, Vec<(Region, bool)>)> = None;
+        for level in 0..=(CELL_LEVEL - 2) {
+            let across = tiles_across(level);
+            for y in 0..across {
+                for x in 0..across {
+                    if grid[level][y * across + x].is_some() {
+                        // Already one placed tile, or a complex tile
+                        // from an earlier round -- nothing left here
+                        // for a coarser one to find.
+                        continue;
+                    }
+                    let region = Region { level, x, y };
+                    let Some((finest, constituents)) = gather(&grid, region) else { continue };
+                    let side = 1usize << (finest - level);
+                    let payload = side * side;
+                    // How many tiles this absorbs against how many
+                    // payload bits it costs to say them -- 1.0 at its
+                    // best, when every one of them is already at the
+                    // resolution this settles on, and falling the
+                    // further from it the more a bigger constituent's
+                    // repeated value pads the payload out for nothing
+                    // a coarser resolution wouldn't have said instead.
+                    let ratio = constituents.len() as f64 / payload as f64;
+                    let area = region.side_in_cells() * region.side_in_cells();
+                    let better = match best {
+                        Some((best_ratio, best_area, ..)) => {
+                            ratio > best_ratio || (ratio == best_ratio && area > best_area)
+                        }
+                        None => true,
+                    };
+                    if better {
+                        best = Some((ratio, area, region, finest, constituents));
+                    }
                 }
-                if grid[level][y * across + x].is_some() {
-                    // Already one placed tile of its own -- nothing
-                    // finer for a complex tile to say about it.
-                    continue;
-                }
-                let Some((finest, constituents)) = gather(&grid, region) else { continue };
-                consume(&mut grid, region);
-                grid[level][y * across + x] =
-                    Some(Says::Complex { depth: finest - level, values: flatten(region, finest, &constituents) });
-                claim(&mut claimed, region);
             }
         }
+        let Some((_, _, region, finest, constituents)) = best else { break };
+        consume(&mut grid, region);
+        let across = tiles_across(region.level);
+        grid[region.level][region.y * across + region.x] =
+            Some(Says::Complex { depth: finest - region.level, values: flatten(region, finest, &constituents) });
     }
 
     grid.into_iter()
