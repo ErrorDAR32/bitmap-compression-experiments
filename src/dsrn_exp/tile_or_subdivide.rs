@@ -64,7 +64,7 @@
 //! it -- so this always finishes, backed by an assertion rather than
 //! blind trust.
 
-use crate::dsrn::region::{Region, DIRECTIONS};
+use crate::dsrn::region::{deepest_depth, Region, DIRECTIONS};
 use crate::dsrn::stream::EncodedBitmap;
 use crate::dsrn_exp::greedy_tiles::{compose_complex_tiles, decide_tiles, MaskNode, PlacedTile, Says};
 use crate::pyramid::{tiles_across, tiles_in_level, Pyramid, CELL_LEVEL};
@@ -76,7 +76,6 @@ const FAR_WIDTH: usize = 1;
 const DIRECTION_WIDTH: usize = 2;
 const VALUE_WIDTH: usize = 1;
 const COMPLEX_FLAG_WIDTH: usize = 1;
-const RESOLUTION_WIDTH: usize = 3;
 
 const COPY: u64 = 0;
 const BIND: u64 = 1;
@@ -97,6 +96,31 @@ const MASKING: u64 = 1;
 const MASK_NODE_LEAF_WIDTH: usize = 1;
 const MASK_NODE_LEAF: u64 = 1;
 const MASK_NODE_SUBDIVIDE: u64 = 0;
+
+/// How many bits it takes to name a `depth - 1` value at `region.level`
+/// -- a complex tile's own resolution field, sized to what a region at
+/// that level could actually need rather than a flat width everywhere.
+/// `depth` never exceeds [`deepest_depth`] (there is nothing finer than
+/// a cell to decompose into), so `depth - 1` never exceeds
+/// `deepest_depth - 1`, and a region's own level is already known from
+/// its place in the tree -- free context, not a bit anyone has to
+/// spend. Almost every complex tile settles at a level fine enough for
+/// this to matter: measured on the full sample corpus, none formed
+/// above level 3, and a flat 3-bit field wasted 1 bit a tile at level 4
+/// or 5 and 2 at level 6, where the overwhelming majority of them are.
+fn resolution_width(level: usize) -> usize {
+    bits_to_name(deepest_depth(level))
+}
+
+/// How many bits it takes to name one of `count` values, `0`-indexed --
+/// `0` when there is only one, since nothing is left to say.
+fn bits_to_name(count: usize) -> usize {
+    let mut bits = 0;
+    while (1usize << bits) < count {
+        bits += 1;
+    }
+    bits
+}
 
 /// A [`MaskNode`] leaf's own decision.
 const MASK_STATE_WIDTH: usize = 1;
@@ -180,10 +204,19 @@ fn encode_region(lookup: &TileLookup, region: Region, covered: &mut Bitmap, out:
             out.push_value(1, LEAF_WIDTH);
             out.push_value(BIND, CODE_WIDTH);
             out.push_value(COMPLEX, COMPLEX_FLAG_WIDTH);
-            out.push_value((depth - 1) as u64, RESOLUTION_WIDTH);
+            out.push_value((depth - 1) as u64, resolution_width(region.level));
             let limit_level = region.level + depth;
-            if mask.iter().all(|node| matches!(node, MaskNode::Unmasked(_))) {
-                out.push_value(NO_MASKING, MASK_PRESENT_WIDTH);
+            let all_unmasked = mask.iter().all(|node| matches!(node, MaskNode::Unmasked(_)));
+            debug_assert!(depth > 1 || all_unmasked, "masking never pays for itself at depth 1");
+            // At depth 1 every child already sits at the resolution, so
+            // masking one can only ever cost more than it saves (see
+            // compose_complex_tiles' own doc comment) -- never chosen
+            // there, so the mask-present bit would carry zero
+            // information at depth 1: skipped entirely, on both sides.
+            if depth > 1 {
+                out.push_value(if all_unmasked { NO_MASKING } else { MASKING }, MASK_PRESENT_WIDTH);
+            }
+            if all_unmasked {
                 for node in &mask {
                     let MaskNode::Unmasked(values) = node else { unreachable!() };
                     for &value in values {
@@ -192,7 +225,6 @@ fn encode_region(lookup: &TileLookup, region: Region, covered: &mut Bitmap, out:
                 }
                 mark_covered(covered, region);
             } else {
-                out.push_value(MASKING, MASK_PRESENT_WIDTH);
                 for (child, node) in region.children().into_iter().zip(&mask) {
                     encode_mask_node(lookup, child, limit_level, node, covered, out);
                 }
@@ -349,11 +381,20 @@ fn decode_region(
             *at += COMPLEX_FLAG_WIDTH;
         }
         if complex {
-            let depth = stream.take(*at, RESOLUTION_WIDTH) as usize + 1;
-            *at += RESOLUTION_WIDTH;
+            let width = resolution_width(region.level);
+            let depth = stream.take(*at, width) as usize + 1;
+            *at += width;
             let limit_level = region.level + depth;
-            let masking = stream.take(*at, MASK_PRESENT_WIDTH) == MASKING;
-            *at += MASK_PRESENT_WIDTH;
+            // The mask-present bit was never written at depth 1 (see
+            // encode_region's own comment) -- it must not be read
+            // either, since masking is never chosen there.
+            let masking = if depth > 1 {
+                let masking = stream.take(*at, MASK_PRESENT_WIDTH) == MASKING;
+                *at += MASK_PRESENT_WIDTH;
+                masking
+            } else {
+                false
+            };
             if masking {
                 for child in region.children() {
                     decode_mask_node(stream, at, child, limit_level, covered, owner);

@@ -230,7 +230,12 @@ above 2x2, a leaf's own code.
    0: copy   -- 1 far/near bit, then 2 direction bits
    1: bind
       0: simple  -- 1 value bit
-      1: complex -- 3 resolution bits (depth - 1), then 1 mask-present bit
+      1: complex -- `resolution_width(level)` resolution bits (depth - 1,
+                    sized to this region's own level -- see below), then,
+                    only when `depth > 1` (masking is never chosen at
+                    depth 1, so this bit is skipped entirely there,
+                    known to be "no masking" on both sides for free), 1
+                    mask-present bit
                     0: no masking -- one value bit a tile, for every
                        tile the resolution names below this region, in
                        reading order
@@ -259,24 +264,46 @@ one more bit --
 ```
 
 Field widths: leaf/subdivide bit 1, code bit 1, far/near bit 1,
-direction 2, complex-flag bit 1, resolution 3, mask-present bit 1, mask
-node's own leaf/subdivide bit 1, mask node's own masked/unmasked bit 1,
-value bit 1 each. A mask node already at the complex tile's own tile
-size skips its leaf/subdivide bit entirely -- there is nothing finer to
-subdivide into, so it is always a leaf -- and goes straight to its own
-masked/unmasked bit.
+direction 2, complex-flag bit 1, resolution `resolution_width(level)`
+(below), mask-present bit 1 (0 at depth 1), mask node's own
+leaf/subdivide bit 1, mask node's own masked/unmasked bit 1, value bit 1
+each. A mask node already at the complex tile's own tile size skips its
+leaf/subdivide bit entirely -- there is nothing finer to subdivide into,
+so it is always a leaf -- and goes straight to its own masked/unmasked
+bit.
+
+**The resolution field's own width depends on the region's level, not a
+flat constant.** `depth` can never exceed `deepest_depth(level)` (there
+is nothing finer than a cell to decompose into), so `depth - 1` only
+ever needs `resolution_width(level) = bits_to_name(deepest_depth(level))`
+bits -- `ceil(log2(deepest_depth(level)))`, `0` if only one value is
+possible at all. A region's own level is already known from its place
+in the tree, free context that costs nothing to use. A flat 3-bit field
+(enough for level 0, where 8 depths are possible) was pure waste at
+every level a complex tile can actually reach: measured on the full
+sample corpus, not one complex tile formed above level 3 (`deepest_depth
+= 5`, still needing all 3 bits), while the overwhelming majority sit at
+level 4 (`deepest_depth = 4`, 2 bits), level 5 (`deepest_depth = 3`, 2
+bits) or level 6 (`deepest_depth = 2`, 1 bit) -- 1 or 2 dead bits on
+nearly every complex tile written. Fixing it alone moved "laid out like
+a city" from +12.6% against dsrn to +8.0%.
 
 | Region says | Fields | Bits |
 |---|---|---|
 | leaf, copy | leaf + code + far + direction | `1+1+1+2 = 5` |
 | leaf, simple bind | leaf + code + complex-flag + value | `1+1+1+1 = 4` |
-| leaf, complex bind, unmasked | leaf + code + complex-flag + resolution + mask-present + N values | `1+1+1+3+1+N = 7+N` |
+| leaf, complex bind, depth 1 (mask-present skipped) | leaf + code + complex-flag + resolution + N values | `1+1+1+r+N = 3+r+N` |
+| leaf, complex bind, depth > 1, unmasked | leaf + code + complex-flag + resolution + mask-present + N values | `1+1+1+r+1+N = 4+r+N` |
 | mask node, at the tile size | masked/unmasked bit, then a value or a plain region | `1+1` (unmasked, one value) or `1+X` (masked, region's own cost `X`) |
 | mask node, above the tile size, resolved here | leaf bit + masked/unmasked bit, then values or a plain region | `2+N'` (unmasked, `N'` values below it) or `2+X` (masked) |
 | mask node, above the tile size, subdivided | leaf bit, then four child mask nodes | `1 + sum of the four children's own cost` |
 | subdivide | leaf bit only | `1` |
 | 2x2, homogeneous | leaf + value | `1+1 = 2` |
 | 2x2, hole | leaf bit only | `1`, then its 4 cells cost 1 raw bit each, later |
+
+(`r` is `resolution_width(region.level)`, `3` at level 0 or 1, still `3`
+at levels 2 and 3, `2` at levels 4 and 5, `1` at level 6 -- the finest a
+complex tile can ever start from.)
 
 A **complex tile at N sub-tiles, unmasked, breaks even against
 subdividing that area into N ordinary leaves** exactly when `7 + N`
@@ -298,19 +325,35 @@ it regardless of whether `compose_complex_tiles` had produced it.
 
 **This is also exactly why masking is never allowed at `depth == 1`,
 whatever it would exclude.** At `depth == 1`, every child sits directly
-at the mask tree's own floor, the complex tile's own tile size, so an
-unmasked child costs `1 (unmasked bit) + 1 (value) = 2` and a masked one
-costs `1 (masked bit) + X` (its own plain cost) -- masking never
-decomposes anything at `depth == 1` (there is nothing finer to
-decompose into), so a masked child is strictly a `1`-bit *tax* on top of
-what it would have cost outside the complex tile anyway, while an
-unmasked one *saves* 2 bits (`4` standalone down to `2`). Composing four
-children unmasked at `depth == 1` is `7 + 4 = 11` against `17` standalone
--- a clear win; composing three unmasked and one masked is
-`7 + 3*2 + (1 + X) = 14 + X` against `13 + X` standalone (one subdivide
-bit, three plain leaves, the masked child left exactly as itself) -- a
-guaranteed 1-bit *loss*, whatever `X` turns out to be, and only worse
-with more than one child masked. Past `depth == 1`, a masked child's own
+at the mask tree's own floor, the complex tile's own tile size, so *if*
+masking were allowed there, an unmasked child would cost `1 (unmasked
+bit) + 1 (value) = 2` and a masked one `1 (masked bit) + X` (its own
+plain cost) -- masking never decomposes anything at `depth == 1` (there
+is nothing finer to decompose into), so a masked child would be a
+`1`-bit *tax* on top of what it would have cost outside the complex
+tile anyway. Composing all four children unmasked at `depth == 1` is
+`3 + r + 4` (the header, mask-present skipped entirely since masking
+never happens here -- see above) against `1 + 4*4 = 17` standalone -- a
+clear win everywhere a complex tile can form (`17 - 7 = 10` bits at
+`r`'s widest, `4`; more at `r`'s narrowest). One masked of four, *were*
+it allowed, would need the mask-present bit paid back (nothing else
+here could tell a decoder to expect a masked-node tree instead of the
+flat value list), costing `(4 + r) + 3*2 + (1 + X) = r + 11 + X`
+against `13 + X` standalone -- a loss of `r - 2` bits, worse the wider
+the resolution field is (levels 0-3), an exact wash at `r = 2` (levels
+4-5), and, *only* at `r = 1` (level 6, the finest a complex tile ever
+starts from, and empirically where nearly all of them sit), a `1`-bit
+*win* on that one candidate. That last case is not worth chasing:
+paying it back would mean writing the mask-present bit on *every*
+depth-1 tile at that level, not just the rare one that actually masks
+something, since nothing else there tells a decoder which kind to
+expect -- and depth-1, fully-unmasked tiles at level 6 are, by a wide
+margin, the single most common complex tile this pass ever produces.
+Taxing all of them by a bit to occasionally save one back on a
+minority case is the trade `THREE_QUARTERS_GENUINE` exists to avoid
+making automatically, so the ban stays unconditional here too,
+deliberately leaving that one narrow case on the table. Past
+`depth == 1`, a masked child's own
 `1`-bit tax stays the same regardless of how deep the complex tile's own
 resolution goes, while an *unmasked* child at that same depth would have
 to repeat its own value across every payload tile its area covers at
