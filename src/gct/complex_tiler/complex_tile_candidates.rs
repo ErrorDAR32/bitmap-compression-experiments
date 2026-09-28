@@ -13,11 +13,11 @@
 //! What a size offset is worth is counted, not guessed: the tile's
 //! [bits](super::bit_cost) as the tiling stands, less its bits as that
 //! complex tile -- its children's read from the [cost
-//! pyramids](super::cost_pyramids). The best size offset saves the most, and a candidate
+//! pyramid](super::cost_pyramid). The best size offset saves the most, and a candidate
 //! that saves nothing is none.
 
 use super::bit_cost::node_bits;
-use super::cost_pyramids::CostPyramids;
+use super::cost_pyramid::CostPyramid;
 use crate::gct::grammar::raw_resolution_fits;
 use crate::gct::nested_resolutions::NestedResolutions;
 use crate::gct::pyramids::complex_tiling::{ComplexTiling, Fields};
@@ -47,9 +47,9 @@ pub struct Candidate {
 const FINEST_CHECKED_LEVEL: u8 = CELL_LEVEL - 4;
 
 /// In debug builds, for a candidate of 16x16 or finer, that `bits` read
-/// off the cost pyramids is what the reference count ([`bits`](super::bit_cost::bits)) gives
+/// off the cost pyramid is what the reference count ([`bits`](super::bit_cost::bits)) gives
 /// `tile` with `fields` as its fields -- the reference carrying the
-/// value bound above down itself, where the cost pyramids read each
+/// value bound above down itself, where the cost pyramid reads each
 /// tile's own field.
 fn debug_assert_matches_reference(
     complex_tiling: &Pyramid,
@@ -63,7 +63,7 @@ fn debug_assert_matches_reference(
         let reference = node_bits(complex_tiling, bitmap, tile, fields, &mut nested.clone(), fields.bound_above(), &mut |child, fields, inside, bound_above| {
             super::bit_cost::bits_with(complex_tiling, bitmap, child, fields, inside, bound_above)
         });
-        assert_eq!(bits, reference, "{tile:?}: the cost pyramids' count is not the reference count");
+        assert_eq!(bits, reference, "{tile:?}: the cost pyramid's count is not the reference count");
     }
 }
 
@@ -91,14 +91,14 @@ impl Candidate {
     pub fn best_for(
         complex_tiling: &Pyramid,
         bitmap: &Bitmap,
-        costs: &CostPyramids,
+        costs: &CostPyramid,
         tile: Tile,
         nested: &NestedResolutions,
     ) -> Option<Candidate> {
         let here = complex_tiling.fields(tile);
         let without = costs.without(tile);
         // A size offset's bits: the tile as that complex tile, its
-        // children read from the cost pyramid of its resolution.
+        // children's counts read from its resolution's slot.
         let with = |fields: Fields, resolution: u8| {
             let bits = node_bits(complex_tiling, bitmap, tile, fields, &mut nested.clone(), here.bound_above(), &mut |child, fields, inside, _| {
                 costs.child_bits(complex_tiling, bitmap, child, fields, inside, resolution)

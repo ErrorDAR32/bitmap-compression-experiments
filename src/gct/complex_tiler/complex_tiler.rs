@@ -18,7 +18,7 @@
 //! children keep between them. Tiles that do not overlap cost bits
 //! independently, so that is the best a pass can do.
 
-use super::cost_pyramids::CostPyramids;
+use super::cost_pyramid::CostPyramid;
 use super::complex_tile_candidates::Candidate;
 use super::raw_masking::{decide_raw_masking, MOST_RAW_MASKED};
 use crate::fixed_list::FixedList;
@@ -54,7 +54,7 @@ pub struct Scratch {
     /// The tiles a complex tile of 1x1 resolution masks.
     raw_masked: FixedList<Tile, MOST_RAW_MASKED>,
     /// Every count a search area's candidates ask for.
-    costs: CostPyramids,
+    costs: CostPyramid,
     /// A search area's roots: the whole bitmap, or the four children of
     /// a complex tile.
     roots: FixedList<Tile, MOST_ROOTS>,
@@ -105,7 +105,7 @@ const FINEST_CANDIDATE_LEVEL: u8 = CELL_LEVEL - 2;
 fn best_at_or_under(
     complex_tiling: &Pyramid,
     bitmap: &Bitmap,
-    costs: &CostPyramids,
+    costs: &CostPyramid,
     tile: Tile,
     nested: &NestedResolutions,
     chosen: &mut FixedList<Candidate, MOST_CANDIDATES>,

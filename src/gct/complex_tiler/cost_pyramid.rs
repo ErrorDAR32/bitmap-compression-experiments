@@ -1,24 +1,26 @@
-//! Cost pyramids: every bit count the complex tiler asks for in one
+//! The cost pyramid: every bit count the complex tiler asks for in one
 //! search area, counted once before any is asked, and held -- memory for
 //! the counting it saves.
 //!
-//! An array of pyramids, indexed by resolution: pyramid 0 holds each
-//! tile's bits nested as the area is, with no candidate above it;
-//! pyramid `r` its bits with one more complex tile, of resolution `r`,
-//! above it -- the candidate being scored. A tile's bits depend only on
-//! the complex tiles able to unmask it or anything under it, those of
-//! resolution its level or finer, so a tile is held in pyramid `r` only
-//! for those; for a coarser `r`, pyramid 0 is read instead.
+//! One element a tile, holding one count for each candidate resolution
+//! that can be above it: slot 0 its bits nested as the area is, with no
+//! candidate above it; slot `r` its bits with one more complex tile, of
+//! resolution `r`, above it -- the candidate being scored. A tile's bits
+//! depend only on the complex tiles able to unmask it or anything under
+//! it, those of resolution its level or finer, so a tile's slot `r` is
+//! filled only for those; for a coarser `r`, slot 0 is read instead.
+//! Every count a tile has is in its one element, and a tile's four
+//! children's elements are next to each other, in Morton order.
 //!
 //! Filled in two walks: down from the area's search roots, collecting
 //! the tiles a count can reach -- all a tile placed nothing says, the
 //! children a masking tile masks, nothing under a tile placed whole --
 //! with the resolutions some candidate above each will ask for; then
-//! back up, a level at a time, each tile's bits from its children's, by
-//! the rules the bit count ([`super::bit_cost`]) spells out. The value
-//! bound above a tile is its own field in the complex tiling, not
+//! back up, a level at a time, each tile's counts from its children's,
+//! by the rules the bit count ([`super::bit_cost`]) spells out. The
+//! value bound above a tile is its own field in the complex tiling, not
 //! carried down. 2x2s are counted as they are asked for, which takes a
-//! few steps. Nothing is changed while the pyramids are read: they are a
+//! few steps. Nothing is changed while the pyramid is read: it is a
 //! snapshot of the tiling as the pass found it.
 
 use super::bit_cost::node_bits;
@@ -27,6 +29,7 @@ use crate::fixed_list::FixedList;
 use crate::gct::nested_resolutions::NestedResolutions;
 use crate::gct::pyramids::complex_tiling::{ComplexTiling, Fields};
 use crate::gct::pyramids::placements::Placement;
+use crate::gct::grammar::bit_stream::MOST_BITS;
 use crate::gct::pyramids::pyramid::{Pyramid, PyramidShape};
 use crate::gct::tile::{tiles_across, Tile, CELL_LEVEL};
 use crate::Bitmap;
@@ -35,13 +38,28 @@ use crate::Bitmap;
 /// when asked for.
 const FINEST_HELD: u8 = CELL_LEVEL - 2;
 
-/// Enough for any tile's bits, the whole bitmap's included.
-const COST_SHAPE: PyramidShape = PyramidShape { coarsest_level: 0, finest_level: FINEST_HELD, element_bits: 32 };
-
-/// One pyramid for no candidate, then one a resolution.
-const PYRAMIDS: usize = CELL_LEVEL as usize + 1;
-/// The resolution index meaning no candidate above.
+/// Slots a tile: one for no candidate, then one a resolution.
+const SLOTS: usize = CELL_LEVEL as usize + 1;
+/// The slot for no candidate above.
 const NO_CANDIDATE: u8 = 0;
+
+/// Bits a count takes: enough for any tile's bits, the whole bitmap's
+/// included -- no count is more than the most a stream takes, a
+/// candidate above adding a nesting the stream's bound already allows
+/// for.
+const COUNT_BITS: usize = 21;
+const _: () = assert!(MOST_BITS < 1 << COUNT_BITS);
+/// Counts a word: a count never straddles two.
+const COUNTS_A_WORD: usize = u64::BITS as usize / COUNT_BITS;
+/// One count's bits, at the bottom of a word.
+const COUNT_MASK: u64 = (1 << COUNT_BITS) - 1;
+
+/// Every slot of a tile, in whole words.
+const COST_SHAPE: PyramidShape = PyramidShape {
+    coarsest_level: 0,
+    finest_level: FINEST_HELD,
+    element_bits: SLOTS.div_ceil(COUNTS_A_WORD) * u64::BITS as usize,
+};
 /// [`NO_CANDIDATE`]'s bit in a set of resolutions: every tile holds it.
 const NO_CANDIDATE_BIT: u16 = 1 << NO_CANDIDATE;
 
@@ -49,24 +67,24 @@ const NO_CANDIDATE_BIT: u16 = 1 << NO_CANDIDATE;
 /// finest level held.
 const MOST_REACHED: usize = tiles_across(FINEST_HELD) * tiles_across(FINEST_HELD);
 
-/// The cost pyramids, and room to collect the tiles to fill them for,
-/// all allocated once.
-pub struct CostPyramids {
-    /// Each tile's bits, by the resolution of the candidate above it.
-    pyramids: [Pyramid; PYRAMIDS],
+/// The cost pyramid, and room to collect the tiles to fill it for, all
+/// allocated once.
+pub struct CostPyramid {
+    /// Each tile's bits, a slot for each resolution of candidate above it.
+    counts: Pyramid,
     /// The tiles a count can reach, by level, each with the resolutions
     /// it must be held for, bit `r` for resolution `r`.
     reached: [FixedList<(Tile, u16), MOST_REACHED>; FINEST_HELD as usize + 1],
 }
 
-impl Default for CostPyramids {
-    /// Every pyramid allocated, nothing counted.
+impl Default for CostPyramid {
+    /// The pyramid allocated, nothing counted.
     fn default() -> Self {
-        Self { pyramids: std::array::from_fn(|_| Pyramid::new(COST_SHAPE)), reached: std::array::from_fn(|_| FixedList::new()) }
+        Self { counts: Pyramid::new(COST_SHAPE), reached: std::array::from_fn(|_| FixedList::new()) }
     }
 }
 
-/// The pyramid a tile of `level` is read from for a candidate of
+/// The slot a tile of `level` is read from for a candidate of
 /// `resolution` above: that resolution's own if it can reach the tile,
 /// else [`NO_CANDIDATE`]'s.
 fn resolution_at(level: u8, resolution: u8) -> u8 {
@@ -87,7 +105,7 @@ fn nesting_of(base: &NestedResolutions, resolution: u8) -> NestedResolutions {
     }
 }
 
-impl CostPyramids {
+impl CostPyramid {
     /// Counts, for every tile a count can reach from `roots`, its bits
     /// under every candidate resolution asked for, in a search area
     /// nested in `base`.
@@ -129,13 +147,17 @@ impl CostPyramids {
             for at in 0..self.reached[level as usize].len() {
                 let (tile, resolutions) = self.reached[level as usize][at];
                 let here = complex_tiling.fields(tile);
-                for resolution in (0..PYRAMIDS as u8).filter(|&resolution| resolutions & 1 << resolution != 0) {
+                let mut element = [0; COST_SHAPE.element_bits / u64::BITS as usize];
+                for resolution in (0..SLOTS as u8).filter(|&resolution| resolutions & 1 << resolution != 0) {
                     let mut nested = nesting_of(base, resolution);
                     let bits = node_bits(complex_tiling, bitmap, tile, here, &mut nested, here.bound_above(), &mut |child, fields, nested, _| {
                         self.child_bits(complex_tiling, bitmap, child, fields, nested, resolution)
                     });
-                    self.pyramids[resolution as usize].set(tile, bits);
+                    debug_assert!(bits <= COUNT_MASK, "{tile:?}: {bits} bits do not fit a count");
+                    let slot = resolution as usize;
+                    element[slot / COUNTS_A_WORD] |= bits << (slot % COUNTS_A_WORD * COUNT_BITS);
                 }
+                self.counts.element_words_mut(tile).copy_from_slice(&element);
             }
         }
     }
@@ -157,12 +179,19 @@ impl CostPyramids {
                 unreachable!("a 2x2 has no child nodes")
             });
         }
-        self.pyramids[resolution_at(tile.level, resolution) as usize].get(tile)
+        self.count(tile, resolution_at(tile.level, resolution))
+    }
+
+    /// `tile`'s count in `slot`.
+    #[inline]
+    fn count(&self, tile: Tile, slot: u8) -> u64 {
+        let slot = slot as usize;
+        self.counts.element_words(tile)[slot / COUNTS_A_WORD] >> (slot % COUNTS_A_WORD * COUNT_BITS) & COUNT_MASK
     }
 
     /// `tile`'s bits with no candidate above it, nested in the area's
     /// own nesting.
     pub fn without(&self, tile: Tile) -> u64 {
-        self.pyramids[NO_CANDIDATE as usize].get(tile)
+        self.count(tile, NO_CANDIDATE)
     }
 }

@@ -1,6 +1,7 @@
 //! A generic pyramid: one element per tile, at every level between a
 //! coarsest and a finest, each element a fixed number of bits, packed
-//! into machine words.
+//! into machine words -- several to a word, or, for an element wider
+//! than a word, several words to it.
 //!
 //! A tile is its level and its (x, y) in that level's plane; a tile's
 //! children are the 2x2 block at (2x..2x+1, 2y..2y+1) one level finer.
@@ -29,7 +30,8 @@ pub struct PyramidShape {
     /// The finest level held.
     pub finest_level: u8,
     /// Bits per element. Divides 64, so an element never straddles two
-    /// words.
+    /// words -- or, for an element wider than a word, is a whole number
+    /// of words.
     pub element_bits: usize,
 }
 
@@ -62,6 +64,8 @@ pub struct Pyramid {
     per_word_shift: u32,
     /// One element's bits, at the bottom of a word.
     element_mask: u64,
+    /// Words an element takes: 1 for one a word or narrower.
+    words_per_element: usize,
 }
 
 /// Two pyramids are equal when they hold the same elements in the same
@@ -78,19 +82,20 @@ impl Pyramid {
     /// An all-zero pyramid of this shape, whose levels are independent:
     /// setting a tile changes nothing else.
     pub fn new(shape: PyramidShape) -> Self {
+        let word_bits = u64::BITS as usize;
         assert!(
-            shape.element_bits > 0 && u64::BITS as usize % shape.element_bits == 0,
-            "an element's bits divide a word"
+            shape.element_bits > 0 && (word_bits.is_multiple_of(shape.element_bits) || shape.element_bits.is_multiple_of(word_bits)),
+            "an element's bits divide a word, or are whole words"
         );
         assert!(shape.coarsest_level <= shape.finest_level);
-        let per_word = u64::BITS as usize / shape.element_bits;
+        let per_word = (word_bits / shape.element_bits).max(1);
+        let words_per_element = shape.element_bits.div_ceil(word_bits);
         let mut level_starts = [0; LEVEL_STARTS];
         for level in shape.coarsest_level..=shape.finest_level {
             let elements = tiles_across(level).pow(2);
-            level_starts[level as usize + 1] = level_starts[level as usize] + elements.div_ceil(per_word);
+            level_starts[level as usize + 1] = level_starts[level as usize] + elements.div_ceil(per_word) * words_per_element;
         }
-        let element_mask =
-            if shape.element_bits == u64::BITS as usize { u64::MAX } else { (1 << shape.element_bits) - 1 };
+        let element_mask = if shape.element_bits >= word_bits { u64::MAX } else { (1 << shape.element_bits) - 1 };
         Self {
             shape,
             propagation: None,
@@ -98,6 +103,7 @@ impl Pyramid {
             level_starts,
             per_word_shift: per_word.trailing_zeros(),
             element_mask,
+            words_per_element,
         }
     }
 
@@ -124,9 +130,11 @@ impl Pyramid {
     }
 
     /// Where a tile's element sits: its word, and the shift within it.
+    /// For elements of a word or narrower.
     #[inline]
     fn locate(&self, tile: Tile) -> (usize, usize) {
         debug_assert!(self.holds(tile), "{tile:?} is outside this pyramid's levels");
+        debug_assert!(self.words_per_element == 1, "an element wider than a word is read by its words");
         let index = morton_index(tile.x, tile.y);
         let in_word = index & ((1 << self.per_word_shift) - 1);
         (self.level_starts[tile.level as usize] + (index >> self.per_word_shift), in_word * self.shape.element_bits)
@@ -202,6 +210,30 @@ impl Pyramid {
         let (word, shift) = self.locate(tile);
         let slot = &mut self.words[word];
         *slot = (*slot & !(mask << shift)) | (value << shift);
+    }
+
+    /// A tile's element of one word or more: its words. In Morton order,
+    /// a tile's four children's are next to each other.
+    #[inline]
+    pub fn element_words(&self, tile: Tile) -> &[u64] {
+        let first = self.first_word_of(tile);
+        &self.words[first..first + self.words_per_element]
+    }
+
+    /// A tile's element of one word or more, to write; nothing
+    /// propagates.
+    #[inline]
+    pub fn element_words_mut(&mut self, tile: Tile) -> &mut [u64] {
+        let first = self.first_word_of(tile);
+        &mut self.words[first..first + self.words_per_element]
+    }
+
+    /// The first word of a tile's element of one word or more.
+    #[inline]
+    fn first_word_of(&self, tile: Tile) -> usize {
+        debug_assert!(self.holds(tile), "{tile:?} is outside this pyramid's levels");
+        debug_assert!(self.shape.element_bits.is_multiple_of(u64::BITS as usize), "an element narrower than a word shares it");
+        self.level_starts[tile.level as usize] + morton_index(tile.x, tile.y) * self.words_per_element
     }
 
     /// The tile one level coarser that holds `tile`.
