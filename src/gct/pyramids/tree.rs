@@ -62,6 +62,9 @@ pub enum Node {
     /// A 2x2 that is not one bound tile: its four cells are left to the
     /// residual pass.
     Residual,
+    /// A complex tile of 1x1 resolution masking nothing, saying its set
+    /// cells as a [point list](crate::gct::grammar::point_list).
+    PointList,
 }
 
 /// Bits 0-2 of a node's code: which kind.
@@ -81,6 +84,8 @@ const COPIED: u64 = 3;
 const COMPLEX_TILE: u64 = 4;
 /// The kind of [`Node::Residual`].
 const RESIDUAL: u64 = 5;
+/// The kind of [`Node::PointList`].
+const POINT_LIST: u64 = 6;
 /// Copied: far in parameter bit 0.
 const FAR: u64 = 0b1;
 /// Copied: direction in parameter bits 1-2.
@@ -113,6 +118,7 @@ fn to_code(node: Node) -> u64 {
             (COMPLEX_TILE, size_offset as u64 | if masks { COMPLEX_TILE_MASKS } else { 0 })
         }
         Node::Residual => (RESIDUAL, 0),
+        Node::PointList => (POINT_LIST, 0),
     };
     kind | parameter << PARAMETER_SHIFT
 }
@@ -134,6 +140,7 @@ fn from_code(code: u64) -> Node {
             masks: parameter & COMPLEX_TILE_MASKS != 0,
         },
         RESIDUAL => Node::Residual,
+        POINT_LIST => Node::PointList,
         kind => unreachable!("no node kind {kind}"),
     }
 }

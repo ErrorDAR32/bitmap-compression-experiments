@@ -79,6 +79,7 @@ fn node_for(complex_tiling: &Pyramid, tile: Tile, nested: &NestedResolutions) ->
             Node::Copied { far, direction, masks: masked_children != 0 }
         }
         None => match here.complex_tile_size_offset() {
+            Some(_) if here.is_point_list() => Node::PointList,
             Some(size_offset) => {
                 let masks = !here.entirely_bound_at(tile.level + size_offset);
                 Node::ComplexTile { size_offset, masks }

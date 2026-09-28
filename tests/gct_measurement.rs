@@ -187,6 +187,7 @@ fn print_structure(workspace: &mut Workspace) {
         "tiles\na bitmap",
         "masking copies\na bitmap",
         "masking binds\na bitmap",
+        "point lists\na bitmap",
     ]);
     let mut bodies = Table::new(&[
         "family",
@@ -220,6 +221,7 @@ fn print_structure(workspace: &mut Workspace) {
             per_bitmap(stats.tiles),
             per_bitmap(stats.copies_that_mask),
             per_bitmap(stats.binds_that_mask),
+            per_bitmap(stats.point_lists),
         ]);
         let body_nodes = stats.unmasked + stats.masked();
         bodies.row(&[

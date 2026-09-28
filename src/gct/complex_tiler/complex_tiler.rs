@@ -4,8 +4,8 @@
 //! [`complex_tiling`](crate::gct::pyramids::complex_tiling): the
 //! placements, each tile's single bound size, and which tiles are
 //! complex tiles at what size offset -- all the tree is read from.
-//! Never looks at the bitmap: every decision is made from the tiles
-//! the greedy tiler placed.
+//! Every decision is made from the tiles the greedy tiler placed, but
+//! for one: what a point list costs, read off the tile's cells.
 //!
 //! One pass per nesting level. The first pass searches the whole bitmap
 //! for the outermost complex tiles, which capture the coarse structure.
@@ -25,6 +25,7 @@ use crate::gct::pyramids::complex_tiling::ComplexTiling;
 use crate::gct::pyramids::pyramid::Pyramid;
 use crate::gct::tile::{Tile, CELL_LEVEL};
 use crate::gct::nested_resolutions::NestedResolutions;
+use crate::Bitmap;
 
 /// Where one pass searches: an area, the coarsest level a candidate in
 /// it may be, and the resolutions of the complex tiles it is nested in.
@@ -57,7 +58,7 @@ pub struct Scratch {
 /// tiling pyramid with only its placement bits set -- and completes it
 /// in place: the placements, with every committed complex tile's size
 /// offset added.
-pub fn complex_tiler(complex_tiling: &mut Pyramid, scratch: &mut Scratch) {
+pub fn complex_tiler(complex_tiling: &mut Pyramid, bitmap: &Bitmap, scratch: &mut Scratch) {
     let Scratch { raw_masked, counted, searched, next, chosen } = scratch;
     decide_raw_masking(complex_tiling, raw_masked);
     complex_tiling.fill_in(raw_masked);
@@ -69,7 +70,7 @@ pub fn complex_tiler(complex_tiling: &mut Pyramid, scratch: &mut Scratch) {
         counted.forget();
         for search in searched.iter() {
             for tile in search.area.tiles_at_size_offset(search.coarsest_level - search.area.level) {
-                best_at_or_under(complex_tiling, tile, &search.nested, counted, chosen);
+                best_at_or_under(complex_tiling, bitmap, tile, &search.nested, counted, chosen);
             }
         }
         next.clear();
@@ -88,6 +89,7 @@ const FINEST_CANDIDATE_LEVEL: u8 = CELL_LEVEL - 2;
 /// whichever saves more -- `tile`'s own on a tie.
 fn best_at_or_under(
     complex_tiling: &mut Pyramid,
+    bitmap: &Bitmap,
     tile: Tile,
     nested: &NestedResolutions,
     counted: &mut CountedBits,
@@ -101,7 +103,7 @@ fn best_at_or_under(
     let placed = complex_tiling.placed_at(tile);
     let own = match placed {
         Some(_) => None,
-        None => Candidate::best_for(complex_tiling, tile, nested, counted),
+        None => Candidate::best_for(complex_tiling, bitmap, tile, nested, counted),
     };
     // The best under the children go on `chosen` first, to be taken off
     // again if the tile's own does better.
@@ -110,7 +112,7 @@ fn best_at_or_under(
         .children()
         .into_iter()
         .filter(|&child| placed.is_none_or(|placement| placement.masks(child)))
-        .map(|child| best_at_or_under(complex_tiling, child, nested, counted, chosen))
+        .map(|child| best_at_or_under(complex_tiling, bitmap, child, nested, counted, chosen))
         .sum();
     match own {
         Some(candidate) if candidate.saving >= under_saving => {
@@ -123,9 +125,14 @@ fn best_at_or_under(
 }
 
 /// Commits `chosen`, adding to `next` where the next pass searches --
-/// inside each one committed.
+/// inside each one committed, but a point list: it says every cell
+/// under it itself.
 fn commit(chosen: &[Candidate], complex_tiling: &mut Pyramid, next: &mut Vec<SearchArea>) {
     for candidate in chosen {
+        if candidate.point_list {
+            complex_tiling.make_point_list(candidate.tile);
+            continue;
+        }
         complex_tiling.make_complex_tile(candidate.tile, candidate.size_offset);
         next.push(SearchArea {
             area: candidate.tile,

@@ -9,12 +9,14 @@
 //! Every check in `tests/common` holds this to the encoder's count, on
 //! every bitmap tested.
 
+use crate::gct::grammar::point_list;
 use crate::gct::grammar::*;
 use crate::gct::nested_resolutions::NestedResolutions;
 use crate::gct::pyramids::complex_tiling::ComplexTiling;
 use crate::gct::pyramids::placements::Placement;
 use crate::gct::pyramids::pyramid::{Pyramid, PyramidShape};
 use crate::gct::tile::{cells_in_tile, tiles_across, Tile, CELL_LEVEL};
+use crate::Bitmap;
 
 /// How many resolution tiles a tile holds `size_offset` levels finer:
 /// one payload bit each.
@@ -76,8 +78,8 @@ impl CountedBits {
 
 /// The bits `tile` costs, nested in `nested`, `bound_above` the value
 /// bound above it, and everything under it.
-pub fn bits(complex_tiling: &Pyramid, tile: Tile, nested: &mut NestedResolutions, bound_above: bool) -> u64 {
-    bits_counted(complex_tiling, tile, nested, bound_above, &mut CountedBits::default())
+pub fn bits(complex_tiling: &Pyramid, bitmap: &Bitmap, tile: Tile, nested: &mut NestedResolutions, bound_above: bool) -> u64 {
+    bits_counted(complex_tiling, bitmap, tile, nested, bound_above, &mut CountedBits::default())
 }
 
 /// The same, reusing and adding to what `counted` holds for the tiles
@@ -85,6 +87,7 @@ pub fn bits(complex_tiling: &Pyramid, tile: Tile, nested: &mut NestedResolutions
 /// complex tile only for as long as it is being scored.
 pub fn bits_counted(
     complex_tiling: &Pyramid,
+    bitmap: &Bitmap,
     tile: Tile,
     nested: &mut NestedResolutions,
     bound_above: bool,
@@ -123,7 +126,7 @@ pub fn bits_counted(
             for child in tile.children() {
                 bind_bits += MASK_BIT_WIDTH as u64;
                 if bind.masks(child) {
-                    bind_bits += remembered(complex_tiling, child, nested, value, counted);
+                    bind_bits += remembered(complex_tiling, bitmap, child, nested, value, counted);
                 }
             }
             bind_bits
@@ -137,7 +140,7 @@ pub fn bits_counted(
                 for child in tile.children() {
                     copy_bits += MASK_BIT_WIDTH as u64;
                     if copy.masks(child) {
-                        copy_bits += remembered(complex_tiling, child, nested, bound_above, counted);
+                        copy_bits += remembered(complex_tiling, bitmap, child, nested, bound_above, counted);
                     }
                 }
             }
@@ -150,14 +153,19 @@ pub fn bits_counted(
                     complex_bits += MASK_PRESENT_WIDTH as u64;
                 }
                 let resolution = tile.level + size_offset;
-                if here.entirely_bound_at(resolution) {
+                if here.is_point_list() {
+                    complex_bits + PAYLOAD_MODE_WIDTH as u64 + point_list::bits(bitmap, tile)
+                } else if here.entirely_bound_at(resolution) {
+                    if has_payload_mode(tile.level, size_offset, false) {
+                        complex_bits += PAYLOAD_MODE_WIDTH as u64;
+                    }
                     complex_bits + payload_bits(size_offset)
                 } else {
                     complex_bits
                         + nested.while_nested(resolution, |inside| {
                             tile.children()
                                 .into_iter()
-                                .map(|child| remembered(complex_tiling, child, inside, bound_above, counted))
+                                .map(|child| remembered(complex_tiling, bitmap, child, inside, bound_above, counted))
                                 .sum::<u64>()
                         })
                 }
@@ -177,7 +185,7 @@ pub fn bits_counted(
                         divide_bits += MASK_BIT_WIDTH as u64;
                     }
                     if !is_left {
-                        divide_bits += remembered(complex_tiling, child, nested, bound_above, counted);
+                        divide_bits += remembered(complex_tiling, bitmap, child, nested, bound_above, counted);
                     }
                 }
                 divide_bits
@@ -189,20 +197,21 @@ pub fn bits_counted(
 /// `tile`'s bits, from `counted` if counted before, else counted now.
 fn remembered(
     complex_tiling: &Pyramid,
+    bitmap: &Bitmap,
     tile: Tile,
     nested: &mut NestedResolutions,
     bound_above: bool,
     counted: &mut CountedBits,
 ) -> u64 {
     if tile.level > COUNTED_SHAPE.finest_level {
-        return bits_counted(complex_tiling, tile, nested, bound_above, counted);
+        return bits_counted(complex_tiling, bitmap, tile, nested, bound_above, counted);
     }
     let at = counted.index_for(nested.key_for(tile.level));
     let known = counted.pyramids[at].1.get(tile);
     if known != NOT_COUNTED {
         return known - 1;
     }
-    let bits = bits_counted(complex_tiling, tile, nested, bound_above, counted);
+    let bits = bits_counted(complex_tiling, bitmap, tile, nested, bound_above, counted);
     counted.pyramids[at].1.set(tile, bits + 1);
     bits
 }

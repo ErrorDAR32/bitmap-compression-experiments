@@ -78,7 +78,7 @@ fn check_in(workspace: &mut Workspace, stream: &mut BitStream, back: &mut Bitmap
     let complex_tiling = workspace.complex_tiling();
     let start_level = written.start_level();
     let counted: u64 =
-        Tile::all_of_level(start_level).map(|tile| bits(&complex_tiling, tile, &mut NestedResolutions::none(), BOUND_AT_THE_TOP)).sum();
+        Tile::all_of_level(start_level).map(|tile| bits(complex_tiling, bitmap, tile, &mut NestedResolutions::none(), BOUND_AT_THE_TOP)).sum();
     assert_eq!(
         counted + START_LEVEL_WIDTH as u64,
         stream.len() as u64,
@@ -91,10 +91,12 @@ fn check_in(workspace: &mut Workspace, stream: &mut BitStream, back: &mut Bitmap
         }
         if tile.level == CELL_LEVEL {
             let residual = written.node(tile.ancestor(CELL_LEVEL - 1)) == Node::Residual;
-            let raw = (0..CELL_LEVEL).any(|level| {
-                matches!(written.node(tile.ancestor(level)), Node::ComplexTile { size_offset, .. } if level + size_offset == CELL_LEVEL)
+            let raw = (0..CELL_LEVEL).any(|level| match written.node(tile.ancestor(level)) {
+                Node::ComplexTile { size_offset, .. } => level + size_offset == CELL_LEVEL,
+                Node::PointList => true,
+                _ => false,
             });
-            assert!(residual || raw, "{label}: 1x1 {tile:?} is neither residual nor in a raw complex tile");
+            assert!(residual || raw, "{label}: 1x1 {tile:?} is neither residual nor in a raw complex tile or a point list");
         }
     }
 

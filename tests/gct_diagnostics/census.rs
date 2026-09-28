@@ -22,6 +22,7 @@ fn kind(tree: &bitmap::gct::pyramids::pyramid::Pyramid, tile: Tile, node: Node) 
         Node::Copied { masks: true, .. } => "masking copy",
         Node::Unmasked { .. } => "unmasked",
         Node::Residual => "residual",
+        Node::PointList => "point list",
         Node::Absent => "absent",
     }
 }

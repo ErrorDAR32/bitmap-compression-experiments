@@ -140,8 +140,9 @@ only where the size offset field has a value to spare for it: 128x128,
 64x64, 32x32 and 8x8. Everywhere else a 1x1 tile is the residual pass's
 own. A candidate is never finer than 4x4.
 
-**The complex tiler never looks at the bitmap.** Every decision comes
-from the placements and the bits the grammar would spend.
+**The complex tiler decides from the placements** and the bits the
+grammar would spend -- all but what a point list costs, which it reads
+off the tile's cells.
 
 **One pass per nesting level.** The first pass searches the whole
 bitmap for the outermost complex tiles, which capture the coarse
@@ -232,6 +233,13 @@ Any coarser level:
         otherwise:          0: no masking | 1: masking -- four child
                             nodes follow, this complex tile now the
                             nearest one they are nested in
+        at a 1x1 resolution, masking nothing: the payload mode
+                            0: plain | 1: point list -- the count of
+                            set cells k in Elias gamma code (of k+1),
+                            then the gap before each set cell, in the
+                            tile's own Morton order, in Rice code with
+                            parameter floor(log2((cells - k) / k)),
+                            never written; nothing else follows
       then its payload: one value bit for every tile of its resolution
       unmasked in it, in body order (including nodes inside complex
       tiles nested in it)
@@ -251,7 +259,14 @@ value to spare -- levels 1, 2, 3 and 5 -- the next size offset names a
 1x1 resolution, the raw escape. A tile's own level is known from its
 place in the tree, so this costs nothing to use. The
 payload walk order is written once (`grammar/order.rs`) and used in
-both directions.
+both directions, as is the point list (`grammar/point_list.rs`).
+
+A point list says a tile of scattered cells near what scattered cells
+need at least -- `log2(N choose k)`, about `k * (log2(N / k) + 1.44)`
+-- where a tree of divides pays about 7 bits a level for every lone
+cell. The complex tiler weighs it against the plain payload by its
+exact bit cost, read off the tile's cells: the one place the complex
+tiler reads the bitmap.
 
 | node | bits, after its mask bits |
 |---|---|
@@ -260,7 +275,8 @@ both directions.
 | masking copy | `1+1+1+2+1+4 = 10`, then its masked children |
 | tile (size offset 0) | `1+1+r+1` |
 | complex tile, size offset 1 | `1+1+r+4` |
-| complex tile, size offset > 1, no masking | `1+1+r+1+N` |
+| complex tile, size offset > 1, no masking | `1+1+r+1+N`, `+1` at a 1x1 resolution |
+| point list (1x1 resolution, masking nothing) | `1+1+r+1+1`, then about `k * (log2(N / k) + 1.5)` |
 | complex tile, size offset > 1, masking | `1+1+r+1`, four child nodes, then its payload |
 | subdivide | `1`, `+1` at 8x8 or coarser |
 | masking subdivide, or masking bind | `1+1+1+4 = 7`, then its named children |
@@ -302,41 +318,46 @@ totals:
 
 | generator | parameter sets | bitmaps | gct bits a bitmap | of the raw cells |
 |---|---|---|---|---|
-| grown (density, cluster) | 13 | 132 | 21397 | 32.6% |
-| laid out like a city (pitch, street, courtyards) | 4 | 48 | 12622 | 19.3% |
-| drawn with lines (lines) | 3 | 36 | 11618 | 17.7% |
-| checkerboard (square side) | 15 | 15 | 23832 | 36.4% |
+| grown (density, cluster) | 13 | 132 | 16566 | 25.3% |
+| laid out like a city (pitch, street, courtyards) | 4 | 48 | 12614 | 19.2% |
+| drawn with lines (lines) | 3 | 36 | 11571 | 17.7% |
+| checkerboard (square side) | 15 | 15 | 23821 | 36.3% |
 
-By family, as the tests group them: blob (the nine grown shapes, 84
-bitmaps) 30887 bits, sparse (the four sparse ones, 48 bitmaps) 4790.
+Scattered cells against roughly the least they need, `log2(N choose
+k)`: a few cells 219 bits (about 180), a hundred cells 1127 (about
+1060), one percent 5395 (about 5300), 5% scattered 19063 (about
+18800), 20% scattered 48837 (about 47300). Point lists took these from
+1.4 to 2.8 times that least to within 2-20% of it; the grown generator
+fell 22.6% on each of three seeds, and no parameter set of any
+generator rose more than 0.1%.
 
 On two fresh seeds (`GCT_SEED` 9216954446512861479 and
-3326496171169911647): city 13177 and 13181 bits, blob 30922 and 30925,
-sparse 4821 and 4785, lines 10941 and 11248.
+3326496171169911647): grown 16609 and 16579 bits, city 13171 and 13171,
+lines 10909 and 11205.
 
 Checkerboards of odd square side (`samples/checkerboards.rs`), bits:
 
 | squares | 3 | 5 | 7 | 9 | 11 | 13 | 15 | 17 | 19 | 21 | 23 | 25 | 27 | 29 | 31 |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| gct | 65173 | 52225 | 44234 | 33203 | 27612 | 23168 | 20498 | 17883 | 14785 | 12766 | 11521 | 10064 | 8974 | 7670 | 7711 |
+| gct | 65237 | 52225 | 44186 | 33155 | 27585 | 23156 | 20486 | 17873 | 14773 | 12763 | 11518 | 10052 | 8971 | 7667 | 7676 |
 
 The worst case the adversarial search has found (`testing/adversarial/`)
-is noise: 65563 bits, four raw 128x128 complex tiles and the start level
-header, 27 over the raw cells.
+is noise: 65567 bits, four raw 128x128 complex tiles, each with its
+payload mode bit, and the start level header, 31 over the raw cells.
 
-| family | complex tiles a bitmap, by nesting | of them masking | tiles a bitmap | masking copies a bitmap | masking binds a bitmap |
-|---|---|---|---|---|---|
-| city | 84.6, 0.2 | 5.2% | 1083.1 | 228.1 | 88.2 |
-| blob | 21.7 | 6.6% | 3205.8 | 1.9 | 7.4 |
-| sparse | 0.4 | 0.0% | 586.8 | 0.1 | 0.0 |
-| lines | 25.6 | 13.1% | 865.5 | 94.3 | 15.9 |
+| family | complex tiles a bitmap, by nesting | of them masking | tiles a bitmap | masking copies a bitmap | masking binds a bitmap | point lists a bitmap |
+|---|---|---|---|---|---|---|
+| city | 84.6, 0.2 | 5.1% | 1069.2 | 228.1 | 88.2 | 2.7 |
+| blob | 11.8 | 3.3% | 770.9 | 1.0 | 7.4 | 69.1 |
+| sparse | 0.2 | 0.0% | 16.1 | 0.0 | 0.0 | 10.4 |
+| lines | 25.3 | 13.1% | 821.9 | 94.3 | 15.9 | 10.3 |
 
 | family | body nodes unmasked | masked: unmasked in an outer complex tile | copied | tile | nested complex tile | residual |
 |---|---|---|---|---|---|---|
-| city | 96.34% | 0.00% | 1.37% | 1.58% | 0.05% | 0.65% |
-| blob | 99.91% | 0.00% | 0.01% | 0.08% | 0.00% | 0.00% |
+| city | 96.41% | 0.00% | 1.36% | 1.55% | 0.05% | 0.62% |
+| blob | 99.95% | 0.00% | 0.00% | 0.05% | 0.00% | 0.00% |
 | sparse | 100.00% | 0.00% | 0.00% | 0.00% | 0.00% | 0.00% |
-| lines | 98.54% | 0.00% | 0.73% | 0.66% | 0.00% | 0.07% |
+| lines | 98.48% | 0.00% | 0.76% | 0.68% | 0.00% | 0.07% |
 
 A complex tile's body nodes are counted once each: every resolution
 tile unmasked in it, and every masked leaf, whatever its size, belonging

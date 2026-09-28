@@ -5,6 +5,7 @@
 
 use crate::gct::grammar::bit_stream::BitStream;
 use crate::gct::grammar::order::Runs;
+use crate::gct::grammar::point_list;
 use crate::gct::grammar::*;
 use crate::gct::nested_resolutions::NestedResolutions;
 use crate::gct::pyramids::pyramid::Pyramid;
@@ -77,6 +78,9 @@ fn write_node(tree: &Pyramid, bitmap: &Bitmap, tile: Tile, nested: &mut NestedRe
             if complex_tile_may_mask(tile.level, size_offset) {
                 out.push_value(if masks { MASKING } else { NO_MASKING }, MASK_PRESENT_WIDTH);
             }
+            if has_payload_mode(tile.level, size_offset, masks) {
+                out.push_value(PLAIN_PAYLOAD, PAYLOAD_MODE_WIDTH);
+            }
             let nesting = nested.next_nesting();
             if masks {
                 nested.while_nested(tile.level + size_offset, |inside| {
@@ -101,6 +105,15 @@ fn write_node(tree: &Pyramid, bitmap: &Bitmap, tile: Tile, nested: &mut NestedRe
                 out.push_value(BINDING_KEPT, FLIP_WIDTH);
                 write_named_children(tree, bitmap, tile, nested, out, runs);
             }
+        }
+        Node::PointList => {
+            let size_offset = CELL_LEVEL - tile.level;
+            out.push_value(LEAF, LEAF_WIDTH);
+            out.push_value(BIND, CODE_WIDTH);
+            out.push_value(size_offset as u64, resolution_width(tile.level));
+            out.push_value(NO_MASKING, MASK_PRESENT_WIDTH);
+            out.push_value(POINT_LIST, PAYLOAD_MODE_WIDTH);
+            point_list::write(bitmap, tile, out);
         }
         Node::Unmasked { .. } | Node::Residual | Node::Absent => unreachable!("{node:?} is never written here"),
     }

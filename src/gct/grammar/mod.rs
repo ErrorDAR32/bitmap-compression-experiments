@@ -9,6 +9,7 @@
 
 pub mod bit_stream;
 pub mod order;
+pub mod point_list;
 
 pub use crate::gct::pyramids::placements::BOUND_AT_THE_TOP;
 use crate::gct::pyramids::placements::FINEST_MASKING_LEVEL;
@@ -77,6 +78,21 @@ pub const NO_MASKING: u64 = 0;
 pub const MASKING: u64 = 1;
 /// Bits in the mask-present bit.
 pub const MASK_PRESENT_WIDTH: u8 = 1;
+
+/// The payload mode of a complex tile of 1x1 resolution masking nothing:
+/// every cell raw, one bit each...
+pub const PLAIN_PAYLOAD: u64 = 0;
+/// ...or a [point list](point_list) of its set cells.
+pub const POINT_LIST: u64 = 1;
+/// Bits in the payload mode.
+pub const PAYLOAD_MODE_WIDTH: u8 = 1;
+
+/// Whether a complex tile at `level` of `size_offset`, masking or not
+/// as `masks` says, has a payload mode: when it is of 1x1 resolution and
+/// masks nothing. It follows the mask-present bit.
+pub fn has_payload_mode(level: u8, size_offset: u8, masks: bool) -> bool {
+    level + size_offset == CELL_LEVEL && !masks
+}
 
 /// Whether a copy at `level` has a mask-present bit. A masking copy's
 /// child mask follows it: one mask bit per child, in reading order --

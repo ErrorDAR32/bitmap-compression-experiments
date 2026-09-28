@@ -158,14 +158,15 @@ fn one_ragged_bitmap_round_trips() {
     check(&one_grown(FIXED_SEED, 0.20, 0.70), "one middling ragged bitmap");
 }
 
-/// A complex tile masks down to a residual 2x2 where a lone cell sits.
+/// A complex tile masks down to a point list where a lone cell sits.
 #[test]
-fn a_complex_tile_masks_a_residual_2x2() {
+fn a_complex_tile_masks_a_lone_cell_down_to_a_point_list() {
     // The top-left 64x64: four 32x32s of 16x16 blocks, one block set in
     // each, a different one each time -- no 32x32 is homogeneous or a
     // copy of another, so the 64x64 is one complex tile at 16x16
     // resolution. One clear block holds a lone set cell, which no
-    // resolution can say: that block is masked, down to a residual 2x2.
+    // resolution can say: that block is masked, down to the lone cell's
+    // 8x8, said as a point list of one cell.
     /// The side of one block, in cells.
     const BLOCK: i64 = 16;
     let mut bitmap = Bitmap::new();
@@ -178,6 +179,6 @@ fn a_complex_tile_masks_a_residual_2x2() {
 
     let written = tree_of(&bitmap);
     assert_eq!(written.node(lone_cell.ancestor(2)), Node::ComplexTile { size_offset: 2, masks: true });
-    assert_eq!(written.node(lone_cell.ancestor(7)), Node::Residual);
-    check(&bitmap, "a complex tile masking a residual 2x2");
+    assert_eq!(written.node(lone_cell.ancestor(5)), Node::PointList);
+    check(&bitmap, "a complex tile masking a lone cell");
 }

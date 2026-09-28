@@ -13,7 +13,10 @@
 //!   it, once a bitmap ([`crate::gct::complex_tiler::raw_masking`]);
 //! - bits 17-25: the sizes of the whole binds placed at or under the
 //!   tile, bit `n` for size `n` -- a complex tile has nothing to unmask
-//!   at a resolution none is placed at.
+//!   at a resolution none is placed at;
+//! - bit 26: whether the complex tile at the tile, of 1x1 resolution,
+//!   says its cells as a point list ([`crate::gct::grammar::point_list`])
+//!   rather than raw, masking nothing.
 //!
 //! The bound size is carried up once, when the placements are complete,
 //! a level at a time from the finest: a placed `Bound` tile is bound at
@@ -50,10 +53,12 @@ const SIZE_OFFSET: Field = Field { shift: BOUND_SIZE.shift + BOUND_SIZE.bits, bi
 const RAW_MASKS: Field = Field { shift: SIZE_OFFSET.shift + SIZE_OFFSET.bits, bits: 1 };
 /// One bit a size, `CELL_LEVEL + 1` of them.
 const BOUND_SIZES_UNDER: Field = Field { shift: RAW_MASKS.shift + RAW_MASKS.bits, bits: CELL_LEVEL as u64 + 1 };
+/// Whether the complex tile here is a point list.
+const POINT_LIST: Field = Field { shift: BOUND_SIZES_UNDER.shift + BOUND_SIZES_UNDER.bits, bits: 1 };
 /// A one-bit field's value for yes.
 const YES: u64 = 1;
 
-/// 32 bits an element: the fields above take 26.
+/// 32 bits an element: the fields above take 27.
 const SHAPE: PyramidShape = PyramidShape { coarsest_level: 0, finest_level: CELL_LEVEL, element_bits: 32 };
 
 /// `field`'s value in `element`.
@@ -107,6 +112,12 @@ impl Fields {
     /// Whether any whole bind of `size` is placed at or under the tile.
     pub fn any_bound_under(self, size: u8) -> bool {
         field(self.0, BOUND_SIZES_UNDER) & (1 << size) != 0
+    }
+
+    /// Whether the complex tile at exactly the tile says its cells as a
+    /// point list.
+    pub fn is_point_list(self) -> bool {
+        field(self.0, POINT_LIST) == YES
     }
 
     /// The size offset of the complex tile at exactly the tile, if it is
@@ -164,6 +175,10 @@ pub trait ComplexTiling {
     /// Makes `tile` a complex tile of `size_offset`.
     fn make_complex_tile(&mut self, tile: Tile, size_offset: u8);
 
+    /// Makes `tile` a complex tile of 1x1 resolution saying its cells as
+    /// a point list.
+    fn make_point_list(&mut self, tile: Tile);
+
     /// Makes `tile` no complex tile.
     fn clear_complex_tile(&mut self, tile: Tile);
 }
@@ -186,8 +201,13 @@ impl ComplexTiling for Pyramid {
         self.set(tile, element);
     }
 
+    fn make_point_list(&mut self, tile: Tile) {
+        let element = with_field(self.get(tile), SIZE_OFFSET, (CELL_LEVEL - tile.level) as u64);
+        self.set(tile, with_field(element, POINT_LIST, YES));
+    }
+
     fn clear_complex_tile(&mut self, tile: Tile) {
-        let element = with_field(self.get(tile), SIZE_OFFSET, NONE);
+        let element = with_field(with_field(self.get(tile), SIZE_OFFSET, NONE), POINT_LIST, NONE);
         self.set(tile, element);
     }
 }

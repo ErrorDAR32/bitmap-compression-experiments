@@ -12,6 +12,7 @@
 
 use crate::gct::grammar::bit_stream::{BitReader, BitStream};
 use crate::gct::grammar::order::Runs;
+use crate::gct::grammar::point_list;
 use crate::gct::grammar::*;
 use crate::gct::nested_resolutions::NestedResolutions;
 use crate::gct::pyramids::copyable::{FAR_DISTANCE, NEAR_DISTANCE};
@@ -131,6 +132,12 @@ fn read_node(
     }
     let size_offset = reader.value(resolution_width(tile.level)) as u8;
     let masks = complex_tile_may_mask(tile.level, size_offset) && reader.value(MASK_PRESENT_WIDTH) == MASKING;
+    if has_payload_mode(tile.level, size_offset, masks) && reader.value(PAYLOAD_MODE_WIDTH) == POINT_LIST {
+        read.tree.set_node(tile, Node::PointList);
+        read.bind(tile, false);
+        point_list::read(reader, tile, read.cell_values);
+        return;
+    }
     read.tree.set_node(tile, Node::ComplexTile { size_offset, masks });
     let nesting = nested.next_nesting();
     if masks {

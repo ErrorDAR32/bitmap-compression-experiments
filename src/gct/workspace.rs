@@ -51,7 +51,7 @@ impl Workspace {
     pub fn encode(&mut self, bitmap: &Bitmap, stream: &mut BitStream) {
         self.homogeneity.rebuild_homogeneity(bitmap);
         greedy_tiler(bitmap, &self.homogeneity, &mut self.complex_tiling);
-        complex_tiler(&mut self.complex_tiling, &mut self.scratch);
+        complex_tiler(&mut self.complex_tiling, bitmap, &mut self.scratch);
         tree_representation(&self.complex_tiling, &mut self.tree);
         write(&self.tree, bitmap, stream, &mut self.runs);
     }

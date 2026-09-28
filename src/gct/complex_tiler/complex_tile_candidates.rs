@@ -22,6 +22,7 @@ use crate::gct::pyramids::complex_tiling::ComplexTiling;
 use crate::gct::pyramids::placements::binding_above;
 use crate::gct::pyramids::pyramid::Pyramid;
 use crate::gct::tile::{Tile, CELL_LEVEL};
+use crate::Bitmap;
 
 /// A tile the complex tiler could make a complex tile, at its best
 /// size offset, and what that would save.
@@ -31,6 +32,8 @@ pub struct Candidate {
     pub tile: Tile,
     /// How many levels finer than the tile its resolution would be.
     pub size_offset: u8,
+    /// Whether, of 1x1 resolution, it would say its cells as a point list.
+    pub point_list: bool,
     /// The bits it saves, as the tiling stood when it was counted.
     pub saving: u64,
     /// The resolutions of the complex tiles `tile` is nested in.
@@ -42,13 +45,14 @@ impl Candidate {
     /// bits. Leaves `complex_tiling` as it found it.
     pub fn best_for(
         complex_tiling: &mut Pyramid,
+        bitmap: &Bitmap,
         tile: Tile,
         nested: &NestedResolutions,
         counted: &mut CountedBits,
     ) -> Option<Candidate> {
         let bound_above = binding_above(tile, |at| complex_tiling.placed_at(at));
         let mut inside = *nested;
-        let without = bits_counted(complex_tiling, tile, &mut inside, bound_above, counted);
+        let without = bits_counted(complex_tiling, bitmap, tile, &mut inside, bound_above, counted);
         let mut best: Option<Candidate> = None;
         let finest = if raw_resolution_fits(tile.level) { CELL_LEVEL } else { CELL_LEVEL - 1 };
         for size_offset in 1..=finest - tile.level {
@@ -61,11 +65,23 @@ impl Candidate {
                 continue; // nothing to unmask, or masking at size offset 1, which the grammar cannot say
             }
             complex_tiling.make_complex_tile(tile, size_offset);
-            let with = bits_counted(complex_tiling, tile, &mut inside, bound_above, counted);
+            let plain = bits_counted(complex_tiling, bitmap, tile, &mut inside, bound_above, counted);
             complex_tiling.clear_complex_tile(tile);
+            // At 1x1, the cells may go as a point list instead, when
+            // strictly cheaper.
+            let mut with = (plain, false);
+            if resolution == CELL_LEVEL {
+                complex_tiling.make_point_list(tile);
+                let listed = bits_counted(complex_tiling, bitmap, tile, &mut inside, bound_above, counted);
+                complex_tiling.clear_complex_tile(tile);
+                if listed < plain {
+                    with = (listed, true);
+                }
+            }
+            let (with, point_list) = with;
             let Some(saving) = without.checked_sub(with).filter(|&saving| saving > 0) else { continue };
             if best.as_ref().is_none_or(|current| saving > current.saving) {
-                best = Some(Candidate { tile, size_offset, saving, nested: *nested });
+                best = Some(Candidate { tile, size_offset, point_list, saving, nested: *nested });
             }
         }
         best

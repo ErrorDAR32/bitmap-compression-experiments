@@ -89,6 +89,32 @@ impl Bitmap {
         self.run(a, cells) == self.run(b, cells)
     }
 
+    /// The set cells of an aligned square, each as its place in the
+    /// square's own Morton order, in that order -- a word at a time,
+    /// since the square is one run.
+    pub(crate) fn set_cells_in_square(&self, (x, y): (u8, u8), side: usize) -> impl Iterator<Item = usize> + '_ {
+        let at = Self::bit_index(x, y);
+        let cells = side * side;
+        let words = cells.div_ceil(BITS_PER_WORD);
+        (0..words).flat_map(move |word| {
+            let mut bits = if cells >= BITS_PER_WORD { self.words[at / BITS_PER_WORD + word] } else { self.run(at, cells) };
+            std::iter::from_fn(move || {
+                (bits != 0).then(|| {
+                    let bit = bits.trailing_zeros() as usize;
+                    bits &= bits - 1;
+                    word * BITS_PER_WORD + bit
+                })
+            })
+        })
+    }
+
+    /// Sets the cell at place `offset` in an aligned square's own Morton
+    /// order.
+    pub(crate) fn set_in_square(&mut self, (x, y): (u8, u8), offset: usize) {
+        let idx = Self::bit_index(x, y) + offset;
+        self.words[idx / BITS_PER_WORD] |= 1u64 << (idx % BITS_PER_WORD);
+    }
+
     /// Sets every cell of an aligned square.
     pub(crate) fn set_square(&mut self, (x, y): (u8, u8), side: usize) {
         let at = Self::bit_index(x, y);
@@ -138,6 +164,14 @@ mod tests {
         assert!(m.same_squares((16, 0), (8, 8), 4));
         assert!(!m.same_squares((16, 0), (24, 4), 4));
         assert!(m.same_squares((0, 64), (64, 0), 64));
+        let offsets: Vec<usize> = m.set_cells_in_square((16, 0), 8).collect();
+        assert_eq!(offsets, (0..16).collect::<Vec<_>>(), "the 4x4 at (16, 0) is the first 16 of its 8x8");
+        assert_eq!(m.set_cells_in_square((24, 4), 1).collect::<Vec<_>>(), vec![0]);
+        let mut placed = Bitmap::new();
+        for offset in m.set_cells_in_square((0, 0), 32) {
+            placed.set_in_square((0, 0), offset);
+        }
+        assert!((0..32).all(|y| (0..32).all(|x| placed.get(x, y) == m.get(x, y))));
         let mut filled = Bitmap::new();
         filled.set_square((8, 8), 8);
         filled.set_square((16, 0), 4);
