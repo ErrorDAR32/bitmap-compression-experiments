@@ -7,7 +7,8 @@
 //! a bitmap, where [`bitmap_data`](super::bitmap_data) holds what a
 //! bitmap *is* and what can be asked of it.
 
-use crate::{Bitmap, HEIGHT, WIDTH};
+use crate::bitmap::bitmap_words::range_mask;
+use crate::{Bitmap, BITS_PER_WORD, HEIGHT, WIDTH};
 
 impl Bitmap {
     /// Sets every bit contained in the inclusive rectangle described by
@@ -15,6 +16,28 @@ impl Bitmap {
     /// the matrix bounds.
     pub fn set_rect(&mut self, x0: i64, y0: i64, x1: i64, y1: i64) {
         self.for_each_in_rect(x0, y0, x1, y1, |m, x, y| m.set(x, y));
+    }
+
+    /// Whether any cell of the inclusive rectangle is set, a row of
+    /// words at a time rather than a cell at a time -- the same
+    /// word-at-a-time reasoning [`crate::pyramid::same_tiles`] already
+    /// relies on for comparing a whole tile row in one operation.
+    /// Unlike `set_rect`/`unset_rect`, this takes already-valid `u8`
+    /// coordinates: every caller (a region's own `top_left_cell` and
+    /// `side_in_cells`) already names a rectangle that lies on the
+    /// matrix, so there is nothing here to clamp.
+    pub fn any_set_in_rect(&self, x0: u8, y0: u8, x1: u8, y1: u8) -> bool {
+        const PER_ROW: usize = WIDTH / BITS_PER_WORD;
+        for y in y0..=y1 {
+            let row = self.row(y);
+            for word in 0..PER_ROW {
+                let mask = range_mask(word, x0, x1);
+                if mask != 0 && row[word] & mask != 0 {
+                    return true;
+                }
+            }
+        }
+        false
     }
 
     /// Unsets every bit contained in the inclusive rectangle described by

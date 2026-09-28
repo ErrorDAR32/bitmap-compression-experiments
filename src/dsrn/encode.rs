@@ -83,6 +83,13 @@ pub fn encode_region(
     // because how much of it there is depends on what the regions
     // below take.
     out.counts.accounted += description_tree_size(code);
+    out.counts.nodes += 1;
+    // CopyEachChild's mask is the whole of what it says, never a
+    // modifier on something else, but it still describes some children
+    // and leaves the rest -- a mask in every sense this count means.
+    if code.is_masked() || matches!(code, RegionCode::CopyEachChild { .. }) {
+        out.counts.masked_nodes += 1;
+    }
     if code.is_masked() {
         out.tree.push_value(MASK, CODE_WIDTH);
         out.counts.children_left_to_a_binding += mask.left_to_a_binding();
@@ -234,6 +241,10 @@ fn write_what_a_four_by_four_says(
     let (says, _) = what_a_four_by_four_says(work, pyramid, bitmap, region, knobs, true, standing);
     let from = where_each_child_copies_from(work, pyramid, bitmap, region, true);
     out.counts.four_by_fours_in_their_own_grammar += 1;
+    out.counts.nodes += 1;
+    if says.mask.is_some() {
+        out.counts.masked_nodes += 1;
+    }
     let already_right = crate::dsrn::describable::children_standing_gets_wrong(
         work, pyramid, bitmap, region, standing,
     ) == RegionMask::NONE;
@@ -365,6 +376,8 @@ fn write_a_mask_over_the_children(
 
     let copied = mask.count_ones() as usize;
     out.counts.four_by_four_masks += 1;
+    out.counts.nodes += 1;
+    out.counts.masked_nodes += 1; // masks its four children by definition
     out.counts.children_copied += copied;
     out.counts.accounted += four_by_four_mask_size(copied);
     out.tree.push_value(mask, CHILD_MASK_WIDTH);

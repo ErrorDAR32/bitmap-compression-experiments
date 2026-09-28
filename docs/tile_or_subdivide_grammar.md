@@ -1,55 +1,349 @@
 # The Greedy Complex Tiler's grammar
 
 What every bit in a `dsrn_exp::tile_or_subdivide` encoding means, and
-what decides the tiling it describes in the first place. "The Greedy
-Complex Tiler" is this whole pipeline's own name: `decide_tiles`'
-greedy, size-ordered tiling, `compose_complex_tiles`' grouping pass on
-top of it, and the quadtree in `tile_or_subdivide.rs` that says where
-each of their tiles is. A reference, not a tutorial -- for the
-reasoning behind a choice, read `src/dsrn_exp/greedy_tiles.rs` (the
-tiling) and `src/dsrn_exp/tile_or_subdivide.rs` (the tree). This file
-only answers "the bitstream has a 1 here, what does that mean, and how
-did that tile come to exist at all."
+what decides the tiling it describes in the first place. "The greedy
+complex tiler" is this whole pipeline's own name: `greedy_tiler`'s
+greedy, size-ordered tiling, `complex_tiler`'s grouping pass on top of
+it, and the tree walk in `tile_or_subdivide.rs` that spells the result
+out in bits. A reference, not a tutorial -- for the reasoning behind a
+choice, read `src/dsrn_exp/greedy_tiles.rs` (both passes, and the tree
+they build) and `src/dsrn_exp/tile_or_subdivide.rs` (writing and
+reading that tree). This file only answers "the bitstream has a 1 here,
+what does that mean, and how did that tile come to exist at all."
 
 Kept up to date by hand alongside those two files. If the code changes
 and this doesn't, this file is wrong, not the code.
 
-## Two passes decide what gets written, before any bit does
+## Build the tree first, then walk it to encode
 
 Unlike dsrn, which prices every way a region could go and picks the
 cheapest as it writes (`src/dsrn/coarsest.rs` then `src/dsrn/encode.rs`
 in the same descent), this encoder settles the *entire* tiling first,
-with no bitstream in sight, and only afterwards asks how cheaply that
-already-fixed tiling can be pointed at. Nothing in the tree ever
-searches a size or compares a cost -- building it is a lookup against
-what these two passes already decided.
+with no bitstream in sight, builds it into one whole-bitmap `Node` tree,
+and only then walks that tree to write bits. Deciding and writing are
+never combined: nothing in `tile_or_subdivide.rs` searches a size,
+compares a cost or looks at the bitmap except to write the trailing raw
+cells.
 
-### Pass one: `decide_tiles` -- biggest tile first, claim on sight
+Decoding keeps the same separation: bits are parsed into a tree first
+(`parse_node`, no value resolved), the tree is then walked to assign
+every cell an owner (`claim_owners`, the same function the encoder uses
+to find what the tree leaves uncovered), the trailing raw bits fill the
+rest, and only then are copies resolved (`resolve`). Decoder speed is
+not a goal; the decoder is kept as simple as it can be.
+
+### Pass one: `greedy_tiler` -- biggest tile first, bind on sight
 
 One rule, asked of every tile size from 256 down to 1, coarsest first,
 skipping anything a bigger tile already claimed:
 
-1. **Homogeneous?** (`tile_of_bitmap`) -- one value, claim it as
+1. **Homogeneous?** (`tile_of_bitmap`) -- one value, bind it as
    `Bound(value)`.
 2. Else **copyable?** (`copy_choice`) -- a same-size neighbour of the
    tile itself (`near`), or, one size up, a same-size neighbour of the
    tile's *parent* at the child position the tile occupies within it
-   (`far`) -- claim it as `Copied { far, direction }`. `direction` is
+   (`far`) -- place it as `Copied { far, direction }`. `direction` is
    the same four-entry `DIRECTIONS` index dsrn's copies use (top-left,
    top, top-right, left); a far copy's source sits one *parent* width
    away in that direction, twice the distance a near copy's source
    does, since the parent it steps to is twice as wide as the tile.
-3. Else: leave it. Its four quarters, one size finer, each get asked
+3. Else: leave it. Its four children, one size finer, each get asked
    the same question for themselves. Cells are always homogeneous on
    their own, so the pass always finishes and always covers the whole
    bitmap by the time it reaches 1x1.
 
 No comparison ever happens between sizes -- a tile that qualifies is
-taken immediately, whatever a finer size might also have found. This
-is `decide_tiles`' whole file: it produces a flat `Vec<PlacedTile>`
-and writes no bits.
+taken immediately, whatever a finer size might also have found.
 
-### Pass two: `compose_complex_tiles` -- the candidate absorbing the most tiles a payload tile
+Its output is `PlacedTiles`, a pyramid in the conceptual sense -- one
+element per tile, at every level, for O(1) lookup of any tile -- with
+two word-packed planes per level:
+
+| plane | width | holds |
+|---|---|---|
+| placed | 1 bit | whether a tile was placed exactly here |
+| says | 4 bits | bit 0: bind (0) or copy (1); bind: bit 1 value; copy: bit 1 far/near, bits 2-3 direction |
+
+### Pass two: `complex_tiler` -- largest captured area first
+
+A complex tile is an aligned region said at one chosen **resolution**
+(`depth` levels below it): every resolution tile that is genuinely one
+placed `Bound` tile at exactly that level goes into a flat run, one
+value bit each (**unmasked**); everything else inside the region is
+**masked** -- said by the same tree grammar the top level uses, at
+whatever size it actually is: a `Bound` tile bigger than the
+resolution, a `Copied` tile, or finer content below the resolution.
+Nothing is ever repeated to fit a resolution, and a `Copied` tile no
+longer disqualifies a region; it is simply masked.
+
+**1x1 tiles are excluded from the complex tiler entirely.** They are
+always the trailing raw pass's own, matching the top-level tree's 2x2
+floor. So a resolution is never finer than 2x2 and a candidate region
+never finer than 4x4 (level `CELL_LEVEL - 2`).
+
+**The census, computed once.** `precompute_census` counts, bottom-up,
+for every region and every level `t`, how many `Bound` tiles
+`greedy_tiler` placed at exactly level `t` under that region. That
+depends only on pass one's output, so it is computed once per bitmap,
+never per candidate or per round.
+
+**Each candidate's best resolution** (`best_resolution`). A candidate is
+any region with nothing placed exactly at it. For each depth `d` from 1
+to the 2x2 floor: `unmasked = census[region][region.level + d]`,
+`total = 4^d`.
+
+- `unmasked == 0`: nothing to gain, skipped.
+- `d == 1` requires `unmasked == total`: masking never pays at depth 1
+  (see the bit costs below).
+- Floor: `4 * unmasked >= 3 * total` (three quarters genuine), in exact
+  integers.
+- Among depths that pass, the highest `unmasked / total` wins
+  (cross-multiplied, exact), ties toward the coarser depth.
+
+`total` counts the resolution's whole tile count, masked or not, so
+masking everything down to one lonely genuine tile can never look like a
+perfect ratio.
+
+**Choosing between candidates: unmasked cell area first, not ratio.**
+Every candidate is sorted once by how many *cells* its unmasked
+resolution tiles cover (`unmasked * side^2` at the chosen resolution,
+so candidates at different resolutions compare fairly), then by ratio,
+then by region size, then reading order; candidates are collected
+biggest tile size first. Then one sweep commits them in that order,
+skipping any whose footprint overlaps a `Bitmap` of cells already
+committed (corner check first, then `Bitmap::any_set_in_rect`). Since a
+region's census never changes, one sort and one sweep is equivalent to
+rescanning every round.
+
+Why area and not ratio first: ranking by ratio lets a small, ratio-
+perfect region always pre-empt a bigger one that needs a little masking,
+even when the bigger one captures far more. That is exactly why the
+previous version's oversized-tile reclaim never won a single round on
+the sample corpus (see History below).
+
+**Building the tree** (`build_node` / `build_body_node`), once, after
+every commit is decided:
+
+| Node | means |
+|---|---|
+| `Bound(value)` | one placed tile's own value |
+| `Copied { far, direction }` | one placed tile, copying a neighbour |
+| `Complex { depth, body }` | a committed complex tile (top level only) |
+| `Flat(values)` | a run of resolution-tile values, inside a body, above the resolution |
+| `Split([Node; 4])` | ask again of the four children |
+| `Hole` | a 2x2 left to the trailing raw pass |
+
+Each node is read in one of three contexts: `Open` (the top level; may
+produce `Complex`), `Body { limit_level }` (inside a complex tile, above
+its resolution; may produce `Flat`), and `Plain` (inside a complex tile,
+below its resolution; ordinary tree, `Complex` forbidden). A `Split` in
+`Body` crosses into `Plain` once the splitting region is itself at the
+resolution.
+
+## The tree grammar
+
+One shape everywhere: a leaf-or-subdivide bit, and at a leaf a
+bind-or-copy bit. A complex tile's body reuses exactly that shape and
+the same constants (`LEAF_WIDTH`, `CODE_WIDTH`, `BIND`, `COPY`), adding
+only one bit, nested inside `bind`, and only above the resolution: is
+this bind a single value or a flat run.
+
+```text
+Open or Plain, at any level down to one above cells:
+1: leaf -- this region is exactly one placed tile
+   0: copy   + 1 far/near bit + 2 direction bits
+   1: bind
+      0: simple  -- 1 value bit                  (Open only: this bit
+      1: complex -- resolution_width(level)       is absent in Plain,
+            bits (depth - 1), then the body       where only simple
+                                                   exists)
+0: subdivide -- all four children follow, same context
+
+Open or Plain, one level above cells (2x2), in place of the above:
+1: a homogeneous placed tile + 1 value bit
+0: not -- its four cells are holes, no further bits
+
+A complex tile's body, right after its resolution bits:
+  depth 1: 4 value bits, nothing else (depth 1 never masks)
+  depth > 1: 1 mask-present bit
+    0: flat -- 4^depth value bits, reading order
+    1: masked somewhere -- one body node for each of the four children
+
+A body node, above the resolution:
+1: leaf
+   0: copy (masked)  + 1 far/near bit + 2 direction bits
+   1: bind
+      0: single -- 1 value bit: one placed Bound tile bigger than the
+                   resolution, masked whole
+      1: flat   -- a run of value bits, one per resolution tile below
+0: subdivide -- four body nodes follow
+
+A body node, at the resolution (the run bit is never needed here):
+1: leaf
+   0: copy (masked)  + 1 far/near bit + 2 direction bits
+   1: bind -- this resolution tile's own value (unmasked)
+0: subdivide
+   resolution 2x2: a hole, no further bits
+   otherwise: finer content -- four Plain nodes follow
+```
+
+| Node says | Fields | Bits |
+|---|---|---|
+| leaf, copy (any context) | leaf + code + far + direction | `1+1+1+2 = 5` |
+| leaf, simple bind, Open | leaf + code + complex-flag + value | `1+1+1+1 = 4` |
+| leaf, simple bind, Plain | leaf + code + value | `1+1+1 = 3` |
+| complex, depth 1 | leaf + code + complex-flag + resolution + 4 values | `3+r+4` |
+| complex, depth > 1, flat | leaf + code + complex-flag + resolution + mask-present + N values | `4+r+N` |
+| complex, depth > 1, masked | as above, minus the N values, plus four body nodes | `4+r+` children |
+| body, above resolution, flat run | leaf + code + run bit + N values | `3+N` |
+| body, above resolution, oversized bind (masked) | leaf + code + run bit + value | `4` |
+| body, at resolution, bind (unmasked) | leaf + code + value | `3` |
+| body, at resolution, finer content (masked) | leaf bit, then four Plain nodes | `1+` children |
+| subdivide, anywhere | leaf bit | `1` |
+| 2x2, homogeneous | leaf + value | `2` |
+| 2x2 hole (top level, or a 2x2 resolution) | leaf bit | `1`, then 4 raw bits later |
+
+(`r` is `resolution_width(region.level)`.)
+
+A resolution tile only costs `3` bits on its own when a sibling next to
+it is masked. Where a whole subtree is unmasked it is one `Flat` run, at
+1 bit a value plus 3 for the run's own leaf. The previous grammar spent
+`2` bits on a lone unmasked resolution tile (masked/unmasked bit plus
+value); this one spends `3` (leaf + bind + value), in exchange for
+reusing the top-level shape exactly and letting a copy be masked for 5
+bits instead of 7.
+
+**Why depth 1 never masks.** At depth 1 every child already sits at the
+resolution. Unmasked in a flat body, each costs 1 bit. With masking
+allowed, the body would pay the mask-present bit, each unmasked child
+would cost 3 (leaf + bind + value) and a masked one at least its own
+plain cost: strictly worse than leaving the masked child outside the
+complex tile. So depth 1 requires all four children unmasked, and its
+mask-present bit is skipped: both sides know it means "flat".
+
+**The 2x2 floor.** Four homogeneous 2x2s under one subdivide cost
+`1 + 4*2 = 9`; one complex tile over them costs more, so the 2x2 case
+only ever looks for `Bound`, and anything else there is a hole.
+
+**The resolution field's own width depends on the region's level, not a
+flat constant.** `depth` can never exceed `deepest_depth(level)` (there
+is nothing finer than a cell to decompose into), so `depth - 1` only
+ever needs `resolution_width(level) = bits_to_name(deepest_depth(level))`
+bits. A region's own level is already known from its place in the tree,
+free context that costs nothing to use. Fixing this alone (from a flat
+3-bit field) once moved "laid out like a city" from +12.6% against dsrn
+to +8.0%.
+
+**The trailing raw pass.** Whatever the tree never covers -- every hole
+a 2x2 leaves, and nothing else -- gets exactly one raw bit a cell, in
+reading order, appended once the whole tree is written. Zero header
+cost: `claim_owners` tells both sides which cells these are.
+
+## Decoding: parse, claim, fill, resolve
+
+A copy here is chosen on content alone (`greedy_tiler` never checks
+whether a source will be resolved by the time the tree reaches it,
+unlike dsrn's copies). So decoding is four separate steps, never
+interleaved:
+
+1. `parse_node` -- bits into a `Node` tree, mirroring `write_node`
+   exactly, no values resolved.
+2. `claim_owners` -- walk the tree, recording every cell it covers as a
+   value or a direction-and-distance to read one from (`Owner`).
+3. The trailing raw bits, one per cell `claim_owners` left uncovered.
+4. `resolve` -- sweep repeatedly, deferring a copy whenever its source
+   is not resolved yet. A copy always names something reading order
+   puts before it, so there is no cycle; an assertion backs that.
+
+## Measured
+
+Same fresh seed for both (`1950720362523133367`), via
+`cargo run --release --bin dsrn_exp -- subdivide`, against dsrn's own
+encoder at `Masking::Anywhere`, `FourByFour::ItsOwnGrammar`:
+
+| family | before this rewrite (`a81016d`) | this rewrite |
+|---|---|---|
+| laid out like a city, 48 bitmaps | 3586 bits, +4.8% | 3584 bits, +4.7% |
+| grown like a blob, 84 bitmaps | 32630 bits, +0.3% | 32665 bits, +0.5% |
+
+Roughly neutral: city 2 bits a bitmap better, blob 35 bits a bitmap
+worse. Not a win yet.
+
+How much each side masks (the same run also prints this):
+
+| family | dsrn nodes masked | complex tiles a bitmap | of them masking | body nodes unmasked | masked: oversized bound | masked: copied | masked: finer |
+|---|---|---|---|---|---|---|---|
+| city | 34.7% of 378 | 109 | 1.2% | 99.57% | 0.09% | 0.05% | 0.29% |
+| blob | 67.0% of 2332 | 18 | 33.9% | 83.42% | 0.00% | 0.05% | 16.53% |
+
+A dsrn node is any code it wrote with a mask to decide on: an ordinary
+region, a 4x4 in its own grammar, or a 4x4 masking its children by
+definition. A complex tile's body nodes are counted once each: every
+resolution tile in a flat run or bound at the resolution (unmasked), and
+every masked leaf, whatever its size.
+
+What this shows: masking copies and oversized bound tiles now does
+happen inside committed complex tiles (the previous version never once
+did), but rarely. Nearly all the masking in blob is finer content below
+the resolution. dsrn masks far more of its nodes than the complex tiler
+does.
+
+The full test suite (21 tests) runs in under a second, down from
+roughly 20 seconds before the rewrite (as recorded when it was planned), since the census is computed once
+per bitmap rather than every round.
+
+## Not yet done
+
+- **Complex tiles inside a masked subtree.** A masked area is currently
+  read by the plain tree, which cannot say "complex". Planned for after
+  testing: allow complex tiles again inside those subtrees, with masking
+  in them still counted toward the earliest complex-tile ancestor.
+
+## The worst bitmap, and why it moves
+
+**These numbers predate this rewrite and have not been re-measured
+since.** Function names are the old ones (`compose_complex_tiles` is now
+`complex_tiler`, `decide_tiles` is now `greedy_tiler`).
+
+The single worst bitmap against dsrn is not fixed -- it shifts every
+time `compose_complex_tiles`' own rule changes, since that rule decides
+which content gets punished. Re-run the search
+(`samples::every_family()`, worst ratio against dsrn) after any change
+to either pass, rather than trusting a number here to still be the
+worst case.
+
+**With the ratio search in place, the worst bitmap is structure-free
+content again** -- the same "grown like a blob" sample, 32768 of 65536
+cells set, scattered with no spatial correlation, as close to
+incompressible as this crate's generator produces. dsrn: 65542 bits
+(one 6-bit header binding the whole bitmap at 1x1, then 65536 raw
+payload bits -- the theoretical floor, see `docs/dsrn_grammar.md`'s
+bind-at-depth). This tree: 81219 bits, +23.9%, with **zero complex
+tiles composed anywhere in it** -- every candidate area in genuinely
+random-looking content has a 1x1 tile somewhere inside it, which
+disqualifies it outright, so `compose_complex_tiles` correctly finds
+nothing worth composing rather than forcing a bad one through. dsrn can
+say "give up entirely, here is every cell of me raw" for a region of
+*any size*, in one small header; this tree has no equivalent --
+reaching "nothing here compresses" costs one subdivide bit *per level*
+walked down to 4x4.
+
+**The large-uniform-area-with-a-small-exception failure the biggest-
+area-first version had is fixed.** That version's worst bitmap, a
+"laid out like a city" sample, regressed from +9.6% to +93.7% under it;
+under the ratio search the same family sits at +9.3% overall, and at
++12.6% with masking added on top (see `compose_complex_tiles`'s own doc
+comment for the mechanism and the numbers) -- back below where complex
+tiles started, and no longer the
+worst case at all. The remaining gap on structure-free content is a
+capability this tree simply does not have, not a bug in either pass.
+
+## History: pass two before this rewrite
+
+Kept as it was written, with the numbers measured at the time. Names
+here are the old ones (`decide_tiles`, `compose_complex_tiles`,
+`build_mask_node`, `Gathered`, `TileLookup`, `THREE_QUARTERS_GENUINE`);
+the old mask-node grammar and its cost tables are in git history.
 
 A second, separate pass over `decide_tiles`' own output, not a third
 thing the tiler itself decides. A complex tile is an aligned area, 4x4
@@ -281,215 +575,3 @@ time: the check is a single, cheap comparison against the constituent
 list `Gathered::Whole` already carries, not a second pass computing
 costs, so the full test suite runs in the same time as the unmodified
 composer.
-
-## The tree grammar
-
-`TileLookup` is exactly this two-pass output, indexed by region so the
-tree can ask "what did the tiler say about this region" in one lookup.
-The tree itself is a plain quadtree: a leaf-or-subdivide bit, and,
-above 2x2, a leaf's own code.
-
-```text
-(at any level down to one above cells)
-1: leaf -- this region is exactly one placed tile
-   0: copy   -- 1 far/near bit, then 2 direction bits
-   1: bind
-      0: simple  -- 1 value bit
-      1: complex -- `resolution_width(level)` resolution bits (depth - 1,
-                    sized to this region's own level -- see below), then,
-                    only when `depth > 1` (masking is never chosen at
-                    depth 1, so this bit is skipped entirely there,
-                    known to be "no masking" on both sides for free), 1
-                    mask-present bit
-                    0: no masking -- one value bit a tile, for every
-                       tile the resolution names below this region, in
-                       reading order
-                    1: masking -- each of this region's own four
-                       children, in reading order, gets one mask node
-                       (below), down to the resolution named above
-
-mask node, for a region above the complex tile's own tile size:
-1: leaf -- decide masked or unmasked right here (below)
-0: subdivide -- ask the same of this area's own four children, in
-   reading order, one level finer
-
-mask node, for a region already at the complex tile's own tile size
-(and every node at or above it once its own leaf bit above was 1):
-one more bit --
-1: unmasked -- this whole area belongs to the complex tile: its own
-   resolution tile values, one bit each, in reading order
-0: masked -- this whole area is excluded, read as a plain region of its
-   own right here (recurse into `encode_region`, complex tiles forbidden)
-
-0: subdivide -- recurse into all four children, in reading order
-
-(one level above cells -- 2x2 -- in place of all of the above)
-1: this 2x2 is a homogeneous placed tile (`Bound`) -- 1 value bit
-0: it is not -- its four cells are holes, no further bits
-```
-
-Field widths: leaf/subdivide bit 1, code bit 1, far/near bit 1,
-direction 2, complex-flag bit 1, resolution `resolution_width(level)`
-(below), mask-present bit 1 (0 at depth 1), mask node's own
-leaf/subdivide bit 1, mask node's own masked/unmasked bit 1, value bit 1
-each. A mask node already at the complex tile's own tile size skips its
-leaf/subdivide bit entirely -- there is nothing finer to subdivide into,
-so it is always a leaf -- and goes straight to its own masked/unmasked
-bit.
-
-**The resolution field's own width depends on the region's level, not a
-flat constant.** `depth` can never exceed `deepest_depth(level)` (there
-is nothing finer than a cell to decompose into), so `depth - 1` only
-ever needs `resolution_width(level) = bits_to_name(deepest_depth(level))`
-bits -- `ceil(log2(deepest_depth(level)))`, `0` if only one value is
-possible at all. A region's own level is already known from its place
-in the tree, free context that costs nothing to use. A flat 3-bit field
-(enough for level 0, where 8 depths are possible) was pure waste at
-every level a complex tile can actually reach: measured on the full
-sample corpus, not one complex tile formed above level 3 (`deepest_depth
-= 5`, still needing all 3 bits), while the overwhelming majority sit at
-level 4 (`deepest_depth = 4`, 2 bits), level 5 (`deepest_depth = 3`, 2
-bits) or level 6 (`deepest_depth = 2`, 1 bit) -- 1 or 2 dead bits on
-nearly every complex tile written. Fixing it alone moved "laid out like
-a city" from +12.6% against dsrn to +8.0%.
-
-| Region says | Fields | Bits |
-|---|---|---|
-| leaf, copy | leaf + code + far + direction | `1+1+1+2 = 5` |
-| leaf, simple bind | leaf + code + complex-flag + value | `1+1+1+1 = 4` |
-| leaf, complex bind, depth 1 (mask-present skipped) | leaf + code + complex-flag + resolution + N values | `1+1+1+r+N = 3+r+N` |
-| leaf, complex bind, depth > 1, unmasked | leaf + code + complex-flag + resolution + mask-present + N values | `1+1+1+r+1+N = 4+r+N` |
-| mask node, at the tile size | masked/unmasked bit, then a value or a plain region | `1+1` (unmasked, one value) or `1+X` (masked, region's own cost `X`) |
-| mask node, above the tile size, resolved here | leaf bit + masked/unmasked bit, then values or a plain region | `2+N'` (unmasked, `N'` values below it) or `2+X` (masked) |
-| mask node, above the tile size, subdivided | leaf bit, then four child mask nodes | `1 + sum of the four children's own cost` |
-| subdivide | leaf bit only | `1` |
-| 2x2, homogeneous | leaf + value | `1+1 = 2` |
-| 2x2, hole | leaf bit only | `1`, then its 4 cells cost 1 raw bit each, later |
-
-(`r` is `resolution_width(region.level)`, `3` at level 0 or 1, still `3`
-at levels 2 and 3, `2` at levels 4 and 5, `1` at level 6 -- the finest a
-complex tile can ever start from.)
-
-A **complex tile at N sub-tiles, unmasked, breaks even against
-subdividing that area into N ordinary leaves** exactly when `7 + N`
-(the complex header, mask-present bit included, plus N values) beats
-`1 + N * 4` (one subdivide bit down to that area, then each ordinary
-child's own simple-bind cost -- leaf + code + complex-flag + value, the
-complex-flag bit included, since a *simple* bind pays it too). For the
-common case of composing four 4x4-or-coarser children under one
-subdivide bit, that is `1 + 4*4 = 17` against the complex tile's
-`7 + 4 = 11` -- a 6-bit saving. **The one place this breaks is 2x2**: a
-homogeneous 2x2 costs only 2 bits in its own special case above, with
-no complex-flag bit at all, so four of them plus their parent's
-subdivide bit cost `1 + 4*2 = 9`, cheaper than one complex tile's `11`
-by 2 bits -- composing there is a net loss, and it is why the tree's
-2x2 special case only ever looks for `Bound`, never `Complex` or
-`Copied`: anything else composed or found there is simply left as a
-hole, at no cost either way, since the special case would have ignored
-it regardless of whether `compose_complex_tiles` had produced it.
-
-**This is also exactly why masking is never allowed at `depth == 1`,
-whatever it would exclude.** At `depth == 1`, every child sits directly
-at the mask tree's own floor, the complex tile's own tile size, so *if*
-masking were allowed there, an unmasked child would cost `1 (unmasked
-bit) + 1 (value) = 2` and a masked one `1 (masked bit) + X` (its own
-plain cost) -- masking never decomposes anything at `depth == 1` (there
-is nothing finer to decompose into), so a masked child would be a
-`1`-bit *tax* on top of what it would have cost outside the complex
-tile anyway. Composing all four children unmasked at `depth == 1` is
-`3 + r + 4` (the header, mask-present skipped entirely since masking
-never happens here -- see above) against `1 + 4*4 = 17` standalone -- a
-clear win everywhere a complex tile can form (`17 - 7 = 10` bits at
-`r`'s widest, `4`; more at `r`'s narrowest). One masked of four, *were*
-it allowed, would need the mask-present bit paid back (nothing else
-here could tell a decoder to expect a masked-node tree instead of the
-flat value list), costing `(4 + r) + 3*2 + (1 + X) = r + 11 + X`
-against `13 + X` standalone -- a loss of `r - 2` bits, worse the wider
-the resolution field is (levels 0-3), an exact wash at `r = 2` (levels
-4-5), and, *only* at `r = 1` (level 6, the finest a complex tile ever
-starts from, and empirically where nearly all of them sit), a `1`-bit
-*win* on that one candidate. That last case is not worth chasing:
-paying it back would mean writing the mask-present bit on *every*
-depth-1 tile at that level, not just the rare one that actually masks
-something, since nothing else there tells a decoder which kind to
-expect -- and depth-1, fully-unmasked tiles at level 6 are, by a wide
-margin, the single most common complex tile this pass ever produces.
-Taxing all of them by a bit to occasionally save one back on a
-minority case is the trade `THREE_QUARTERS_GENUINE` exists to avoid
-making automatically, so the ban stays unconditional here too,
-deliberately leaving that one narrow case on the table. Past
-`depth == 1`, a masked child's own
-`1`-bit tax stays the same regardless of how deep the complex tile's own
-resolution goes, while an *unmasked* child at that same depth would have
-to repeat its own value across every payload tile its area covers at
-that resolution -- which is where masking starts to pay for itself, and
-why `THREE_QUARTERS_GENUINE` (see `compose_complex_tiles`'s own doc
-comment) exists to keep it from being applied more eagerly than that
-still turns out to be worth in practice.
-
-This math assumes every one of the N constituents was, without
-composing, going to cost the *same* ordinary-leaf price -- true for
-the one-level, same-size case it was worked out for, but no longer the
-whole picture once a complex tile can engulf a large area at a small
-resolution. A constituent that was itself a large, cheap `Bound` tile
-(one leaf, whatever its size) gets decomposed into many repeated
-payload bits instead, and that cost is not in this formula at all --
-see the failure mode described under `compose_complex_tiles` above,
-where exactly this is what makes composing a bad trade in practice.
-
-**The trailing raw pass.** Whatever the tree never covers -- every hole
-a 2x2 leaves, and nothing else, since a 2x2 is the only place the tree
-ever gives up without describing something -- gets exactly one raw bit
-a cell, in reading order, appended once the whole tree is written. Zero
-header cost: the decoder already knows from `covered` which cells these
-are.
-
-## Decoding: two passes, deferred resolution
-
-A copy here is chosen on content alone (`decide_tiles` never checks
-whether a source will actually be resolved by the time the tree reaches
-it, unlike dsrn's copies, which only ever name something reading order
-already guarantees is resolved). So decoding cannot resolve a cell the
-moment it is read: the tree and the trailing raw bits are read first,
-recording every cell as either a value or a direction-and-distance to
-read one from (`Owner`); then a second stage sweeps repeatedly,
-resolving what it can and deferring a copy to the next sweep whenever
-its source is not resolved yet. No cycle is possible -- a copy always
-names something reading order puts before it, the same `DIRECTIONS`
-guarantee dsrn's copies rely on -- so this is backed by an assertion,
-not blind trust, and always finishes.
-
-## The worst bitmap, and why it moves
-
-The single worst bitmap against dsrn is not fixed -- it shifts every
-time `compose_complex_tiles`' own rule changes, since that rule decides
-which content gets punished. Re-run the search
-(`samples::every_family()`, worst ratio against dsrn) after any change
-to either pass, rather than trusting a number here to still be the
-worst case.
-
-**With the ratio search in place, the worst bitmap is structure-free
-content again** -- the same "grown like a blob" sample, 32768 of 65536
-cells set, scattered with no spatial correlation, as close to
-incompressible as this crate's generator produces. dsrn: 65542 bits
-(one 6-bit header binding the whole bitmap at 1x1, then 65536 raw
-payload bits -- the theoretical floor, see `docs/dsrn_grammar.md`'s
-bind-at-depth). This tree: 81219 bits, +23.9%, with **zero complex
-tiles composed anywhere in it** -- every candidate area in genuinely
-random-looking content has a 1x1 tile somewhere inside it, which
-disqualifies it outright, so `compose_complex_tiles` correctly finds
-nothing worth composing rather than forcing a bad one through. dsrn can
-say "give up entirely, here is every cell of me raw" for a region of
-*any size*, in one small header; this tree has no equivalent --
-reaching "nothing here compresses" costs one subdivide bit *per level*
-walked down to 4x4.
-
-**The large-uniform-area-with-a-small-exception failure the biggest-
-area-first version had is fixed.** That version's worst bitmap, a
-"laid out like a city" sample, regressed from +9.6% to +93.7% under it;
-under the ratio search the same family sits at +9.3% overall, and at
-+12.6% with masking added on top (see `compose_complex_tiles`'s own doc
-comment for the mechanism and the numbers) -- back below where complex
-tiles started, and no longer the
-worst case at all. The remaining gap on structure-free content is a
-capability this tree simply does not have, not a bug in either pass.

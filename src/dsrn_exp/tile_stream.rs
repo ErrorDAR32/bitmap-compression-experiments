@@ -32,7 +32,7 @@
 
 use crate::dsrn::region::DIRECTIONS;
 use crate::dsrn::stream::EncodedBitmap;
-use crate::dsrn_exp::greedy_tiles::{decide_tiles, PlacedTile, Says};
+use crate::dsrn_exp::greedy_tiles::{greedy_tiler, Says};
 use crate::pyramid::{tile_side, Pyramid};
 use crate::Bitmap;
 
@@ -48,14 +48,15 @@ const COPIED: u64 = 0;
 /// Encodes a bitmap: decides the greedy pass's tiles, then writes
 /// them out in reading order.
 pub fn encode(pyramid: &Pyramid, bitmap: &Bitmap) -> EncodedBitmap {
-    let mut tiles = decide_tiles(pyramid, bitmap);
-    tiles.sort_by_key(|tile| {
-        let (x, y) = tile.region.top_left_cell();
+    let placed = greedy_tiler(pyramid, bitmap);
+    let mut tiles: Vec<_> = placed.iter().collect();
+    tiles.sort_by_key(|(region, _)| {
+        let (x, y) = region.top_left_cell();
         (y, x) // row-major: the same order decode() walks cells in
     });
 
     let mut out = EncodedBitmap::default();
-    for PlacedTile { region, says } in tiles {
+    for (region, says) in tiles {
         assert!(region.level >= 1, "level 0 has no size field to write");
         match says {
             Says::Bound(value) => {
@@ -69,10 +70,6 @@ pub fn encode(pyramid: &Pyramid, bitmap: &Bitmap) -> EncodedBitmap {
                 out.push_value(far as u64, FAR_WIDTH);
                 out.push_value(direction as u64, DIRECTION_WIDTH);
             }
-            // decide_tiles alone never composes a complex tile -- only
-            // compose_complex_tiles does, and this baseline never
-            // calls it.
-            Says::Complex { .. } => unreachable!("decide_tiles alone never places a complex tile"),
         }
     }
     out

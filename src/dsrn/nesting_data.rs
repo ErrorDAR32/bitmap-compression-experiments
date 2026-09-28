@@ -191,6 +191,12 @@ pub struct CodeCounts {
     pub masked_bindings: usize,
     pub masked_subdivides: usize,
     pub masked_copies: usize,
+    /// Every code this encode wrote that had a mask to decide on --
+    /// ordinary regions, 4x4s in their own grammar and 4x4s masking
+    /// their children by definition -- and, of those, the ones that
+    /// masked. Regions below the grammar write no code and are neither.
+    pub nodes: usize,
+    pub masked_nodes: usize,
     /// Children a mask sent off to be regions of their own, and
     /// children a mask left to the closest binding above them.
     pub children_made_regions: usize,
