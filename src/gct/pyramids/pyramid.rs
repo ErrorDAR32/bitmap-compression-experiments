@@ -153,6 +153,27 @@ impl Pyramid {
         }
     }
 
+    /// Replaces many tiles' elements, then propagates once: every level
+    /// coarser than the finest recomputed whole, finest first. The same as
+    /// setting them one at a time -- a tile's propagation depends only on
+    /// its own element and its children's -- for far less.
+    pub fn set_all(&mut self, elements: impl IntoIterator<Item = (Tile, u64)>) {
+        for (tile, value) in elements {
+            self.write(tile, value);
+        }
+        let Some(propagation) = self.propagation else { return };
+        for level in (self.shape.coarsest_level..self.shape.finest_level).rev() {
+            let across = self.tiles_across[level as usize];
+            for y in 0..across {
+                for x in 0..across {
+                    let tile = Tile { level, x: x as u8, y: y as u8 };
+                    let value = propagation(self, tile);
+                    self.write(tile, value);
+                }
+            }
+        }
+    }
+
     /// Replaces one tile's element, nothing else.
     fn write(&mut self, tile: Tile, value: u64) {
         let mask = self.element_mask;

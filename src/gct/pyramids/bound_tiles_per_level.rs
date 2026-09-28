@@ -40,10 +40,14 @@ impl BoundTilesPerLevel for Vec<Pyramid> {
     fn bound_tiles_per_level(placements: &Pyramid) -> Self {
         let mut per_level: Vec<Pyramid> =
             (0..=CELL_LEVEL).map(|size| Pyramid::with_propagation(shape(size), sum_of_children)).collect();
+        let mut placed: Vec<Vec<(Tile, u64)>> = vec![Vec::new(); per_level.len()];
         for (tile, placement) in placements.placed_tiles() {
             if placement.is_whole_bind() {
-                per_level[tile.level as usize].set(tile, 1);
+                placed[tile.level as usize].push((tile, 1));
             }
+        }
+        for (pyramid, tiles) in per_level.iter_mut().zip(placed) {
+            pyramid.set_all(tiles);
         }
         per_level
     }

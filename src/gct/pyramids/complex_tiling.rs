@@ -75,8 +75,9 @@ pub trait ComplexTiling {
     /// Whether a complex tile of 1x1 resolution masks `tile`.
     fn raw_masks(&self, tile: Tile) -> bool;
 
-    /// Records whether a complex tile of 1x1 resolution masks `tile`.
-    fn set_raw_masks(&mut self, tile: Tile, masks: bool);
+    /// Records, for each tile given, whether a complex tile of 1x1
+    /// resolution masks it.
+    fn set_raw_masking(&mut self, masking: impl IntoIterator<Item = (Tile, bool)>);
 
     /// Whether `tile`, a child of a divide nested in `nested`, is left to
     /// the binding above it, of `bound_above`: the divide masks (8x8 or
@@ -98,11 +99,11 @@ pub trait ComplexTiling {
 impl ComplexTiling for Pyramid {
     fn complex_tiling(placements: &Pyramid) -> Self {
         let mut complex_tiling = Pyramid::with_propagation(SHAPE, bound_size_of_children);
-        for (tile, placement) in placements.placed_tiles() {
+        let placed = placements.placed_tiles().map(|(tile, placement)| {
             let bound_size = if placement.is_whole_bind() { tile.level as u64 + 1 } else { NONE };
-            let element = with_field(with_field(NONE, PLACEMENT, placement_code(placement)), BOUND_SIZE, bound_size);
-            complex_tiling.set(tile, element);
-        }
+            (tile, with_field(with_field(NONE, PLACEMENT, placement_code(placement)), BOUND_SIZE, bound_size))
+        });
+        complex_tiling.set_all(placed.collect::<Vec<_>>());
         complex_tiling
     }
 
@@ -119,9 +120,12 @@ impl ComplexTiling for Pyramid {
         field(self.get(tile), RAW_MASKS) == YES
     }
 
-    fn set_raw_masks(&mut self, tile: Tile, masks: bool) {
-        let element = with_field(self.get(tile), RAW_MASKS, if masks { YES } else { NONE });
-        self.set(tile, element);
+    fn set_raw_masking(&mut self, masking: impl IntoIterator<Item = (Tile, bool)>) {
+        let elements: Vec<(Tile, u64)> = masking
+            .into_iter()
+            .map(|(tile, masks)| (tile, with_field(self.get(tile), RAW_MASKS, if masks { YES } else { NONE })))
+            .collect();
+        self.set_all(elements);
     }
 
     fn left_to_binding_above(&self, tile: Tile, bound_above: bool, nested: &NestedResolutions) -> bool {

@@ -10,6 +10,7 @@
 //! every bitmap tested.
 
 use crate::gct::grammar::*;
+use std::collections::HashMap;
 use crate::gct::nested_resolutions::NestedResolutions;
 use crate::gct::pyramids::complex_tiling::ComplexTiling;
 use crate::gct::pyramids::placements::Placement;
@@ -23,9 +24,28 @@ fn payload_bits(size_offset: u8) -> u64 {
     across * across
 }
 
+/// Bits already counted, by tile and by the complex tiles it is nested
+/// in: good for as long as nothing under a counted tile changes -- one
+/// pass of the complex tiler, whose commits come at its end.
+#[derive(Default)]
+pub struct CountedBits(HashMap<(Tile, u64), u64>);
+
 /// The bits `tile` costs, nested in `nested`, `bound_above` the value
 /// bound above it, and everything under it.
 pub fn bits(complex_tiling: &Pyramid, tile: Tile, nested: &mut NestedResolutions, bound_above: bool) -> u64 {
+    bits_counted(complex_tiling, tile, nested, bound_above, &mut CountedBits::default())
+}
+
+/// The same, reusing and adding to what `counted` holds for the tiles
+/// under `tile` -- but never counting `tile` itself in, which may be a
+/// complex tile only for as long as it is being scored.
+pub fn bits_counted(
+    complex_tiling: &Pyramid,
+    tile: Tile,
+    nested: &mut NestedResolutions,
+    bound_above: bool,
+    counted: &mut CountedBits,
+) -> u64 {
     // Its mask bits, nearest complex tile first, up to the first it is
     // unmasked in -- then its values are that one's payload.
     let mut mask_bits = 0;
@@ -59,7 +79,7 @@ pub fn bits(complex_tiling: &Pyramid, tile: Tile, nested: &mut NestedResolutions
             for child in tile.children() {
                 bind_bits += MASK_BIT_WIDTH as u64;
                 if bind.masks(child) {
-                    bind_bits += bits(complex_tiling, child, nested, value);
+                    bind_bits += remembered(complex_tiling, child, nested, value, counted);
                 }
             }
             bind_bits
@@ -73,7 +93,7 @@ pub fn bits(complex_tiling: &Pyramid, tile: Tile, nested: &mut NestedResolutions
                 for child in tile.children() {
                     copy_bits += MASK_BIT_WIDTH as u64;
                     if copy.masks(child) {
-                        copy_bits += bits(complex_tiling, child, nested, bound_above);
+                        copy_bits += remembered(complex_tiling, child, nested, bound_above, counted);
                     }
                 }
             }
@@ -91,7 +111,10 @@ pub fn bits(complex_tiling: &Pyramid, tile: Tile, nested: &mut NestedResolutions
                 } else {
                     complex_bits
                         + nested.while_nested(resolution, |inside| {
-                            tile.children().into_iter().map(|child| bits(complex_tiling, child, inside, bound_above)).sum::<u64>()
+                            tile.children()
+                                .into_iter()
+                                .map(|child| remembered(complex_tiling, child, inside, bound_above, counted))
+                                .sum::<u64>()
                         })
                 }
             }
@@ -111,11 +134,28 @@ pub fn bits(complex_tiling: &Pyramid, tile: Tile, nested: &mut NestedResolutions
                         divide_bits += MASK_BIT_WIDTH as u64;
                     }
                     if !is_left {
-                        divide_bits += bits(complex_tiling, child, nested, bound_above);
+                        divide_bits += remembered(complex_tiling, child, nested, bound_above, counted);
                     }
                 }
                 divide_bits
             }
         },
     }
+}
+
+/// `tile`'s bits, from `counted` if counted before, else counted now.
+fn remembered(
+    complex_tiling: &Pyramid,
+    tile: Tile,
+    nested: &mut NestedResolutions,
+    bound_above: bool,
+    counted: &mut CountedBits,
+) -> u64 {
+    let key = (tile, nested.key());
+    if let Some(&bits) = counted.0.get(&key) {
+        return bits;
+    }
+    let bits = bits_counted(complex_tiling, tile, nested, bound_above, counted);
+    counted.0.insert(key, bits);
+    bits
 }

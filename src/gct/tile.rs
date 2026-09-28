@@ -46,7 +46,7 @@ pub const fn levels_to_cells(level: u8) -> u8 {
 
 /// A square of the bitmap: its size, and its place among tiles of that
 /// size.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub struct Tile {
     pub level: u8,
     pub x: u8,

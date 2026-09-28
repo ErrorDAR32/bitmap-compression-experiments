@@ -18,6 +18,7 @@
 //! children keep between them. Tiles that do not overlap cost bits
 //! independently, so that is the best a pass can do.
 
+use super::bit_cost::CountedBits;
 use super::complex_tile_candidates::Candidate;
 use super::raw_masking::decide_raw_masking;
 use crate::gct::pyramids::bound_tiles_per_level::BoundTilesPerLevel;
@@ -45,9 +46,10 @@ pub fn complex_tiler(placements: &Pyramid) -> Pyramid {
     let mut searched = vec![SearchArea { area: Tile::whole_bitmap(), coarsest_level: 0, nested: NestedResolutions::none() }];
     while !searched.is_empty() {
         let mut chosen = Vec::new();
+        let mut counted = CountedBits::default();
         for search in &searched {
             for tile in search.area.tiles_at_size_offset(search.coarsest_level - search.area.level) {
-                best_at_or_under(&mut complex_tiling, &bound_tiles_per_level, tile, &search.nested, &mut chosen);
+                best_at_or_under(&mut complex_tiling, &bound_tiles_per_level, tile, &search.nested, &mut counted, &mut chosen);
             }
         }
         searched = commit(chosen, &mut complex_tiling);
@@ -68,6 +70,7 @@ fn best_at_or_under(
     bound_tiles_per_level: &Vec<Pyramid>,
     tile: Tile,
     nested: &NestedResolutions,
+    counted: &mut CountedBits,
     chosen: &mut Vec<Candidate>,
 ) -> u64 {
     if tile.level > FINEST_CANDIDATE_LEVEL || nested.unmasking(complex_tiling, tile).is_some() {
@@ -78,14 +81,14 @@ fn best_at_or_under(
     let placed = complex_tiling.placed_at(tile);
     let own = match placed {
         Some(_) => None,
-        None => Candidate::best_for(complex_tiling, bound_tiles_per_level, tile, nested),
+        None => Candidate::best_for(complex_tiling, bound_tiles_per_level, tile, nested, counted),
     };
     let mut under = Vec::new();
     let under_saving: u64 = tile
         .children()
         .into_iter()
         .filter(|&child| placed.is_none_or(|placement| placement.masks(child)))
-        .map(|child| best_at_or_under(complex_tiling, bound_tiles_per_level, child, nested, &mut under))
+        .map(|child| best_at_or_under(complex_tiling, bound_tiles_per_level, child, nested, counted, &mut under))
         .sum();
     match own {
         Some(candidate) if candidate.saving >= under_saving => {

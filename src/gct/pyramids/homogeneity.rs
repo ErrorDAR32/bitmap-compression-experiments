@@ -25,10 +25,11 @@ pub trait Homogeneity {
 impl Homogeneity for Pyramid {
     fn homogeneity(bitmap: &Bitmap) -> Self {
         let mut pyramid = Pyramid::with_propagation(SHAPE, all_children_homogeneous_and_agreeing);
-        for cell in pyramid.tiles_of_level(CELL_LEVEL).collect::<Vec<_>>() {
-            let value = if cell.top_left_value(bitmap) { VALUE } else { 0 };
-            pyramid.set(cell, HOMOGENEOUS | value);
-        }
+        let cells: Vec<(Tile, u64)> = pyramid
+            .tiles_of_level(CELL_LEVEL)
+            .map(|cell| (cell, HOMOGENEOUS | if cell.top_left_value(bitmap) { VALUE } else { 0 }))
+            .collect();
+        pyramid.set_all(cells);
         pyramid
     }
 

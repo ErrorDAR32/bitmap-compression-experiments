@@ -6,6 +6,9 @@ use crate::gct::pyramids::complex_tiling::ComplexTiling;
 use crate::gct::pyramids::pyramid::Pyramid;
 use crate::gct::tile::Tile;
 
+/// Enough for a resolution plus one, up to `CELL_LEVEL + 1`.
+const RESOLUTION_BITS: u64 = 4;
+
 #[derive(Clone, Default, Debug)]
 pub struct NestedResolutions {
     /// The resolution (a level) of each complex tile a tile is nested in,
@@ -22,6 +25,12 @@ impl NestedResolutions {
     /// The nesting a complex tile placed here gets: how many it is nested in.
     pub fn next_nesting(&self) -> u8 {
         self.resolutions.len() as u8
+    }
+
+    /// One number standing for these resolutions, in order: four bits a
+    /// resolution, plus one so none is zero.
+    pub fn key(&self) -> u64 {
+        self.resolutions.iter().fold(0, |key, &resolution| key << RESOLUTION_BITS | (resolution as u64 + 1))
     }
 
     /// The resolution of the complex tile at `nesting`.

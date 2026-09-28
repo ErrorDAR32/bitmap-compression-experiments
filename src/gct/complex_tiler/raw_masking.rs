@@ -22,6 +22,7 @@ pub fn decide_raw_masking(complex_tiling: &mut Pyramid) {
     // Per level, finest first, what each tile costs in a raw complex
     // tile, its mask bit included: the cheaper of raw and itself.
     let mut finer: Vec<u64> = Vec::new();
+    let mut masking = Vec::new();
     for level in (0..=CELL_LEVEL).rev() {
         let mut costs = Vec::with_capacity(tiles_across(level) * tiles_across(level));
         for tile in Tile::all_of_level(level) {
@@ -29,11 +30,12 @@ pub fn decide_raw_masking(complex_tiling: &mut Pyramid) {
             let raw = cells_in_tile(level);
             let by_itself = said_by_itself(complex_tiling, tile, child_cost);
             let masks = by_itself.is_some_and(|bits| bits < raw);
-            complex_tiling.set_raw_masks(tile, masks);
+            masking.push((tile, masks));
             costs.push(MASK_BIT_WIDTH as u64 + by_itself.map_or(raw, |bits| bits.min(raw)));
         }
         finer = costs;
     }
+    complex_tiling.set_raw_masking(masking);
 }
 
 /// What `tile` costs said by itself, its parts each at `part_cost` --
