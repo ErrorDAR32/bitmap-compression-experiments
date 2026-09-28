@@ -92,6 +92,14 @@ cargo run --release --example gct_timing
 cargo run --release --example gct_timing -- 400
 ```
 
+Against existing bitmap compressors -- CCITT Group 4, JBIG (jbigkit) and
+zstd -- on the same sample, sizes and times side by side, in a crate of
+its own so gct never depends on them (`comparison/README.md`):
+
+```
+cargo run --release --manifest-path comparison/Cargo.toml
+```
+
 ## Phase one: fix, with the seed held still
 
 Pick a seed base and leave it alone. While it is held:
