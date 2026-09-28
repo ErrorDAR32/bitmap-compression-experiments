@@ -6,7 +6,10 @@
 //! - bits 8-11: the one tile size every cell under the tile is bound at,
 //!   plus one -- `0` when the tile is not entirely bound at one size;
 //! - bits 12-15: the size offset of the complex tile at the tile -- `0`
-//!   when it is not one.
+//!   when it is not one;
+//! - bit 16: whether anything but 1x1 tiles and 2x2 binds is placed at
+//!   or under the tile -- what a complex tile of 1x1 resolution cannot
+//!   leave raw.
 //!
 //! The bound size propagates: a placed `Bound` tile is bound at its own
 //! size, a placed copy or a bind that masks at none, and any other tile
@@ -32,9 +35,11 @@ const PLACEMENT: Field = Field { shift: 0, bits: PLACEMENT_CODE_BITS };
 const BOUND_SIZE: Field = Field { shift: PLACEMENT.shift + PLACEMENT.bits, bits: 4 };
 /// Enough for a size offset, up to `CELL_LEVEL`.
 const SIZE_OFFSET: Field = Field { shift: BOUND_SIZE.shift + BOUND_SIZE.bits, bits: 4 };
+const HOLDS_STRUCTURE: Field = Field { shift: SIZE_OFFSET.shift + SIZE_OFFSET.bits, bits: 1 };
+const YES: u64 = 1;
 
 
-const SHAPE: PyramidShape = PyramidShape { arity: 4, coarsest_level: 0, finest_level: CELL_LEVEL, element_bits: 16 };
+const SHAPE: PyramidShape = PyramidShape { arity: 4, coarsest_level: 0, finest_level: CELL_LEVEL, element_bits: 32 };
 
 fn field(element: u64, field: Field) -> u64 {
     (element >> field.shift) & ((1 << field.bits) - 1)
@@ -57,11 +62,20 @@ pub trait ComplexTiling {
 
     /// Whether every cell under `tile` is bound by tiles of exactly
     /// `size` -- what being unmasked in a complex tile of that
-    /// resolution needs. Always, at 1x1: every cell is a tile of its own,
-    /// so a complex tile of 1x1 resolution says every cell under it raw.
+    /// resolution needs. At 1x1, every cell is a tile of its own, so a
+    /// complex tile of 1x1 resolution says cells raw -- but not a part
+    /// holding anything coarser than a 2x2 bind, or a copy: that part is
+    /// cheaper said by itself.
     fn entirely_bound_at(&self, tile: Tile, size: u8) -> bool {
-        size == CELL_LEVEL || self.bound_size(tile) == Some(size)
+        if size == CELL_LEVEL {
+            return !self.holds_structure(tile);
+        }
+        self.bound_size(tile) == Some(size)
     }
+
+    /// Whether anything but 1x1 tiles and 2x2 binds is placed at or under
+    /// `tile`.
+    fn holds_structure(&self, tile: Tile) -> bool;
 
     /// Whether `tile`, a child of a divide nested in `nested`, is left to
     /// the binding above it, of `bound_above`: the divide masks (8x8 or
@@ -86,6 +100,8 @@ impl ComplexTiling for Pyramid {
         for (tile, placement) in placements.placed_tiles() {
             let bound_size = if placement.is_whole_bind() { tile.level as u64 + 1 } else { NONE };
             let element = with_field(with_field(NONE, PLACEMENT, placement_code(placement)), BOUND_SIZE, bound_size);
+            let structure = if placement.is_whole_bind() && tile.level >= CELL_LEVEL - 1 { NONE } else { YES };
+            let element = with_field(element, HOLDS_STRUCTURE, structure);
             complex_tiling.set(tile, element);
         }
         complex_tiling
@@ -98,6 +114,10 @@ impl ComplexTiling for Pyramid {
     fn bound_size(&self, tile: Tile) -> Option<u8> {
         let bound_size = field(self.get(tile), BOUND_SIZE);
         (bound_size != NONE).then(|| (bound_size - 1) as u8)
+    }
+
+    fn holds_structure(&self, tile: Tile) -> bool {
+        field(self.get(tile), HOLDS_STRUCTURE) == YES
     }
 
     fn left_to_binding_above(&self, tile: Tile, bound_above: bool, nested: &NestedResolutions) -> bool {
@@ -136,7 +156,8 @@ fn bound_size_of_children(pyramid: &Pyramid, tile: Tile) -> u64 {
         None => {
             let sizes: Vec<u64> = children.iter().map(|&child| field(child, BOUND_SIZE)).collect();
             let shared = if sizes.iter().all(|&size| size == sizes[0]) { sizes[0] } else { NONE };
-            with_field(element, BOUND_SIZE, shared)
+            let structure = if children.iter().any(|&child| field(child, HOLDS_STRUCTURE) == YES) { YES } else { NONE };
+            with_field(with_field(element, BOUND_SIZE, shared), HOLDS_STRUCTURE, structure)
         }
     }
 }

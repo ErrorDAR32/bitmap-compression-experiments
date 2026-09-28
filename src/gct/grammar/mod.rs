@@ -64,10 +64,9 @@ pub fn divide_may_mask(level: u8) -> bool {
 }
 
 /// Whether a complex tile at `level` of `size_offset` has a
-/// mask-present bit: not at size offsets 0 and 1, and not at a 1x1
-/// resolution, which says every cell raw.
-pub fn complex_tile_may_mask(level: u8, size_offset: u8) -> bool {
-    size_offset > 1 && size_offset < levels_to_cells(level)
+/// mask-present bit: not at size offsets 0 and 1.
+pub fn complex_tile_may_mask(_level: u8, size_offset: u8) -> bool {
+    size_offset > 1
 }
 
 /// How many bits name a complex tile's size offset at `level`: enough

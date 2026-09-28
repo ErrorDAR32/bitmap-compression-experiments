@@ -107,8 +107,10 @@ its own size: just a **tile** (size offset 0). So there is no separate
 simple bind.
 
 **A 1x1 resolution is the raw escape.** A complex tile of 1x1
-resolution says every cell under it raw and never masks -- every cell
-is a tile of its own, so nothing is repeated to fit it. It is offered
+resolution says cells raw -- every cell is a tile of its own, so
+nothing is repeated to fit it. It masks every part holding anything
+coarser than a 2x2 bind, or a copy: those are cheaper said by
+themselves. It is offered
 only where the size offset field has a value to spare for it: 128x128,
 64x64, 32x32 and 8x8. Everywhere else a 1x1 tile is the residual pass's
 own. A candidate is never finer than 4x4.
@@ -203,7 +205,7 @@ Any coarser level:
             child as a node of its own
    1: complex tile -- resolution_width(level) bits: size offset, 0 meaning a
       tile, then
-        size offset 0 or 1, or a 1x1 resolution: nothing (never masks)
+        size offset 0 or 1: nothing (never masks)
         otherwise:          0: no masking | 1: masking -- four child
                             nodes follow, this complex tile now the
                             nearest one they are nested in
