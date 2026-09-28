@@ -5,7 +5,7 @@
 //! - records, in `testing/adversarial/`: the worst bitmap found so far
 //!   for each objective. A run starts from it and replaces it only when
 //!   it beats it, so the search keeps going across runs;
-//! - saved patterns, in `testing/adversarial/saved/`: bitmaps taken from
+//! - saved bitmaps, in `testing/adversarial/saved/`: bitmaps taken from
 //!   the records once a search has settled, named for what they are and
 //!   never replaced by a search. The benchmarks encode these, so their
 //!   inputs stay fixed while the records move.
@@ -18,7 +18,7 @@ use std::path::{Path, PathBuf};
 
 /// Where the records are kept, under the crate's root.
 const FOLDER: &str = "testing/adversarial";
-/// Where the saved patterns are kept, under the records' folder.
+/// Where the saved bitmaps are kept, under the records' folder.
 const SAVED: &str = "saved";
 /// A plain PBM's first word.
 const MAGIC: &str = "P1";
@@ -28,7 +28,7 @@ fn records_folder() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(FOLDER)
 }
 
-/// The saved patterns' folder.
+/// The saved bitmaps' folder.
 fn saved_folder() -> PathBuf {
     records_folder().join(SAVED)
 }
@@ -38,7 +38,7 @@ pub fn path(name: &str) -> PathBuf {
     records_folder().join(format!("{name}.pbm"))
 }
 
-/// The saved pattern named `name`'s file.
+/// The saved bitmap named `name`'s file.
 pub fn saved_path(name: &str) -> PathBuf {
     saved_folder().join(format!("{name}.pbm"))
 }
@@ -63,7 +63,7 @@ pub fn all() -> Vec<(String, Bitmap)> {
     every_in(&records_folder())
 }
 
-/// Every saved pattern, each named, in name order: the fixed hard cases
+/// Every saved bitmap, each named, in name order: the fixed hard cases
 /// the fine tests check and the optimization benchmarks encode.
 pub fn saved() -> Vec<(String, Bitmap)> {
     every_in(&saved_folder())
@@ -124,8 +124,8 @@ pub fn write(name: &str, bitmap: &Bitmap, note: &str) {
     write_to(&path(name), bitmap, &[note.to_string()]);
 }
 
-/// Saves `bitmap` as the pattern `name`, `notes` in its comment lines,
-/// replacing any saved pattern of that name.
+/// Saves `bitmap` as the bitmap `name`, `notes` in its comment lines,
+/// replacing any saved bitmap of that name.
 pub fn save(name: &str, bitmap: &Bitmap, notes: &[String]) {
     write_to(&saved_path(name), bitmap, notes);
 }

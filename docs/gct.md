@@ -345,7 +345,7 @@ best_for(t):                                  (complex_tile_candidates.rs)
         if saving > 0 and saving > best's: best = (r, saving)
     return best
 
-best_at_or_under(t):                          (complex_tiler.rs)
+best_at_or_under(t):                          (passes.rs)
     if t is finer than 4x4 or entirely unmasked in the area: return 0
     own   = best_for(t) if nothing is placed at t
     under = sum of best_at_or_under(child) over the children that can
@@ -499,18 +499,20 @@ order -- above, or left in the same row -- so every chain ends.
 
 In `tests/`, per `docs/testing_protocol.md`: `gct_fine` (one bitmap per
 test), `gct_fast` (a small seeded sample), `gct_complete` (everything,
-plus a second seed base and the checkerboards), `gct_measurement` (the
-measurement below), the adversarial search and the diagnostics. Every
-check: every cell is said by exactly one placed tile, or lies in a 2x2
-that placed nothing and is said raw; nothing finer than 4x4 copies;
-nothing finer than a 2x2 is placed; the complex tiler's bit cost is the
-encoder's count, the tree read back is the tree written, decoding gives
-back every cell.
+plus a second seed base and the checkerboards). Each judges what the
+diagnostics (`src/diagnostics/`) gather; the diagnostics tool
+(`src/bin/gct_diagnostics/`) prints it, the measurement below included.
+Every check: every cell is said by exactly one placed tile, or lies in
+a 2x2 that placed nothing and is said raw; nothing finer than 4x4
+copies; nothing finer than a 2x2 is placed; the complex tiler's bit
+cost is the encoder's count; the divides above the top tiles spend what
+the grammar says; the tree read back is the tree written; decoding
+gives back every cell.
 
 ## Measured
 
 Seed `1950720362523133367`, via
-`cargo test --release --test gct_measurement -- --ignored --nocapture`:
+`cargo run --release --bin gct_diagnostics -- measurement`:
 
 It prints one table a sample generator, a row a parameter set; their
 totals:
@@ -561,6 +563,40 @@ payload mode bit, and the start level header, 31 over the raw cells.
 A complex tile's body nodes are counted once each: every resolution
 tile unmasked in it, and every masked leaf, whatever its size, belonging
 to the complex tile whose body directly holds it.
+
+**The tree above the top tiles** (`gct_diagnostics -- above`,
+`diagnostics/above_complex_tiles.rs`). Down from the start level, the
+first node on each path that is not a divide -- a complex tile of any
+resolution, a copy, a point list, a 2x2 -- is a *top tile*, and a
+child a masking divide leaves to the binding above is a *background
+tile*. Together they tile the whole bitmap once, in Morton order; the
+divides above them and each top tile's leaf bit are all the tree spends
+placing them. Would a list of those tiles in Morton order, each with its
+size, place them for less? A list says each tile's size from the levels
+a tile starting at its first cell could have, and whether it is
+background; the tree says, at every node, leaf, whole divide or masking
+divide with its child mask. Both spell the same thing, so the fair
+comparison is the least each could spend -- each symbol coded by how
+often it occurs in its context over the family (an entropy, which only
+an ideal adaptive coder reaches). Bits a bitmap, seed
+`1950720362523133367`:
+
+| family | all bits | tree placing, as written | tree, ideally coded | list, ideally coded |
+|---|---|---|---|---|
+| city | 12614 | 1443 (11.4%) | 1170 | 1250 |
+| blob | 24669 | 1789 (7.3%) | 1223 | 1289 |
+| sparse | 2389 | 111 (4.6%) | 66 | 72 |
+| lines | 11571 | 2489 (21.5%) | 2101 | 2180 |
+| adversarial, saved | 60265 | 4240 (7.0%) | 2498 | 2524 |
+
+The list costs more than the tree in every family, by 1% to 9%, and did
+on seeds `5540450233105962519` and `14458350495405045065` too. A list
+of aligned tiles in Morton order is a quadtree's leaves, so the two
+carry the same information; the tree's divides share one decision
+among four children, where a list says each child's size again. What
+is there to take is the coding: the tree's decisions, coded by how
+often each is made at its level, would spend 2% to 3.4% of all bits less
+(city 273 bits a bitmap, blob 566, lines 388).
 
 **Why the start level header**: a trunk of depth `d` -- every tile
 coarser than level `d` subdivides -- saves `(4^d - 1) / 3` subdivide

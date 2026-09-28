@@ -1,14 +1,14 @@
-//! The bitmaps a diagnostic looks at: every adversarial record and saved
-//! pattern, and the PBM image named in `GCT_DIAGNOSE`, if any.
+//! The bitmaps a diagnostic looks at by name: every adversarial record
+//! and saved bitmap, and the PBM image named in `GCT_DIAGNOSE`, if any.
 
-use bitmap::adversarial::record;
-use bitmap::Bitmap;
+use crate::adversarial::record;
+use crate::Bitmap;
 use std::path::Path;
 
 /// The environment variable naming one more PBM image to look at.
-const EXTRA: &str = "GCT_DIAGNOSE";
+pub const EXTRA: &str = "GCT_DIAGNOSE";
 
-/// Every adversarial record and saved pattern, then `GCT_DIAGNOSE`'s
+/// Every adversarial record and saved bitmap, then `GCT_DIAGNOSE`'s
 /// image, each named.
 pub fn looked_at() -> Vec<(String, Bitmap)> {
     let mut bitmaps = record::all();

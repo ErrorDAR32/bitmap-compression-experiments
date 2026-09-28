@@ -1,20 +1,20 @@
-//! Saves an adversarial record as a named pattern: the record's bitmap
+//! Saves an adversarial record as a named bitmap: the record's bitmap
 //! copied to `testing/adversarial/saved/`, where no search replaces it,
 //! under a name saying what it is, with a line describing it and the
 //! record's own notes (what it scored) as its comment lines.
 //!
 //! ```text
 //! cargo run --release --example save_adversarial -- \
-//!     gct_against_zstd3 textured_noise_vs_zstd3 "noise in 4x4 grains, ..."
+//!     gct_against_zstd3 near_repeated_half_vs_zstd3 "bottom half a near repeat of the top, ..."
 //! ```
 //!
-//! The arguments: the record, the saved pattern's name, its description.
+//! The arguments: the record, the saved bitmap's name, its description.
 
 #![warn(missing_docs, clippy::missing_docs_in_private_items)]
 
 use bitmap::adversarial::record;
 
-/// Copies the record named by the first argument to the saved pattern
+/// Copies the record named by the first argument to the saved bitmap
 /// named by the second, described by the third.
 fn main() {
     let arguments: Vec<String> = std::env::args().skip(1).collect();

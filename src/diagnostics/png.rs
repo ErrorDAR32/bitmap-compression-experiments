@@ -1,14 +1,8 @@
-//! PNG images of the bitmaps looked at, set cells black, two pixels a
-//! cell, written to `target/gct_diagnostics/`: a PNG is a zlib stream,
-//! so this writes one uncompressed, with no library.
+//! A bitmap as a PNG image, set cells black, two pixels a cell: a PNG is
+//! a zlib stream, so this writes one uncompressed, with no library.
 
-use super::bitmaps::looked_at;
-use bitmap::Bitmap;
-use std::fs;
-use std::path::PathBuf;
+use crate::Bitmap;
 
-/// Where the images go, under the crate's root.
-const FOLDER: &str = "target/gct_diagnostics";
 /// Each cell is this many pixels square.
 const PIXELS_A_CELL: usize = 2;
 /// The bitmap's side, in cells.
@@ -107,17 +101,4 @@ pub fn png(bitmap: &Bitmap) -> Vec<u8> {
     chunk(&mut out, b"IDAT", &stored_zlib(&rows));
     chunk(&mut out, b"IEND", &[]);
     out
-}
-
-/// Writes a PNG of every bitmap looked at, and prints where.
-#[test]
-#[ignore]
-fn render() {
-    let folder = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(FOLDER);
-    fs::create_dir_all(&folder).unwrap();
-    for (name, bitmap) in looked_at() {
-        let path = folder.join(format!("{name}.png"));
-        fs::write(&path, png(&bitmap)).unwrap();
-        println!("  {}", path.display());
-    }
 }

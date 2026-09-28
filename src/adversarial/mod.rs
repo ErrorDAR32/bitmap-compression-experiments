@@ -1,8 +1,8 @@
 //! Adversarial bitmaps: searches for the bitmaps an encoder does worst
 //! on, by any score the caller gives -- gct against its raw cells, or
 //! against another encoder. Kept in the library so every search, in any
-//! crate, is the same search: `tests/gct_adversarial_generator` scores
-//! gct against the raw cells, `comparison/` scores it against the
+//! crate, is the same search: `src/bin/gct_adversarial.rs` scores gct
+//! against the raw cells, `comparison/` scores it against the
 //! external codecs. See `docs/testing_protocol.md`.
 //!
 //! Each search has two stages, each a simulated annealing (`anneal.rs`)

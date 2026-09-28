@@ -2,7 +2,9 @@
 //! densities, against the raw cells: what gct pays where nothing
 //! compresses, or little does.
 
-use bitmap::gct::encode;
+use bitmap::diagnostics::measured::Measured;
+use bitmap::diagnostics::RAW_CELLS;
+use bitmap::gct::Workspace;
 use bitmap::samples::grown;
 use bitmap::table::Table;
 
@@ -14,17 +16,14 @@ const EACH: u64 = 3;
 /// The fixed seed they are grown from.
 const SEED: u64 = 1;
 
-/// The raw cells: what a bitmap costs written out.
-const RAW_CELLS: usize = 256 * 256;
-
 /// Prints gct's bits on noise at every density, against the raw cells.
-#[test]
-#[ignore]
-fn noise() {
+pub fn run() {
+    let mut workspace = Workspace::new();
     let mut table = Table::new(&["density", "gct\nbits a bitmap", "gct\nover raw cells"]);
     for density in DENSITIES {
-        let bitmaps: Vec<_> = grown(SEED, density, 0.0, EACH).collect();
-        let gct_bits = bitmaps.iter().map(|bitmap| encode(bitmap).len()).sum::<usize>() / bitmaps.len();
+        let measured = Measured::of(&mut workspace, grown(SEED, density, 0.0, EACH));
+        assert!(measured.lost.is_empty(), "noise at {density}: gct lost cells of cases {:?}", measured.lost);
+        let gct_bits = measured.bits / measured.bitmaps;
         table.row(&[
             format!("{:.0}%", density * 100.0),
             gct_bits.to_string(),

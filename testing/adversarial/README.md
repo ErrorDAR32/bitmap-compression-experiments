@@ -6,23 +6,24 @@ Two kinds, both plain PBM images (`P1`, `1` set), 256x256, with notes as
 - **Records**, here: the worst bitmap found so far for each search, one
   a codec gct is scored against. A search starts from its record and
   replaces it only when it beats it, so records move.
-- **Saved patterns**, in `saved/`: records copied once their search had
+- **Saved bitmaps**, in `saved/`: records copied once their search had
   settled, named for what they are, never replaced by a search. The fine
-  tier checks them, and the instruction count, `gct_timing` and
-  `gct_measurement` encode them: fixed inputs for optimizing against.
+  tier checks them, and the instruction count, `gct_timing` and the
+  diagnostics tool's `measurement` encode them: fixed inputs for
+  optimizing against.
 
 Searching and saving are described in `docs/testing_protocol.md`.
 
-## Saved patterns
+## Saved bitmaps
 
-Each codec's pattern was saved from its record after one search of
+Each codec's bitmap was saved from its record after one search of
 4,000 changes on the whole plane from each start (seed
 4993203171652246682), then one of 16,000 (seed 6573815569834013518),
 four searches a codec each time. The
 longer search moved the zstd records by under 0.1% and JBIG's by 0.5%,
 so they had settled; G4's still gained 3.4%, so it may still be beaten.
 
-| pattern | against | gct bits | codec bits | gap |
+| bitmap | against | gct bits | codec bits | gap |
 |---|---|---:|---:|---:|
 | `horizontal_streaks_vs_g4` | CCITT G4 | 54,016 | 24,920 | 29,096 |
 | `split_2x2_grain_vs_jbig` | JBIG | 62,750 | 28,552 | 34,198 |
@@ -42,8 +43,8 @@ What each is, measured on the image:
   context model predicts the splits; gct writes each split 2x2 as four
   raw cells.
 - **`near_repeated_half_vs_zstd3`** and **`near_repeated_half_vs_zstd19`**:
-  the bottom half nearly repeats the top. In the zstd-3 pattern 980
-  cells differ, clustered in 89 of the 512 8x8s. In the zstd-19 pattern
+  the bottom half nearly repeats the top. In the zstd-3 bitmap 980
+  cells differ, clustered in 89 of the 512 8x8s. In the zstd-19 bitmap
   149 cells differ, about two in each of 74 8x8s. Both have a blocky
   texture with runs about 4 long. zstd matches the rows 4 KiB back and
   skips past the differences. gct's copies need exact tiles, so each

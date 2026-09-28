@@ -1,29 +1,17 @@
 //! What gct spends: bits a bitmap from every sample generator, one
-//! table a generator and one row a parameter set, and what its trees are
-//! made of. A measurement, printed, not a pass/fail check -- though it
-//! still stops if gct loses a cell.
-//!
-//! `cargo test --release --test gct_measurement -- --ignored --nocapture`
+//! table a generator and one row a parameter set, then what its trees
+//! are made of, family by family.
 
-mod common;
-
-// Only its reading is used here.
-#[allow(dead_code)]
 use bitmap::adversarial::record;
-
+use bitmap::diagnostics::measured::Measured;
+use bitmap::diagnostics::tree_stats::TreeStats;
+use bitmap::diagnostics::RAW_CELLS;
 use bitmap::gct::grammar::bit_stream::BitStream;
 use bitmap::gct::Workspace;
 use bitmap::samples::checkerboards::checkerboards;
 use bitmap::samples::{every_family, LINE_SETS, PLANS, SHAPES, SPARSE};
 use bitmap::table::Table;
 use bitmap::Bitmap;
-use common::first_difference;
-use common::tree_stats::TreeStats;
-use std::time::Instant;
-
-/// The raw cells: what a bitmap costs written out.
-const RAW_CELLS: usize = 256 * 256;
-
 
 /// `part` as a percentage of `whole`; 0 of nothing.
 fn percent(part: usize, whole: usize) -> f64 {
@@ -34,69 +22,20 @@ fn percent(part: usize, whole: usize) -> f64 {
     }
 }
 
-/// What one parameter set's bitmaps came to.
-#[derive(Default)]
-struct Measured {
-    /// How many bitmaps.
-    bitmaps: usize,
-    /// Their cells set, all together.
-    cells_set: usize,
-    /// gct's bits for them, all together.
-    bits: usize,
-    /// The fewest bits one took.
-    fewest: usize,
-    /// The most bits one took.
-    most: usize,
-    /// Microseconds spent encoding them, all together.
-    encode_micros: u128,
-}
-
-impl Measured {
-    /// Adds `other`'s bitmaps to these.
-    fn add(&mut self, other: &Measured) {
-        self.fewest = if self.bitmaps == 0 { other.fewest } else { self.fewest.min(other.fewest) };
-        self.most = self.most.max(other.most);
-        self.bitmaps += other.bitmaps;
-        self.cells_set += other.cells_set;
-        self.bits += other.bits;
-        self.encode_micros += other.encode_micros;
-    }
-
-    /// Its row, after the parameter set's name and parameters.
-    fn row(&self, name: &str, parameters: &str) -> Vec<String> {
-        let n = self.bitmaps.max(1);
-        vec![
-            name.to_string(),
-            parameters.to_string(),
-            self.bitmaps.to_string(),
-            (self.cells_set / n).to_string(),
-            (self.bits / n).to_string(),
-            self.fewest.to_string(),
-            self.most.to_string(),
-            format!("{:.1}%", percent(self.bits / n, RAW_CELLS)),
-            (self.encode_micros / n as u128).to_string(),
-        ]
-    }
-}
-
-/// Encodes and decodes every bitmap of `bitmaps` in one workspace,
-/// stopping if one comes back wrong, and says what they came to.
-fn measure(workspace: &mut Workspace, bitmaps: impl IntoIterator<Item = Bitmap>, label: &str) -> Measured {
-    let (mut stream, mut back) = (BitStream::default(), Bitmap::new());
-    let mut measured = Measured { fewest: usize::MAX, ..Measured::default() };
-    for (case, bitmap) in bitmaps.into_iter().enumerate() {
-        let start = Instant::now();
-        workspace.encode(&bitmap, &mut stream);
-        measured.encode_micros += start.elapsed().as_micros();
-        workspace.decode(&stream, &mut back);
-        assert_eq!(first_difference(&bitmap, &back), None, "{label}, case {case}: gct lost a cell");
-        measured.bitmaps += 1;
-        measured.cells_set += bitmap.count_set() as usize;
-        measured.bits += stream.len();
-        measured.fewest = measured.fewest.min(stream.len());
-        measured.most = measured.most.max(stream.len());
-    }
-    measured
+/// `measured`'s row, after the parameter set's name and parameters.
+fn row(measured: &Measured, name: &str, parameters: &str) -> Vec<String> {
+    let n = measured.bitmaps.max(1);
+    vec![
+        name.to_string(),
+        parameters.to_string(),
+        measured.bitmaps.to_string(),
+        (measured.cells_set / n).to_string(),
+        (measured.bits / n).to_string(),
+        measured.fewest.to_string(),
+        measured.most.to_string(),
+        format!("{:.1}%", percent(measured.bits / n, RAW_CELLS)),
+        (measured.encode_micros / n as u128).to_string(),
+    ]
 }
 
 /// One generator's table: a row a parameter set, then their total.
@@ -119,22 +58,21 @@ fn generator_table(
     ]);
     let mut total = Measured::default();
     for (name, parameters, bitmaps) in sets {
-        let measured = measure(workspace, bitmaps, &name);
-        table.row(&measured.row(&name, &parameters));
+        let measured = Measured::of(workspace, bitmaps);
+        assert!(measured.lost.is_empty(), "{name}: gct lost cells of cases {:?}", measured.lost);
+        table.row(&row(&measured, &name, &parameters));
         total.add(&measured);
     }
     table.rule();
-    table.row(&total.row("all", ""));
+    table.row(&row(&total, "all", ""));
     table
 }
 
 /// Prints one table a sample generator -- grown, laid out as a city,
 /// drawn with lines, checkerboards -- with a row a parameter set, then a
-/// row for each adversarial record, then what gct's trees hold, family
-/// by family.
-#[test]
-#[ignore]
-fn gct_measurement() {
+/// row for each saved adversarial bitmap, then what gct's trees hold,
+/// family by family.
+pub fn run() {
     let mut workspace = Workspace::new();
     let grown = SHAPES
         .iter()
@@ -195,14 +133,12 @@ fn print_structure(workspace: &mut Workspace) {
         "masked:\nresidual",
     ]);
 
-    let (mut stream, mut back) = (BitStream::default(), Bitmap::new());
+    let mut stream = BitStream::default();
     for (family, maps) in every_family() {
         let mut stats = TreeStats::default();
-        for (case, bitmap) in maps.iter().enumerate() {
+        for bitmap in &maps {
             workspace.encode(bitmap, &mut stream);
             stats.add(&TreeStats::of(workspace.tree()));
-            workspace.decode(&stream, &mut back);
-            assert_eq!(first_difference(bitmap, &back), None, "{family}, case {case}: gct lost a cell");
         }
 
         let n = maps.len();

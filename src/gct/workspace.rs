@@ -8,7 +8,7 @@
 //! made (`FixedList`, `src/fixed_list.rs`) -- so neither ever allocates or
 //! grows, whatever the bitmap, the first included.
 
-use crate::gct::complex_tiler::complex_tiler::{complex_tiler, Scratch};
+use crate::gct::complex_tiler::passes::{complex_tiler, Scratch};
 use crate::gct::decode::{decode, Copies, StreamContents};
 use crate::gct::encode::write;
 use crate::gct::grammar::bit_stream::BitStream;

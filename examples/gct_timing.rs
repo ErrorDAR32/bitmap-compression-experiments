@@ -2,7 +2,7 @@
 //! generator's bitmaps -- grown shapes, sparse ones, city plans and line
 //! sets -- `BITMAPS_PER_GENERATOR` distinct bitmaps each, all built
 //! before any is timed, then each encoded once in one workspace. Decoding
-//! is timed apart, after. The saved adversarial patterns (`testing/adversarial/saved/`)
+//! is timed apart, after. The saved adversarial bitmaps (`testing/adversarial/saved/`)
 //! get a row of their own, apart from the sample's. Run it in release, on
 //! its own -- no profiler, nothing else busy:
 //!
@@ -64,7 +64,7 @@ fn main() {
     }
     print_row("all", &mut every_encode, &every_decode);
 
-    // The saved adversarial patterns, apart from the sample: few, and
+    // The saved adversarial bitmaps, apart from the sample: few, and
     // each among the worst found against one encoder, so each is encoded
     // several times.
     let records = record::saved();

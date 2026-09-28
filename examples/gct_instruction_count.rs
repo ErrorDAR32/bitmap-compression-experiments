@@ -1,7 +1,7 @@
 //! A fixed sample for counting gct's instructions: `BITMAPS_PER_GENERATOR`
 //! bitmaps of every generator -- grown shapes, sparse ones, city plans and
 //! line sets, weighted as the timed sample (`gct_timing`) is -- a
-//! checkerboard, every saved adversarial pattern (`testing/adversarial/saved/`) and
+//! checkerboard, every saved adversarial bitmap (`testing/adversarial/saved/`) and
 //! noise, encoded, then decoded, all in one workspace. Run it under
 //! callgrind, which counts executed instructions exactly and says where
 //! they go:

@@ -6,8 +6,9 @@
 //! it. The one thing not counted is what is not decided yet: the complex
 //! tiles later passes will nest inside it.
 //!
-//! Every check in `tests/common` holds this to the encoder's count, on
-//! every bitmap tested.
+//! Every check in `tests/common` holds this to the encoder's count
+//! (`crate::diagnostics::examination` gathers both), on every bitmap
+//! tested.
 
 use crate::gct::grammar::point_list;
 use crate::gct::grammar::*;

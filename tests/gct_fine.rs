@@ -12,12 +12,13 @@ use bitmap::gct::pyramids::homogeneity::Homogeneity;
 use bitmap::gct::pyramids::pyramid::{Pyramid, PyramidShape};
 use bitmap::gct::tile::{directions, Tile, CELL_LEVEL};
 use bitmap::gct::pyramids::tree::{Node, Tree};
-use common::tree_stats::TreeStats;
+use bitmap::diagnostics::tree_stats::TreeStats;
 use bitmap::gct::encode;
 use bitmap::samples::checkerboards::checkerboard;
 use bitmap::samples::{one_grown, one_laid_out, PLANS};
 use bitmap::Bitmap;
-use common::{check, tree_of};
+use bitmap::diagnostics::examination::tree_of;
+use common::check;
 
 /// A seed for the grown and laid-out cases here, fixed so each fine
 /// test always runs on the same one bitmap.
@@ -145,14 +146,14 @@ fn patterns_number_cells_across_builds() {
 
 /// Every adversarial record -- the worst bitmap found so far against
 /// the raw cells and against each other codec -- and every saved
-/// adversarial pattern passes every check: each is a hard case, kept for
+/// adversarial bitmap passes every check: each is a hard case, kept for
 /// working on gct against.
 #[test]
 fn adversarial_bitmaps_pass_every_check() {
     use bitmap::adversarial::record;
     let (records, saved) = (record::all(), record::saved());
     assert!(!records.is_empty(), "no adversarial records in testing/adversarial");
-    assert!(!saved.is_empty(), "no saved adversarial patterns in testing/adversarial/saved");
+    assert!(!saved.is_empty(), "no saved adversarial bitmaps in testing/adversarial/saved");
     for (name, bitmap) in records.into_iter().chain(saved) {
         check(&bitmap, &name);
     }

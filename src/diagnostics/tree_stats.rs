@@ -5,10 +5,10 @@
 //! counted once, whatever its size, and belongs to the complex tile
 //! whose body directly holds it.
 
-use bitmap::gct::pyramids::pyramid::Pyramid;
-use bitmap::gct::tile::Tile;
-use bitmap::gct::nested_resolutions::NestedResolutions;
-use bitmap::gct::pyramids::tree::{Node, Tree};
+use crate::gct::pyramids::pyramid::Pyramid;
+use crate::gct::tile::Tile;
+use crate::gct::nested_resolutions::NestedResolutions;
+use crate::gct::pyramids::tree::{Node, Tree};
 
 /// The counts, over one tree or added up over many.
 #[derive(Default, Clone, Debug)]
