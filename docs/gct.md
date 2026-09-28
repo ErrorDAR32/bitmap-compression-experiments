@@ -189,7 +189,13 @@ resolutions some candidate above each will ask for; one walk up fills,
 a level at a time, each tile's counts from its children's, by the same
 per-node rule as the bit count. A tile's bits depend only on the
 complex tiles of resolution its level or finer, so for a coarser `r`
-slot 0 is read. The value bound above a tile is not carried down either
+slot 0 is read. Two kinds of slot are never counted, only worked out when
+read: at 1x1, a tile no raw complex tile masks is unmasked by the
+candidate at once -- a mask bit, then every cell; and at a coarser `r`,
+a tile with no whole bind of that size under it has nothing the
+candidate could unmask, so its bits are slot 0's plus one mask bit for
+every node its count visits at `r` or coarser -- counts each tile holds
+beside its slots, a level at a time, gathered as slot 0 is counted. The value bound above a tile is not carried down either
 walk: it is a field of the complex tiling, handed down once when the
 tiling is filled in, read in O(1). A candidate is then scored as the
 complex tile it would be -- its fields as they would be, its children's

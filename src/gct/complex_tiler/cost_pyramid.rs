@@ -29,9 +29,10 @@ use crate::fixed_list::FixedList;
 use crate::gct::nested_resolutions::NestedResolutions;
 use crate::gct::pyramids::complex_tiling::{ComplexTiling, Fields};
 use crate::gct::pyramids::placements::Placement;
-use crate::gct::pyramids::costs::{Costs, Counts, FINEST_HELD, NO_CANDIDATE, SLOTS};
+use crate::gct::grammar::MASK_BIT_WIDTH;
+use crate::gct::pyramids::costs::{Costs, Counts, NodeCounts, FINEST_HELD, NO_CANDIDATE, SLOTS};
 use crate::gct::pyramids::pyramid::Pyramid;
-use crate::gct::tile::{tiles_across, Tile};
+use crate::gct::tile::{cells_in_tile, tiles_across, Tile, CELL_LEVEL};
 use crate::Bitmap;
 
 /// [`NO_CANDIDATE`]'s bit in a set of resolutions: every tile holds it.
@@ -67,6 +68,24 @@ fn resolution_at(level: u8, resolution: u8) -> u8 {
         resolution
     } else {
         NO_CANDIDATE
+    }
+}
+
+/// Whether a tile's count under a candidate of `resolution`, the tile's
+/// fields `here`, follows from its count with none, and is not held:
+///
+/// - at 1x1, unless a complex tile of 1x1 resolution masks it: the
+///   candidate unmasks it at once -- a mask bit, then every cell;
+/// - coarser, when no whole bind of that size is under it: the candidate
+///   unmasks nothing under it, and every node its count visits at that
+///   resolution or coarser takes one more mask bit, the candidate's --
+///   no complex tile being under a search area's roots while its counts
+///   are filled, the candidate is the nearest to every node.
+fn derivable(here: Fields, resolution: u8) -> bool {
+    if resolution == CELL_LEVEL {
+        !here.raw_masks()
+    } else {
+        !here.any_bound_under(resolution)
     }
 }
 
@@ -123,7 +142,19 @@ impl CostPyramid {
                 let (tile, resolutions) = self.reached[level as usize][at];
                 let here = complex_tiling.fields(tile);
                 let mut counts = Counts::default();
-                for resolution in (0..SLOTS as u8).filter(|&resolution| resolutions & 1 << resolution != 0) {
+                // With no candidate: the count, and the nodes it visits --
+                // the tile, and each child it counts, with theirs.
+                let mut nodes = NodeCounts::one_at(tile.level);
+                let without = node_bits(complex_tiling, bitmap, tile, here, &mut base.clone(), here.bound_above(), &mut |child, fields, nested, _| {
+                    nodes.add(self.nodes_under(child));
+                    self.child_bits(complex_tiling, bitmap, child, fields, nested, NO_CANDIDATE)
+                });
+                counts.put(NO_CANDIDATE, without);
+                counts.put_nodes(nodes);
+                // Each candidate asked for that is not worked out from those
+                // when read.
+                let candidates = (NO_CANDIDATE + 1..SLOTS as u8).filter(|&resolution| resolutions & 1 << resolution != 0);
+                for resolution in candidates.filter(|&resolution| !derivable(here, resolution)) {
                     let mut nested = nesting_of(base, resolution);
                     let bits = node_bits(complex_tiling, bitmap, tile, here, &mut nested, here.bound_above(), &mut |child, fields, nested, _| {
                         self.child_bits(complex_tiling, bitmap, child, fields, nested, resolution)
@@ -152,7 +183,26 @@ impl CostPyramid {
                 unreachable!("a 2x2 has no child nodes")
             });
         }
-        self.counts.count(tile, resolution_at(tile.level, resolution))
+        let slot = resolution_at(tile.level, resolution);
+        if slot == NO_CANDIDATE || !derivable(here, slot) {
+            return self.counts.count(tile, slot);
+        }
+        if slot == CELL_LEVEL {
+            // Unmasked at once: its mask bit, and every cell.
+            return MASK_BIT_WIDTH as u64 + cells_in_tile(tile.level);
+        }
+        // Nothing under it to unmask: one more mask bit at every node at
+        // the candidate's resolution or coarser.
+        self.counts.count(tile, NO_CANDIDATE) + MASK_BIT_WIDTH as u64 * self.counts.nodes(tile).up_to(slot)
+    }
+
+    /// The nodes `tile`'s count with no candidate visits, the tile's own
+    /// included: held, or for a 2x2, just itself.
+    fn nodes_under(&self, tile: Tile) -> NodeCounts {
+        if tile.level > FINEST_HELD {
+            return NodeCounts::one_at(tile.level);
+        }
+        self.counts.nodes(tile)
     }
 
     /// `tile`'s bits with no candidate above it, nested in the area's
