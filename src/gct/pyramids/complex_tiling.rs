@@ -275,23 +275,29 @@ impl Placements for Pyramid {
 /// Elements a word.
 const PER_WORD: usize = u64::BITS as usize / SHAPE.element_bits;
 
+/// Two elements a word, which reading a tile's four children as two
+/// whole words relies on.
+const _: () = assert!(PER_WORD == 2);
+
 /// Fills in every coarser tile's bound size and the sizes bound under
 /// it, finest level first, from its four children -- in Morton order,
 /// the four consecutive elements at its own index times four. Done once,
 /// when the placements are complete: nothing set afterwards changes
 /// either field.
 fn carry_bound_sizes_up(pyramid: &mut Pyramid) {
-    let element_at = |words: &[u64], at: usize| words[at / PER_WORD] >> (at % PER_WORD * SHAPE.element_bits) & ELEMENT_MASK;
     for level in (0..CELL_LEVEL).rev() {
         let (coarser, finer) = pyramid.two_levels_mut(level);
         for at in 0..tiles_across(level).pow(2) {
-            let children = [0, 1, 2, 3].map(|child| element_at(finer, at * 4 + child));
-            if children == [0; 4] {
+            // Two elements a word: the four children are two whole words.
+            let (first, second) = (finer[2 * at], finer[2 * at + 1]);
+            if first | second == 0 {
                 // Nothing placed or carried under it, as under a tile
                 // placed whole: carrying would leave its element as it
                 // is, since only a whole bind sets its own bound fields.
                 continue;
             }
+            let high = SHAPE.element_bits as u32;
+            let children = [first & ELEMENT_MASK, first >> high, second & ELEMENT_MASK, second >> high];
             let shift = at % PER_WORD * SHAPE.element_bits;
             let element = coarser[at / PER_WORD] >> shift & ELEMENT_MASK;
             coarser[at / PER_WORD] = coarser[at / PER_WORD] & !(ELEMENT_MASK << shift) | carried(element, children) << shift;
