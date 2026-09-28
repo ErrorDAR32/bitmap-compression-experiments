@@ -67,6 +67,56 @@ fn with_field(element: u64, field: Field, value: u64) -> u64 {
     (element & !mask) | (value << field.shift)
 }
 
+/// One tile's fields in the complex tiling, read once: every query about
+/// the same tile answered from one element.
+#[derive(Clone, Copy, Debug)]
+pub struct Fields(
+    /// The tile's element.
+    u64,
+);
+
+impl Fields {
+    /// The tile placed exactly here, if any.
+    pub fn placed(self) -> Option<Placement> {
+        placement_from_code(field(self.0, PLACEMENT))
+    }
+
+    /// The one tile size every cell under the tile is bound at, if any.
+    pub fn bound_size(self) -> Option<u8> {
+        let bound_size = field(self.0, BOUND_SIZE);
+        (bound_size != NONE).then(|| (bound_size - 1) as u8)
+    }
+
+    /// Whether every cell under the tile is bound by tiles of exactly
+    /// `size` -- what being unmasked in a complex tile of that
+    /// resolution needs. At 1x1, every cell is a tile of its own, so a
+    /// complex tile of 1x1 resolution says cells raw -- but not a part
+    /// cheaper said by itself: that part it masks.
+    pub fn entirely_bound_at(self, size: u8) -> bool {
+        if size == CELL_LEVEL {
+            return !self.raw_masks();
+        }
+        self.bound_size() == Some(size)
+    }
+
+    /// Whether a complex tile of 1x1 resolution masks the tile.
+    pub fn raw_masks(self) -> bool {
+        field(self.0, RAW_MASKS) == YES
+    }
+
+    /// Whether any whole bind of `size` is placed at or under the tile.
+    pub fn any_bound_under(self, size: u8) -> bool {
+        field(self.0, BOUND_SIZES_UNDER) & (1 << size) != 0
+    }
+
+    /// The size offset of the complex tile at exactly the tile, if it is
+    /// one.
+    pub fn complex_tile_size_offset(self) -> Option<u8> {
+        let size_offset = field(self.0, SIZE_OFFSET);
+        (size_offset != NONE).then_some(size_offset as u8)
+    }
+}
+
 /// The complex tiling's queries and updates, over its fields.
 pub trait ComplexTiling {
     /// The greedy tiler's placements, with their bound sizes carried up,
@@ -74,41 +124,42 @@ pub trait ComplexTiling {
     /// 1x1 resolution masks.
     fn complex_tiling(placements: Pyramid, raw_masked: &[Tile]) -> Self;
 
+    /// `tile`'s fields, for asking several things of it.
+    fn fields(&self, tile: Tile) -> Fields;
+
     /// The tile placed exactly at `tile`, if any.
-    fn placed_at(&self, tile: Tile) -> Option<Placement>;
-
-    /// The one tile size every cell under `tile` is bound at, if any.
-    fn bound_size(&self, tile: Tile) -> Option<u8>;
-
-    /// Whether every cell under `tile` is bound by tiles of exactly
-    /// `size` -- what being unmasked in a complex tile of that
-    /// resolution needs. At 1x1, every cell is a tile of its own, so a
-    /// complex tile of 1x1 resolution says cells raw -- but not a part
-    /// cheaper said by itself: that part it masks.
-    fn entirely_bound_at(&self, tile: Tile, size: u8) -> bool {
-        if size == CELL_LEVEL {
-            return !self.raw_masks(tile);
-        }
-        self.bound_size(tile) == Some(size)
+    fn placed_at(&self, tile: Tile) -> Option<Placement> {
+        self.fields(tile).placed()
     }
 
-    /// Whether a complex tile of 1x1 resolution masks `tile`.
-    fn raw_masks(&self, tile: Tile) -> bool;
+    /// See [`Fields::entirely_bound_at`].
+    fn entirely_bound_at(&self, tile: Tile, size: u8) -> bool {
+        self.fields(tile).entirely_bound_at(size)
+    }
 
-    /// Whether any whole bind of `size` is placed at or under `tile`.
-    fn any_bound_under(&self, tile: Tile, size: u8) -> bool;
-
-
+    /// See [`Fields::any_bound_under`].
+    fn any_bound_under(&self, tile: Tile, size: u8) -> bool {
+        self.fields(tile).any_bound_under(size)
+    }
 
     /// Whether `tile`, a child of a divide nested in `nested`, is left to
     /// the binding above it, of `bound_above`: the divide masks (8x8 or
     /// coarser), `tile` is bound whole to that value, and unmasked in no
     /// complex tile it is nested in -- which would say it for a bit, where
     /// the binding above says it for none.
-    fn left_to_binding_above(&self, tile: Tile, bound_above: bool, nested: &NestedResolutions) -> bool;
+    fn left_to_binding_above(&self, tile: Tile, bound_above: bool, nested: &NestedResolutions) -> bool {
+        if tile.level > FINEST_MASKING_LEVEL + 1 {
+            return false;
+        }
+        let here = self.fields(tile);
+        matches!(here.placed(), Some(Placement::Bound { value, masked_children: 0 }) if value == bound_above)
+            && nested.unmasking(here, tile).is_none()
+    }
 
-    /// The size offset of the complex tile at exactly `tile`, if it is one.
-    fn complex_tile_size_offset(&self, tile: Tile) -> Option<u8>;
+    /// See [`Fields::complex_tile_size_offset`].
+    fn complex_tile_size_offset(&self, tile: Tile) -> Option<u8> {
+        self.fields(tile).complex_tile_size_offset()
+    }
 
     /// Makes `tile` a complex tile of `size_offset`.
     fn make_complex_tile(&mut self, tile: Tile, size_offset: u8);
@@ -126,34 +177,8 @@ impl ComplexTiling for Pyramid {
         placements
     }
 
-    fn placed_at(&self, tile: Tile) -> Option<Placement> {
-        placement_from_code(field(self.get(tile), PLACEMENT))
-    }
-
-    fn bound_size(&self, tile: Tile) -> Option<u8> {
-        let bound_size = field(self.get(tile), BOUND_SIZE);
-        (bound_size != NONE).then(|| (bound_size - 1) as u8)
-    }
-
-    fn any_bound_under(&self, tile: Tile, size: u8) -> bool {
-        field(self.get(tile), BOUND_SIZES_UNDER) & (1 << size) != 0
-    }
-
-    fn raw_masks(&self, tile: Tile) -> bool {
-        field(self.get(tile), RAW_MASKS) == YES
-    }
-
-
-
-    fn left_to_binding_above(&self, tile: Tile, bound_above: bool, nested: &NestedResolutions) -> bool {
-        tile.level <= FINEST_MASKING_LEVEL + 1
-            && matches!(self.placed_at(tile), Some(Placement::Bound { value, masked_children: 0 }) if value == bound_above)
-            && nested.unmasking(self, tile).is_none()
-    }
-
-    fn complex_tile_size_offset(&self, tile: Tile) -> Option<u8> {
-        let size_offset = field(self.get(tile), SIZE_OFFSET);
-        (size_offset != NONE).then_some(size_offset as u8)
+    fn fields(&self, tile: Tile) -> Fields {
+        Fields(self.get(tile))
     }
 
     fn make_complex_tile(&mut self, tile: Tile, size_offset: u8) {

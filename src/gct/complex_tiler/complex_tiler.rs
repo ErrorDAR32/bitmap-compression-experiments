@@ -74,7 +74,7 @@ fn best_at_or_under(
     counted: &mut CountedBits,
     chosen: &mut Vec<Candidate>,
 ) -> u64 {
-    if tile.level > FINEST_CANDIDATE_LEVEL || nested.unmasking(complex_tiling, tile).is_some() {
+    if tile.level > FINEST_CANDIDATE_LEVEL || nested.unmasking(complex_tiling.fields(tile), tile).is_some() {
         return 0;
     }
     // A placed tile says everything under it itself, but for the

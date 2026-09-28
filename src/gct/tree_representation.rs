@@ -58,11 +58,12 @@ fn set_node(complex_tiling: &Pyramid, tile: Tile, nested: &mut NestedResolutions
 
 /// What `tile` is, nested in `nested`.
 fn node_for(complex_tiling: &Pyramid, tile: Tile, nested: &NestedResolutions) -> Node {
-    if let Some(nesting) = nested.unmasking(complex_tiling, tile) {
+    let here = complex_tiling.fields(tile);
+    if let Some(nesting) = nested.unmasking(here, tile) {
         return Node::Unmasked { nesting };
     }
     let tile_node = Node::ComplexTile { size_offset: 0, masks: false };
-    let placed = complex_tiling.placed_at(tile);
+    let placed = here.placed();
     if tile.level == CELL_LEVEL - 1 {
         // The 2x2 floor: a homogeneous 2x2 is a tile; anything else was
         // placed as four 1x1 tiles, left to the residual pass.
@@ -78,9 +79,9 @@ fn node_for(complex_tiling: &Pyramid, tile: Tile, nested: &NestedResolutions) ->
         Some(Placement::Copied { far, direction, masked_children }) => {
             Node::Copied { far, direction, masks: masked_children != 0 }
         }
-        None => match complex_tiling.complex_tile_size_offset(tile) {
+        None => match here.complex_tile_size_offset() {
             Some(size_offset) => {
-                let masks = !complex_tiling.entirely_bound_at(tile, tile.level + size_offset);
+                let masks = !here.entirely_bound_at(tile.level + size_offset);
                 Node::ComplexTile { size_offset, masks }
             }
             None => Node::Subdivided,

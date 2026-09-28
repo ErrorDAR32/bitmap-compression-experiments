@@ -2,8 +2,7 @@
 //! nested in, outermost first -- and the one rule for which of them can
 //! unmask the tile.
 
-use crate::gct::pyramids::complex_tiling::ComplexTiling;
-use crate::gct::pyramids::pyramid::Pyramid;
+use crate::gct::pyramids::complex_tiling::Fields;
 use crate::gct::tile::{Tile, CELL_LEVEL};
 
 /// Enough for a resolution plus one, up to `CELL_LEVEL + 1`.
@@ -62,11 +61,11 @@ impl NestedResolutions {
         (0..self.next_nesting()).rev().filter(move |&nesting| tile.level <= self.resolution(nesting))
     }
 
-    /// The nearest complex tile `tile` is nested in and entirely unmasked in:
-    /// every tile of its resolution under `tile` is a `Bound` tile placed
-    /// at exactly that size.
-    pub fn unmasking(&self, complex_tiling: &Pyramid, tile: Tile) -> Option<u8> {
-        self.able_to_unmask(tile).find(|&nesting| complex_tiling.entirely_bound_at(tile, self.resolution(nesting)))
+    /// The nearest complex tile `tile`, whose fields are `here`, is
+    /// nested in and entirely unmasked in: every tile of its resolution
+    /// under `tile` is a `Bound` tile placed at exactly that size.
+    pub fn unmasking(&self, here: Fields, tile: Tile) -> Option<u8> {
+        self.able_to_unmask(tile).find(|&nesting| here.entirely_bound_at(self.resolution(nesting)))
     }
 
     /// These, with one more complex tile of `resolution` inside them.

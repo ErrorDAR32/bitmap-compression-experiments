@@ -18,7 +18,7 @@
 //! stops at the first whose element does not change -- often right
 //! away, sometimes only at the whole bitmap.
 
-use crate::gct::tile::{tiles_across, Tile, CHILDREN_ACROSS};
+use crate::gct::tile::{tiles_across, Tile, CELL_LEVEL, CHILDREN_ACROSS};
 use crate::morton::morton_index;
 
 /// The three parameters every pyramid is built from.
@@ -37,6 +37,9 @@ pub struct PyramidShape {
 /// is bits `i * element_bits..` of the whole run.
 pub type LevelWords = [u64];
 
+/// Every level's start, and one past the finest's end.
+const LEVEL_STARTS: usize = CELL_LEVEL as usize + 2;
+
 /// What `tile` should hold, worked out from its children's elements in
 /// `pyramid`.
 pub type Propagation = fn(pyramid: &Pyramid, tile: Tile) -> u64;
@@ -52,8 +55,8 @@ pub struct Pyramid {
     /// of its own.
     words: Vec<u64>,
     /// Where each level's words start in `words`, by level, and where
-    /// the last one's end.
-    level_starts: Vec<usize>,
+    /// the last one's end; held inline, one hop less on every access.
+    level_starts: [usize; LEVEL_STARTS],
     /// Elements a word is a power of two -- an element's bits divide a
     /// word's -- so a tile's word and place in it are shifts and masks.
     per_word_shift: u32,
@@ -81,10 +84,10 @@ impl Pyramid {
         );
         assert!(shape.coarsest_level <= shape.finest_level);
         let per_word = u64::BITS as usize / shape.element_bits;
-        let mut level_starts = vec![0; shape.coarsest_level as usize + 1];
+        let mut level_starts = [0; LEVEL_STARTS];
         for level in shape.coarsest_level..=shape.finest_level {
             let elements = tiles_across(level).pow(2);
-            level_starts.push(level_starts[level as usize] + elements.div_ceil(per_word));
+            level_starts[level as usize + 1] = level_starts[level as usize] + elements.div_ceil(per_word);
         }
         let element_mask =
             if shape.element_bits == u64::BITS as usize { u64::MAX } else { (1 << shape.element_bits) - 1 };

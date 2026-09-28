@@ -76,11 +76,12 @@ pub fn bits_counted(
 ) -> u64 {
     // Its mask bits, nearest complex tile first, up to the first it is
     // unmasked in -- then its values are that one's payload.
+    let here = complex_tiling.fields(tile);
     let mut mask_bits = 0;
     for nesting in nested.able_to_unmask(tile) {
         mask_bits += MASK_BIT_WIDTH as u64;
         let resolution = nested.resolution(nesting);
-        if complex_tiling.entirely_bound_at(tile, resolution) {
+        if here.entirely_bound_at(resolution) {
             return mask_bits + payload_bits(resolution - tile.level);
         }
     }
@@ -91,12 +92,12 @@ pub fn bits_counted(
         // in the residual pass.
         return mask_bits
             + LEAF_WIDTH as u64
-            + match complex_tiling.placed_at(tile) {
+            + match here.placed() {
                 Some(placement) if placement.is_whole_bind() => payload_bits(0),
                 _ => cells_in_tile(tile.level),
             };
     }
-    mask_bits + match complex_tiling.placed_at(tile) {
+    mask_bits + match here.placed() {
         Some(Placement::Bound { masked_children: 0, .. }) => {
             leaf_bind + resolution_width(tile.level) as u64 + payload_bits(0)
         }
@@ -126,14 +127,14 @@ pub fn bits_counted(
             }
             copy_bits
         }
-        None => match complex_tiling.complex_tile_size_offset(tile) {
+        None => match here.complex_tile_size_offset() {
             Some(size_offset) => {
                 let mut complex_bits = leaf_bind + resolution_width(tile.level) as u64;
                 if complex_tile_may_mask(tile.level, size_offset) {
                     complex_bits += MASK_PRESENT_WIDTH as u64;
                 }
                 let resolution = tile.level + size_offset;
-                if complex_tiling.entirely_bound_at(tile, resolution) {
+                if here.entirely_bound_at(resolution) {
                     complex_bits + payload_bits(size_offset)
                 } else {
                     complex_bits
