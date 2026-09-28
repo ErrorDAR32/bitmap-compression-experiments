@@ -22,24 +22,15 @@ use common::{check, tree_of};
 /// test always runs on the same one bitmap.
 const FIXED_SEED: u64 = 7;
 
-/// A generic pyramid's sweep by a rule summing each tile's children:
-/// setting changes nothing else, until the sweep brings every coarser
-/// level in step at once.
+/// Setting an element of a generic pyramid changes no other.
 #[test]
-fn generic_pyramid_sweeps_up() {
+fn generic_pyramid_sets_one_element() {
     let shape = PyramidShape { coarsest_level: 0, finest_level: 2, element_bits: 8 };
     let mut pyramid = Pyramid::new(shape);
     pyramid.set(Tile { level: 2, x: 3, y: 3 }, 1);
+    assert_eq!(pyramid.get(Tile { level: 2, x: 3, y: 3 }), 1);
+    assert_eq!(pyramid.get(Tile { level: 1, x: 1, y: 1 }), 0);
     assert_eq!(pyramid.get(Tile::whole_bitmap()), 0);
-    pyramid.sweep_up(|_, children| children.iter().sum());
-    assert_eq!(pyramid.get(Tile { level: 1, x: 1, y: 1 }), 1);
-    assert_eq!(pyramid.get(Tile::whole_bitmap()), 1);
-    for tile in pyramid.tiles_of_level(2).collect::<Vec<_>>() {
-        pyramid.set(tile, 1);
-    }
-    pyramid.sweep_up(|_, children| children.iter().sum());
-    assert_eq!(pyramid.get(Tile { level: 1, x: 1, y: 1 }), 4);
-    assert_eq!(pyramid.get(Tile::whole_bitmap()), 16);
 }
 
 /// With the top-left quarter filled, that quarter is homogeneous and set,

@@ -282,12 +282,31 @@ const PER_WORD: usize = u64::BITS as usize / SHAPE.element_bits;
 /// whole words relies on.
 const _: () = assert!(PER_WORD == 2);
 
-/// Carries every coarser tile's bound size and the sizes bound under it
-/// up from its four children, by the rule [`carried`], in one sweep,
-/// finest level first. Done once, when the placements are complete:
-/// nothing set afterwards changes either field.
+/// The complex tiling's sweep: carries every coarser tile's bound size
+/// and the sizes bound under it up from its four children, by the rule
+/// [`carried`], finest level first, a level at a time in Morton order --
+/// a tile's four children the two whole words at its own index times
+/// two. Done once, when the placements are complete: nothing set
+/// afterwards changes either field.
 fn carry_bound_sizes_up(pyramid: &mut Pyramid) {
-    pyramid.sweep_up(carried);
+    let high = SHAPE.element_bits as u32;
+    for level in (0..CELL_LEVEL).rev() {
+        let (coarser, finer) = pyramid.two_levels_mut(level);
+        for at in 0..tiles_across(level).pow(2) {
+            let (first, second) = (finer[2 * at], finer[2 * at + 1]);
+            if first | second == 0 {
+                // Nothing placed or carried under it, as under a tile
+                // placed whole: carrying would leave its element as it
+                // is, since only a whole bind sets its own bound fields --
+                // most tiles, passed over on one look.
+                continue;
+            }
+            let children = [first & ELEMENT_MASK, first >> high, second & ELEMENT_MASK, second >> high];
+            let shift = at % PER_WORD * SHAPE.element_bits;
+            let element = coarser[at / PER_WORD] >> shift & ELEMENT_MASK;
+            coarser[at / PER_WORD] = coarser[at / PER_WORD] & !(ELEMENT_MASK << shift) | carried(element, children) << shift;
+        }
+    }
 }
 
 /// Hands the value bound above down from the whole bitmap, a level at a

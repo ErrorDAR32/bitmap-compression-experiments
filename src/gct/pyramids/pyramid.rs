@@ -13,13 +13,10 @@
 //!
 //! A specialized pyramid (the other files in this folder) fixes the
 //! three parameters and supplies its own queries -- and, if its coarser
-//! levels follow from its finer ones, its own sweep: its elements are
-//! set, then one sweep brings every coarser level in step at once, each
-//! tile once. [`Pyramid::sweep_up`] is the sweep for a rule of what a
-//! tile holds given its own element and its four children's; a
-//! specialized pyramid may sweep another way when its layout allows
-//! better, as the homogeneity pyramid does, a word at a time. Setting an
-//! element never changes any other.
+//! levels follow from its finer ones, its own sweep, written for its own
+//! elements: its elements are set, then the sweep brings every coarser
+//! level in step at once, each tile once. The generic pyramid has no
+//! sweep of its own: setting an element never changes any other.
 
 use crate::gct::tile::{tiles_across, Tile, CELL_LEVEL, CHILDREN_ACROSS};
 use crate::morton::morton_index;
@@ -171,63 +168,6 @@ impl Pyramid {
         let (word, shift) = self.locate(tile);
         let slot = &mut self.words[word];
         *slot = (*slot & !(mask << shift)) | (value << shift);
-    }
-
-    /// Brings every level coarser than the finest held in step by `rule`
-    /// -- what a tile holds given its own element and its four
-    /// children's, in reading order -- finest first, a level at a time in
-    /// Morton order: each tile's four children are the four consecutive
-    /// elements at its own index times four, read as one group of bits.
-    /// Only a tile with something under it is recomputed: one whose four
-    /// children are all zero keeps its element, `rule` not asked -- most
-    /// tiles, passed over on one look at their children's words. For
-    /// elements of a word or narrower; compiled once for each width, so
-    /// its shifts and masks are fixed.
-    pub fn sweep_up(&mut self, rule: impl Fn(u64, [u64; 4]) -> u64) {
-        match self.shape.element_bits {
-            1 => self.sweep_up_at::<1>(rule),
-            2 => self.sweep_up_at::<2>(rule),
-            4 => self.sweep_up_at::<4>(rule),
-            8 => self.sweep_up_at::<8>(rule),
-            16 => self.sweep_up_at::<16>(rule),
-            32 => self.sweep_up_at::<32>(rule),
-            64 => self.sweep_up_at::<64>(rule),
-            wider => unreachable!("an element of {wider} bits is read by its words"),
-        }
-    }
-
-    /// [`Pyramid::sweep_up`] for elements of `ELEMENT_BITS`.
-    fn sweep_up_at<const ELEMENT_BITS: usize>(&mut self, rule: impl Fn(u64, [u64; 4]) -> u64) {
-        const WORD_BITS: usize = u64::BITS as usize;
-        let mask = if ELEMENT_BITS == WORD_BITS { u64::MAX } else { (1 << ELEMENT_BITS) - 1 };
-        let group_bits = 4 * ELEMENT_BITS;
-        let group_mask = if group_bits >= WORD_BITS { u64::MAX } else { (1 << group_bits) - 1 };
-        let group_words = group_bits.div_ceil(WORD_BITS);
-        for level in (self.shape.coarsest_level..self.shape.finest_level).rev() {
-            let (coarser, finer) = self.two_levels_mut(level);
-            for at in 0..tiles_across(level).pow(2) {
-                let first_bit = at * group_bits;
-                let first_word = first_bit / WORD_BITS;
-                // The four children: part of one word, or whole words --
-                // tested for all zero before they are taken apart.
-                let any_child = if group_words == 1 {
-                    finer[first_word] >> (first_bit % WORD_BITS) & group_mask != 0
-                } else {
-                    finer[first_word..first_word + group_words].iter().any(|&word| word != 0)
-                };
-                if !any_child {
-                    continue;
-                }
-                let (word, shift) = (at * ELEMENT_BITS / WORD_BITS, at * ELEMENT_BITS % WORD_BITS);
-                let element = (coarser[word] >> shift) & mask;
-                let mut children = [0; 4];
-                for (child, value) in children.iter_mut().enumerate() {
-                    let bit = first_bit + child * ELEMENT_BITS;
-                    *value = (finer[bit / WORD_BITS] >> (bit % WORD_BITS)) & mask;
-                }
-                coarser[word] = coarser[word] & !(mask << shift) | rule(element, children) << shift;
-            }
-        }
     }
 
     /// A tile's element of one word or more: its words. In Morton order,

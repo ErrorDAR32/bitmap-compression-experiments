@@ -67,13 +67,11 @@ level can be built from the one finer a word at a time
 (`Pyramid::level_words`, `two_levels_mut`).
 
 Setting an element never changes any other. A pyramid whose coarser
-levels follow from its finer ones has a **sweep**: its elements are set,
-then one sweep brings every coarser level in step, each tile once.
-`Pyramid::sweep_up(rule)` is the sweep for a rule of what a tile holds
-given its own element and its four children's: finest level first, a
-level at a time in Morton order, each tile's children read as one group
-of bits, and a tile whose children are all zero passed over. A
-specialized pyramid may sweep another way when its layout allows better.
+levels follow from its finer ones has its own **sweep**, written in its
+own impl for its own elements: its elements are set, then one sweep
+brings every coarser level in step, each tile once, finest level first
+in Morton order. The generic pyramid has no sweep, and nothing
+propagates.
 
 Every per-tile structure is a specialization: a trait over `Pyramid`
 fixing the shape, its queries, and its sweep if any.
@@ -81,7 +79,7 @@ fixing the shape, its queries, and its sweep if any.
 | pyramid | bits | levels | holds | sweep |
 |---|---|---|---|---|
 | `homogeneity` | 2 | 0-8 | whether a tile's cells all agree, and on what | its own, a word at a time: the cells off the bitmap's words, then each level folded from the one finer -- homogeneous when all four children are homogeneous and agree |
-| `complex_tiling` | 32 | 0-8 | the placement the greedy tiler made here, if any, and the children it masks -- the greedy tiler writes these bits, the complex tiler the rest; the one size every cell under the tile is bound at, if any; the complex tile's size offset, if it is one; whether a raw complex tile masks it; the sizes of the whole binds under it | `sweep_up(carried)`, once the placements are complete: a tile's bound size is its children's when all four share one; the sizes under it are all of its children's |
+| `complex_tiling` | 32 | 0-8 | the placement the greedy tiler made here, if any, and the children it masks -- the greedy tiler writes these bits, the complex tiler the rest; the one size every cell under the tile is bound at, if any; the complex tile's size offset, if it is one; whether a raw complex tile masks it; the sizes of the whole binds under it | its own, once the placements are complete, two words of children at a time: a tile's bound size is its children's when all four share one; the sizes under it are all of its children's |
 | `tree` | 8 | 0-7 | the tree's node at a tile | none |
 
 ## Step 1: the greedy tiler
