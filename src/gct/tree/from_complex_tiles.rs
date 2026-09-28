@@ -3,7 +3,7 @@
 //! the tree, one node per tile, top-down. Runs once, after every
 //! complex tile is decided, never interleaved with deciding them.
 
-use crate::gct::enclosing::Enclosing;
+use crate::gct::nested_resolutions::NestedResolutions;
 use crate::gct::tree::node::{Node, Tree};
 use crate::gct::pyramids::bound_tile_counts::BoundTileCounts;
 use crate::gct::pyramids::complex_tile_depths::ComplexTileDepths;
@@ -21,22 +21,22 @@ pub struct ComplexTiles<'a> {
 /// The whole bitmap's tree.
 pub fn tree_from_complex_tiles(complex_tiles: &ComplexTiles) -> Pyramid {
     let mut tree = Pyramid::tree();
-    set_node(complex_tiles, Tile::whole_bitmap(), &mut Enclosing::none(), &mut tree);
+    set_node(complex_tiles, Tile::whole_bitmap(), &mut NestedResolutions::none(), &mut tree);
     tree
 }
 
 /// Sets the node for `tile`, enclosed by `enclosing`, and every node
 /// under it.
-fn set_node(complex_tiles: &ComplexTiles, tile: Tile, enclosing: &mut Enclosing, tree: &mut Pyramid) {
-    let node = node_for(complex_tiles, tile, enclosing);
+fn set_node(complex_tiles: &ComplexTiles, tile: Tile, nested: &mut NestedResolutions, tree: &mut Pyramid) {
+    let node = node_for(complex_tiles, tile, nested);
     tree.set_node(tile, node);
     match node {
         Node::Split => {
             for child in tile.children() {
-                set_node(complex_tiles, child, enclosing, tree);
+                set_node(complex_tiles, child, nested, tree);
             }
         }
-        Node::Complex { depth, masking: true } => enclosing.within(tile.level + depth, |inside| {
+        Node::Complex { depth, masking: true } => nested.within(tile.level + depth, |inside| {
             for child in tile.children() {
                 set_node(complex_tiles, child, inside, tree);
             }
@@ -46,8 +46,8 @@ fn set_node(complex_tiles: &ComplexTiles, tile: Tile, enclosing: &mut Enclosing,
 }
 
 /// What `tile` is, enclosed by `enclosing`.
-fn node_for(complex_tiles: &ComplexTiles, tile: Tile, enclosing: &Enclosing) -> Node {
-    if let Some(nesting) = enclosing.relating(complex_tiles.counts, tile) {
+fn node_for(complex_tiles: &ComplexTiles, tile: Tile, nested: &NestedResolutions) -> Node {
+    if let Some(nesting) = nested.relating(complex_tiles.counts, tile) {
         return Node::Related { nesting };
     }
     let a_tile = Node::Complex { depth: 0, masking: false };

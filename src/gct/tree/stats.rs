@@ -7,7 +7,7 @@
 
 use crate::gct::pyramids::pyramid::Pyramid;
 use crate::gct::tile::Tile;
-use crate::gct::enclosing::Enclosing;
+use crate::gct::nested_resolutions::NestedResolutions;
 use crate::gct::tree::node::{Node, Tree};
 
 #[derive(Default, Clone, Debug)]
@@ -26,7 +26,7 @@ pub struct TreeStats {
 impl TreeStats {
     pub fn of(tree: &Pyramid) -> Self {
         let mut stats = Self::default();
-        stats.count(tree, Tile::whole_bitmap(), None, &mut Enclosing::none());
+        stats.count(tree, Tile::whole_bitmap(), None, &mut NestedResolutions::none());
         stats
     }
 
@@ -57,10 +57,10 @@ impl TreeStats {
 
     /// `inside`: the nesting of the complex tile whose body directly
     /// holds `tile`, if any.
-    fn count(&mut self, tree: &Pyramid, tile: Tile, inside: Option<usize>, enclosing: &mut Enclosing) {
+    fn count(&mut self, tree: &Pyramid, tile: Tile, inside: Option<usize>, nested: &mut NestedResolutions) {
         match tree.node(tile) {
             Node::Related { nesting } if inside == Some(nesting) => {
-                self.unmasked += 1 << (2 * (enclosing.resolution(nesting) - tile.level));
+                self.unmasked += 1 << (2 * (nested.resolution(nesting) - tile.level));
             }
             Node::Related { .. } => self.masked_related_further_out += 1,
             Node::Copied { .. } if inside.is_some() => self.masked_copied += 1,
@@ -75,7 +75,7 @@ impl TreeStats {
                 if inside.is_some() {
                     self.masked_nested += 1;
                 }
-                let nesting = enclosing.next_nesting();
+                let nesting = nested.next_nesting();
                 if self.complex_tiles_at_nesting.len() <= nesting {
                     self.complex_tiles_at_nesting.resize(nesting + 1, 0);
                 }
@@ -85,7 +85,7 @@ impl TreeStats {
                     return;
                 }
                 self.complex_tiles_masking += 1;
-                enclosing.within(tile.level + depth, |inner| {
+                nested.within(tile.level + depth, |inner| {
                     for child in tile.children() {
                         self.count(tree, child, Some(nesting), inner);
                     }
@@ -93,7 +93,7 @@ impl TreeStats {
             }
             Node::Split => {
                 for child in tile.children() {
-                    self.count(tree, child, inside, enclosing);
+                    self.count(tree, child, inside, nested);
                 }
             }
             Node::Copied { .. } | Node::Hole | Node::None => {}

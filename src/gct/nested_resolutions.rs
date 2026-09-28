@@ -1,18 +1,19 @@
-//! The complex tiles enclosing a node, outermost first, by their
-//! resolutions -- and the one rule for which of them can relate a node.
+//! Nested resolutions: the resolutions of the complex tiles a tile is
+//! nested in, outermost first -- and the one rule for which of them can
+//! relate the tile.
 
 use crate::gct::pyramids::bound_tile_counts::BoundTileCounts;
 use crate::gct::pyramids::pyramid::Pyramid;
 use crate::gct::tile::Tile;
 
 #[derive(Clone, Default, Debug)]
-pub struct Enclosing {
+pub struct NestedResolutions {
     /// The resolution (a level) of each enclosing complex tile,
     /// outermost first; a complex tile's index here is its nesting.
     resolutions: Vec<usize>,
 }
 
-impl Enclosing {
+impl NestedResolutions {
     /// Enclosed by no complex tile.
     pub fn none() -> Self {
         Self::default()

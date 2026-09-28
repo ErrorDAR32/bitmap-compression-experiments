@@ -22,7 +22,7 @@
 use crate::gct::pyramids::bound_tile_counts::BoundTileCounts;
 use crate::gct::pyramids::pyramid::Pyramid;
 use crate::gct::tile::{cells_in_tile, Tile, CELL_LEVEL};
-use crate::gct::enclosing::Enclosing;
+use crate::gct::nested_resolutions::NestedResolutions;
 use std::cmp::Ordering;
 
 pub struct Candidate {
@@ -31,15 +31,15 @@ pub struct Candidate {
     unmasked_cells: u64,
     total_cells: u64,
     /// The complex tiles enclosing `tile`.
-    pub enclosing: Enclosing,
+    pub nested: NestedResolutions,
 }
 
 impl Candidate {
     /// `tile`'s best depth to be a complex tile at, if any.
-    pub fn best_for(counts: &Vec<Pyramid>, tile: Tile, enclosing: &Enclosing) -> Option<Candidate> {
-        let related_further_out: u64 = enclosing
+    pub fn best_for(counts: &Vec<Pyramid>, tile: Tile, nested: &NestedResolutions) -> Option<Candidate> {
+        let related_further_out: u64 = nested
             .able_to_relate(tile)
-            .map(|nesting| enclosing.resolution(nesting))
+            .map(|nesting| nested.resolution(nesting))
             .map(|resolution| counts.under(tile, resolution) as u64 * cells_in_tile(resolution))
             .sum();
         let total_cells = cells_in_tile(tile.level) - related_further_out;
@@ -47,7 +47,7 @@ impl Candidate {
         let mut best: Option<Candidate> = None;
         for depth in 1..=max_depth {
             let resolution = tile.level + depth;
-            if enclosing.has_resolution(resolution) {
+            if nested.has_resolution(resolution) {
                 continue; // those tiles are already related to that complex tile
             }
             let unmasked = counts.under(tile, resolution);
@@ -59,7 +59,7 @@ impl Candidate {
                 continue; // below the floor
             }
             if best.as_ref().is_none_or(|current| unmasked_cells > current.unmasked_cells) {
-                best = Some(Candidate { tile, depth, unmasked_cells, total_cells, enclosing: enclosing.clone() });
+                best = Some(Candidate { tile, depth, unmasked_cells, total_cells, nested: nested.clone() });
             }
         }
         best

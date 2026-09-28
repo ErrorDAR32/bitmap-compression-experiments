@@ -131,9 +131,9 @@ top-down, one node per tile it reaches (`tree/from_complex_tiles.rs`):
 Node code: bits 0-2 the kind, bits 3-6 its parameter (`tree/node.rs`).
 Values are not held: a related tile's values are its resolution tiles'
 cells, read from the bitmap when encoding and written into it when
-decoding. `enclosing.rs` holds the complex tiles enclosing a node and
-the one rule for which of them can relate it: those whose resolution
-tiles the node covers whole.
+decoding. `nested_resolutions.rs` holds the resolutions of the complex
+tiles a node is nested in, and the one rule for which of them can
+relate it: those whose resolution tiles the node covers whole.
 
 ## Step 4: the grammar
 

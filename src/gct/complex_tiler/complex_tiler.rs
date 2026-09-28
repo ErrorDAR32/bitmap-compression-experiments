@@ -19,7 +19,7 @@ use crate::gct::pyramids::complex_tile_depths::ComplexTileDepths;
 use crate::gct::pyramids::placements::Placements;
 use crate::gct::pyramids::pyramid::Pyramid;
 use crate::gct::tile::{Tile, CELL_LEVEL};
-use crate::gct::enclosing::Enclosing;
+use crate::gct::nested_resolutions::NestedResolutions;
 use crate::Bitmap;
 
 /// Where one pass searches: an area, the coarsest level a candidate in
@@ -27,15 +27,16 @@ use crate::Bitmap;
 struct SearchArea {
     area: Tile,
     coarsest_level: usize,
-    enclosing: Enclosing,
+    nested: NestedResolutions,
 }
 
-/// Which tiles are complex tiles, and at what depth, given what the
-/// greedy tiler placed and its bound tile counts.
+/// Creates complex tiles from the greedy tiler's output: which tiles
+/// are complex tiles, and at what depth, given what the greedy tiler
+/// placed and its bound tile counts.
 pub fn complex_tiler(placements: &Pyramid, counts: &Vec<Pyramid>) -> Pyramid {
     let mut depths = Pyramid::complex_tile_depths();
 
-    let mut searched = vec![SearchArea { area: Tile::whole_bitmap(), coarsest_level: 0, enclosing: Enclosing::none() }];
+    let mut searched = vec![SearchArea { area: Tile::whole_bitmap(), coarsest_level: 0, nested: NestedResolutions::none() }];
     while !searched.is_empty() {
         let mut candidates = candidates_in(placements, counts, &searched);
         candidates.sort_by(Candidate::best_first);
@@ -52,10 +53,10 @@ fn candidates_in(placements: &Pyramid, counts: &Vec<Pyramid>, searched: &[Search
     for search in searched {
         for level in search.coarsest_level..=(CELL_LEVEL - 2) {
             for tile in search.area.tiles_at_depth(level - search.area.level) {
-                if placements.is_placed(tile) || search.enclosing.relating(counts, tile).is_some() {
+                if placements.is_placed(tile) || search.nested.relating(counts, tile).is_some() {
                     continue;
                 }
-                if let Some(candidate) = Candidate::best_for(counts, tile, &search.enclosing) {
+                if let Some(candidate) = Candidate::best_for(counts, tile, &search.nested) {
                     candidates.push(candidate);
                 }
             }
@@ -84,7 +85,7 @@ fn commit(candidates: Vec<Candidate>, depths: &mut Pyramid) -> Vec<SearchArea> {
         next.push(SearchArea {
             area: candidate.tile,
             coarsest_level: candidate.tile.level + 1,
-            enclosing: candidate.enclosing.with(candidate.tile.level + candidate.depth),
+            nested: candidate.nested.with(candidate.tile.level + candidate.depth),
         });
     }
     next

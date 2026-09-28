@@ -16,9 +16,9 @@
 
 pub mod complex_tiler;
 pub mod decode;
-pub mod enclosing;
 pub mod encoder;
 pub mod greedy_tiler;
+pub mod nested_resolutions;
 pub mod pyramids;
 pub mod tile;
 pub mod tree;

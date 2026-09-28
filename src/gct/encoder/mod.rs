@@ -12,7 +12,7 @@ mod tree_grammar;
 
 use crate::gct::pyramids::pyramid::Pyramid;
 use crate::gct::tile::Tile;
-use crate::gct::enclosing::Enclosing;
+use crate::gct::nested_resolutions::NestedResolutions;
 use crate::gct::tree::node::Tree;
 use crate::Bitmap;
 use bit_stream::BitStream;
@@ -21,7 +21,7 @@ use bit_stream::BitStream;
 /// the residual pass.
 pub fn write(tree: &Pyramid, bitmap: &Bitmap) -> BitStream {
     let mut out = BitStream::default();
-    tree_grammar::write_node(tree, bitmap, Tile::whole_bitmap(), &mut Enclosing::none(), &mut out);
+    tree_grammar::write_node(tree, bitmap, Tile::whole_bitmap(), &mut NestedResolutions::none(), &mut out);
     residual::write_residual(tree, bitmap, &mut out);
     out
 }
@@ -49,7 +49,7 @@ impl ReadBack {
 pub fn read(stream: &BitStream) -> ReadBack {
     let mut read = ReadBack { tree: Pyramid::tree(), cells: Bitmap::new(), known: Bitmap::new() };
     let mut reader = stream.reader();
-    tree_grammar::read_node(&mut reader, Tile::whole_bitmap(), &mut Enclosing::none(), &mut read);
+    tree_grammar::read_node(&mut reader, Tile::whole_bitmap(), &mut NestedResolutions::none(), &mut read);
     residual::read_residual(&mut reader, &mut read);
     read
 }
