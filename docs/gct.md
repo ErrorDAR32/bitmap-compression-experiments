@@ -60,15 +60,18 @@ fixing the shape, its propagation if any, and its queries.
 
 | pyramid | bits | levels | holds | propagation |
 |---|---|---|---|---|
-| `content` | 16 | 0-8 | read off the bitmap once, two purposes on separate bits. Bits 0-1, homogeneity (`homogeneity.rs`): whether a tile's cells all agree, and on what. Bits 2-13, matches (`copyable.rs`), down to 4x4: for each of the four directions, whether the same-size tile 1, 2 or 4 tiles away holds the same cells -- what a near copy, a far copy (and a near copy's children) and a far copy's children read | none. Homogeneity is built a word at a time: the cells off the bitmap's words, then each level folded from the one finer (homogeneous when all four children are homogeneous and agree). Matches are one run compare a tile and direction |
+| `homogeneity` | 2 | 0-8 | whether a tile's cells all agree, and on what | none; built once, a word at a time: the cells off the bitmap's words, then each level folded from the one finer -- homogeneous when all four children are homogeneous and agree |
 | `complex_tiling` | 32 | 0-8 | the placement the greedy tiler made here, if any, and the children it masks -- the greedy tiler writes these bits, the complex tiler the rest; the one size every cell under the tile is bound at, if any; the complex tile's size offset, if it is one; whether a raw complex tile masks it; the sizes of the whole binds under it | none; carried up once, a word at a time, when the placements are complete: a tile's bound size is its children's when all four share one; the sizes under it are all of its children's |
 | `tree` | 8 | 0-7 | the tree's node at a tile | none |
 
 ## Step 1: the greedy tiler
 
 One rule, asked of the whole bitmap, then of every tile nothing coarser
-says, down to single cells. It reads only the content pyramid -- no cell
-is compared here. What a tile gets depends only on its own cells and
+says, down to single cells. It reads the homogeneity pyramid, and asks
+the bitmap which tiles match which (`copyable.rs`) only of the tiles it
+reaches and cannot bind -- two homogeneous tiles match exactly when their
+values agree, so only two non-homogeneous ones are compared, one cell
+run against the other. What a tile gets depends only on its own cells and
 on what its ancestors got, so the pass walks down depth first, carrying
 the value bound above, into the children of a tile left unplaced and
 the children a placed tile masks:

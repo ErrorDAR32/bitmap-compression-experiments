@@ -235,6 +235,12 @@ fn carry_bound_sizes_up(pyramid: &mut Pyramid) {
         let (coarser, finer) = pyramid.two_levels_mut(level);
         for at in 0..tiles_across(level).pow(2) {
             let children = [0, 1, 2, 3].map(|child| element_at(finer, at * 4 + child));
+            if children == [0; 4] {
+                // Nothing placed or carried under it, as under a tile
+                // placed whole: carrying would leave its element as it
+                // is, since only a whole bind sets its own bound fields.
+                continue;
+            }
             let shift = at % PER_WORD * SHAPE.element_bits;
             let element = coarser[at / PER_WORD] >> shift & ELEMENT_MASK;
             coarser[at / PER_WORD] = coarser[at / PER_WORD] & !(ELEMENT_MASK << shift) | carried(element, children) << shift;

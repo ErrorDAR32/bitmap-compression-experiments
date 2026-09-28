@@ -26,11 +26,12 @@
 //! A 2x2 is only ever asked whether it is homogeneous: if not, its four
 //! cells are placed as 1x1 tiles, which the residual pass says.
 
-use crate::gct::pyramids::copyable::{Copyable, FAR_DISTANCE, FINEST_COPY_LEVEL, NEAR_DISTANCE};
+use crate::gct::pyramids::copyable::{matching_direction, matching_directions, FAR_DISTANCE, FINEST_COPY_LEVEL, NEAR_DISTANCE};
 use crate::gct::pyramids::homogeneity::Homogeneity;
 use crate::gct::pyramids::placements::{Placement, Placements, BOUND_AT_THE_TOP, FINEST_MASKING_LEVEL};
 use crate::gct::pyramids::pyramid::Pyramid;
 use crate::gct::tile::{directions, Tile, CHILDREN_ACROSS};
+use crate::Bitmap;
 
 /// A masking copy costs about 10 bits before its masked children: a
 /// copy, a mask-present bit, a 4-bit child mask. What it saves depends
@@ -53,18 +54,45 @@ pub const MIN_UNMASKED_CHILDREN_OF_A_MASKING_BIND: u32 = 2;
 /// Places tiles over one bitmap, biggest first; what it placed is a
 /// [complex tiling pyramid](crate::gct::pyramids::complex_tiling) with
 /// only its [placement](crate::gct::pyramids::placements) bits set. Reads
-/// only the bitmap's [content pyramid](crate::gct::pyramids::content):
-/// which tiles are homogeneous, and which match which.
-pub fn greedy_tiler(content: &Pyramid) -> Pyramid {
+/// only the bitmap's content: which tiles are homogeneous, from its
+/// homogeneity pyramid, and which match which, asked of the bitmap only
+/// for tiles that are not.
+pub fn greedy_tiler(bitmap: &Bitmap, homogeneity: &Pyramid) -> Pyramid {
     let mut placements = Pyramid::placements();
-    place_at_or_under(content, Tile::whole_bitmap(), BOUND_AT_THE_TOP, &mut placements);
+    let content = Content { bitmap, homogeneity };
+    place_at_or_under(&content, Tile::whole_bitmap(), BOUND_AT_THE_TOP, &mut placements);
     placements
+}
+
+/// What the greedy tiler reads: a bitmap, and its homogeneity pyramid.
+struct Content<'a> {
+    /// The bitmap tiled.
+    bitmap: &'a Bitmap,
+    /// Its homogeneity pyramid.
+    homogeneity: &'a Pyramid,
+}
+
+impl Content<'_> {
+    /// What `tile` holds, if every cell of it agrees.
+    fn homogeneous_value(&self, tile: Tile) -> Option<bool> {
+        self.homogeneity.homogeneous_value(tile)
+    }
+
+    /// See [`matching_directions`].
+    fn matching_directions(&self, tile: Tile, distance: usize) -> u8 {
+        matching_directions(self.homogeneity, self.bitmap, tile, distance)
+    }
+
+    /// See [`matching_direction`].
+    fn matching_direction(&self, tile: Tile, distance: usize) -> Option<u8> {
+        matching_direction(self.homogeneity, self.bitmap, tile, distance)
+    }
 }
 
 /// Places `tile`, or leaves it to its children, then does the same for
 /// every child nothing placed here says; `bound_above` the value bound
 /// above `tile`.
-fn place_at_or_under(content: &Pyramid, tile: Tile, bound_above: bool, placements: &mut Pyramid) {
+fn place_at_or_under(content: &Content, tile: Tile, bound_above: bool, placements: &mut Pyramid) {
     let Some(placement) = placement(content, tile, bound_above) else {
         for child in tile.children() {
             place_at_or_under(content, child, bound_above, placements);
@@ -84,7 +112,7 @@ fn place_at_or_under(content: &Pyramid, tile: Tile, bound_above: bool, placement
 }
 
 /// What the rule places at `tile`, if anything.
-fn placement(content: &Pyramid, tile: Tile, bound_above: bool) -> Option<Placement> {
+fn placement(content: &Content, tile: Tile, bound_above: bool) -> Option<Placement> {
     if let Some(value) = content.homogeneous_value(tile) {
         return Some(Placement::bound(value));
     }
@@ -102,7 +130,7 @@ fn placement(content: &Pyramid, tile: Tile, bound_above: bool) -> Option<Placeme
 /// A bind of `tile` to the value not bound above, masking the children not
 /// homogeneous with it, if it says at least
 /// [`MIN_UNMASKED_CHILDREN_OF_A_MASKING_BIND`] of them.
-fn masking_bind(content: &Pyramid, tile: Tile, bound_above: bool) -> Option<Placement> {
+fn masking_bind(content: &Content, tile: Tile, bound_above: bool) -> Option<Placement> {
     let value = !bound_above;
     let mut masked_children = 0u8;
     for child in tile.children() {
@@ -118,7 +146,7 @@ fn masking_bind(content: &Pyramid, tile: Tile, bound_above: bool) -> Option<Plac
 /// rest, if it says enough of them to be worth it: near before far,
 /// then in direction order, on a tie. A child is said when it holds the
 /// same cells as the same child of the copy's source.
-fn masking_copy(content: &Pyramid, tile: Tile, bound_above: bool) -> Option<Placement> {
+fn masking_copy(content: &Content, tile: Tile, bound_above: bool) -> Option<Placement> {
     let children = tile.children();
     let homogeneous = children.map(|child| content.homogeneous_value(child));
     let mut best: Option<(u32, Placement)> = None;
@@ -157,7 +185,7 @@ fn masking_copy(content: &Pyramid, tile: Tile, bound_above: bool) -> Option<Plac
 /// far copy (a same-size neighbour of the tile's parent, at the tile's
 /// own child position within it) rather than a near one (a same-size
 /// neighbour of the tile itself): near first.
-fn copy_direction(content: &Pyramid, tile: Tile) -> Option<(bool, u8)> {
+fn copy_direction(content: &Content, tile: Tile) -> Option<(bool, u8)> {
     let near = content.matching_direction(tile, NEAR_DISTANCE).map(|direction| (false, direction));
     near.or_else(|| content.matching_direction(tile, FAR_DISTANCE).map(|direction| (true, direction)))
 }

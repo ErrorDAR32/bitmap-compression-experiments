@@ -6,8 +6,7 @@
 
 mod common;
 
-use bitmap::gct::pyramids::content::Content;
-use bitmap::gct::pyramids::copyable::{Copyable, FINEST_COPY_LEVEL, MATCH_DISTANCES, NEAR_DISTANCE};
+use bitmap::gct::pyramids::copyable::{matching_direction, matching_directions, FAR_DISTANCE, FINEST_COPY_LEVEL, NEAR_DISTANCE};
 use bitmap::gct::pyramids::homogeneity::Homogeneity;
 use bitmap::gct::pyramids::pyramid::{Pyramid, PyramidShape};
 use bitmap::gct::tile::{directions, Tile, CELL_LEVEL};
@@ -49,7 +48,7 @@ fn generic_pyramid_propagates_every_set() {
 fn homogeneity_pyramid_sees_a_filled_quarter() {
     let mut bitmap = Bitmap::new();
     bitmap.set_rect(0, 0, 127, 127);
-    let homogeneity = Pyramid::content(&bitmap);
+    let homogeneity = Pyramid::homogeneity(&bitmap);
     assert_eq!(homogeneity.homogeneous_value(Tile { level: 1, x: 0, y: 0 }), Some(true));
     assert_eq!(homogeneity.homogeneous_value(Tile { level: 1, x: 1, y: 0 }), Some(false));
     assert_eq!(homogeneity.homogeneous_value(Tile::whole_bitmap()), None);
@@ -60,7 +59,7 @@ fn homogeneity_pyramid_sees_a_filled_quarter() {
 #[test]
 fn homogeneity_pyramid_matches_the_cells() {
     for bitmap in [one_grown(FIXED_SEED, 0.20, 0.70), checkerboard(3)] {
-        let homogeneity = Pyramid::content(&bitmap);
+        let homogeneity = Pyramid::homogeneity(&bitmap);
         for level in 0..=CELL_LEVEL {
             for tile in Tile::all_of_level(level) {
                 let (left, top, right, bottom) = tile.cell_rect();
@@ -92,25 +91,26 @@ fn all_set_round_trips() {
     check(&bitmap, "all set");
 }
 
-/// Every match bit of a ragged bitmap and of an odd checkerboard, at
-/// every level and distance, against the two tiles' cells read one at a
-/// time.
+/// Every match of a ragged bitmap and of an odd checkerboard, at every
+/// level a copy can be and every distance one is read from, against the
+/// two tiles' cells read one at a time.
 #[test]
-fn content_pyramid_matches_the_cells() {
+fn matches_agree_with_the_cells() {
     for bitmap in [one_grown(FIXED_SEED, 0.20, 0.70), checkerboard(3)] {
-        let content = Pyramid::content(&bitmap);
-        for level in 0..=CELL_LEVEL {
+        let homogeneity = Pyramid::homogeneity(&bitmap);
+        for level in 0..=FINEST_COPY_LEVEL {
             for tile in Tile::all_of_level(level) {
-                for distance in MATCH_DISTANCES {
+                let matching = [NEAR_DISTANCE, FAR_DISTANCE, 2 * FAR_DISTANCE]
+                    .map(|distance| (distance, matching_directions(&homogeneity, &bitmap, tile, distance)));
+                for (distance, matching) in matching {
                     for direction in directions() {
-                        let same = level <= FINEST_COPY_LEVEL
-                            && tile.neighbour_at(direction, distance).is_some_and(|other| {
-                                let ((left, top, right, bottom), (x, y)) = (tile.cell_rect(), other.top_left_cell());
-                                (top..=bottom).all(|row| {
-                                    (left..=right).all(|col| bitmap.get(col, row) == bitmap.get(x + (col - left), y + (row - top)))
-                                })
-                            });
-                        assert_eq!(content.matches(tile, direction, distance), same, "{tile:?} {direction} {distance}");
+                        let same = tile.neighbour_at(direction, distance).is_some_and(|other| {
+                            let ((left, top, right, bottom), (x, y)) = (tile.cell_rect(), other.top_left_cell());
+                            (top..=bottom).all(|row| {
+                                (left..=right).all(|col| bitmap.get(col, row) == bitmap.get(x + (col - left), y + (row - top)))
+                            })
+                        });
+                        assert_eq!(matching & 1 << direction != 0, same, "{tile:?} {direction} {distance}");
                     }
                 }
             }
@@ -127,7 +127,7 @@ fn a_repeated_quarter_is_a_near_copy() {
     bitmap.set_circle(192, 64, 40);
     let right_quarter = Tile { level: 1, x: 1, y: 0 };
     // DIRECTIONS[3] is the neighbour to the left.
-    assert_eq!(Pyramid::content(&bitmap).matching_direction(right_quarter, NEAR_DISTANCE), Some(3));
+    assert_eq!(matching_direction(&Pyramid::homogeneity(&bitmap), &bitmap, right_quarter, NEAR_DISTANCE), Some(3));
     assert_eq!(tree(&bitmap).node(right_quarter), Node::Copied { far: false, direction: 3, masks: false });
     check(&bitmap, "a repeated quarter");
 }
