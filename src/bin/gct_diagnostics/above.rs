@@ -22,7 +22,7 @@ pub fn run(report: &mut Report) {
         "tree:\nmasking\nbits",
         "tree:\nplacing",
         "list:\nsize bits",
-        "list:\nbackground\nflags",
+        "list:\nkind bits",
         "list:\nplacing",
         "tree, ideally\ncoded",
     ]);
@@ -44,7 +44,7 @@ pub fn run(report: &mut Report) {
             per_bitmap(gathered.masking_bits),
             per_bitmap(gathered.tree_placing_bits()),
             per_bitmap(gathered.list_size_bits()),
-            per_bitmap(gathered.could_be_background),
+            per_bitmap(gathered.list_kind_bits),
             per_bitmap(gathered.list_placing_bits()),
             format!("{:.1}", gathered.coded_tree_bits() / gathered.bitmaps as f64),
         ]);

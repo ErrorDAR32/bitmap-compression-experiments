@@ -25,17 +25,25 @@
 //!   A list says each tile's size from those choices: the tile before it
 //!   ends where it starts, so it may be as coarse as the coarsest tile
 //!   whose first cell that is, but no coarser than the start level;
-//! - `could_be_background`: the tiles a list would have to say are
-//!   background or not -- those one level under a tile of 8x8 or
-//!   coarser, the start level's own excepted;
+//! - `list_kind_bits`: what a list spends saying, of each tile, whether
+//!   it is background or a masking bind. The tree says both in its
+//!   divides; after a list's "this size" bit the decoder must still be
+//!   told. A tile one level under a tile of 8x8 or coarser (the start
+//!   level's own excepted) could be background, and one of 8x8 or
+//!   coarser could be a masking bind: where both could, `0` a node, `10`
+//!   background, `11` a masking bind; where one could, a bit;
+//! - `bind_header_bits`: what the masking binds' tree headers spend that
+//!   a list does not -- a mask-present bit and a flip bit each, which the
+//!   list's kind bits say instead (above the top tiles the value bound
+//!   is always clear, so a masking bind always binds set);
 //! - `decisions`: what the tree says at every node above the top tiles
 //!   and at every top tile coarser than a 2x2, by level: a leaf, a whole
 //!   divide, or a masking divide and its child mask.
 //!
 //! The list, spelled as plainly as the tree is: each size a bit a level
 //! from the coarsest it could be, "this size" or "finer", the bit left
-//! out at the 2x2 floor ([`AboveComplexTiles::list_size_bits`]), and a
-//! bit for each tile that could be background
+//! out at the 2x2 floor ([`AboveComplexTiles::list_size_bits`]), then its
+//! kind bits, less the masking binds' header bits
 //! ([`AboveComplexTiles::list_placing_bits`]). Its size bits are the
 //! tree's subdivide and leaf bits exactly, moved: a divide's bit becomes
 //! a "finer" bit of the first tile under it, a leaf bit the "this size"
@@ -48,7 +56,7 @@
 //! in what was gathered: an entropy, which only an ideal adaptive coder
 //! reaches.
 
-use super::census::{kind, Census};
+use super::census::{kind, Census, MASKING_BIND};
 use crate::gct::complex_tiler::bit_cost::bits;
 use crate::gct::grammar::{
     divide_may_mask, BOUND_AT_THE_TOP, CHILD_MASK_WIDTH, FLIP_WIDTH, LEAF_WIDTH, MASK_PRESENT_WIDTH, START_LEVEL_WIDTH,
@@ -111,8 +119,12 @@ pub struct AboveComplexTiles {
     /// had at its first cell, then its own level, then top (0) or
     /// background (1).
     pub sizes: [[[u64; ENTRY_KINDS]; LEVELS]; LEVELS],
-    /// Top and background tiles a list would say are background or not.
-    pub could_be_background: u64,
+    /// What a list spends saying which tiles are background or masking
+    /// binds.
+    pub list_kind_bits: u64,
+    /// The masking binds' mask-present and flip bits, which a list does
+    /// not spend.
+    pub bind_header_bits: u64,
     /// The tree's decisions above the top tiles, by level.
     pub decisions: [[u64; DECISIONS]; LEVELS],
 }
@@ -178,8 +190,15 @@ impl AboveComplexTiles {
             coarsest = coarsest.parent();
         }
         self.sizes[coarsest.level as usize][tile.level as usize][usize::from(kind == BACKGROUND)] += 1;
-        if tile.level > start_level && divide_may_mask(tile.level - 1) {
-            self.could_be_background += 1;
+        let could_be_background = tile.level > start_level && divide_may_mask(tile.level - 1);
+        let could_be_bind = divide_may_mask(tile.level);
+        self.list_kind_bits += match (could_be_background, could_be_bind) {
+            (true, true) if kind == BACKGROUND || kind == MASKING_BIND => 2,
+            (true, true) | (true, false) | (false, true) => 1,
+            (false, false) => 0,
+        };
+        if kind == MASKING_BIND {
+            self.bind_header_bits += (MASK_PRESENT_WIDTH + FLIP_WIDTH) as u64;
         }
     }
 
@@ -189,7 +208,8 @@ impl AboveComplexTiles {
         self.written_bits += other.written_bits;
         self.subdivide_bits += other.subdivide_bits;
         self.masking_bits += other.masking_bits;
-        self.could_be_background += other.could_be_background;
+        self.list_kind_bits += other.list_kind_bits;
+        self.bind_header_bits += other.bind_header_bits;
         self.rest_bits += other.rest_bits;
         self.leaf_bits += other.leaf_bits;
         for (kind, by_level) in &other.tiles {
@@ -242,10 +262,11 @@ impl AboveComplexTiles {
         bits
     }
 
-    /// All a plain list spends placing the tiles: their sizes, and a bit
-    /// for each that could be background.
+    /// All a plain list spends placing the tiles, set against the tree's
+    /// placing bits: their sizes and kind bits, less the masking binds'
+    /// header bits the list does not spend.
     pub fn list_placing_bits(&self) -> u64 {
-        self.list_size_bits() + self.could_be_background
+        self.list_size_bits() + self.list_kind_bits - self.bind_header_bits
     }
 
     /// The least the tree could spend on its decisions above the top

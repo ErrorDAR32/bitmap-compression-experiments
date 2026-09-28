@@ -560,21 +560,28 @@ levels a tile starting at its first cell could have -- a bit a level,
 the tree's subdivide and leaf bits exactly, moved: each divide's bit
 becomes a "finer" bit of the first tile under it, each leaf bit the
 "this size" bit of its own tile. Every check asserts this, bit for bit.
-What differs is background: the tree says it in its divides (a
-mask-present bit on every divide at 8x8 or coarser, a flip bit and a
-4-bit child mask on a masking one) and never says a background tile's
-size; a list says each background tile's size, and needs a bit on every
-tile that could be background. `above.csv` has both, spelled plainly,
-family by family (`tree: placing` against `list: placing`), and so
-whether the tree's mask-present bit on every whole divide costs more
-than a flag on the tiles that could be background. That trade is open
-to the tree too, saying background at the child rather than the divide.
-Its last column is the other thing open to the tree: its decisions
-coded by how often each is made at its level -- an entropy, which only
-an ideal adaptive coder reaches. Compare the two spelled the same way:
-set against each other as entropies, the tree comes out ahead, and an
-earlier version of this section wrongly concluded from that that a list
-costs more.
+What differs is what else a decoder must be told of each tile. The
+tree says it in its divides: a mask-present bit on every divide at 8x8
+or coarser, a flip bit and a 4-bit child mask on a masking one, and a
+masking bind is spelled as a divide that flips. A list, after a tile's
+"this size" bit, must say whether it is background -- if it is one
+level under a tile of 8x8 or coarser -- or a masking bind -- if it is
+8x8 or coarser: `0` a node, `10` background, `11` a masking bind where
+both could be, a bit where one could; it spends no size on background
+beyond its sizes, and no mask-present or flip bit on a masking bind
+(above the top tiles the value bound is always clear, so a masking
+bind always binds set). `above.csv` has both spelled plainly, family by
+family: `tree: placing` against `list: placing`. The list wins on some
+families and loses on others, by about a percent of all bits either
+way; it is not a free saving, because the tree's divides were saying
+something the list must still say. An earlier version of this section
+left the masking binds out of the list, and so overstated what it
+saves; one before that compared the two as entropies, and so
+understated it.
+
+The last column is what else is open to the tree: its decisions coded
+by how often each is made at its level -- an entropy, which only an
+ideal adaptive coder reaches.
 
 **Why the start level header**: a trunk of depth `d` -- every tile
 coarser than level `d` subdivides -- saves `(4^d - 1) / 3` subdivide
