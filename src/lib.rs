@@ -39,12 +39,14 @@
 //! | folder | its domain |
 //! |---|---|
 //! | [`bitmap`] | the 65536 cells, and what can be drawn on them |
-//! | [`pyramid`] | for every tile of every size, whether it is all one thing |
-//! | [`dsrn`] | the encoding: what a region says, what it costs, how it is written and read |
+//! | [`pyramid`] | dsrn's homogeneity pyramid: for every tile of every size, whether it is all one thing |
+//! | [`dsrn`] | the baseline encoding: what a region says, what it costs, how it is written and read |
+//! | [`dsrn_analysis`] | experiments on dsrn, which are not the encoding |
+//! | [`cgt`] | the complex greedy tiler, the encoding being built to beat dsrn (`docs/cgt.md`); depends on nothing in `dsrn` |
 //! | [`samples`] | the bitmaps everything is measured on, and where the seed comes from |
-//! | [`dsrn_exp`] | experimental tests on the encoding, which are not the encoding |
-//!
 //! | [`table`] | printing any of it, which every experiment does the same way |
+//!
+//! `tests/` holds cgt's tests and its comparison against dsrn.
 //!
 //! `docs/design_statements.md` is what every decision here is weighed
 //! against, and `docs/testing_protocol.md` is how a change to any of

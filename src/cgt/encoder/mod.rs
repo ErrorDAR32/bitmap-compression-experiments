@@ -3,7 +3,7 @@
 //! (`tree_grammar`), with each complex tile's payload (`payload`) after
 //! its body, then the residual pass (`residual`) -- the last two being
 //! plain runs of value bits. Nothing here decides anything; resolving
-//! copies into cells is [`crate::cgt::decode`]'s job.
+//! copies into cells is [`crate::cgt::decode`](mod@crate::cgt::decode)'s job.
 
 pub mod bit_stream;
 mod payload;
@@ -45,7 +45,7 @@ impl ReadBack {
     }
 }
 
-/// Reads back what [`write`] wrote.
+/// Reads back what [`write`](fn@write) wrote.
 pub fn read(stream: &BitStream) -> ReadBack {
     let mut read = ReadBack { tree: Pyramid::tree(), cells: Bitmap::new(), known: Bitmap::new() };
     let mut reader = stream.reader();

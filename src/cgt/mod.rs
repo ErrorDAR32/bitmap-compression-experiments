@@ -6,10 +6,10 @@
 //!    value or copying a same-size area -- a placements pyramid.
 //! 2. [`complex_tiler`]: those tiles grouped into complex tiles, nested
 //!    as deep as they keep paying -- a complex tile depths pyramid.
-//! 3. [`tree`]: the tree read off both, one node per tile -- a pyramid
+//! 3. [`tree`](mod@tree): the tree read off both, one node per tile -- a pyramid
 //!    of node codes.
 //! 4. [`encoder`]: that tree spelled out in bits, and read back;
-//!    [`decode`] then resolves copies into cells.
+//!    [`decode`](fn@decode) then resolves copies into cells.
 //!
 //! Everything per tile is held in [`pyramids`]. The grammar and what
 //! each bit costs are in `docs/cgt.md`.
