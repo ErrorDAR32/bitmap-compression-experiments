@@ -297,12 +297,18 @@ back every cell.
 Seed `1950720362523133367`, via
 `cargo test --release --test gct_measurement -- --ignored --nocapture`:
 
-| family | gct | of the raw cells |
-|---|---|---|
-| laid out like a city, 48 bitmaps | 12622 bits | 19.3% |
-| grown like a blob, 84 bitmaps | 30887 bits | 47.1% |
-| sparse, 48 bitmaps | 4790 bits | 7.3% |
-| drawn with lines, 36 bitmaps | 11618 bits | 17.7% |
+It prints one table a sample generator, a row a parameter set; their
+totals:
+
+| generator | parameter sets | bitmaps | gct bits a bitmap | of the raw cells |
+|---|---|---|---|---|
+| grown (density, cluster) | 13 | 132 | 21397 | 32.6% |
+| laid out like a city (pitch, street, courtyards) | 4 | 48 | 12622 | 19.3% |
+| drawn with lines (lines) | 3 | 36 | 11618 | 17.7% |
+| checkerboard (square side) | 15 | 15 | 23832 | 36.4% |
+
+By family, as the tests group them: blob (the nine grown shapes, 84
+bitmaps) 30887 bits, sparse (the four sparse ones, 48 bitmaps) 4790.
 
 On two fresh seeds (`GCT_SEED` 9216954446512861479 and
 3326496171169911647): city 13177 and 13181 bits, blob 30922 and 30925,

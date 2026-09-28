@@ -36,7 +36,11 @@ bitmap by hand, to pin a known case -- never to measure anything.
 
 Plain `cargo test` runs fine and fast. The measurement,
 `gct_measurement`, is ignored like the complete tier and prints its
-numbers:
+numbers -- one table a sample generator (grown, city, lines,
+checkerboard, and the adversarial record), a row a parameter set with
+its parameters, bitmaps, cells set, gct's mean, fewest and most bits,
+share of the raw cells and encode time, then what the trees hold,
+family by family:
 
 ```
 cargo test --release --test gct_measurement -- --ignored --nocapture
