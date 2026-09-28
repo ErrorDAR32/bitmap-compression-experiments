@@ -20,6 +20,12 @@ use bitmap::gct::tile::{Tile, CELL_LEVEL};
 use bitmap::gct::{decode, tree};
 use bitmap::Bitmap;
 
+/// The raw cells: what a bitmap costs written out.
+const RAW_CELLS: usize = 256 * 256;
+
+/// The most gct may ever spend on a bitmap: the raw cells and 1%.
+pub const CAP_BITS: usize = RAW_CELLS + RAW_CELLS / 100;
+
 /// The first cell, in reading order, where two bitmaps differ.
 pub fn first_difference(a: &Bitmap, b: &Bitmap) -> Option<(u8, u8)> {
     (0..=u8::MAX).flat_map(|y| (0..=u8::MAX).map(move |x| (x, y))).find(|&(x, y)| a.get(x, y) != b.get(x, y))
@@ -33,6 +39,7 @@ pub fn first_difference(a: &Bitmap, b: &Bitmap) -> Option<(u8, u8)> {
 /// - every 1x1 tile placed is said raw: left to the residual pass under
 ///   a residual 2x2, or inside a complex tile of 1x1 resolution;
 /// - the bit cost the complex tiler scores with is the encoder's count;
+/// - gct spends at most [`CAP_BITS`], the raw cells and 1%;
 /// - the tree read back from the bits is the tree that was written;
 /// - decoding gives back every cell.
 pub fn check(bitmap: &Bitmap, label: &str) {
@@ -62,6 +69,7 @@ pub fn check(bitmap: &Bitmap, label: &str) {
         stream.len() as u64,
         "{label}: the complex tiler's bit cost is not the encoder's count"
     );
+    assert!(stream.len() <= CAP_BITS, "{label}: {} bits, over the cap of {CAP_BITS}", stream.len());
     for (tile, placement) in placements.placed_tiles() {
         if let Placement::Copied { .. } = placement {
             assert!(tile.level < CELL_LEVEL - 1, "{label}: {tile:?} copies, finer than 4x4");
