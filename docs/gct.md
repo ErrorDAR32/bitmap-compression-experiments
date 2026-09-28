@@ -299,13 +299,16 @@ Worst cases found by the adversarial search (`testing/adversarial/`):
 
 | attacked | against | gap |
 |---|---|---|
-| gct | dsrn | +1608 bits (gct 65124, dsrn 63516) |
-| gct | raw cells | +23 bits (gct 65559) |
-| dsrn | gct | +31712 bits (dsrn 63559, gct 31847) |
-| dsrn | raw cells | +2293 bits (dsrn 67829) |
+| gct | dsrn | +110 bits (gct 56226, dsrn 56116) |
+| gct | raw cells | +523 bits (gct 66059) |
+| dsrn | gct | +33349 bits (dsrn 63652, gct 30303) |
+| dsrn | raw cells | +2300 bits (dsrn 67836) |
 
-Noise costs gct 65559 bits: four raw 128x128 complex tiles and the
-start level header, 23 over its raw cells (dsrn: 65542, 6 over).
+Noise costs gct 65563 bits: four raw 128x128 complex tiles and the
+start level header, 27 over its raw cells (dsrn: 65542, 6 over). Raw
+tiles mask every part holding more than 2x2 binds and 1x1 tiles, which
+the search turns against them: +523 over raw, where the part masked
+costs more said by itself than raw.
 
 **Why masking binds need 2 children**, gct bits on the seed above and
 the two fresh ones, measured before masking copies stopped counting
