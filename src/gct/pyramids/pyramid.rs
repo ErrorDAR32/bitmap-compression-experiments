@@ -13,11 +13,16 @@
 //!
 //! A specialized pyramid (the other files in this folder) fixes the
 //! three parameters, supplies its own queries, and may give the pyramid
-//! a [`Propagation`]: the rule for what a tile holds, given its children.
-//! Then every [`Pyramid::set`] keeps the coarser levels in step on its
-//! own: it recomputes the set tile's parent, then that one's parent, and
-//! stops at the first whose element does not change -- often right
-//! away, sometimes only at the whole bitmap.
+//! a [`Propagation`]: its [`Rule`] for what a tile holds given its own
+//! element and its four children's, stated once in its own impl, and
+//! when the rule runs. On every set, each [`Pyramid::set`] keeps the
+//! coarser levels in step on its own: it recomputes the set tile's
+//! parent, then that one's parent, and stops at the first whose element
+//! does not change. In one sweep, sets change only their own element,
+//! and [`Pyramid::propagate`] later applies the rule to every coarser
+//! tile, finest level first, a level at a time in Morton order -- the
+//! cheaper of the two when many sets come before anything reads the
+//! coarser levels, since each tile is recomputed once.
 
 use crate::gct::tile::{tiles_across, Tile, CELL_LEVEL, CHILDREN_ACROSS};
 use crate::morton::morton_index;
@@ -42,9 +47,20 @@ pub type LevelWords = [u64];
 /// Every level's start, and one past the finest's end.
 const LEVEL_STARTS: usize = CELL_LEVEL as usize + 2;
 
-/// What `tile` should hold, worked out from its children's elements in
-/// `pyramid`.
-pub type Propagation = fn(pyramid: &Pyramid, tile: Tile) -> u64;
+/// What a tile should hold, given its own element and its four
+/// children's, in reading order -- which, for four children, is Morton
+/// order.
+pub type Rule = fn(element: u64, children: [u64; 4]) -> u64;
+
+/// A pyramid's rule, and when it keeps the coarser levels in step.
+#[derive(Clone, Copy, Debug)]
+pub enum Propagation {
+    /// On every set, up from the tile set.
+    OnEverySet(Rule),
+    /// In one sweep over every level, when [`Pyramid::propagate`] is
+    /// asked: only tiles with something under them are recomputed.
+    InOneSweep(Rule),
+}
 
 /// One element per tile, per level -- see the module doc.
 #[derive(Clone, Debug)]
@@ -108,8 +124,8 @@ impl Pyramid {
     }
 
     /// An all-zero pyramid of this shape that keeps its coarser levels
-    /// in step with `propagation`. All zeros must already be in step:
-    /// `propagation` of all-zero children is zero.
+    /// in step as `propagation` says. All zeros must already be in step:
+    /// its rule of an all-zero element and children is zero.
     pub fn with_propagation(shape: PyramidShape, propagation: Propagation) -> Self {
         Self { propagation: Some(propagation), ..Self::new(shape) }
     }
@@ -175,30 +191,92 @@ impl Pyramid {
         &self.words[first..first + words]
     }
 
-    /// Replaces a tile's element, then propagates: each coarser tile
-    /// holding it is recomputed, up to the first that does not change.
+    /// Replaces a tile's element; for a pyramid that propagates on every
+    /// set, then recomputes each coarser tile holding it, up to the first
+    /// that does not change.
     #[inline]
     pub fn set(&mut self, tile: Tile, value: u64) {
         self.write(tile, value);
-        if let Some(propagation) = self.propagation {
-            self.propagate_from(tile, propagation);
+        if let Some(Propagation::OnEverySet(rule)) = self.propagation {
+            self.propagate_from(tile, rule);
         }
     }
 
-    /// Recomputes each coarser tile holding `tile` by `propagation`, up
-    /// to the first that does not change. Kept out of line: most
-    /// pyramids do not propagate, and their sets stay a few steps.
+    /// Recomputes each coarser tile holding `tile` by `rule`, up to the
+    /// first that does not change. Kept out of line: most pyramids do not
+    /// propagate on every set, and their sets stay a few steps.
     #[inline(never)]
-    fn propagate_from(&mut self, tile: Tile, propagation: Propagation) {
+    fn propagate_from(&mut self, tile: Tile, rule: Rule) {
         let mut changed = tile;
         while changed.level > self.shape.coarsest_level {
             let parent = self.parent_of(changed);
-            let value = propagation(self, parent);
+            let value = rule(self.get(parent), self.children_elements(parent));
             if value == self.get(parent) {
                 return;
             }
             self.write(parent, value);
             changed = parent;
+        }
+    }
+
+    /// Applies the pyramid's rule to every tile coarser than the finest
+    /// level held that has something under it, finest first, a level at
+    /// a time in Morton order: each tile's element from its own and its
+    /// four children's, the four consecutive elements at its own index
+    /// times four, read as one group of bits. A tile whose four children
+    /// are all zero keeps its element as it is, the rule not asked --
+    /// most tiles, passed over on one look at their children's words.
+    /// Nothing to do for a pyramid without a rule. For elements of a
+    /// word or narrower.
+    pub fn propagate(&mut self) {
+        let (Some(Propagation::OnEverySet(rule)) | Some(Propagation::InOneSweep(rule))) = self.propagation else {
+            return;
+        };
+        // One loop for each width an element can be, each with its shifts
+        // and masks fixed when it is compiled.
+        match self.shape.element_bits {
+            1 => self.sweep::<1>(rule),
+            2 => self.sweep::<2>(rule),
+            4 => self.sweep::<4>(rule),
+            8 => self.sweep::<8>(rule),
+            16 => self.sweep::<16>(rule),
+            32 => self.sweep::<32>(rule),
+            64 => self.sweep::<64>(rule),
+            wider => unreachable!("an element of {wider} bits is read by its words"),
+        }
+    }
+
+    /// [`Pyramid::propagate`] for elements of `ELEMENT_BITS`.
+    fn sweep<const ELEMENT_BITS: usize>(&mut self, rule: Rule) {
+        const WORD_BITS: usize = u64::BITS as usize;
+        let mask = if ELEMENT_BITS == WORD_BITS { u64::MAX } else { (1 << ELEMENT_BITS) - 1 };
+        let group_bits = 4 * ELEMENT_BITS;
+        let group_mask = if group_bits >= WORD_BITS { u64::MAX } else { (1 << group_bits) - 1 };
+        let group_words = group_bits.div_ceil(WORD_BITS);
+        for level in (self.shape.coarsest_level..self.shape.finest_level).rev() {
+            let (coarser, finer) = self.two_levels_mut(level);
+            for at in 0..tiles_across(level).pow(2) {
+                let first_bit = at * group_bits;
+                let first_word = first_bit / WORD_BITS;
+                // The four children: part of one word, or whole words --
+                // tested for all zero before they are taken apart.
+                let any_child = if group_words == 1 {
+                    finer[first_word] >> (first_bit % WORD_BITS) & group_mask != 0
+                } else {
+                    finer[first_word..first_word + group_words].iter().any(|&word| word != 0)
+                };
+                if !any_child {
+                    continue;
+                }
+                let (word, shift) = (at * ELEMENT_BITS / WORD_BITS, at * ELEMENT_BITS % WORD_BITS);
+                let element = (coarser[word] >> shift) & mask;
+                let mut children = [0; 4];
+                for (child, value) in children.iter_mut().enumerate() {
+                    let bit = first_bit + child * ELEMENT_BITS;
+                    *value = (finer[bit / WORD_BITS] >> (bit % WORD_BITS)) & mask;
+                }
+                coarser[word] = coarser[word] & !(mask << shift) | rule(element, children) << shift;
+            }
         }
     }
 

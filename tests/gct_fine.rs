@@ -8,7 +8,7 @@ mod common;
 
 use bitmap::gct::pyramids::copyable::{matches_at, matching_direction, FAR_DISTANCE, FINEST_COPY_LEVEL, NEAR_DISTANCE};
 use bitmap::gct::pyramids::homogeneity::Homogeneity;
-use bitmap::gct::pyramids::pyramid::{Pyramid, PyramidShape};
+use bitmap::gct::pyramids::pyramid::{Propagation, Pyramid, PyramidShape};
 use bitmap::gct::tile::{directions, Tile, CELL_LEVEL};
 use bitmap::gct::pyramids::tree::{Node, Tree};
 use common::tree_stats::TreeStats;
@@ -26,18 +26,37 @@ const FIXED_SEED: u64 = 7;
 /// step through each set.
 #[test]
 fn generic_pyramid_propagates_every_set() {
-    /// The propagation: a tile holds the sum of its children.
-    fn sum_of_children(pyramid: &Pyramid, tile: Tile) -> u64 {
-        pyramid.children_of(tile).into_iter().map(|child| pyramid.get(child)).sum()
+    /// The rule: a tile holds the sum of its children.
+    fn sum_of_children(_: u64, children: [u64; 4]) -> u64 {
+        children.iter().sum()
     }
     let shape = PyramidShape { coarsest_level: 0, finest_level: 2, element_bits: 8 };
-    let mut pyramid = Pyramid::with_propagation(shape, sum_of_children);
+    let mut pyramid = Pyramid::with_propagation(shape, Propagation::OnEverySet(sum_of_children));
     pyramid.set(Tile { level: 2, x: 3, y: 3 }, 1);
     assert_eq!(pyramid.get(Tile { level: 1, x: 1, y: 1 }), 1);
     assert_eq!(pyramid.get(Tile::whole_bitmap()), 1);
     for tile in pyramid.tiles_of_level(2).collect::<Vec<_>>() {
         pyramid.set(tile, 1);
     }
+    assert_eq!(pyramid.get(Tile { level: 1, x: 1, y: 1 }), 4);
+    assert_eq!(pyramid.get(Tile::whole_bitmap()), 16);
+}
+
+/// The same rule applied in one sweep: sets change nothing else, until
+/// the sweep brings every coarser level in step at once.
+#[test]
+fn generic_pyramid_propagates_in_one_sweep() {
+    /// The rule: a tile holds the sum of its children.
+    fn sum_of_children(_: u64, children: [u64; 4]) -> u64 {
+        children.iter().sum()
+    }
+    let shape = PyramidShape { coarsest_level: 0, finest_level: 2, element_bits: 8 };
+    let mut pyramid = Pyramid::with_propagation(shape, Propagation::InOneSweep(sum_of_children));
+    for tile in pyramid.tiles_of_level(2).collect::<Vec<_>>() {
+        pyramid.set(tile, 1);
+    }
+    assert_eq!(pyramid.get(Tile::whole_bitmap()), 0);
+    pyramid.propagate();
     assert_eq!(pyramid.get(Tile { level: 1, x: 1, y: 1 }), 4);
     assert_eq!(pyramid.get(Tile::whole_bitmap()), 16);
 }
