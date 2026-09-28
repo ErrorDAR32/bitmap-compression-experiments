@@ -40,8 +40,8 @@ struct SearchArea {
 /// with every committed complex tile's size offset added.
 pub fn complex_tiler(placements: &Pyramid) -> Pyramid {
     let bound_tiles_per_level = Vec::<Pyramid>::bound_tiles_per_level(placements);
-    let mut complex_tiling = Pyramid::complex_tiling(placements);
-    decide_raw_masking(&mut complex_tiling);
+    let raw_masked = decide_raw_masking(placements);
+    let mut complex_tiling = Pyramid::complex_tiling(placements, &raw_masked);
 
     let mut searched = vec![SearchArea { area: Tile::whole_bitmap(), coarsest_level: 0, nested: NestedResolutions::none() }];
     while !searched.is_empty() {

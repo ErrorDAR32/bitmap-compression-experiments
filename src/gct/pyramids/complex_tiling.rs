@@ -51,8 +51,9 @@ fn with_field(element: u64, field: Field, value: u64) -> u64 {
 }
 
 pub trait ComplexTiling {
-    /// The greedy tiler's placements, with no complex tiles yet.
-    fn complex_tiling(placements: &Pyramid) -> Self;
+    /// The greedy tiler's placements, with no complex tiles yet, and
+    /// `raw_masked` the tiles a complex tile of 1x1 resolution masks.
+    fn complex_tiling(placements: &Pyramid, raw_masked: &[Tile]) -> Self;
 
     /// The tile placed exactly at `tile`, if any.
     fn placed_at(&self, tile: Tile) -> Option<Placement>;
@@ -75,9 +76,7 @@ pub trait ComplexTiling {
     /// Whether a complex tile of 1x1 resolution masks `tile`.
     fn raw_masks(&self, tile: Tile) -> bool;
 
-    /// Records, for each tile given, whether a complex tile of 1x1
-    /// resolution masks it.
-    fn set_raw_masking(&mut self, masking: impl IntoIterator<Item = (Tile, bool)>);
+
 
     /// Whether `tile`, a child of a divide nested in `nested`, is left to
     /// the binding above it, of `bound_above`: the divide masks (8x8 or
@@ -97,13 +96,21 @@ pub trait ComplexTiling {
 }
 
 impl ComplexTiling for Pyramid {
-    fn complex_tiling(placements: &Pyramid) -> Self {
-        let mut complex_tiling = Pyramid::with_propagation(SHAPE, bound_size_of_children);
-        let placed = placements.placed_tiles().map(|(tile, placement)| {
-            let bound_size = if placement.is_whole_bind() { tile.level as u64 + 1 } else { NONE };
-            (tile, with_field(with_field(NONE, PLACEMENT, placement_code(placement)), BOUND_SIZE, bound_size))
-        });
-        complex_tiling.set_all(placed.collect::<Vec<_>>());
+    fn complex_tiling(placements: &Pyramid, raw_masked: &[Tile]) -> Self {
+        let mut complex_tiling = Pyramid::new(SHAPE);
+        for &tile in raw_masked {
+            complex_tiling.set(tile, with_field(NONE, RAW_MASKS, YES));
+        }
+        let placed: Vec<(Tile, u64)> = placements
+            .placed_tiles()
+            .map(|(tile, placement)| {
+                let bound_size = if placement.is_whole_bind() { tile.level as u64 + 1 } else { NONE };
+                let element = with_field(complex_tiling.get(tile), PLACEMENT, placement_code(placement));
+                (tile, with_field(element, BOUND_SIZE, bound_size))
+            })
+            .collect();
+        let mut complex_tiling = complex_tiling.with_propagation_set(bound_size_of_children);
+        complex_tiling.set_all(placed);
         complex_tiling
     }
 
@@ -120,13 +127,7 @@ impl ComplexTiling for Pyramid {
         field(self.get(tile), RAW_MASKS) == YES
     }
 
-    fn set_raw_masking(&mut self, masking: impl IntoIterator<Item = (Tile, bool)>) {
-        let elements: Vec<(Tile, u64)> = masking
-            .into_iter()
-            .map(|(tile, masks)| (tile, with_field(self.get(tile), RAW_MASKS, if masks { YES } else { NONE })))
-            .collect();
-        self.set_all(elements);
-    }
+
 
     fn left_to_binding_above(&self, tile: Tile, bound_above: bool, nested: &NestedResolutions) -> bool {
         tile.level <= FINEST_MASKING_LEVEL + 1

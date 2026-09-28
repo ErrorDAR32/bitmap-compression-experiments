@@ -112,6 +112,13 @@ impl Pyramid {
         Self { propagation: Some(propagation), ..Self::new(shape) }
     }
 
+    /// This pyramid, keeping its coarser levels in step with
+    /// `propagation` from here on -- for filling it first and then
+    /// propagating once, with [`Pyramid::set_all`].
+    pub fn with_propagation_set(self, propagation: Propagation) -> Self {
+        Self { propagation: Some(propagation), ..self }
+    }
+
     pub fn shape(&self) -> PyramidShape {
         self.shape
     }
