@@ -114,6 +114,18 @@ impl Fields {
         field(self.0, BOUND_SIZES_UNDER) & (1 << size) != 0
     }
 
+    /// These fields as they would be were the tile a complex tile of
+    /// `size_offset` -- for scoring one without placing it.
+    pub fn as_complex_tile(self, size_offset: u8) -> Fields {
+        Fields(with_field(with_field(self.0, SIZE_OFFSET, size_offset as u64), POINT_LIST, NONE))
+    }
+
+    /// These fields as they would be were the tile, of `level`, a point
+    /// list.
+    pub fn as_point_list(self, level: u8) -> Fields {
+        Fields(with_field(self.as_complex_tile(CELL_LEVEL - level).0, POINT_LIST, YES))
+    }
+
     /// Whether the complex tile at exactly the tile says its cells as a
     /// point list.
     pub fn is_point_list(self) -> bool {
@@ -179,8 +191,6 @@ pub trait ComplexTiling {
     /// a point list.
     fn make_point_list(&mut self, tile: Tile);
 
-    /// Makes `tile` no complex tile.
-    fn clear_complex_tile(&mut self, tile: Tile);
 }
 
 impl ComplexTiling for Pyramid {
@@ -197,17 +207,12 @@ impl ComplexTiling for Pyramid {
 
     fn make_complex_tile(&mut self, tile: Tile, size_offset: u8) {
         assert!(size_offset >= 1, "a complex tile's resolution is finer than itself");
-        let element = with_field(self.get(tile), SIZE_OFFSET, size_offset as u64);
+        let element = self.fields(tile).as_complex_tile(size_offset).0;
         self.set(tile, element);
     }
 
     fn make_point_list(&mut self, tile: Tile) {
-        let element = with_field(self.get(tile), SIZE_OFFSET, (CELL_LEVEL - tile.level) as u64);
-        self.set(tile, with_field(element, POINT_LIST, YES));
-    }
-
-    fn clear_complex_tile(&mut self, tile: Tile) {
-        let element = with_field(with_field(self.get(tile), SIZE_OFFSET, NONE), POINT_LIST, NONE);
+        let element = self.fields(tile).as_point_list(tile.level).0;
         self.set(tile, element);
     }
 }

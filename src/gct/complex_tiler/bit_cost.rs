@@ -12,90 +12,46 @@
 use crate::gct::grammar::point_list;
 use crate::gct::grammar::*;
 use crate::gct::nested_resolutions::NestedResolutions;
-use crate::gct::pyramids::complex_tiling::ComplexTiling;
+use crate::gct::pyramids::complex_tiling::{ComplexTiling, Fields};
 use crate::gct::pyramids::placements::Placement;
-use crate::gct::pyramids::pyramid::{Pyramid, PyramidShape};
+use crate::gct::pyramids::pyramid::Pyramid;
 use crate::gct::tile::{cells_in_tile, tiles_across, Tile, CELL_LEVEL};
 use crate::Bitmap;
 
 /// How many resolution tiles a tile holds `size_offset` levels finer:
 /// one payload bit each.
-fn payload_bits(size_offset: u8) -> u64 {
+pub fn payload_bits(size_offset: u8) -> u64 {
     let across = tiles_across(size_offset) as u64;
     across * across
 }
 
-/// Bits already counted, by tile and by the complex tiles it is nested
-/// in: good for as long as nothing under a counted tile changes -- one
-/// pass of the complex tiler, whose commits come at its end. One
-/// pyramid a nesting -- few nestings occur in a pass, so finding its
-/// pyramid is a short search -- holding each tile's bits plus one, `0`
-/// not counted yet. The pyramids are kept from one pass, and one bitmap,
-/// to the next: a pass forgets which nesting each was for, and a
-/// pyramid is cleared only when handed to a nesting again.
-#[derive(Default)]
-pub struct CountedBits {
-    /// Each nesting's key, and its pyramid of counted bits; only the
-    /// first `in_use` are this pass's.
-    pyramids: Vec<(u64, Pyramid)>,
-    /// How many of `pyramids` this pass uses.
-    in_use: usize,
-}
-
-/// Enough for any tile's bits, the whole bitmap's included, down to
-/// 4x4: a 2x2 is counted in a few steps, the 2x2 floor's, and nothing
-/// finer is ever counted -- so neither is worth remembering, or zeroing.
-const COUNTED_SHAPE: PyramidShape = PyramidShape { coarsest_level: 0, finest_level: CELL_LEVEL - 2, element_bits: 32 };
-/// A tile's element before its bits are counted: counted bits are held
-/// plus one, so zero is free to mean not yet.
-const NOT_COUNTED: u64 = 0;
-
-impl CountedBits {
-    /// Forgets everything counted: a new pass starts.
-    pub fn forget(&mut self) {
-        self.in_use = 0;
-    }
-
-    /// Where the pyramid of bits counted under `nesting_key`'s nesting
-    /// is, emptied the first time this pass asks for it. Pyramids in use
-    /// are only ever added to, so the place stays good for the pass.
-    fn index_for(&mut self, nesting_key: u64) -> usize {
-        if let Some(at) = self.pyramids[..self.in_use].iter().position(|(key, _)| *key == nesting_key) {
-            return at;
-        }
-        let at = self.in_use;
-        match self.pyramids.get_mut(at) {
-            Some((key, pyramid)) => {
-                *key = nesting_key;
-                pyramid.clear();
-            }
-            None => self.pyramids.push((nesting_key, Pyramid::new(COUNTED_SHAPE))),
-        }
-        self.in_use += 1;
-        at
-    }
-}
-
 /// The bits `tile` costs, nested in `nested`, `bound_above` the value
-/// bound above it, and everything under it.
+/// bound above it, and everything under it, as the tiling stands: the
+/// reference count, each tile counted once, which the tests hold to the
+/// encoder's.
 pub fn bits(complex_tiling: &Pyramid, bitmap: &Bitmap, tile: Tile, nested: &mut NestedResolutions, bound_above: bool) -> u64 {
-    bits_counted(complex_tiling, bitmap, tile, nested, bound_above, &mut CountedBits::default())
+    let here = complex_tiling.fields(tile);
+    node_bits(complex_tiling, bitmap, tile, here, nested, bound_above, &mut |child, nested, bound_above| {
+        bits(complex_tiling, bitmap, child, nested, bound_above)
+    })
 }
 
-/// The same, reusing and adding to what `counted` holds for the tiles
-/// under `tile` -- but never counting `tile` itself in, which may be a
-/// complex tile only for as long as it is being scored.
-pub fn bits_counted(
+/// The bits `tile` costs with `here` as its fields -- which need not be
+/// the tiling's: a candidate is scored as the complex tile it would be,
+/// with nothing changed -- nested in `nested`, `bound_above` the value
+/// bound above it: its own bits, and each child node's as
+/// `child_bits(child, nested, bound_above)` gives them.
+pub fn node_bits(
     complex_tiling: &Pyramid,
     bitmap: &Bitmap,
     tile: Tile,
+    here: Fields,
     nested: &mut NestedResolutions,
     bound_above: bool,
-    counted: &mut CountedBits,
+    child_bits: &mut impl FnMut(Tile, &mut NestedResolutions, bool) -> u64,
 ) -> u64 {
     // Its mask bits, nearest complex tile first, up to the first it is
     // unmasked in -- then its values are that one's payload.
-    let here = complex_tiling.fields(tile);
     let mut mask_bits = 0;
     for nesting in nested.able_to_unmask(tile) {
         mask_bits += MASK_BIT_WIDTH as u64;
@@ -126,7 +82,7 @@ pub fn bits_counted(
             for child in tile.children() {
                 bind_bits += MASK_BIT_WIDTH as u64;
                 if bind.masks(child) {
-                    bind_bits += remembered(complex_tiling, bitmap, child, nested, value, counted);
+                    bind_bits += child_bits(child, nested, value);
                 }
             }
             bind_bits
@@ -140,7 +96,7 @@ pub fn bits_counted(
                 for child in tile.children() {
                     copy_bits += MASK_BIT_WIDTH as u64;
                     if copy.masks(child) {
-                        copy_bits += remembered(complex_tiling, bitmap, child, nested, bound_above, counted);
+                        copy_bits += child_bits(child, nested, bound_above);
                     }
                 }
             }
@@ -165,7 +121,7 @@ pub fn bits_counted(
                         + nested.while_nested(resolution, |inside| {
                             tile.children()
                                 .into_iter()
-                                .map(|child| remembered(complex_tiling, bitmap, child, inside, bound_above, counted))
+                                .map(|child| child_bits(child, inside, bound_above))
                                 .sum::<u64>()
                         })
                 }
@@ -185,33 +141,11 @@ pub fn bits_counted(
                         divide_bits += MASK_BIT_WIDTH as u64;
                     }
                     if !is_left {
-                        divide_bits += remembered(complex_tiling, bitmap, child, nested, bound_above, counted);
+                        divide_bits += child_bits(child, nested, bound_above);
                     }
                 }
                 divide_bits
             }
         },
     }
-}
-
-/// `tile`'s bits, from `counted` if counted before, else counted now.
-fn remembered(
-    complex_tiling: &Pyramid,
-    bitmap: &Bitmap,
-    tile: Tile,
-    nested: &mut NestedResolutions,
-    bound_above: bool,
-    counted: &mut CountedBits,
-) -> u64 {
-    if tile.level > COUNTED_SHAPE.finest_level {
-        return bits_counted(complex_tiling, bitmap, tile, nested, bound_above, counted);
-    }
-    let at = counted.index_for(nested.key_for(tile.level));
-    let known = counted.pyramids[at].1.get(tile);
-    if known != NOT_COUNTED {
-        return known - 1;
-    }
-    let bits = bits_counted(complex_tiling, bitmap, tile, nested, bound_above, counted);
-    counted.pyramids[at].1.set(tile, bits + 1);
-    bits
 }

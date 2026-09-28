@@ -161,6 +161,21 @@ it to the encoder's own count. What a candidate saves is its tile's cost
 without it, less its cost with it; the one thing not counted is the
 complex tiles later passes would nest inside it.
 
+**Every count a pass asks for is held before it is asked**
+(`complex_tiler/cost_lanes.rs`): memory for counting. For each search
+area, one walk down collects the tiles a count can reach, with the value
+bound above each and the lanes some candidate above it will ask for;
+one walk up fills, a level at a time, each tile's bits in lane 0 (nested
+as the area is) and in lane `r` (with a complex tile of resolution `r`
+above it) from its children's, by the same per-node rule as the bit
+count. A tile's bits depend only on the complex tiles of resolution its
+level or finer, so coarser lanes are lane 0. A candidate is then scored
+as the complex tile it would be -- its fields as they would be, its
+children read from the lane of its resolution -- and nothing in the
+tiling changes while a pass is scored: only the commits at its end do.
+Debug builds check every count at 16x16 and finer against the reference
+count.
+
 **A candidate's best resolution** (`complex_tile_candidates.rs`). A
 candidate is a tile with nothing placed exactly at it, not already
 entirely unmasked in a complex tile it is nested in. Every size offset
