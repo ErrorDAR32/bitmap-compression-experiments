@@ -8,7 +8,7 @@
 //! grows, whatever the bitmap, the first included.
 
 use crate::gct::complex_tiler::complex_tiler::{complex_tiler, Scratch};
-use crate::gct::decode::{decode, CopyRows, StreamContents};
+use crate::gct::decode::{decode, Copies, StreamContents};
 use crate::gct::encode::write;
 use crate::gct::grammar::bit_stream::BitStream;
 use crate::gct::grammar::order::Runs;
@@ -31,8 +31,8 @@ pub struct Workspace {
     scratch: Scratch,
     /// The tree last written or read.
     tree: Pyramid,
-    /// Room for the rows copies cover, decoding.
-    copies: CopyRows,
+    /// Room to resolve copies in, decoding.
+    copies: Copies,
     /// Room for the runs' tiles.
     runs: Runs,
 }
@@ -45,7 +45,7 @@ impl Workspace {
             complex_tiling: Pyramid::placements(),
             scratch: Scratch::default(),
             tree: Pyramid::tree(),
-            copies: CopyRows::default(),
+            copies: Copies::default(),
             runs: Runs::default(),
         }
     }
@@ -61,8 +61,8 @@ impl Workspace {
 
     /// Decodes `stream` into `bitmap`, whatever it held before.
     pub fn decode(&mut self, stream: &BitStream, bitmap: &mut Bitmap) {
-        let mut read = StreamContents { tree: &mut self.tree, cell_values: bitmap };
-        decode(stream, &mut read, &mut self.runs, &mut self.copies);
+        let mut read = StreamContents { tree: &mut self.tree, cell_values: bitmap, copies: &mut self.copies };
+        decode(stream, &mut read, &mut self.runs);
     }
 
     /// The tree of the bitmap last encoded, or of the stream last

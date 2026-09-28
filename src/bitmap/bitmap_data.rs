@@ -79,15 +79,27 @@ impl Bitmap {
     /// An aligned square of fewer than a word of cells, top left at
     /// `(x, y)`, `side` cells a side: its one run, in Morton order.
     pub(crate) fn small_square(&self, (x, y): (u8, u8), side: usize) -> u64 {
-        self.run(Self::bit_index(x, y), side * side)
+        self.morton_run(Self::bit_index(x, y), side * side)
     }
 
     /// Sets the cells of an aligned square of fewer than a word of cells,
     /// top left at `(x, y)`, `side` cells a side, whose bits are set in
     /// `run`, in Morton order; its other cells stay as they are.
     pub(crate) fn set_in_small_square(&mut self, (x, y): (u8, u8), side: usize, run: u64) {
-        let at = Self::bit_index(x, y);
-        debug_assert!(run & !run_mask(side * side) == 0, "{run:#b} is more than a {side}x{side} square");
+        self.set_in_morton_run(Self::bit_index(x, y), side * side, run);
+    }
+
+    /// `cells` cells, fewer than a word, from the one whose Morton index
+    /// is `at`, a multiple of `cells`: one run.
+    pub(crate) fn morton_run(&self, at: usize, cells: usize) -> u64 {
+        self.run(at, cells)
+    }
+
+    /// Sets the cells, of the `cells` from Morton index `at` (fewer than
+    /// a word, `at` a multiple of it), whose bits are set in `run`; the
+    /// others stay as they are.
+    pub(crate) fn set_in_morton_run(&mut self, at: usize, cells: usize, run: u64) {
+        debug_assert!(run & !run_mask(cells) == 0, "{run:#b} is more than {cells} cells");
         self.words[at / BITS_PER_WORD] |= run << (at % BITS_PER_WORD);
     }
 

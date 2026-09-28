@@ -80,6 +80,18 @@ valgrind --tool=callgrind --callgrind-out-file=target/callgrind.out \
 callgrind_annotate --inclusive=yes target/callgrind.out | head -40
 ```
 
+Time is measured apart, over a large sample of distinct bitmaps
+(`examples/gct_timing.rs`: every generator, 100 bitmaps each unless
+told otherwise, each encoded once, then decoded), in a release build
+run on its own -- no profiler, nothing else busy. It prints the encode
+time's mean, median, 90th percentile and worst by family, and the
+decode mean:
+
+```
+cargo run --release --example gct_timing
+cargo run --release --example gct_timing -- 400
+```
+
 ## Phase one: fix, with the seed held still
 
 Pick a seed base and leave it alone. While it is held:

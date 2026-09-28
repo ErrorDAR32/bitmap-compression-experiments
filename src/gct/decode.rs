@@ -4,11 +4,16 @@
 //!
 //! A copy is chosen on content alone, so its source may not be resolved
 //! yet when the tree reaches it -- it may even be a residual cell the
-//! residual pass binds. So copies are resolved last. Every copied cell's
-//! source is before it in reading order -- above it, or to its left in
-//! the same row -- so one pass in reading order resolves them all: each
-//! copy's own cells, row by row, from the source rows the same offset
-//! away.
+//! residual pass binds. So copies are resolved last, a 4x4 block at a
+//! time: every copy's own cells are whole 4x4 blocks, and a block's
+//! source is the block the copy's offset away. Reading the tree notes
+//! each copied block's source block; then the blocks are copied in
+//! Morton order, each one's 16 cells a single run of the bitmap. A
+//! source above and to the right comes later in Morton order, and may be
+//! a copied block itself not copied yet: then its own source is copied
+//! first, and so on down the chain. Every source is strictly earlier in
+//! the blocks' reading order -- above, or to the left in the same row --
+//! so a chain always ends.
 
 use crate::gct::grammar::bit_stream::{BitReader, BitStream};
 use crate::gct::grammar::order::Runs;
@@ -19,7 +24,9 @@ use crate::fixed_list::FixedList;
 use crate::gct::pyramids::copyable::{FAR_DISTANCE, FINEST_COPY_LEVEL, NEAR_DISTANCE};
 use crate::gct::pyramids::pyramid::Pyramid;
 use crate::gct::pyramids::tree::{Node, Tree};
-use crate::gct::tile::{tile_side, Tile, CELLS, CELL_LEVEL, DIRECTIONS};
+use crate::gct::pyramids::pyramid::PyramidShape;
+use crate::gct::tile::{cells_in_tile, tiles_across, Tile, CELL_LEVEL, DIRECTIONS};
+use crate::morton::{morton_coordinates, morton_index};
 use crate::Bitmap;
 
 /// Where reading a stream back writes: the tree, and every cell whose
@@ -30,6 +37,8 @@ pub struct StreamContents<'a> {
     /// Every cell's value, where the stream binds it outright; clear
     /// where a copy covers it, until copies are resolved.
     pub cell_values: &'a mut Bitmap,
+    /// The blocks copies cover, and where each copies from.
+    pub copies: &'a mut Copies,
 }
 
 impl StreamContents<'_> {
@@ -117,13 +126,17 @@ fn read_node(
         let direction = reader.value(DIRECTION_WIDTH) as u8;
         let masks = copy_may_mask(tile.level) && reader.value(MASK_PRESENT_WIDTH) == MASKING;
         read.tree.set_node(tile, Node::Copied { far, direction, masks });
-        if masks {
-            let children = tile.children();
-            let masked = children.map(|_| reader.value(MASK_BIT_WIDTH) == MASKED);
-            for (child, is_masked) in children.into_iter().zip(masked) {
-                if is_masked {
-                    read_node(reader, child, nested, bound_above, read, runs);
-                }
+        if !masks {
+            read.copies.cover(tile, tile, far, direction);
+            return;
+        }
+        let children = tile.children();
+        let masked = children.map(|_| reader.value(MASK_BIT_WIDTH) == MASKED);
+        for (child, is_masked) in children.into_iter().zip(masked) {
+            if is_masked {
+                read_node(reader, child, nested, bound_above, read, runs);
+            } else {
+                read.copies.cover(tile, child, far, direction);
             }
         }
         return;
@@ -155,85 +168,94 @@ fn read_payload(reader: &mut BitReader, tile: Tile, nesting: u8, size_offset: u8
     }
 }
 
-/// One row of a copy's own cells: `length` cells from `(x, y)`, each
-/// copied from the cell `offset` away.
-#[derive(Clone, Copy, Default)]
-struct CopyRow {
-    /// The row.
-    y: u8,
-    /// Its first cell's column.
-    x: u8,
-    /// How many cells.
-    length: u16,
-    /// Where its source is, in cells across and down.
-    offset: (isize, isize),
+/// The level copies are resolved at: 4x4 blocks. A copy is 4x4 or
+/// coarser, and so is every child a masking copy says itself, so a
+/// copy's own cells are always whole blocks.
+const BLOCK_LEVEL: u8 = FINEST_COPY_LEVEL;
+/// Blocks in the bitmap.
+const BLOCKS: usize = tiles_across(BLOCK_LEVEL) * tiles_across(BLOCK_LEVEL);
+/// Cells a block: one run of the bitmap, in Morton order.
+const BLOCK_CELLS: usize = cells_in_tile(BLOCK_LEVEL) as usize;
+
+/// For every block, where its cells are copied from: its source block's
+/// Morton index plus one, or 0 for a block no copy covers or one already
+/// copied. One level of a pyramid, 16 bits a block.
+const SOURCES_SHAPE: PyramidShape = PyramidShape { coarsest_level: BLOCK_LEVEL, finest_level: BLOCK_LEVEL, element_bits: 16 };
+const _: () = assert!(BLOCKS < 1 << SOURCES_SHAPE.element_bits);
+
+/// Room to resolve copies in, allocated once at the most there are.
+pub struct Copies {
+    /// Each block's source, as [`SOURCES_SHAPE`] says.
+    sources: Pyramid,
+    /// The blocks copies cover, in the order the tree names them --
+    /// Morton order.
+    covered: FixedList<Tile, BLOCKS>,
+    /// Blocks waiting on their source to be copied first: a chain, never
+    /// longer than there are blocks.
+    waiting: FixedList<Tile, BLOCKS>,
 }
 
-/// The most rows copies cover: a copy's own cells are its tile, or a
-/// child of it -- 4x4 at the least -- so every row holds at least four
-/// cells.
-const MOST_COPY_ROWS: usize = CELLS / tile_side(FINEST_COPY_LEVEL);
+impl Default for Copies {
+    /// Nothing covered.
+    fn default() -> Self {
+        Self { sources: Pyramid::new(SOURCES_SHAPE), covered: FixedList::new(), waiting: FixedList::new() }
+    }
+}
 
-/// Room for the rows copies cover, allocated once at the most there are.
-#[derive(Default)]
-pub struct CopyRows(
-    /// The rows, in reading order once sorted.
-    FixedList<CopyRow, MOST_COPY_ROWS>,
-);
+impl Copies {
+    /// Forgets every block covered.
+    fn clear(&mut self) {
+        self.sources.clear();
+        self.covered.clear();
+    }
+
+    /// Notes that `part` -- the copy at `copy`, or a child of it the copy
+    /// says itself -- is copied from `far` away in `direction`: each of
+    /// its blocks from the block the copy's offset away.
+    fn cover(&mut self, copy: Tile, part: Tile, far: bool, direction: u8) {
+        let distance = if far { FAR_DISTANCE } else { NEAR_DISTANCE };
+        let (dx, dy) = DIRECTIONS[direction as usize];
+        let reach = (tiles_across(BLOCK_LEVEL - copy.level) * distance) as isize;
+        for block in part.tiles_at_size_offset(BLOCK_LEVEL - part.level) {
+            let (x, y) = ((block.x as isize + dx * reach) as u8, (block.y as isize + dy * reach) as u8);
+            self.sources.set(block, (morton_index(x, y) + 1) as u64);
+            self.covered.push(block);
+        }
+    }
+
+    /// Copies every covered block's cells in `cells`, in Morton order,
+    /// each block's source first when that is a covered block not copied
+    /// yet.
+    fn resolve(&mut self, cells: &mut Bitmap) {
+        for at in 0..self.covered.len() {
+            self.waiting.push(self.covered[at]);
+            while let Some(&block) = self.waiting.last() {
+                let source = self.sources.get(block);
+                if source == 0 {
+                    self.waiting.pop();
+                    continue;
+                }
+                let source = source as usize - 1;
+                let (x, y) = morton_coordinates(source);
+                let source_block = Tile { level: BLOCK_LEVEL, x, y };
+                if self.sources.get(source_block) != 0 {
+                    self.waiting.push(source_block);
+                    continue;
+                }
+                let run = cells.morton_run(source * BLOCK_CELLS, BLOCK_CELLS);
+                cells.set_in_morton_run(morton_index(block.x, block.y) * BLOCK_CELLS, BLOCK_CELLS, run);
+                self.sources.set(block, 0);
+                self.waiting.pop();
+            }
+        }
+    }
+}
 
 /// Decodes a stream written by [`crate::gct::encode::write`] into
-/// `read`, whose cell values end as the bitmap; `runs` and `copies` are
-/// room for the runs' tiles and the copied rows.
-pub fn decode(stream: &BitStream, read: &mut StreamContents, runs: &mut Runs, copies: &mut CopyRows) {
+/// `read`, whose cell values end as the bitmap; `runs` is room for the
+/// runs' tiles.
+pub fn decode(stream: &BitStream, read: &mut StreamContents, runs: &mut Runs) {
+    read.copies.clear();
     self::read(stream, read, runs);
-    copies.0.clear();
-    copied_rows(read.tree, Tile::whole_bitmap(), &mut copies.0);
-    copies.0.sort_unstable_by_key(|row| (row.y, row.x));
-    let cells = &mut *read.cell_values;
-    for row in copies.0.iter() {
-        let source_y = (row.y as isize + row.offset.1) as u8;
-        for x in row.x as usize..row.x as usize + row.length as usize {
-            if cells.get((x as isize + row.offset.0) as u8, source_y) {
-                cells.set(x as u8, row.y);
-            }
-        }
-    }
-}
-
-/// Adds the rows of every copy's own cells at or under `tile`: the whole
-/// copy, or, for a copy that masks, the children it says itself. A
-/// masked child is a node of its own, walked like any other.
-fn copied_rows(tree: &Pyramid, tile: Tile, rows: &mut FixedList<CopyRow, MOST_COPY_ROWS>) {
-    match tree.node(tile) {
-        Node::Copied { far, direction, masks } => {
-            let distance = if far { FAR_DISTANCE } else { NEAR_DISTANCE };
-            let (dx, dy) = DIRECTIONS[direction as usize];
-            let reach = (tile_side(tile.level) * distance) as isize;
-            let offset = (dx * reach, dy * reach);
-            if !masks {
-                add_rows(tile, offset, rows);
-                return;
-            }
-            for child in tile.children() {
-                if tree.node(child) == Node::Absent {
-                    add_rows(child, offset, rows);
-                } else {
-                    copied_rows(tree, child, rows);
-                }
-            }
-        }
-        Node::Subdivided | Node::ComplexTile { masks: true, .. } => {
-            for child in tile.children() {
-                copied_rows(tree, child, rows);
-            }
-        }
-        _ => {}
-    }
-}
-
-/// Adds one row for each row of `tile`, copied from `offset` away.
-fn add_rows(tile: Tile, offset: (isize, isize), rows: &mut FixedList<CopyRow, MOST_COPY_ROWS>) {
-    let (left, top, _, bottom) = tile.cell_rect();
-    let length = tile.side_in_cells() as u16;
-    rows.extend((top..=bottom).map(|y| CopyRow { y, x: left, length, offset }));
+    read.copies.resolve(read.cell_values);
 }

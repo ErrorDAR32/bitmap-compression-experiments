@@ -329,14 +329,15 @@ A copy is chosen on content alone, so its source may not be resolved
 when the tree reaches it; it may even be a residual cell the residual pass binds.
 So decoding is separate steps: read the tree (each complex tile's
 payload filled into cells right after its body), read the residual
-pass, then resolve copies. Every copied cell's source is before it in
-reading order -- above it, or left of it in the same row -- so one pass
-in reading order resolves them all: one walk of the tree collects each
-copy's own cells (the copy, less the children it masks) as rows, sorted
-into reading order, and each row is copied from the row the copy's
-offset away. Only copied cells are touched. This is the one walk not
-in Morton order: a copy from the tile up and to the right reads a tile
-that comes later in Morton order, but earlier in reading order.
+pass, then resolve copies. A copy's own cells -- the copy, less the
+children it masks -- are always whole 4x4 blocks, and each block's
+source is the block the copy's offset away. Reading the tree notes each
+copied block's source in a one-level pyramid of 4x4 blocks; then the
+blocks are copied in Morton order, each block's 16 cells one run of the
+bitmap. A source up and to the right comes later in Morton order and
+may be a copied block not copied yet: then its own source goes first,
+down the chain. Every source is strictly earlier in the blocks' reading
+order -- above, or left in the same row -- so every chain ends.
 
 ## Tests
 
