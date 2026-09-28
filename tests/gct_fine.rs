@@ -6,11 +6,11 @@
 
 mod common;
 
-use bitmap::gct::pyramids::copyable::{matches_at, matching_direction, FAR_DISTANCE, FINEST_COPY_LEVEL, NEAR_DISTANCE};
+use bitmap::gct::pyramids::copyable::{child_offset, matches_at, matching_direction, FAR_OFFSETS, FINEST_COPY_LEVEL, NEAR_OFFSETS};
 use bitmap::gct::pyramids::patterns::Patterns;
 use bitmap::gct::pyramids::homogeneity::Homogeneity;
 use bitmap::gct::pyramids::pyramid::{Pyramid, PyramidShape};
-use bitmap::gct::tile::{directions, Tile, CELL_LEVEL};
+use bitmap::gct::tile::{Tile, CELL_LEVEL};
 use bitmap::gct::pyramids::tree::{Node, Tree};
 use bitmap::diagnostics::tree_stats::TreeStats;
 use bitmap::gct::encode;
@@ -85,8 +85,9 @@ fn all_set_round_trips() {
 }
 
 /// Every match of a ragged bitmap and of an odd checkerboard, at every
-/// level a copy can be and every distance one is read from, against the
-/// two tiles' cells read one at a time.
+/// level a copy can be and every offset one is read from -- near, far,
+/// and a far copy's children's -- against the two tiles' cells read one
+/// at a time.
 #[test]
 fn matches_agree_with_the_cells() {
     for bitmap in [one_grown(FIXED_SEED, 0.20, 0.70), checkerboard(3)] {
@@ -95,17 +96,16 @@ fn matches_agree_with_the_cells() {
         for level in 0..=FINEST_COPY_LEVEL {
             for tile in Tile::all_of_level(level) {
                 let mine = patterns.number(tile);
-                for distance in [NEAR_DISTANCE, FAR_DISTANCE, 2 * FAR_DISTANCE] {
-                    for direction in directions() {
-                        let same = tile.neighbour_at(direction, distance).is_some_and(|other| {
-                            let ((left, top, right, bottom), (x, y)) = (tile.cell_rect(), other.top_left_cell());
-                            (top..=bottom).all(|row| {
-                                (left..=right).all(|col| bitmap.get(col, row) == bitmap.get(x + (col - left), y + (row - top)))
-                            })
-                        });
-                        let matched = matches_at(&patterns, tile, mine, direction, distance);
-                        assert_eq!(matched, same, "{tile:?} {direction} {distance}");
-                    }
+                let children_of_far = FAR_OFFSETS.map(child_offset);
+                for offset in NEAR_OFFSETS.into_iter().chain(FAR_OFFSETS).chain(children_of_far) {
+                    let same = tile.offset_by(offset).is_some_and(|other| {
+                        let ((left, top, right, bottom), (x, y)) = (tile.cell_rect(), other.top_left_cell());
+                        (top..=bottom).all(|row| {
+                            (left..=right).all(|col| bitmap.get(col, row) == bitmap.get(x + (col - left), y + (row - top)))
+                        })
+                    });
+                    let matched = matches_at(&patterns, tile, mine, offset);
+                    assert_eq!(matched, same, "{tile:?} {offset:?}");
                 }
             }
         }
@@ -170,7 +170,7 @@ fn a_repeated_quarter_is_a_near_copy() {
     // DIRECTIONS[3] is the neighbour to the left.
     let mut patterns = Patterns::default();
     patterns.build(&bitmap);
-    assert_eq!(matching_direction(&patterns, right_quarter, NEAR_DISTANCE), Some(3));
+    assert_eq!(matching_direction(&patterns, right_quarter, false), Some(3));
     assert_eq!(tree_of(&bitmap).node(right_quarter), Node::Copied { far: false, direction: 3, masks: false });
     check(&bitmap, "a repeated quarter");
 }

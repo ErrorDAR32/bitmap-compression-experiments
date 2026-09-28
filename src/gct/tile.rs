@@ -119,16 +119,12 @@ impl Tile {
 
     /// The same-size neighbour in a direction, if it is on the bitmap.
     pub fn neighbour(self, direction: u8) -> Option<Tile> {
-        self.neighbour_at(direction, 1)
+        self.offset_by(DIRECTIONS[direction as usize])
     }
 
-    /// The same-size tile `distance` tiles away in a direction, if it is
-    /// on the bitmap. At distance 2 it is the tile a far copy reads: the
-    /// same child position within the neighbour of this tile's parent.
-    pub fn neighbour_at(self, direction: u8, distance: usize) -> Option<Tile> {
-        let (dx, dy) = DIRECTIONS[direction as usize];
-        let distance = distance as isize;
-        let (x, y) = (self.x as isize + dx * distance, self.y as isize + dy * distance);
+    /// The same-size tile `(dx, dy)` tiles away, if it is on the bitmap.
+    pub fn offset_by(self, (dx, dy): (isize, isize)) -> Option<Tile> {
+        let (x, y) = (self.x as isize + dx, self.y as isize + dy);
         let across = tiles_across(self.level) as isize;
         (x >= 0 && y >= 0 && x < across && y < across).then_some(Tile { level: self.level, x: x as u8, y: y as u8 })
     }

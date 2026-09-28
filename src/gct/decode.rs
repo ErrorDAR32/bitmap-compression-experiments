@@ -21,10 +21,10 @@ use crate::gct::grammar::point_list;
 use crate::gct::grammar::*;
 use crate::gct::nested_resolutions::NestedResolutions;
 use crate::fixed_list::FixedList;
-use crate::gct::pyramids::copyable::{FAR_DISTANCE, NEAR_DISTANCE};
+use crate::gct::pyramids::copyable::copy_offset;
 use crate::gct::pyramids::pyramid::Pyramid;
 use crate::gct::pyramids::tree::{Node, Tree};
-use crate::gct::tile::{cells_in_tile, tiles_across, Tile, CELL_LEVEL, DIRECTIONS};
+use crate::gct::tile::{cells_in_tile, tiles_across, Tile, CELL_LEVEL};
 use crate::gct::pyramids::copy_sources::{CopySources, BLOCKS, BLOCK_LEVEL};
 use crate::morton::morton_index;
 use crate::Bitmap;
@@ -227,9 +227,8 @@ impl Copies {
     /// says itself -- is copied from `far` away in `direction`: each of
     /// its blocks from the block the copy's offset away.
     fn cover(&mut self, copy: Tile, part: Tile, far: bool, direction: u8) {
-        let distance = if far { FAR_DISTANCE } else { NEAR_DISTANCE };
-        let (dx, dy) = DIRECTIONS[direction as usize];
-        let reach = (tiles_across(BLOCK_LEVEL - copy.level) * distance) as isize;
+        let (dx, dy) = copy_offset(far, direction);
+        let reach = tiles_across(BLOCK_LEVEL - copy.level) as isize;
         for block in part.tiles_at_size_offset(BLOCK_LEVEL - part.level) {
             let (x, y) = ((block.x as isize + dx * reach) as u8, (block.y as isize + dy * reach) as u8);
             self.sources.set_source(block, Tile { level: BLOCK_LEVEL, x, y });

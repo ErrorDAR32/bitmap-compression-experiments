@@ -28,12 +28,12 @@
 //! or a complex tile of 1x1 resolution -- so nothing finer than a 2x2 is
 //! ever placed.
 
-use crate::gct::pyramids::copyable::{matches_at, matching_direction, FAR_DISTANCE, FINEST_COPY_LEVEL, NEAR_DISTANCE};
+use crate::gct::pyramids::copyable::{child_offset, copy_offset, matches_at, matching_direction, FINEST_COPY_LEVEL};
 use crate::gct::pyramids::homogeneity::Homogeneity;
 use crate::gct::pyramids::placements::{Placement, Placements, BOUND_AT_THE_TOP, FINEST_MASKING_LEVEL};
 use crate::gct::pyramids::pyramid::Pyramid;
 use crate::gct::pyramids::patterns::Patterns;
-use crate::gct::tile::{directions, Tile, CELL_LEVEL, CHILDREN_ACROSS};
+use crate::gct::tile::{directions, Tile, CELL_LEVEL};
 
 /// A masking copy costs about 10 bits before its masked children: a
 /// copy, a mask-present bit, a 4-bit child mask. What it saves depends
@@ -87,8 +87,8 @@ impl Content<'_> {
     }
 
     /// See [`matches_at`].
-    fn matches_at(&self, tile: Tile, mine: u16, direction: u8, distance: usize) -> bool {
-        matches_at(self.patterns, tile, mine, direction, distance)
+    fn matches_at(&self, tile: Tile, mine: u16, offset: (isize, isize)) -> bool {
+        matches_at(self.patterns, tile, mine, offset)
     }
 
     /// `tile`'s four children's pattern numbers, in reading order.
@@ -97,8 +97,8 @@ impl Content<'_> {
     }
 
     /// See [`matching_direction`].
-    fn matching_direction(&self, tile: Tile, distance: usize) -> Option<u8> {
-        matching_direction(self.patterns, tile, distance)
+    fn matching_direction(&self, tile: Tile, far: bool) -> Option<u8> {
+        matching_direction(self.patterns, tile, far)
     }
 }
 
@@ -192,20 +192,20 @@ fn masking_copy(content: &Content, tile: Tile, children_values: [Option<bool>; 4
     }
     let numbers = content.children_numbers(tile);
     let mut best: Option<(u32, Placement)> = None;
-    for (far, distance) in [(false, NEAR_DISTANCE), (true, FAR_DISTANCE)] {
-        // A child's source is its same child in the source tile: the
-        // tile's distance, counted in child sides.
-        let child_distance = distance * CHILDREN_ACROSS as usize;
+    for far in [false, true] {
         'direction: for direction in directions() {
-            if tile.neighbour_at(direction, distance).is_none() {
+            let offset = copy_offset(far, direction);
+            if tile.offset_by(offset).is_none() {
                 continue;
             }
+            // A child's source is its same child in the source tile.
+            let child_offset = child_offset(offset);
             let (mut masked_children, mut unmasked, mut non_homogeneous) = (0u8, 0, 0);
             let (mut unmasked_left, mut non_homogeneous_left) = (all_unmasked, all_non_homogeneous);
             for index in 0..children.len() {
                 unmasked_left -= adds_unmasked[index];
                 non_homogeneous_left -= adds_non_homogeneous[index];
-                if content.matches_at(children[index], numbers[index], direction, child_distance) {
+                if content.matches_at(children[index], numbers[index], child_offset) {
                     unmasked += adds_unmasked[index];
                     non_homogeneous += adds_non_homogeneous[index];
                 } else {
@@ -230,6 +230,6 @@ fn masking_copy(content: &Content, tile: Tile, children_values: [Option<bool>; 4
 /// own child position within it) rather than a near one (a same-size
 /// neighbour of the tile itself): near first.
 fn copy_direction(content: &Content, tile: Tile) -> Option<(bool, u8)> {
-    let near = content.matching_direction(tile, NEAR_DISTANCE).map(|direction| (false, direction));
-    near.or_else(|| content.matching_direction(tile, FAR_DISTANCE).map(|direction| (true, direction)))
+    let near = content.matching_direction(tile, false).map(|direction| (false, direction));
+    near.or_else(|| content.matching_direction(tile, true).map(|direction| (true, direction)))
 }
