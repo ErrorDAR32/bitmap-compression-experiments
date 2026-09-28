@@ -15,10 +15,10 @@ use crate::gct::tile::{same_cells, tiles_across, Tile, CELL_LEVEL, DIRECTIONS};
 use crate::Bitmap;
 
 /// Places tiles over one bitmap, biggest first; what it placed is a
-/// [placements pyramid](crate::gct::pyramids::placements).
-pub fn greedy_tiler(bitmap: &Bitmap) -> Pyramid {
-    let homogeneity = Pyramid::homogeneity(bitmap);
-    let copyable = Pyramid::copyable(bitmap);
+/// [placements pyramid](crate::gct::pyramids::placements). Reads the
+/// bitmap's own homogeneity and copyable pyramids, and the bitmap itself
+/// only to find which direction a copyable tile copies from.
+pub fn greedy_tiler(bitmap: &Bitmap, homogeneity: &Pyramid, copyable: &Pyramid) -> Pyramid {
     let mut claimed = Bitmap::new();
     let mut placements = Pyramid::placements();
 
@@ -37,7 +37,7 @@ pub fn greedy_tiler(bitmap: &Bitmap) -> Pyramid {
                 }
                 let placement = if let Some(value) = homogeneity.homogeneous_value(tile) {
                     Placement::Bound(value)
-                } else if let Some((far, direction)) = copy_choice(&copyable, bitmap, tile) {
+                } else if let Some((far, direction)) = copy_choice(copyable, bitmap, tile) {
                     Placement::Copied { far, direction }
                 } else {
                     continue;

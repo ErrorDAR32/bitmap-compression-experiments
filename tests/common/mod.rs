@@ -4,7 +4,10 @@
 
 use bitmap::gct::encoder::{read, write};
 use bitmap::gct::greedy_tiler::greedy_tiler;
+use bitmap::gct::pyramids::copyable::Copyable;
+use bitmap::gct::pyramids::homogeneity::Homogeneity;
 use bitmap::gct::pyramids::placements::Placements;
+use bitmap::gct::pyramids::pyramid::Pyramid;
 use bitmap::gct::{decode, tree};
 use bitmap::Bitmap;
 
@@ -20,7 +23,7 @@ pub fn first_difference(a: &Bitmap, b: &Bitmap) -> Option<(u8, u8)> {
 /// - the tree read back from the bits is the tree that was written;
 /// - decoding gives back every cell.
 pub fn check(bitmap: &Bitmap, label: &str) {
-    let placements = greedy_tiler(bitmap);
+    let placements = greedy_tiler(bitmap, &Pyramid::homogeneity(bitmap), &Pyramid::copyable(bitmap));
     let covered: usize = placements.placed_tiles().map(|(tile, _)| tile.side_in_cells() * tile.side_in_cells()).sum();
     assert_eq!(covered, 256 * 256, "{label}: placed tiles leave cells uncovered or cover some twice");
 

@@ -26,16 +26,21 @@ pub mod tree;
 use crate::Bitmap;
 use encoder::bit_stream::BitStream;
 use pyramids::bound_tile_counts::BoundTileCounts;
+use pyramids::copyable::Copyable;
+use pyramids::homogeneity::Homogeneity;
 use pyramids::pyramid::Pyramid;
 use tree::from_complex_tiles::ComplexTiles;
 
 pub use decode::decode;
 
-/// The tree the greedy complex tiler makes of `bitmap`: the greedy
-/// tiler's placements, the complex tiler's depths over them, and the
-/// tree read off both.
+/// The tree the greedy complex tiler makes of `bitmap`: the bitmap's
+/// homogeneity and copyable pyramids, built once; the greedy tiler's
+/// placements; the complex tiler's depths over them; and the tree read
+/// off both.
 pub fn tree(bitmap: &Bitmap) -> Pyramid {
-    let placements = greedy_tiler::greedy_tiler(bitmap);
+    let homogeneity = Pyramid::homogeneity(bitmap);
+    let copyable = Pyramid::copyable(bitmap);
+    let placements = greedy_tiler::greedy_tiler(bitmap, &homogeneity, &copyable);
     let counts = Vec::<Pyramid>::bound_tile_counts(&placements);
     let depths = complex_tiler::complex_tiler::complex_tiler(&placements, &counts);
     tree::from_complex_tiles::tree_from_complex_tiles(&ComplexTiles { placements: &placements, counts: &counts, depths: &depths })

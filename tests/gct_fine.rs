@@ -50,7 +50,8 @@ fn all_clear_is_one_tile_in_six_bits() {
     // leaf + bind + 3 resolution bits (depth 0, a tile) + 1 value bit
     assert_eq!(encode(&bitmap).len(), 6);
     assert_eq!(tree(&bitmap).node(Tile::whole_bitmap()), Node::Complex { depth: 0, masking: false });
-    assert_eq!(Vec::<Pyramid>::bound_tile_counts(&greedy_tiler(&bitmap)).under(Tile::whole_bitmap(), 0), 1);
+    let placements = greedy_tiler(&bitmap, &Pyramid::homogeneity(&bitmap), &Pyramid::copyable(&bitmap));
+    assert_eq!(Vec::<Pyramid>::bound_tile_counts(&placements).under(Tile::whole_bitmap(), 0), 1);
     check(&bitmap, "all clear");
 }
 
