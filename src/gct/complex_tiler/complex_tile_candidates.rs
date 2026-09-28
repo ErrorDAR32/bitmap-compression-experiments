@@ -100,8 +100,8 @@ impl Candidate {
         // A size offset's bits: the tile as that complex tile, its
         // children's counts read from its resolution's slot.
         let with = |fields: Fields, resolution: u8| {
-            let bits = node_bits(complex_tiling, bitmap, tile, fields, &mut nested.clone(), here.bound_above(), &mut |child, fields, inside, _| {
-                costs.child_bits(complex_tiling, bitmap, child, fields, inside, resolution)
+            let bits = node_bits(complex_tiling, bitmap, tile, fields, &mut nested.clone(), here.bound_above(), &mut |child, fields, _, _| {
+                costs.child_bits(child, fields, resolution)
             });
             debug_assert_matches_reference(complex_tiling, bitmap, tile, fields, nested, bits);
             bits

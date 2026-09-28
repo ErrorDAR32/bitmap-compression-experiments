@@ -291,9 +291,12 @@ payload(n) = 4^n, one bit for each tile of the resolution
 ```
 
 Nothing else changes: no complex tile is under a search area's roots
-while its counts are filled. A 2x2 is counted when asked for, by the
-same rules (its change at 2x2 resolution is `without - 2` if it is one
-tile, at 1x1 `without - 5` unless raw-masked, `-1` otherwise). Debug
+while its counts are filled. A 2x2 is never counted one by one: single
+cells only ever come four at a time, as a 2x2's raw cells, so a 2x2's
+bits depend only on whether it is one tile, whether a raw complex tile
+masks it, and whether the candidate reaches inside it (at 2x2 or 1x1
+resolution) -- twelve counts an area, made once when its counts are
+filled, every 2x2's read off them. Debug
 builds check every count at 16x16 and finer against a reference count
 that counts every node under every candidate in full.
 
