@@ -18,7 +18,7 @@
 //! level in step at once, each tile once. The generic pyramid has no
 //! sweep of its own: setting an element never changes any other.
 
-use crate::gct::tile::{tiles_across, Tile, CELL_LEVEL, CHILDREN_ACROSS};
+use crate::gct::tile::{tiles_across, Tile, CELL_LEVEL};
 use crate::morton::morton_index;
 
 /// The three parameters every pyramid is built from.
@@ -191,22 +191,6 @@ impl Pyramid {
         debug_assert!(self.holds(tile), "{tile:?} is outside this pyramid's levels");
         debug_assert!(self.shape.element_bits.is_multiple_of(u64::BITS as usize), "an element narrower than a word shares it");
         self.level_starts[tile.level as usize] + morton_index(tile.x, tile.y) * self.words_per_element
-    }
-
-    /// A tile's children, in reading order.
-    pub fn children_of(&self, tile: Tile) -> impl Iterator<Item = Tile> {
-        let across = CHILDREN_ACROSS as usize;
-        (0..across).flat_map(move |row| {
-            (0..across).map(move |col| {
-                let (x, y) = (tile.x as usize * across + col, tile.y as usize * across + row);
-                Tile { level: tile.level + 1, x: x as u8, y: y as u8 }
-            })
-        })
-    }
-
-    /// Every tile of one level, in Morton order, as the level is laid out.
-    pub fn tiles_of_level(&self, level: u8) -> impl Iterator<Item = Tile> {
-        Tile::all_of_level(level)
     }
 
     /// A level's elements. Past the level's last element, a word's

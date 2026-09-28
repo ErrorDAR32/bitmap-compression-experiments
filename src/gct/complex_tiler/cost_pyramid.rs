@@ -29,37 +29,11 @@ use crate::fixed_list::FixedList;
 use crate::gct::nested_resolutions::NestedResolutions;
 use crate::gct::pyramids::complex_tiling::{ComplexTiling, Fields};
 use crate::gct::pyramids::placements::Placement;
-use crate::gct::grammar::bit_stream::MOST_BITS;
-use crate::gct::pyramids::pyramid::{Pyramid, PyramidShape};
-use crate::gct::tile::{tiles_across, Tile, CELL_LEVEL};
+use crate::gct::pyramids::costs::{Costs, Counts, FINEST_HELD, NO_CANDIDATE, SLOTS};
+use crate::gct::pyramids::pyramid::Pyramid;
+use crate::gct::tile::{tiles_across, Tile};
 use crate::Bitmap;
 
-/// The finest level held: 4x4, the finest candidate. A 2x2 is counted
-/// when asked for.
-const FINEST_HELD: u8 = CELL_LEVEL - 2;
-
-/// Slots a tile: one for no candidate, then one a resolution.
-const SLOTS: usize = CELL_LEVEL as usize + 1;
-/// The slot for no candidate above.
-const NO_CANDIDATE: u8 = 0;
-
-/// Bits a count takes: enough for any tile's bits, the whole bitmap's
-/// included -- no count is more than the most a stream takes, a
-/// candidate above adding a nesting the stream's bound already allows
-/// for.
-const COUNT_BITS: usize = 21;
-const _: () = assert!(MOST_BITS < 1 << COUNT_BITS);
-/// Counts a word: a count never straddles two.
-const COUNTS_A_WORD: usize = u64::BITS as usize / COUNT_BITS;
-/// One count's bits, at the bottom of a word.
-const COUNT_MASK: u64 = (1 << COUNT_BITS) - 1;
-
-/// Every slot of a tile, in whole words.
-const COST_SHAPE: PyramidShape = PyramidShape {
-    coarsest_level: 0,
-    finest_level: FINEST_HELD,
-    element_bits: SLOTS.div_ceil(COUNTS_A_WORD) * u64::BITS as usize,
-};
 /// [`NO_CANDIDATE`]'s bit in a set of resolutions: every tile holds it.
 const NO_CANDIDATE_BIT: u16 = 1 << NO_CANDIDATE;
 
@@ -70,7 +44,8 @@ const MOST_REACHED: usize = tiles_across(FINEST_HELD) * tiles_across(FINEST_HELD
 /// The cost pyramid, and room to collect the tiles to fill it for, all
 /// allocated once.
 pub struct CostPyramid {
-    /// Each tile's bits, a slot for each resolution of candidate above it.
+    /// Each tile's bits, a slot for each resolution of candidate above it:
+    /// a [costs pyramid](crate::gct::pyramids::costs).
     counts: Pyramid,
     /// The tiles a count can reach, by level, each with the resolutions
     /// it must be held for, bit `r` for resolution `r`.
@@ -80,7 +55,7 @@ pub struct CostPyramid {
 impl Default for CostPyramid {
     /// The pyramid allocated, nothing counted.
     fn default() -> Self {
-        Self { counts: Pyramid::new(COST_SHAPE), reached: std::array::from_fn(|_| FixedList::new()) }
+        Self { counts: Pyramid::costs(), reached: std::array::from_fn(|_| FixedList::new()) }
     }
 }
 
@@ -147,17 +122,15 @@ impl CostPyramid {
             for at in 0..self.reached[level as usize].len() {
                 let (tile, resolutions) = self.reached[level as usize][at];
                 let here = complex_tiling.fields(tile);
-                let mut element = [0; COST_SHAPE.element_bits / u64::BITS as usize];
+                let mut counts = Counts::default();
                 for resolution in (0..SLOTS as u8).filter(|&resolution| resolutions & 1 << resolution != 0) {
                     let mut nested = nesting_of(base, resolution);
                     let bits = node_bits(complex_tiling, bitmap, tile, here, &mut nested, here.bound_above(), &mut |child, fields, nested, _| {
                         self.child_bits(complex_tiling, bitmap, child, fields, nested, resolution)
                     });
-                    debug_assert!(bits <= COUNT_MASK, "{tile:?}: {bits} bits do not fit a count");
-                    let slot = resolution as usize;
-                    element[slot / COUNTS_A_WORD] |= bits << (slot % COUNTS_A_WORD * COUNT_BITS);
+                    counts.put(resolution, bits);
                 }
-                self.counts.element_words_mut(tile).copy_from_slice(&element);
+                self.counts.set_counts(tile, counts);
             }
         }
     }
@@ -179,19 +152,12 @@ impl CostPyramid {
                 unreachable!("a 2x2 has no child nodes")
             });
         }
-        self.count(tile, resolution_at(tile.level, resolution))
-    }
-
-    /// `tile`'s count in `slot`.
-    #[inline]
-    fn count(&self, tile: Tile, slot: u8) -> u64 {
-        let slot = slot as usize;
-        self.counts.element_words(tile)[slot / COUNTS_A_WORD] >> (slot % COUNTS_A_WORD * COUNT_BITS) & COUNT_MASK
+        self.counts.count(tile, resolution_at(tile.level, resolution))
     }
 
     /// `tile`'s bits with no candidate above it, nested in the area's
     /// own nesting.
     pub fn without(&self, tile: Tile) -> u64 {
-        self.count(tile, NO_CANDIDATE)
+        self.counts.count(tile, NO_CANDIDATE)
     }
 }

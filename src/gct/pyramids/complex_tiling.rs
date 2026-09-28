@@ -270,7 +270,7 @@ impl Placements for Pyramid {
 
     fn placed_tiles(&self) -> impl Iterator<Item = (Tile, Placement)> + '_ {
         (0..=CELL_LEVEL).flat_map(move |level| {
-            self.tiles_of_level(level).filter_map(move |tile| self.placement(tile).map(|placement| (tile, placement)))
+            Tile::all_of_level(level).filter_map(move |tile| self.placement(tile).map(|placement| (tile, placement)))
         })
     }
 }

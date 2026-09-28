@@ -21,12 +21,12 @@ use crate::gct::grammar::point_list;
 use crate::gct::grammar::*;
 use crate::gct::nested_resolutions::NestedResolutions;
 use crate::fixed_list::FixedList;
-use crate::gct::pyramids::copyable::{FAR_DISTANCE, FINEST_COPY_LEVEL, NEAR_DISTANCE};
+use crate::gct::pyramids::copyable::{FAR_DISTANCE, NEAR_DISTANCE};
 use crate::gct::pyramids::pyramid::Pyramid;
 use crate::gct::pyramids::tree::{Node, Tree};
-use crate::gct::pyramids::pyramid::PyramidShape;
 use crate::gct::tile::{cells_in_tile, tiles_across, Tile, CELL_LEVEL, DIRECTIONS};
-use crate::morton::{morton_coordinates, morton_index};
+use crate::gct::pyramids::copy_sources::{CopySources, BLOCKS, BLOCK_LEVEL};
+use crate::morton::morton_index;
 use crate::Bitmap;
 
 /// Where reading a stream back writes: the tree, and every cell whose
@@ -168,24 +168,13 @@ fn read_payload(reader: &mut BitReader, tile: Tile, nesting: u8, size_offset: u8
     }
 }
 
-/// The level copies are resolved at: 4x4 blocks. A copy is 4x4 or
-/// coarser, and so is every child a masking copy says itself, so a
-/// copy's own cells are always whole blocks.
-const BLOCK_LEVEL: u8 = FINEST_COPY_LEVEL;
-/// Blocks in the bitmap.
-const BLOCKS: usize = tiles_across(BLOCK_LEVEL) * tiles_across(BLOCK_LEVEL);
 /// Cells a block: one run of the bitmap, in Morton order.
 const BLOCK_CELLS: usize = cells_in_tile(BLOCK_LEVEL) as usize;
 
-/// For every block, where its cells are copied from: its source block's
-/// Morton index plus one, or 0 for a block no copy covers or one already
-/// copied. One level of a pyramid, 16 bits a block.
-const SOURCES_SHAPE: PyramidShape = PyramidShape { coarsest_level: BLOCK_LEVEL, finest_level: BLOCK_LEVEL, element_bits: 16 };
-const _: () = assert!(BLOCKS < 1 << SOURCES_SHAPE.element_bits);
-
 /// Room to resolve copies in, allocated once at the most there are.
 pub struct Copies {
-    /// Each block's source, as [`SOURCES_SHAPE`] says.
+    /// Each block's source: a [copy sources
+    /// pyramid](crate::gct::pyramids::copy_sources).
     sources: Pyramid,
     /// The blocks copies cover, in the order the tree names them --
     /// Morton order.
@@ -198,7 +187,7 @@ pub struct Copies {
 impl Default for Copies {
     /// Nothing covered.
     fn default() -> Self {
-        Self { sources: Pyramid::new(SOURCES_SHAPE), covered: FixedList::new(), waiting: FixedList::new() }
+        Self { sources: Pyramid::copy_sources(), covered: FixedList::new(), waiting: FixedList::new() }
     }
 }
 
@@ -218,7 +207,7 @@ impl Copies {
         let reach = (tiles_across(BLOCK_LEVEL - copy.level) * distance) as isize;
         for block in part.tiles_at_size_offset(BLOCK_LEVEL - part.level) {
             let (x, y) = ((block.x as isize + dx * reach) as u8, (block.y as isize + dy * reach) as u8);
-            self.sources.set(block, (morton_index(x, y) + 1) as u64);
+            self.sources.set_source(block, Tile { level: BLOCK_LEVEL, x, y });
             self.covered.push(block);
         }
     }
@@ -230,21 +219,17 @@ impl Copies {
         for at in 0..self.covered.len() {
             self.waiting.push(self.covered[at]);
             while let Some(&block) = self.waiting.last() {
-                let source = self.sources.get(block);
-                if source == 0 {
+                let Some(source) = self.sources.source_of(block) else {
                     self.waiting.pop();
                     continue;
-                }
-                let source = source as usize - 1;
-                let (x, y) = morton_coordinates(source);
-                let source_block = Tile { level: BLOCK_LEVEL, x, y };
-                if self.sources.get(source_block) != 0 {
-                    self.waiting.push(source_block);
+                };
+                if self.sources.source_of(source).is_some() {
+                    self.waiting.push(source);
                     continue;
                 }
-                let run = cells.morton_run(source * BLOCK_CELLS, BLOCK_CELLS);
+                let run = cells.morton_run(morton_index(source.x, source.y) * BLOCK_CELLS, BLOCK_CELLS);
                 cells.set_in_morton_run(morton_index(block.x, block.y) * BLOCK_CELLS, BLOCK_CELLS, run);
-                self.sources.set(block, 0);
+                self.sources.mark_copied(block);
                 self.waiting.pop();
             }
         }
