@@ -12,9 +12,11 @@
 //! Each later pass searches only inside the complex tiles the pass
 //! before it committed, for complex tiles nested in them -- another
 //! resolution for the areas those mask. Passes stop when one commits
-//! nothing. Each pass scores every candidate once, sorts them best
-//! first, and commits them in that order, skipping any that overlap one
-//! already committed in the same pass.
+//! nothing. Each pass commits the candidates that save the most bits
+//! between them without overlapping, found bottom-up: a tile keeps its
+//! own candidate when that saves at least as much as the best its four
+//! children keep between them. Tiles that do not overlap cost bits
+//! independently, so that is the best a pass can do.
 
 use super::complex_tile_candidates::Candidate;
 use crate::gct::pyramids::bound_tiles_per_level::BoundTilesPerLevel;
@@ -22,7 +24,6 @@ use crate::gct::pyramids::complex_tiling::ComplexTiling;
 use crate::gct::pyramids::pyramid::Pyramid;
 use crate::gct::tile::{Tile, CELL_LEVEL};
 use crate::gct::nested_resolutions::NestedResolutions;
-use crate::Bitmap;
 
 /// Where one pass searches: an area, the coarsest level a candidate in
 /// it may be, and the resolutions of the complex tiles it is nested in.
@@ -41,48 +42,65 @@ pub fn complex_tiler(placements: &Pyramid) -> Pyramid {
 
     let mut searched = vec![SearchArea { area: Tile::whole_bitmap(), coarsest_level: 0, nested: NestedResolutions::none() }];
     while !searched.is_empty() {
-        let mut candidates = candidates_in(&complex_tiling, &bound_tiles_per_level, &searched);
-        candidates.sort_by(Candidate::best_first);
-        searched = commit(candidates, &mut complex_tiling);
+        let mut chosen = Vec::new();
+        for search in &searched {
+            for tile in search.area.tiles_at_size_offset(search.coarsest_level - search.area.level) {
+                best_at_or_under(&mut complex_tiling, &bound_tiles_per_level, tile, &search.nested, &mut chosen);
+            }
+        }
+        searched = commit(chosen, &mut complex_tiling);
     }
     complex_tiling
 }
 
-/// Every candidate in this pass's search areas, biggest tile size
-/// first, down to the smallest a complex tile can be (4x4, so its
-/// resolution is at least 2x2).
-fn candidates_in(complex_tiling: &Pyramid, bound_tiles_per_level: &Vec<Pyramid>, searched: &[SearchArea]) -> Vec<Candidate> {
-    let mut candidates = Vec::new();
-    for search in searched {
-        for level in search.coarsest_level..=(CELL_LEVEL - 2) {
-            for tile in search.area.tiles_at_size_offset(level - search.area.level) {
-                if complex_tiling.placed_at(tile).is_some() || search.nested.unmasking(complex_tiling, tile).is_some() {
-                    continue;
-                }
-                if let Some(candidate) = Candidate::best_for(bound_tiles_per_level, tile, &search.nested) {
-                    candidates.push(candidate);
-                }
-            }
+/// The smallest tile a complex tile can be: 4x4, so its resolution is
+/// at least 2x2.
+const FINEST_CANDIDATE_LEVEL: u8 = CELL_LEVEL - 2;
+
+/// Adds to `chosen` the candidates at or under `tile` that save the most
+/// bits between them, none overlapping, and returns what they save:
+/// `tile`'s own candidate, or the best under each of its children,
+/// whichever saves more -- `tile`'s own on a tie.
+fn best_at_or_under(
+    complex_tiling: &mut Pyramid,
+    bound_tiles_per_level: &Vec<Pyramid>,
+    tile: Tile,
+    nested: &NestedResolutions,
+    chosen: &mut Vec<Candidate>,
+) -> u64 {
+    if tile.level > FINEST_CANDIDATE_LEVEL || nested.unmasking(complex_tiling, tile).is_some() {
+        return 0;
+    }
+    let own = match complex_tiling.placed_at(tile) {
+        // A tile that masks nothing says everything under it itself.
+        Some(placement) if !placement.masks_any() => return 0,
+        Some(_) => None,
+        None => Candidate::best_for(complex_tiling, bound_tiles_per_level, tile, nested),
+    };
+    let mut under = Vec::new();
+    let under_saving: u64 = tile
+        .children()
+        .into_iter()
+        .map(|child| best_at_or_under(complex_tiling, bound_tiles_per_level, child, nested, &mut under))
+        .sum();
+    match own {
+        Some(candidate) if candidate.saving >= under_saving => {
+            let saving = candidate.saving;
+            chosen.push(candidate);
+            saving
+        }
+        _ => {
+            chosen.extend(under);
+            under_saving
         }
     }
-    candidates
 }
 
-/// Commits `candidates`, best first, skipping any overlapping one
-/// already committed; returns where the next pass searches -- inside
-/// each one committed.
-fn commit(candidates: Vec<Candidate>, complex_tiling: &mut Pyramid) -> Vec<SearchArea> {
-    let mut claimed = Bitmap::new();
+/// Commits `chosen`; returns where the next pass searches -- inside each
+/// one committed.
+fn commit(chosen: Vec<Candidate>, complex_tiling: &mut Pyramid) -> Vec<SearchArea> {
     let mut next = Vec::new();
-    for candidate in candidates {
-        // The corner alone catches a tile already inside an earlier,
-        // coarser-or-equal commitment; the full rect is still needed the
-        // other way round, when this one would contain something smaller
-        // already committed.
-        if candidate.tile.top_left_value(&claimed) || candidate.tile.any_set_in(&claimed) {
-            continue;
-        }
-        candidate.tile.set_in(&mut claimed);
+    for candidate in chosen {
         complex_tiling.make_complex_tile(candidate.tile, candidate.size_offset);
         next.push(SearchArea {
             area: candidate.tile,

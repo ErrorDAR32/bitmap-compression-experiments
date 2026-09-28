@@ -106,7 +106,8 @@ pass's own. A resolution is never finer than 2x2, and a candidate never
 finer than 4x4.
 
 **The complex tiler never looks at the bitmap.** Every decision comes
-from the placements and the bound tile counts.
+from the placements, the bound tile counts, and the bits the grammar
+would spend.
 
 **One pass per nesting level.** The first pass searches the whole
 bitmap for the outermost complex tiles, which capture the coarse
@@ -114,29 +115,29 @@ structure. Each later pass searches only inside the complex tiles the
 previous pass committed, for complex tiles nested in them. Passes stop
 when one commits nothing.
 
+**A candidate is scored in bits, counted, not estimated**
+(`complex_tiler/bit_cost.rs`). The bit cost of a tile is what the
+encoder would write for it as the complex tiling stands: mask bits,
+leaves, copies and their masked children, complex tiles with their
+bodies or payloads, the 2x2 floor and residual cells. Every check holds
+it to the encoder's own count. What a candidate saves is its tile's cost
+without it, less its cost with it; the one thing not counted is the
+complex tiles later passes would nest inside it.
+
 **A candidate's best resolution** (`complex_tile_candidates.rs`). A
 candidate is a tile with nothing placed exactly at it, not already
-entirely unmasked in a complex tile it is nested in. For each size
-offset from 1 to the 2x2 floor, skipping any resolution a complex tile
-it is nested in already has:
+entirely unmasked in a complex tile it is nested in. Every size offset
+from 1 to the 2x2 floor is tried, skipping a resolution a complex tile
+it is nested in already has, one no `Bound` tile under it is placed at,
+and size offset 1 unless all four children are bound at it (the grammar
+gives size offset 1 no way to mask). The best size offset saves the
+most bits; a candidate that saves none is none.
 
-- `unmasked_cells`: cells covered by `Bound` tiles at exactly that
-  resolution.
-- `total_cells`: the tile's cells, minus what is already unmasked in a
-  complex tile it is nested in. What that one binds costs the candidate
-  nothing.
-- Size offset 1 requires all four children unmasked: masking never pays there.
-- Floor: `4 * unmasked_cells >= 3 * total_cells`.
-- `total_cells` is the same at every size offset, so the best one has the
-  most unmasked cells, ties toward the coarser.
-
-**Choosing between candidates: unmasked area first, not ratio.** Each
-pass sorts its candidates by unmasked cells, then ratio, then tile size,
-then reading order, and commits them in that order, skipping any that
-overlap one committed earlier in the same pass. Ranking by ratio first
-lets a small, ratio-perfect tile always pre-empt a bigger one that needs
-a little masking; measured on this codebase, a capability ranked that
-way never once won on the sample corpus.
+**Choosing between candidates: the most bits a pass can save.** Tiles
+that do not overlap cost bits independently, so each pass finds its
+best set exactly, bottom-up: a tile keeps its own candidate when that
+saves at least as much as the best its four children keep between them,
+and otherwise hands on theirs.
 
 ## Step 3: the tree
 
@@ -238,8 +239,9 @@ In `tests/`, per `docs/testing_protocol.md`: `gct_fine` (one bitmap per
 test), `gct_fast` (a small seeded sample), `gct_complete` (everything,
 plus a second seed base), and `compare_with_dsrn` (the measurement
 below). Every check: placed tiles cover every cell once, nothing finer
-than 4x4 copies, every 1x1 tile lies under a residual 2x2, the tree read
-back is the tree written, decoding gives back every cell.
+than 4x4 copies, every 1x1 tile lies under a residual 2x2, the complex
+tiler's bit cost is the encoder's count, the tree read back is the tree
+written, decoding gives back every cell.
 
 ## Measured
 
@@ -249,16 +251,21 @@ against dsrn at `Masking::Anywhere`, `FourByFour::ItsOwnGrammar`:
 
 | family | dsrn | gct |
 |---|---|---|
-| laid out like a city, 48 bitmaps | 3422 bits | 3277 bits, -4.2% |
-| grown like a blob, 84 bitmaps | 32518 bits | 31926 bits, -1.8% |
+| laid out like a city, 48 bitmaps | 3422 bits | 3270 bits, -4.4% |
+| grown like a blob, 84 bitmaps | 32518 bits | 31885 bits, -1.9% |
+
+Scoring complex tiles by the bits they save took city from 3277 and
+blob from 31926 (fresh seeds: city 3318 -> 3312 and 3326 -> 3320, blob
+32019 -> 31984 and 31942 -> 31932; checkerboards 350899 -> 349961 bits
+in all).
 
 Checkerboards of odd square side (`samples/checkerboards.rs`), bits:
 
 | squares | 3 | 5 | 7 | 9 | 11 | 13 | 15 | 17 | 19 | 21 | 23 | 25 | 27 | 29 | 31 |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 | dsrn | 65542 | 58938 | 49582 | 38249 | 31486 | 26321 | 23131 | 20004 | 16752 | 14414 | 12982 | 11576 | 9760 | 8155 | 8486 |
-| gct | 63462 | 51680 | 42098 | 32051 | 26930 | 22798 | 20150 | 17596 | 14634 | 12657 | 11661 | 10283 | 9177 | 7859 | 7863 |
-| gct against dsrn | -3.2% | -12.3% | -15.1% | -16.2% | -14.5% | -13.4% | -12.9% | -12.0% | -12.6% | -12.2% | -10.2% | -11.2% | -6.0% | -3.6% | -7.3% |
+| gct | 63462 | 50744 | 42098 | 32051 | 26930 | 22857 | 20203 | 17643 | 14675 | 12690 | 11704 | 10239 | 9103 | 7779 | 7783 |
+| gct against dsrn | -3.2% | -13.9% | -15.1% | -16.2% | -14.5% | -13.2% | -12.7% | -11.8% | -12.4% | -12.0% | -9.8% | -11.5% | -6.7% | -4.6% | -8.3% |
 
 Masking copies took city from 3643 and blob from 32573. Which copies
 may mask, on this seed and two fresh ones (`DSRN_SEED`
@@ -284,13 +291,13 @@ roughly neutral so far.
 
 | family | dsrn nodes masked | complex tiles a bitmap, by nesting | of them masking | tiles a bitmap | masking copies a bitmap |
 |---|---|---|---|---|---|
-| city | 34.7% of 378 | 50.6, 0.0 | 0.3% | 144.2 | 191.1 |
-| blob | 67.0% of 2332 | 17.8 | 28.9% | 4490.1 | 175.8 |
+| city | 34.7% of 378 | 49.8, 1.5 | 3.5% | 134.5 | 191.1 |
+| blob | 67.0% of 2332 | 20.1, 1.5, 0.0 | 36.5% | 4477.5 | 175.8 |
 
 | family | body nodes unmasked | masked: unmasked in an outer complex tile | copied | tile | nested complex tile | residual |
 |---|---|---|---|---|---|---|
-| city | 99.84% | 0.06% | 0.06% | 0.02% | 0.02% | 0.00% |
-| blob | 84.61% | 0.00% | 0.03% | 0.13% | 0.00% | 15.24% |
+| city | 93.70% | 0.00% | 3.99% | 1.64% | 0.67% | 0.00% |
+| blob | 20.99% | 0.01% | 5.11% | 48.86% | 0.25% | 24.78% |
 
 A dsrn node is any code it wrote with a mask to decide on. A complex
 tile's body nodes are counted once each: every resolution tile unmasked

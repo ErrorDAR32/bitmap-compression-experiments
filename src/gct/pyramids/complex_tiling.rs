@@ -64,6 +64,9 @@ pub trait ComplexTiling {
 
     /// Makes `tile` a complex tile of `size_offset`.
     fn make_complex_tile(&mut self, tile: Tile, size_offset: u8);
+
+    /// Makes `tile` no complex tile.
+    fn clear_complex_tile(&mut self, tile: Tile);
 }
 
 impl ComplexTiling for Pyramid {
@@ -97,6 +100,11 @@ impl ComplexTiling for Pyramid {
     fn make_complex_tile(&mut self, tile: Tile, size_offset: u8) {
         assert!(size_offset >= 1, "a complex tile's resolution is finer than itself");
         let element = with_field(self.get(tile), SIZE_OFFSET, size_offset as u64);
+        self.set(tile, element);
+    }
+
+    fn clear_complex_tile(&mut self, tile: Tile) {
+        let element = with_field(self.get(tile), SIZE_OFFSET, NONE);
         self.set(tile, element);
     }
 }
