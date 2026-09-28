@@ -46,7 +46,7 @@ const _: () = assert!(tiles_down_to(CELL_LEVEL - 1) < 1 << NODE_COUNT_BITS);
 const NODE_COUNTS_A_WORD: usize = u64::BITS as usize / NODE_COUNT_BITS;
 /// Words a tile's node counts take.
 const NODE_WORDS: usize = NODE_LEVELS / NODE_COUNTS_A_WORD;
-const _: () = assert!(NODE_LEVELS % NODE_COUNTS_A_WORD == 0);
+const _: () = assert!(NODE_LEVELS.is_multiple_of(NODE_COUNTS_A_WORD));
 /// One node count, at the bottom of a word.
 const NODE_COUNT_MASK: u64 = (1 << NODE_COUNT_BITS) - 1;
 
