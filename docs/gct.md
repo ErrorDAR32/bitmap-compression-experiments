@@ -256,22 +256,22 @@ against dsrn at `Masking::Anywhere`, `FourByFour::ItsOwnGrammar`:
 
 | family | dsrn | gct |
 |---|---|---|
-| laid out like a city, 48 bitmaps | 18300 bits | 12774 bits, -30.2% |
-| grown like a blob, 84 bitmaps | 32518 bits | 31885 bits, -1.9% |
-| drawn with lines, 36 bitmaps | 14034 bits | 11589 bits, -17.4% |
+| laid out like a city, 48 bitmaps | 18300 bits | 12773 bits, -30.2% |
+| grown like a blob, 84 bitmaps | 32518 bits | 31524 bits, -3.1% |
+| drawn with lines, 36 bitmaps | 14034 bits | 11572 bits, -17.5% |
 
 On two fresh seeds (`DSRN_SEED` 9216954446512861479 and
-3326496171169911647): city 13333 and 13323 bits (dsrn 20018 and
-19802), blob 31984 and 31932 (dsrn 32561 and 32564), lines 10952 and
-11252 (dsrn 13222 and 13546).
+3326496171169911647): city 13332 and 13320 bits (dsrn 20018 and
+19802), blob 31575 and 31567 (dsrn 32561 and 32564), lines 10940 and
+11234 (dsrn 13222 and 13546).
 
 Checkerboards of odd square side (`samples/checkerboards.rs`), bits:
 
 | squares | 3 | 5 | 7 | 9 | 11 | 13 | 15 | 17 | 19 | 21 | 23 | 25 | 27 | 29 | 31 |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 | dsrn | 65542 | 58938 | 49582 | 38249 | 31486 | 26321 | 23131 | 20004 | 16752 | 14414 | 12982 | 11576 | 9760 | 8155 | 8486 |
-| gct | 63462 | 50744 | 42098 | 32051 | 26930 | 22857 | 20203 | 17643 | 14675 | 12690 | 11704 | 10239 | 9103 | 7779 | 7783 |
-| gct against dsrn | -3.2% | -13.9% | -15.1% | -16.2% | -14.5% | -13.2% | -12.7% | -11.8% | -12.4% | -12.0% | -9.8% | -11.5% | -6.7% | -4.6% | -8.3% |
+| gct | 64129 | 50744 | 42098 | 32051 | 26930 | 22857 | 20203 | 17643 | 14675 | 12690 | 11704 | 10239 | 9103 | 7779 | 7783 |
+| gct against dsrn | -2.2% | -13.9% | -15.1% | -16.2% | -14.5% | -13.2% | -12.7% | -11.8% | -12.4% | -12.0% | -9.8% | -11.5% | -6.7% | -4.6% | -8.3% |
 
 Worst cases found by the adversarial search (`testing/adversarial/`):
 
@@ -288,6 +288,8 @@ start level header, 23 over its raw cells (dsrn: 65542, 6 over).
 **Why the masking copy's rule and floor**, gct bits on the seed above
 and the two fresh ones:
 
+Measured before the raw escape:
+
 | masking copies | city | blob | lines | checkerboards |
 |---|---|---|---|---|
 | say 3 of 4 children or 2 not homogeneous, 8x8 and up (kept) | 12774, 13333, 13323 | 31885, 31984, 31932 | 11589, 10952, 11252 | 349961 |
@@ -301,15 +303,15 @@ nothing.
 
 | family | dsrn nodes masked | complex tiles a bitmap, by nesting | of them masking | tiles a bitmap | masking copies a bitmap |
 |---|---|---|---|---|---|
-| city | 45.6% of 1776 | 88.4, 2.2 | 10.0% | 1370.2 | 285.5 |
-| blob | 67.0% of 2332 | 20.1, 1.5, 0.0 | 36.5% | 4477.5 | 175.8 |
-| lines | 38.4% of 1401 | 20.9, 0.5 | 8.3% | 1126.0 | 159.0 |
+| city | 45.6% of 1776 | 88.8, 2.2 | 10.0% | 1368.5 | 285.5 |
+| blob | 67.0% of 2332 | 38.8, 1.4, 0.0 | 19.6% | 4096.9 | 175.8 |
+| lines | 38.4% of 1401 | 24.2, 0.5 | 7.2% | 1113.4 | 159.0 |
 
 | family | body nodes unmasked | masked: unmasked in an outer complex tile | copied | tile | nested complex tile | residual |
 |---|---|---|---|---|---|---|
-| city | 75.37% | 0.02% | 3.94% | 12.72% | 0.40% | 7.55% |
-| blob | 20.99% | 0.01% | 5.11% | 48.86% | 0.25% | 24.78% |
-| lines | 57.71% | 0.03% | 12.62% | 19.08% | 0.30% | 10.26% |
+| city | 76.41% | 0.02% | 3.77% | 12.18% | 0.39% | 7.23% |
+| blob | 92.46% | 0.00% | 0.49% | 4.67% | 0.02% | 2.36% |
+| lines | 81.84% | 0.01% | 5.42% | 8.19% | 0.13% | 4.41% |
 
 A dsrn node is any code it wrote with a mask to decide on. A complex
 tile's body nodes are counted once each: every resolution tile unmasked
