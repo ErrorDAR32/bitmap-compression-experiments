@@ -41,7 +41,7 @@
 //! | [`bitmap`] | the 65536 cells, and what can be drawn on them |
 //! | [`pyramid`] | dsrn's homogeneity pyramid: for every tile of every size, whether it is all one thing |
 //! | [`dsrn`] | the baseline encoding: what a region says, what it costs, how it is written and read |
-//! | [`dsrn_analysis`] | experiments on dsrn, which are not the encoding |
+//! | [`dsrn_analysis`] | the patterns dsrn's own tests are checked on; goes with dsrn |
 //! | [`gct`] | the greedy complex tiler, the encoding being built to beat dsrn (`docs/gct.md`); depends on nothing in `dsrn` |
 //! | [`samples`] | the bitmaps everything is measured on, and where the seed comes from |
 //! | [`table`] | printing any of it, which every experiment does the same way |

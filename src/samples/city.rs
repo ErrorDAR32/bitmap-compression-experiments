@@ -13,26 +13,8 @@
 //! are: settled entirely by a seed and a plan, regenerated every time
 //! they are asked for, never stored.
 
+use super::rolls::Rolls;
 use crate::Bitmap;
-
-/// The same arithmetic the grown samples use, so a seed means a
-/// bitmap and nothing drifts between runs or machines.
-struct Rolls(u64);
-
-impl Rolls {
-    fn next(&mut self) -> u64 {
-        self.0 = self.0.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
-        self.0 >> 33
-    }
-
-    fn upto(&mut self, high: u64) -> u64 {
-        self.next() % high
-    }
-
-    fn chance(&mut self, in_a_hundred: u64) -> bool {
-        self.upto(100) < in_a_hundred
-    }
-}
 
 /// How a city is laid out: how far apart the streets run, how wide
 /// they are, and how many courtyards a block is given.

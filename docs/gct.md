@@ -253,17 +253,12 @@ against dsrn at `Masking::Anywhere`, `FourByFour::ItsOwnGrammar`:
 |---|---|---|
 | laid out like a city, 48 bitmaps | 18300 bits | 12774 bits, -30.2% |
 | grown like a blob, 84 bitmaps | 32518 bits | 31885 bits, -1.9% |
+| drawn with lines, 36 bitmaps | 14034 bits | 11589 bits, -17.4% |
 
 On two fresh seeds (`DSRN_SEED` 9216954446512861479 and
 3326496171169911647): city 13333 and 13323 bits (dsrn 20018 and
-19802), blob 31984 and 31932.
-
-Cities are laid out on a grid at a random offset of their own, with
-courtyards anywhere in their blocks. Until 2026-09-28 they were aligned
-to the quadtree -- pitches of 16, 32 and 64 from cell (0, 0), courtyards
-on their own size's grid -- and there city cost dsrn 3422 bits and gct
-3270. The city columns of the evidence below were measured on those
-aligned cities.
+19802), blob 31984 and 31932 (dsrn 32561 and 32564), lines 10952 and
+11252 (dsrn 13222 and 13546).
 
 Checkerboards of odd square side (`samples/checkerboards.rs`), bits:
 
@@ -287,39 +282,22 @@ gct about 80000 bits, dsrn 65542 -- a bind of the whole bitmap at 1x1,
 its raw cells. gct has no such escape: a 4x4 of noise costs it a
 subdivide, and each of its 2x2s a residual bit and four raw cells.
 
-**Why a masking copy's thresholds are what they are**, gct against dsrn
-on the seed above and the two fresh ones:
-
-| a masking copy says | city | blob |
-|---|---|---|
-| 3 of 4 children | -0.1%, +0.1%, -0.5% | -1.8%, -1.6%, -1.9% |
-| 2 of 4 children | -3.5%, -3.1%, -3.6% | -1.5%, -1.3%, -1.6% |
-| 3 of 4, or 2 not homogeneous (kept) | -4.2%, -4.0%, -4.4% | -1.8%, -1.7%, -1.9% |
-| 2 not homogeneous (with exact-cost complex tiles) | -6.1%, -6.0%, -6.1% | -1.0%, -0.9%, -1.0% |
-
-The first three rows were measured before complex tiles were chosen by
-exact bit cost, the last after: against the kept rule's current 3270,
-3312, 3320 (city) and 31885, 31984, 31932 (blob), dropping the "3 of 4"
-half wins city by about 1.8% and loses blob by about 0.9%.
-
-**Why masking stops at 8x8**: letting copies mask down to 4x4 cost city
-3488, 3533, 3547 bits and blob 33992, 34055, 34046 on the same three
-seeds -- about 6.6% worse on both.
-
-**Why the start level header**: trunk depths per bitmap were 2-4 on city
-and 3-7 on blob, and a trunk of depth `d` saves `(4^d - 1) / 3`
-subdivide bits for the header's 3 (28.7 bits a bitmap on city, 283.1 on
-blob). A bitmap that is one tile pays the 3 bits for nothing.
+**Why the start level header**: a trunk of depth `d` -- every tile
+coarser than level `d` subdivides -- saves `(4^d - 1) / 3` subdivide
+bits for the header's 3. A bitmap that is one tile pays the 3 bits for
+nothing.
 
 | family | dsrn nodes masked | complex tiles a bitmap, by nesting | of them masking | tiles a bitmap | masking copies a bitmap |
 |---|---|---|---|---|---|
 | city | 45.6% of 1776 | 88.4, 2.2 | 10.0% | 1370.2 | 285.5 |
 | blob | 67.0% of 2332 | 20.1, 1.5, 0.0 | 36.5% | 4477.5 | 175.8 |
+| lines | 38.4% of 1401 | 20.9, 0.5 | 8.3% | 1126.0 | 159.0 |
 
 | family | body nodes unmasked | masked: unmasked in an outer complex tile | copied | tile | nested complex tile | residual |
 |---|---|---|---|---|---|---|
 | city | 75.37% | 0.02% | 3.94% | 12.72% | 0.40% | 7.55% |
 | blob | 20.99% | 0.01% | 5.11% | 48.86% | 0.25% | 24.78% |
+| lines | 57.71% | 0.03% | 12.62% | 19.08% | 0.30% | 10.26% |
 
 A dsrn node is any code it wrote with a mask to decide on. A complex
 tile's body nodes are counted once each: every resolution tile unmasked

@@ -41,9 +41,12 @@
 pub mod checkerboards;
 mod city;
 mod generate;
+mod lines;
+mod rolls;
 pub mod seed;
 
 pub use city::{one_laid_out, Cities, Plan, PLANS};
+pub use lines::{one_drawn, Drawings, LineSet, LINE_SETS};
 pub use seed::seed_for_group;
 
 use crate::Bitmap;
@@ -187,11 +190,12 @@ impl ExactSizeIterator for Samples {
 /// Every family of sample, named, with as many of each as a
 /// measurement should take.
 ///
-/// Two families. Grown bitmaps are cells scattered or clustered to a
+/// Three families. Grown bitmaps are cells scattered or clustered to a
 /// density, which is what an algorithm is stressed on. Laid out ones
 /// are streets, blocks and courtyards on a grid at its own offset,
 /// which is structure the quadtree has to find rather than is handed.
-/// A result on one is half a result.
+/// Drawn ones are lines, straight and diagonal, thin and wide. A result
+/// on one is a third of a result.
 pub fn every_family() -> Vec<(String, Vec<BitmapSample>)> {
     vec![
         (
@@ -201,6 +205,10 @@ pub fn every_family() -> Vec<(String, Vec<BitmapSample>)> {
         (
             "grown like a blob".to_string(),
             SHAPES.iter().flat_map(|shape| shape.timed()).collect(),
+        ),
+        (
+            "drawn with lines".to_string(),
+            LINE_SETS.iter().flat_map(|set| set.timed()).collect(),
         ),
     ]
 }

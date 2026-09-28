@@ -1,10 +1,9 @@
-//! What the encoding emits, over both families of sample and over
-//! patterns whose right answer is known.
+//! Patterns whose right answer is known, which dsrn's own tests
+//! (`src/dsrn/nesting_tests.rs`) are checked on. The experiments on dsrn
+//! that lived beside this are gone -- they are in git -- and this goes
+//! with dsrn.
 
-use crate::table::Table;
-use super::Bench;
-use crate::dsrn::Knobs;
-use crate::{samples, Bitmap};
+use crate::Bitmap;
 
 /// A checkerboard of squares `side` cells across.
 fn checkerboard(side: usize) -> Bitmap {
@@ -36,97 +35,4 @@ pub fn known_patterns() -> Vec<(String, Bitmap)> {
         ("checkerboard of 2".to_string(), checkerboard(2)),
         ("checkerboard of 8".to_string(), checkerboard(8)),
     ]
-}
-
-pub fn run(knobs: Knobs) {
-    let mut bench = Bench::new();
-
-    println!("\n  Every bitmap comes back the one that went in, or this stops.\n");
-    println!("  patterns whose right answer is known.\n");
-    let mut t = Table::new(&["pattern", "tree\nbits", "payload\nbits", "all of it\nbits"]);
-    for (name, bitmap) in known_patterns() {
-        bench.run(&bitmap, knobs);
-        t.row(&[
-            name,
-            bench.out.tree.len().to_string(),
-            bench.out.payload.len().to_string(),
-            bench.out.bits().to_string(),
-        ]);
-    }
-    t.print();
-
-    println!("\n  laid out like a city, then grown like a blob.\n");
-    let mut t = Table::new(&[
-        "sample",
-        "bitmaps",
-        "tree\nbits a bitmap",
-        "payload\nbits a bitmap",
-        "all of it\nbits a bitmap",
-        "of the 65536\nbits it holds",
-    ]);
-    let mut totals = Vec::new();
-    for (name, maps) in samples::every_family() {
-        let (mut tree, mut payload) = (0usize, 0usize);
-        for bitmap in &maps {
-            bench.run(bitmap, knobs);
-            tree += bench.out.tree.len();
-            payload += bench.out.payload.len();
-        }
-        let n = maps.len();
-        totals.push((name.clone(), tree, payload, n));
-        t.row(&[
-            name,
-            n.to_string(),
-            (tree / n).to_string(),
-            (payload / n).to_string(),
-            ((tree + payload) / n).to_string(),
-            format!("{:.1}%", 100.0 * ((tree + payload) / n) as f64 / 65536.0),
-        ]);
-    }
-    t.print();
-
-    println!("\n  what the codes are, over every sample.\n");
-    let mut t = Table::new(&["code", "a bitmap"]);
-    let mut sums = [0usize; 9];
-    let mut n = 0usize;
-    for (_, maps) in samples::every_family() {
-        for bitmap in &maps {
-            bench.run(bitmap, knobs);
-            let c = bench.out.counts;
-            for (slot, got) in [
-                c.bindings,
-                c.masked_bindings,
-                c.subdivides,
-                c.masked_subdivides,
-                c.children_left_to_a_binding,
-                c.copies,
-                c.masked_copies,
-                c.children_made_regions,
-                c.cells_written,
-            ]
-            .into_iter()
-            .enumerate()
-            {
-                sums[slot] += got;
-            }
-            n += 1;
-        }
-    }
-    for (slot, name) in [
-        "bindings",
-        "of those, masked",
-        "subdivides",
-        "of those, masked",
-        "children a mask left to the binding above",
-        "copies",
-        "of those, masked",
-        "children a mask made regions of their own",
-        "payload bits that went out one cell at a time",
-    ]
-    .into_iter()
-    .enumerate()
-    {
-        t.row(&[name.to_string(), (sums[slot] / n).to_string()]);
-    }
-    t.print();
 }
