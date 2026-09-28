@@ -35,8 +35,10 @@ pub struct CountedBits(
     Vec<(u64, Pyramid)>,
 );
 
-/// Enough for any tile's bits, the whole bitmap's included.
-const COUNTED_SHAPE: PyramidShape = PyramidShape { coarsest_level: 0, finest_level: CELL_LEVEL, element_bits: 32 };
+/// Enough for any tile's bits, the whole bitmap's included, down to
+/// 4x4: a 2x2 is counted in a few steps, the 2x2 floor's, and nothing
+/// finer is ever counted -- so neither is worth remembering, or zeroing.
+const COUNTED_SHAPE: PyramidShape = PyramidShape { coarsest_level: 0, finest_level: CELL_LEVEL - 2, element_bits: 32 };
 /// A tile's element before its bits are counted: counted bits are held
 /// plus one, so zero is free to mean not yet.
 const NOT_COUNTED: u64 = 0;
@@ -175,6 +177,9 @@ fn remembered(
     bound_above: bool,
     counted: &mut CountedBits,
 ) -> u64 {
+    if tile.level > COUNTED_SHAPE.finest_level {
+        return bits_counted(complex_tiling, tile, nested, bound_above, counted);
+    }
     let at = counted.index_for(nested.key());
     let known = counted.0[at].1.get(tile);
     if known != NOT_COUNTED {
