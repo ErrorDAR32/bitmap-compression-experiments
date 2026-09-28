@@ -42,17 +42,17 @@ const COUNTED_SHAPE: PyramidShape = PyramidShape { coarsest_level: 0, finest_lev
 const NOT_COUNTED: u64 = 0;
 
 impl CountedBits {
-    /// The pyramid of bits counted under `nesting_key`'s nesting, made
-    /// empty the first time it is asked for.
-    fn pyramid_for(&mut self, nesting_key: u64) -> &mut Pyramid {
-        let at = match self.0.iter().position(|(key, _)| *key == nesting_key) {
+    /// Where the pyramid of bits counted under `nesting_key`'s nesting
+    /// is, made empty the first time it is asked for. Pyramids are only
+    /// ever added, so the place stays good.
+    fn index_for(&mut self, nesting_key: u64) -> usize {
+        match self.0.iter().position(|(key, _)| *key == nesting_key) {
             Some(at) => at,
             None => {
                 self.0.push((nesting_key, Pyramid::new(COUNTED_SHAPE)));
                 self.0.len() - 1
             }
-        };
-        &mut self.0[at].1
+        }
     }
 }
 
@@ -75,8 +75,7 @@ pub fn bits_counted(
     // Its mask bits, nearest complex tile first, up to the first it is
     // unmasked in -- then its values are that one's payload.
     let mut mask_bits = 0;
-    let able_to_unmask: Vec<u8> = nested.able_to_unmask(tile).collect();
-    for nesting in able_to_unmask {
+    for nesting in nested.able_to_unmask(tile) {
         mask_bits += MASK_BIT_WIDTH as u64;
         let resolution = nested.resolution(nesting);
         if complex_tiling.entirely_bound_at(tile, resolution) {
@@ -149,8 +148,7 @@ pub fn bits_counted(
                 if divide_may_mask(tile.level) {
                     divide_bits += MASK_PRESENT_WIDTH as u64;
                 }
-                let left: Vec<bool> =
-                    tile.children().into_iter().map(|child| complex_tiling.left_to_binding_above(child, bound_above, nested)).collect();
+                let left = tile.children().map(|child| complex_tiling.left_to_binding_above(child, bound_above, nested));
                 let leaves_some = left.contains(&true);
                 if leaves_some {
                     divide_bits += FLIP_WIDTH as u64;
@@ -177,12 +175,12 @@ fn remembered(
     bound_above: bool,
     counted: &mut CountedBits,
 ) -> u64 {
-    let nesting_key = nested.key();
-    let known = counted.pyramid_for(nesting_key).get(tile);
+    let at = counted.index_for(nested.key());
+    let known = counted.0[at].1.get(tile);
     if known != NOT_COUNTED {
         return known - 1;
     }
     let bits = bits_counted(complex_tiling, tile, nested, bound_above, counted);
-    counted.pyramid_for(nesting_key).set(tile, bits + 1);
+    counted.0[at].1.set(tile, bits + 1);
     bits
 }

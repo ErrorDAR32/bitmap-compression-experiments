@@ -46,7 +46,7 @@ impl Candidate {
         counted: &mut CountedBits,
     ) -> Option<Candidate> {
         let bound_above = binding_above(tile, |at| complex_tiling.placed_at(at));
-        let mut inside = nested.clone();
+        let mut inside = *nested;
         let without = bits_counted(complex_tiling, tile, &mut inside, bound_above, counted);
         let mut best: Option<Candidate> = None;
         let finest = if raw_resolution_fits(tile.level) { CELL_LEVEL } else { CELL_LEVEL - 1 };
@@ -64,7 +64,7 @@ impl Candidate {
             complex_tiling.clear_complex_tile(tile);
             let Some(saving) = without.checked_sub(with).filter(|&saving| saving > 0) else { continue };
             if best.as_ref().is_none_or(|current| saving > current.saving) {
-                best = Some(Candidate { tile, size_offset, saving, nested: nested.clone() });
+                best = Some(Candidate { tile, size_offset, saving, nested: *nested });
             }
         }
         best
