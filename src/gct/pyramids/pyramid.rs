@@ -156,6 +156,17 @@ impl Pyramid {
         elements
     }
 
+    /// The words a tile's four children fill between them, for elements
+    /// of 16 bits or more: the children's elements in reading order,
+    /// packed as always.
+    #[inline]
+    pub fn children_words(&self, tile: Tile) -> &[u64] {
+        debug_assert!(self.shape.element_bits * 4 >= u64::BITS as usize, "four children fill whole words");
+        let words = self.shape.element_bits * 4 / u64::BITS as usize;
+        let first = self.level_starts[tile.level as usize + 1] + morton_index(tile.x, tile.y) * words;
+        &self.words[first..first + words]
+    }
+
     /// Replaces a tile's element, then propagates: each coarser tile
     /// holding it is recomputed, up to the first that does not change.
     #[inline]

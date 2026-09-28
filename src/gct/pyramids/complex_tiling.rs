@@ -224,9 +224,12 @@ impl ComplexTiling for Pyramid {
         Fields(self.get(tile))
     }
 
+    #[inline]
     fn children_fields(&self, tile: Tile) -> [Fields; 4] {
-        let [a, b, c, d] = self.children_elements(tile);
-        [Fields(a), Fields(b), Fields(c), Fields(d)]
+        // Two elements a word: the four children are two whole words.
+        let &[first, second] = self.children_words(tile) else { unreachable!("four 32-bit elements are two words") };
+        let high = SHAPE.element_bits as u32;
+        [Fields(first & ELEMENT_MASK), Fields(first >> high), Fields(second & ELEMENT_MASK), Fields(second >> high)]
     }
 
     fn make_complex_tile(&mut self, tile: Tile, size_offset: u8) {

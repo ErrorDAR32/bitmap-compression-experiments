@@ -31,6 +31,11 @@ pub trait Homogeneity {
 
     /// What `tile` holds, if every cell of it agrees.
     fn homogeneous_value(&self, tile: Tile) -> Option<bool>;
+
+    /// What each of `tile`'s four children holds, in reading order, if
+    /// every cell of it agrees: one lookup, their four elements being
+    /// one byte.
+    fn children_values(&self, tile: Tile) -> [Option<bool>; 4];
 }
 
 impl Homogeneity for Pyramid {
@@ -61,9 +66,21 @@ impl Homogeneity for Pyramid {
     }
 
     fn homogeneous_value(&self, tile: Tile) -> Option<bool> {
-        let element = self.get(tile);
-        (element & HOMOGENEOUS != 0).then_some(element & VALUE != 0)
+        value_of(self.get(tile))
     }
+
+    #[inline]
+    fn children_values(&self, tile: Tile) -> [Option<bool>; 4] {
+        let [a, b, c, d] = self.children_elements(tile);
+        [value_of(a), value_of(b), value_of(c), value_of(d)]
+    }
+}
+
+/// What a tile whose element is `element` holds, if every cell of it
+/// agrees.
+#[inline]
+fn value_of(element: u64) -> Option<bool> {
+    (element & HOMOGENEOUS != 0).then_some(element & VALUE != 0)
 }
 
 /// Every even bit: each element's homogeneous bit, word-wide.

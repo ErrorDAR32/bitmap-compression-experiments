@@ -80,6 +80,12 @@ impl Content<'_> {
         self.homogeneity.homogeneous_value(tile)
     }
 
+    /// What each of `tile`'s children holds, in reading order, if every
+    /// cell of it agrees.
+    fn children_values(&self, tile: Tile) -> [Option<bool>; 4] {
+        self.homogeneity.children_values(tile)
+    }
+
     /// See [`matches_at`].
     fn matches_at(&self, tile: Tile, mine: Option<bool>, direction: u8, distance: usize) -> bool {
         matches_at(self.homogeneity, self.bitmap, tile, mine, direction, distance)
@@ -131,43 +137,44 @@ fn placement(content: &Content, tile: Tile, bound_above: bool) -> Option<Placeme
     if tile.level > FINEST_MASKING_LEVEL {
         return None;
     }
-    masking_copy(content, tile, bound_above).or_else(|| masking_bind(content, tile, bound_above))
+    let children_values = content.children_values(tile);
+    masking_copy(content, tile, children_values, bound_above).or_else(|| masking_bind(children_values, bound_above))
 }
 
-/// A bind of `tile` to the value not bound above, masking the children not
-/// homogeneous with it, if it says at least
-/// [`MIN_UNMASKED_CHILDREN_OF_A_MASKING_BIND`] of them.
-fn masking_bind(content: &Content, tile: Tile, bound_above: bool) -> Option<Placement> {
+/// A bind of a tile to the value not bound above, masking the children
+/// not homogeneous with it, if it says at least
+/// [`MIN_UNMASKED_CHILDREN_OF_A_MASKING_BIND`] of them; `children_values`
+/// what each child holds, in reading order, if every cell of it agrees.
+fn masking_bind(children_values: [Option<bool>; 4], bound_above: bool) -> Option<Placement> {
     let value = !bound_above;
     let mut masked_children = 0u8;
-    for child in tile.children() {
-        if content.homogeneous_value(child) != Some(value) {
-            masked_children |= 1 << child.child_index();
+    for (index, &child_value) in children_values.iter().enumerate() {
+        if child_value != Some(value) {
+            masked_children |= 1 << index;
         }
     }
-    let unmasked = tile.children().len() as u32 - masked_children.count_ones();
+    let unmasked = children_values.len() as u32 - masked_children.count_ones();
     (unmasked >= MIN_UNMASKED_CHILDREN_OF_A_MASKING_BIND).then_some(Placement::Bound { value, masked_children })
 }
 
 /// The copy of `tile` that says the most of its children, masking the
 /// rest, if it says enough of them to be worth it: near before far,
 /// then in direction order, on a tie. A child is said when it holds the
-/// same cells as the same child of the copy's source.
+/// same cells as the same child of the copy's source. `children_values`
+/// is what each child holds, in reading order, if every cell of it
+/// agrees.
 ///
 /// A copy is checked a child at a time, and dropped as soon as the
 /// children left could no longer make it worth it, or make it say more
 /// than the best so far -- what they could add is known before any is
 /// checked, from which are homogeneous. So is whether any copy could be
 /// worth it at all.
-fn masking_copy(content: &Content, tile: Tile, bound_above: bool) -> Option<Placement> {
+fn masking_copy(content: &Content, tile: Tile, children_values: [Option<bool>; 4], bound_above: bool) -> Option<Placement> {
     let children = tile.children();
-    let mut homogeneous = [None; 4];
     // What each child would add, said: to the children said that are not
     // the value bound above, and to those not homogeneous.
     let (mut adds_unmasked, mut adds_non_homogeneous) = ([0; 4], [0; 4]);
-    for (index, &child) in children.iter().enumerate() {
-        let value = content.homogeneous_value(child);
-        homogeneous[index] = value;
+    for (index, &value) in children_values.iter().enumerate() {
         adds_unmasked[index] = (value != Some(bound_above)) as u32;
         adds_non_homogeneous[index] = value.is_none() as u32;
     }
@@ -192,7 +199,7 @@ fn masking_copy(content: &Content, tile: Tile, bound_above: bool) -> Option<Plac
             for index in 0..children.len() {
                 unmasked_left -= adds_unmasked[index];
                 non_homogeneous_left -= adds_non_homogeneous[index];
-                if content.matches_at(children[index], homogeneous[index], direction, child_distance) {
+                if content.matches_at(children[index], children_values[index], direction, child_distance) {
                     unmasked += adds_unmasked[index];
                     non_homogeneous += adds_non_homogeneous[index];
                 } else {
