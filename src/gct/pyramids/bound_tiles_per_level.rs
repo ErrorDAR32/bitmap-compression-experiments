@@ -59,5 +59,5 @@ impl BoundTilesPerLevel for Vec<Pyramid> {
 /// The propagation: how many `Bound` tiles of this size lie under a tile
 /// is the sum over its children.
 fn sum_of_children(pyramid: &Pyramid, tile: Tile) -> u64 {
-    pyramid.children_of(tile).into_iter().map(|child| pyramid.get(child)).sum()
+    pyramid.children_of(tile).map(|child| pyramid.get(child)).sum()
 }

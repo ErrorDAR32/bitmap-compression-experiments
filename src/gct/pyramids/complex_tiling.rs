@@ -153,13 +153,13 @@ impl ComplexTiling for Pyramid {
 /// are.
 fn bound_size_of_children(pyramid: &Pyramid, tile: Tile) -> u64 {
     let element = pyramid.get(tile);
-    let children: Vec<u64> = pyramid.children_of(tile).into_iter().map(|child| pyramid.get(child)).collect();
     match placement_from_code(field(element, PLACEMENT)) {
         Some(placement) if placement.is_whole_bind() => element,
         Some(_) => with_field(element, BOUND_SIZE, NONE),
         None => {
-            let sizes: Vec<u64> = children.iter().map(|&child| field(child, BOUND_SIZE)).collect();
-            let shared = if sizes.iter().all(|&size| size == sizes[0]) { sizes[0] } else { NONE };
+            let mut sizes = pyramid.children_of(tile).map(|child| field(pyramid.get(child), BOUND_SIZE));
+            let first = sizes.next().expect("a tile has children");
+            let shared = if sizes.all(|size| size == first) { first } else { NONE };
             with_field(element, BOUND_SIZE, shared)
         }
     }

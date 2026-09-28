@@ -42,9 +42,9 @@ impl Homogeneity for Pyramid {
 /// shared value, exactly when all of its children are homogeneous and
 /// hold the same value.
 fn all_children_homogeneous_and_agreeing(pyramid: &Pyramid, tile: Tile) -> u64 {
-    let children: Vec<u64> = pyramid.children_of(tile).into_iter().map(|child| pyramid.get(child)).collect();
-    let first = children[0];
-    if children.iter().all(|&child| child & HOMOGENEOUS != 0 && child == first) {
+    let mut children = pyramid.children_of(tile).map(|child| pyramid.get(child));
+    let first = children.next().expect("a tile has children");
+    if first & HOMOGENEOUS != 0 && children.all(|child| child == first) {
         first
     } else {
         0

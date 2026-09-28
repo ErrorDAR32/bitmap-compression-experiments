@@ -64,6 +64,18 @@ any PBM image named in `GCT_DIAGNOSE`:
 cargo test --release --test gct_diagnostics -- --ignored --nocapture <tool>
 ```
 
+Speed is measured in instructions, not time, by callgrind on a fixed
+sample (`examples/gct_instruction_count.rs`: the fast tier's bitmaps, a
+checkerboard and noise, encoded and decoded). Callgrind counts every
+instruction executed, the same on every run, and says where they go:
+
+```
+cargo build --release --example gct_instruction_count
+valgrind --tool=callgrind --callgrind-out-file=target/callgrind.out \
+    target/release/examples/gct_instruction_count
+callgrind_annotate --inclusive=yes target/callgrind.out | head -40
+```
+
 ## Phase one: fix, with the seed held still
 
 Pick a seed base and leave it alone. While it is held:
