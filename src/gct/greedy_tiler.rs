@@ -28,7 +28,7 @@
 //! or a complex tile of 1x1 resolution -- so nothing finer than a 2x2 is
 //! ever placed.
 
-use crate::gct::pyramids::copyable::{matching_direction, matching_directions, FAR_DISTANCE, FINEST_COPY_LEVEL, NEAR_DISTANCE};
+use crate::gct::pyramids::copyable::{matches_at, matching_direction, FAR_DISTANCE, FINEST_COPY_LEVEL, NEAR_DISTANCE};
 use crate::gct::pyramids::homogeneity::Homogeneity;
 use crate::gct::pyramids::placements::{Placement, Placements, BOUND_AT_THE_TOP, FINEST_MASKING_LEVEL};
 use crate::gct::pyramids::pyramid::Pyramid;
@@ -80,9 +80,9 @@ impl Content<'_> {
         self.homogeneity.homogeneous_value(tile)
     }
 
-    /// See [`matching_directions`].
-    fn matching_directions(&self, tile: Tile, distance: usize) -> u8 {
-        matching_directions(self.homogeneity, self.bitmap, tile, distance)
+    /// See [`matches_at`].
+    fn matches_at(&self, tile: Tile, mine: Option<bool>, direction: u8, distance: usize) -> bool {
+        matches_at(self.homogeneity, self.bitmap, tile, mine, direction, distance)
     }
 
     /// See [`matching_direction`].
@@ -153,36 +153,60 @@ fn masking_bind(content: &Content, tile: Tile, bound_above: bool) -> Option<Plac
 /// rest, if it says enough of them to be worth it: near before far,
 /// then in direction order, on a tie. A child is said when it holds the
 /// same cells as the same child of the copy's source.
+///
+/// A copy is checked a child at a time, and dropped as soon as the
+/// children left could no longer make it worth it, or make it say more
+/// than the best so far -- what they could add is known before any is
+/// checked, from which are homogeneous. So is whether any copy could be
+/// worth it at all.
 fn masking_copy(content: &Content, tile: Tile, bound_above: bool) -> Option<Placement> {
     let children = tile.children();
-    let homogeneous = children.map(|child| content.homogeneous_value(child));
+    let mut homogeneous = [None; 4];
+    // What each child would add, said: to the children said that are not
+    // the value bound above, and to those not homogeneous.
+    let (mut adds_unmasked, mut adds_non_homogeneous) = ([0; 4], [0; 4]);
+    for (index, &child) in children.iter().enumerate() {
+        let value = content.homogeneous_value(child);
+        homogeneous[index] = value;
+        adds_unmasked[index] = (value != Some(bound_above)) as u32;
+        adds_non_homogeneous[index] = value.is_none() as u32;
+    }
+    let could_be_worth_it = |unmasked: u32, non_homogeneous: u32| {
+        unmasked >= MIN_UNMASKED_CHILDREN || non_homogeneous >= MIN_UNMASKED_NON_HOMOGENEOUS_CHILDREN
+    };
+    let (all_unmasked, all_non_homogeneous) = (adds_unmasked.iter().sum(), adds_non_homogeneous.iter().sum());
+    if !could_be_worth_it(all_unmasked, all_non_homogeneous) {
+        return None;
+    }
     let mut best: Option<(u32, Placement)> = None;
     for (far, distance) in [(false, NEAR_DISTANCE), (true, FAR_DISTANCE)] {
         // A child's source is its same child in the source tile: the
         // tile's distance, counted in child sides.
         let child_distance = distance * CHILDREN_ACROSS as usize;
-        let matching = children.map(|child| content.matching_directions(child, child_distance));
-        for direction in directions() {
+        'direction: for direction in directions() {
             if tile.neighbour_at(direction, distance).is_none() {
                 continue;
             }
             let (mut masked_children, mut unmasked, mut non_homogeneous) = (0u8, 0, 0);
-            for (index, (&matched, &value)) in matching.iter().zip(&homogeneous).enumerate() {
-                if matched & 1 << direction == 0 {
+            let (mut unmasked_left, mut non_homogeneous_left) = (all_unmasked, all_non_homogeneous);
+            for index in 0..children.len() {
+                unmasked_left -= adds_unmasked[index];
+                non_homogeneous_left -= adds_non_homogeneous[index];
+                if content.matches_at(children[index], homogeneous[index], direction, child_distance) {
+                    unmasked += adds_unmasked[index];
+                    non_homogeneous += adds_non_homogeneous[index];
+                } else {
                     masked_children |= 1 << index;
-                    continue;
                 }
-                if value.is_none() {
-                    non_homogeneous += 1;
-                }
-                if value != Some(bound_above) {
-                    unmasked += 1;
+                let most_possible = unmasked + unmasked_left;
+                let beats_best = best.is_none_or(|(most, _)| most_possible > most);
+                if !beats_best || !could_be_worth_it(most_possible, non_homogeneous + non_homogeneous_left) {
+                    continue 'direction;
                 }
             }
-            let worth_it = unmasked >= MIN_UNMASKED_CHILDREN || non_homogeneous >= MIN_UNMASKED_NON_HOMOGENEOUS_CHILDREN;
-            if worth_it && best.is_none_or(|(most, _)| unmasked > most) {
-                best = Some((unmasked, Placement::Copied { far, direction, masked_children }));
-            }
+            // Every child checked and still possible: worth it, and more
+            // than the best so far.
+            best = Some((unmasked, Placement::Copied { far, direction, masked_children }));
         }
     }
     best.map(|(_, placement)| placement)

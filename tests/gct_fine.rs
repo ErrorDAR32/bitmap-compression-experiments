@@ -6,7 +6,7 @@
 
 mod common;
 
-use bitmap::gct::pyramids::copyable::{matching_direction, matching_directions, FAR_DISTANCE, FINEST_COPY_LEVEL, NEAR_DISTANCE};
+use bitmap::gct::pyramids::copyable::{matches_at, matching_direction, FAR_DISTANCE, FINEST_COPY_LEVEL, NEAR_DISTANCE};
 use bitmap::gct::pyramids::homogeneity::Homogeneity;
 use bitmap::gct::pyramids::pyramid::{Pyramid, PyramidShape};
 use bitmap::gct::tile::{directions, Tile, CELL_LEVEL};
@@ -100,9 +100,8 @@ fn matches_agree_with_the_cells() {
         let homogeneity = Pyramid::homogeneity(&bitmap);
         for level in 0..=FINEST_COPY_LEVEL {
             for tile in Tile::all_of_level(level) {
-                let matching = [NEAR_DISTANCE, FAR_DISTANCE, 2 * FAR_DISTANCE]
-                    .map(|distance| (distance, matching_directions(&homogeneity, &bitmap, tile, distance)));
-                for (distance, matching) in matching {
+                let mine = homogeneity.homogeneous_value(tile);
+                for distance in [NEAR_DISTANCE, FAR_DISTANCE, 2 * FAR_DISTANCE] {
                     for direction in directions() {
                         let same = tile.neighbour_at(direction, distance).is_some_and(|other| {
                             let ((left, top, right, bottom), (x, y)) = (tile.cell_rect(), other.top_left_cell());
@@ -110,7 +109,8 @@ fn matches_agree_with_the_cells() {
                                 (left..=right).all(|col| bitmap.get(col, row) == bitmap.get(x + (col - left), y + (row - top)))
                             })
                         });
-                        assert_eq!(matching & 1 << direction != 0, same, "{tile:?} {direction} {distance}");
+                        let matched = matches_at(&homogeneity, &bitmap, tile, mine, direction, distance);
+                        assert_eq!(matched, same, "{tile:?} {direction} {distance}");
                     }
                 }
             }

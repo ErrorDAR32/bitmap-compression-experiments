@@ -30,22 +30,9 @@ pub const FAR_DISTANCE: usize = 2;
 /// never reach the stream. A cell is always homogeneous.
 pub const FINEST_COPY_LEVEL: u8 = CELL_LEVEL - 2;
 
-/// Every direction, in [`DIRECTIONS`], whose same-size tile `distance`
-/// away from `tile` holds the same cells, bit `d` for direction `d`:
-/// none past the edge. `homogeneity` is `bitmap`'s.
-pub fn matching_directions(homogeneity: &Pyramid, bitmap: &Bitmap, tile: Tile, distance: usize) -> u8 {
-    let mine = homogeneity.homogeneous_value(tile);
-    let mut matching = 0;
-    for direction in directions() {
-        if matches_at(homogeneity, bitmap, tile, mine, direction, distance) {
-            matching |= 1 << direction;
-        }
-    }
-    matching
-}
-
-/// The first direction whose tile `distance` away holds the same cells
-/// as `tile`, if any.
+/// The first direction, in [`DIRECTIONS`], whose same-size tile
+/// `distance` away from `tile` holds the same cells, if any: none past
+/// the edge. `homogeneity` is `bitmap`'s.
 pub fn matching_direction(homogeneity: &Pyramid, bitmap: &Bitmap, tile: Tile, distance: usize) -> Option<u8> {
     let mine = homogeneity.homogeneous_value(tile);
     directions().find(|&direction| matches_at(homogeneity, bitmap, tile, mine, direction, distance))
@@ -55,7 +42,7 @@ pub fn matching_direction(homogeneity: &Pyramid, bitmap: &Bitmap, tile: Tile, di
 /// `direction` holds the same cells as `tile`, whose homogeneous value,
 /// if any, is `mine` -- looked up once for every direction asked.
 #[inline]
-fn matches_at(homogeneity: &Pyramid, bitmap: &Bitmap, tile: Tile, mine: Option<bool>, direction: u8, distance: usize) -> bool {
+pub fn matches_at(homogeneity: &Pyramid, bitmap: &Bitmap, tile: Tile, mine: Option<bool>, direction: u8, distance: usize) -> bool {
     let Some(other) = tile.neighbour_at(direction, distance) else { return false };
     match (mine, homogeneity.homogeneous_value(other)) {
         (None, None) => same_cells(bitmap, tile, other),
