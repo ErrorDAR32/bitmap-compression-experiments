@@ -15,16 +15,18 @@
 //!   tile, bit `n` for size `n` -- a complex tile has nothing to unmask
 //!   at a resolution none is placed at.
 //!
-//! The bound size propagates: a placed `Bound` tile is bound at its own
-//! size, a placed copy or a bind that masks at none, and any other tile
-//! is bound at one size exactly when all four of its children are bound
-//! at that same size; the sizes of the binds under a tile are its own
-//! whole bind's, or all of its children's.
+//! The bound size is carried up once, when the placements are complete,
+//! a level at a time from the finest: a placed `Bound` tile is bound at
+//! its own size, a placed copy or a bind that masks at none, and any
+//! other tile is bound at one size exactly when all four of its children
+//! are bound at that same size; the sizes of the binds under a tile are
+//! its own whole bind's, or all of its children's. Nothing set later
+//! changes either, so nothing propagates.
 
 use super::placements::{placement_code, placement_from_code, Placement, Placements, FINEST_MASKING_LEVEL, PLACEMENT_CODE_BITS};
 use super::pyramid::{Pyramid, PyramidShape};
 use crate::gct::nested_resolutions::NestedResolutions;
-use crate::gct::tile::{Tile, CELL_LEVEL};
+use crate::gct::tile::{tiles_across, Tile, CELL_LEVEL};
 
 /// A field's value for nothing: no bound size, no size offset.
 const NONE: u64 = 0;
@@ -67,9 +69,9 @@ fn with_field(element: u64, field: Field, value: u64) -> u64 {
 
 /// The complex tiling's queries and updates, over its fields.
 pub trait ComplexTiling {
-    /// The greedy tiler's placements, now kept in step, with no complex
-    /// tiles yet, and `raw_masked` the tiles a complex tile of 1x1
-    /// resolution masks.
+    /// The greedy tiler's placements, with their bound sizes carried up,
+    /// no complex tiles yet, and `raw_masked` the tiles a complex tile of
+    /// 1x1 resolution masks.
     fn complex_tiling(placements: Pyramid, raw_masked: &[Tile]) -> Self;
 
     /// The tile placed exactly at `tile`, if any.
@@ -116,12 +118,12 @@ pub trait ComplexTiling {
 }
 
 impl ComplexTiling for Pyramid {
-    fn complex_tiling(placements: Pyramid, raw_masked: &[Tile]) -> Self {
-        let raw_masks: Vec<(Tile, u64)> =
-            raw_masked.iter().map(|&tile| (tile, with_field(placements.get(tile), RAW_MASKS, YES))).collect();
-        let mut complex_tiling = placements.with_propagation_set(bound_size_of_children);
-        complex_tiling.set_all(raw_masks);
-        complex_tiling
+    fn complex_tiling(mut placements: Pyramid, raw_masked: &[Tile]) -> Self {
+        for &tile in raw_masked {
+            placements.set(tile, with_field(placements.get(tile), RAW_MASKS, YES));
+        }
+        carry_bound_sizes_up(&mut placements);
+        placements
     }
 
     fn placed_at(&self, tile: Tile) -> Option<Placement> {
@@ -167,8 +169,8 @@ impl ComplexTiling for Pyramid {
 }
 
 /// The placements are the placement bits of this same pyramid, before
-/// it is kept in step: placing a whole bind also records its own bound
-/// size and size, which the complex tiling then carries up.
+/// the rest is filled in: placing a whole bind also records its own
+/// bound size and size, which the complex tiling then carries up.
 impl Placements for Pyramid {
     fn placements() -> Self {
         Pyramid::new(SHAPE)
@@ -194,29 +196,43 @@ impl Placements for Pyramid {
     }
 }
 
-/// The propagation: a tile's bound size is its own when a whole bind
-/// was placed at it, none when anything else was, else its children's
-/// when all four share one, else none. Its other fields stay as they
-/// are.
-fn bound_size_of_children(pyramid: &Pyramid, tile: Tile) -> u64 {
-    let element = pyramid.get(tile);
+/// Elements a word.
+const PER_WORD: usize = u64::BITS as usize / SHAPE.element_bits;
+
+/// Fills in every coarser tile's bound size and the sizes bound under
+/// it, finest level first, from its four children -- in Morton order,
+/// the four consecutive elements at its own index times four. Done once,
+/// when the placements are complete: nothing set afterwards changes
+/// either field.
+fn carry_bound_sizes_up(pyramid: &mut Pyramid) {
+    let element_at = |words: &[u64], at: usize| words[at / PER_WORD] >> (at % PER_WORD * SHAPE.element_bits) & ELEMENT_MASK;
+    for level in (0..CELL_LEVEL).rev() {
+        let (coarser, finer) = pyramid.two_levels_mut(level);
+        for at in 0..tiles_across(level).pow(2) {
+            let children = [0, 1, 2, 3].map(|child| element_at(finer, at * 4 + child));
+            let shift = at % PER_WORD * SHAPE.element_bits;
+            let element = coarser[at / PER_WORD] >> shift & ELEMENT_MASK;
+            coarser[at / PER_WORD] = coarser[at / PER_WORD] & !(ELEMENT_MASK << shift) | carried(element, children) << shift;
+        }
+    }
+}
+
+/// One element's bits.
+const ELEMENT_MASK: u64 = (1 << SHAPE.element_bits) - 1;
+
+/// A tile's element given its children's: its bound size is its own when
+/// a whole bind was placed at it, none when anything else was, else its
+/// children's when all four share one, else none; the sizes bound under
+/// it are its own whole bind's, or all of its children's. Its other
+/// fields stay as they are.
+fn carried(element: u64, children: [u64; 4]) -> u64 {
     let placement = placement_from_code(field(element, PLACEMENT));
     if placement.is_some_and(Placement::is_whole_bind) {
         return element;
     }
-    // The children's one bound size, if they share one, and every size
-    // bound under any of them.
-    let (mut shared, mut under) = (None, NONE);
-    for child in pyramid.children_of(tile) {
-        let child = pyramid.get(child);
-        let size = field(child, BOUND_SIZE);
-        shared = match shared {
-            None => Some(size),
-            Some(before) if before == size => Some(size),
-            Some(_) => Some(NONE),
-        };
-        under |= field(child, BOUND_SIZES_UNDER);
-    }
-    let shared = if placement.is_some() { NONE } else { shared.unwrap_or(NONE) };
+    let size = field(children[0], BOUND_SIZE);
+    let shared = children.iter().all(|&child| field(child, BOUND_SIZE) == size);
+    let shared = if placement.is_some() || !shared { NONE } else { size };
+    let under = children.iter().fold(NONE, |under, &child| under | field(child, BOUND_SIZES_UNDER));
     with_field(with_field(element, BOUND_SIZE, shared), BOUND_SIZES_UNDER, under)
 }

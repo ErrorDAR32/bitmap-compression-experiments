@@ -105,13 +105,6 @@ impl Pyramid {
         Self { propagation: Some(propagation), ..Self::new(shape) }
     }
 
-    /// This pyramid, keeping its coarser levels in step with
-    /// `propagation` from here on -- for filling it first and then
-    /// propagating once, with [`Pyramid::set_all`].
-    pub fn with_propagation_set(self, propagation: Propagation) -> Self {
-        Self { propagation: Some(propagation), ..self }
-    }
-
     /// The three parameters it was built from.
     pub fn shape(&self) -> PyramidShape {
         self.shape
@@ -150,27 +143,6 @@ impl Pyramid {
             }
             self.write(parent, value);
             changed = parent;
-        }
-    }
-
-    /// Replaces many tiles' elements, then propagates once: every level
-    /// coarser than the finest recomputed whole, finest first. The same as
-    /// setting them one at a time -- a tile's propagation depends only on
-    /// its own element and its children's -- for far less.
-    pub fn set_all(&mut self, elements: impl IntoIterator<Item = (Tile, u64)>) {
-        for (tile, value) in elements {
-            self.write(tile, value);
-        }
-        let Some(propagation) = self.propagation else { return };
-        for level in (self.shape.coarsest_level..self.shape.finest_level).rev() {
-            let across = tiles_across(level);
-            for y in 0..across {
-                for x in 0..across {
-                    let tile = Tile { level, x: x as u8, y: y as u8 };
-                    let value = propagation(self, tile);
-                    self.write(tile, value);
-                }
-            }
         }
     }
 
