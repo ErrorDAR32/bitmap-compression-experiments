@@ -1,21 +1,21 @@
-//! gct against dsrn, the baseline it has to beat: bits a bitmap on
-//! every family and on every checkerboard, and how much each of the two
-//! masks. A measurement, printed, not a pass/fail check -- though it
-//! still stops if gct loses a cell.
+//! What gct spends: bits a bitmap on every family and on every
+//! checkerboard, and what its trees are made of. A measurement, printed,
+//! not a pass/fail check -- though it still stops if gct loses a cell.
 //!
-//! `cargo test --release --test compare_with_dsrn -- --ignored --nocapture`
+//! `cargo test --release --test gct_measurement -- --ignored --nocapture`
 
 mod common;
 
 use bitmap::gct::encode::write;
-use common::tree_stats::TreeStats;
 use bitmap::gct::{decode, tree};
-use bitmap::dsrn::{encode as dsrn_encode, Encoded, FourByFour, Knobs, Masking, Workspace};
-use bitmap::pyramid::Pyramid;
 use bitmap::samples::checkerboards::checkerboards;
 use bitmap::samples::every_family;
 use bitmap::table::Table;
 use common::first_difference;
+use common::tree_stats::TreeStats;
+
+/// The raw cells: what a bitmap costs written out.
+const RAW_CELLS: usize = 256 * 256;
 
 fn percent(part: usize, whole: usize) -> f64 {
     if whole == 0 {
@@ -27,15 +27,10 @@ fn percent(part: usize, whole: usize) -> f64 {
 
 #[test]
 #[ignore]
-fn compare_with_dsrn() {
-    let knobs = Knobs { masking: Masking::Anywhere, four_by_four: FourByFour::ItsOwnGrammar };
-    let (mut pyramid, mut work, mut dsrn_out) = (Pyramid::new(), Workspace::new(), Encoded::default());
-
-    let mut bits = Table::new(&["family", "dsrn\nbits a bitmap", "gct\nbits a bitmap", "gct\nagainst dsrn"]);
+fn gct_measurement() {
+    let mut bits = Table::new(&["family", "gct\nbits a bitmap", "of the\nraw cells"]);
     let mut structure = Table::new(&[
         "family",
-        "dsrn\nnodes a bitmap",
-        "dsrn nodes\nmasked",
         "complex tiles a bitmap,\nby nesting",
         "complex tiles\nmasking",
         "tiles\na bitmap",
@@ -53,16 +48,9 @@ fn compare_with_dsrn() {
     ]);
 
     for (family, maps) in every_family() {
-        let (mut dsrn_bits, mut gct_bits, mut dsrn_nodes, mut dsrn_masked) = (0, 0, 0, 0);
+        let mut gct_bits = 0;
         let mut stats = TreeStats::default();
         for (case, bitmap) in maps.iter().enumerate() {
-            pyramid.clear();
-            pyramid.rebuild(bitmap);
-            dsrn_encode(&pyramid, bitmap, knobs, &mut work, &mut dsrn_out);
-            dsrn_bits += dsrn_out.bits();
-            dsrn_nodes += dsrn_out.counts.nodes;
-            dsrn_masked += dsrn_out.counts.masked_nodes;
-
             let gct_tree = tree(bitmap);
             let stream = write(&gct_tree, bitmap);
             assert_eq!(first_difference(bitmap, &decode(&stream)), None, "{family}, case {case}: gct lost a cell");
@@ -74,17 +62,10 @@ fn compare_with_dsrn() {
         let per_bitmap = |count: usize| format!("{:.1}", count as f64 / n as f64);
         let share = |part: usize, whole: usize| format!("{:.2}%", percent(part, whole));
         let name = format!("{family}, {n} bitmaps");
-        bits.row(&[
-            name.clone(),
-            (dsrn_bits / n).to_string(),
-            (gct_bits / n).to_string(),
-            format!("{:+.1}%", 100.0 * (gct_bits as f64 - dsrn_bits as f64) / dsrn_bits as f64),
-        ]);
+        bits.row(&[name.clone(), (gct_bits / n).to_string(), format!("{:.1}%", percent(gct_bits / n, RAW_CELLS))]);
         let by_nesting: Vec<String> = stats.complex_tiles_at_nesting.iter().map(|&count| per_bitmap(count)).collect();
         structure.row(&[
             name.clone(),
-            (dsrn_nodes / n).to_string(),
-            format!("{:.1}%", percent(dsrn_masked, dsrn_nodes)),
             by_nesting.join(", "),
             format!("{:.1}%", percent(stats.complex_tiles_that_mask, stats.complex_tiles())),
             per_bitmap(stats.tiles),
@@ -102,19 +83,15 @@ fn compare_with_dsrn() {
             share(stats.masked_residual, body_nodes),
         ]);
     }
-    let mut boards = Table::new(&["checkerboard", "dsrn\nbits", "gct\nbits", "gct\nagainst dsrn"]);
+
+    let mut boards = Table::new(&["checkerboard", "gct\nbits", "of the\nraw cells"]);
     for (square_side, bitmap) in checkerboards() {
-        pyramid.clear();
-        pyramid.rebuild(&bitmap);
-        dsrn_encode(&pyramid, &bitmap, knobs, &mut work, &mut dsrn_out);
-        let dsrn_bits = dsrn_out.bits();
         let stream = write(&tree(&bitmap), &bitmap);
         assert_eq!(first_difference(&bitmap, &decode(&stream)), None, "checkerboard {square_side}: gct lost a cell");
         boards.row(&[
             format!("{square_side}x{square_side} squares"),
-            dsrn_bits.to_string(),
             stream.len().to_string(),
-            format!("{:+.1}%", 100.0 * (stream.len() as f64 - dsrn_bits as f64) / dsrn_bits as f64),
+            format!("{:.1}%", percent(stream.len(), RAW_CELLS)),
         ]);
     }
 

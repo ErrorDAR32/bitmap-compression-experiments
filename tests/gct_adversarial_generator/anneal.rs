@@ -8,7 +8,7 @@
 //! working on the bitmap in front of it.
 
 use super::moves::CHANGES;
-use super::objectives::{Objective, Score, Scorer};
+use super::objectives::{score, Score};
 use super::rng::Rng;
 use bitmap::gct::tile::Tile;
 use bitmap::Bitmap;
@@ -39,21 +39,19 @@ fn pick(rng: &mut Rng, successes: &[u64]) -> usize {
 pub fn anneal(
     start: Bitmap,
     area: Tile,
-    objective: Objective,
     iterations: u64,
     rng: &mut Rng,
-    scorer: &mut Scorer,
 ) -> Found {
     let mut successes = [0; CHANGES.len()];
     let mut current = start;
-    let mut current_score = scorer.score(objective, &current, area);
+    let mut current_score = score(&current, area);
     let mut best = Found { bitmap: current.clone(), score: current_score };
     for iteration in 0..iterations {
         let temperature = START_TEMPERATURE * (1.0 - iteration as f64 / iterations as f64);
         let kind = pick(rng, &successes);
         let mut next = current.clone();
         CHANGES[kind](rng, &mut next, area);
-        let next_score = scorer.score(objective, &next, area);
+        let next_score = score(&next, area);
         let gain = (next_score.gap - current_score.gap) as f64;
         if gain > 0.0 {
             successes[kind] += 1;

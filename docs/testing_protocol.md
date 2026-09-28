@@ -19,7 +19,7 @@ So the protocol is two-phase, and the phases must not be mixed.
 ## Where the seed comes from
 
 `testing/last_seed` holds the seed base every seeded run uses; setting
-`DSRN_SEED` overrides it for one run. Every run says which seed each
+`GCT_SEED` overrides it for one run. Every run says which seed each
 sample group used, so a number can always be traced to its bitmaps.
 
 ## Three tiers of test, and one measurement
@@ -34,18 +34,18 @@ bitmap by hand, to pin a known case -- never to measure anything.
 | fast | a small sample from the seed: every shape, sparse shape, plan and line set at its `tested` count | `cargo test --test gct_fast` |
 | complete | every family at its `timed` count, plus a moderate sample from a second seed base, plus every checkerboard of odd square side 3 to 31 | `cargo test --release --test gct_complete -- --ignored` |
 
-Plain `cargo test` runs fine and fast. The measurement against dsrn,
-`compare_with_dsrn`, is ignored like the complete tier and prints its
+Plain `cargo test` runs fine and fast. The measurement,
+`gct_measurement`, is ignored like the complete tier and prints its
 numbers:
 
 ```
-cargo test --release --test compare_with_dsrn -- --ignored --nocapture
+cargo test --release --test gct_measurement -- --ignored --nocapture
 ```
 
 The adversarial search, `gct_adversarial_generator`, is ignored too. It
-looks for the bitmaps gct does worst on, against dsrn and against the
-raw cells, by simulated annealing -- first on one 64x64 window, then on
-the plane filled with that window's variants. The worst bitmap for each
+looks for the bitmaps gct does worst on against the raw cells, by
+simulated annealing, four searches at once -- first on one 64x64 window,
+then on the plane filled with that window's variants. The worst bitmap
 is kept in `testing/adversarial/` as a PBM image. It is replaced only
 when beaten, each run starts from it, and it must always round trip:
 
@@ -55,7 +55,7 @@ cargo test --release --test gct_adversarial_generator -- --ignored --nocapture
 
 Diagnostics, in `tests/gct_diagnostics/`, one tool a file, look inside
 gct's results rather than testing them: `census` (node kinds by level),
-`per_shape` (gct against dsrn on every shape, plan and line set),
+`per_shape` (gct's bits on every shape, plan and line set),
 `noise` (bits on noise at several densities) and `render` (PNG images
 in `target/gct_diagnostics/`). They look at the adversarial records and
 any PBM image named in `GCT_DIAGNOSE`:
@@ -83,8 +83,8 @@ When the problems that corpus showed are solved, move the seed and
 re-run the measurement:
 
 ```
-DSRN_SEED=$(head -c8 /dev/urandom | od -An -tu8 | tr -d ' ') \
-  cargo test --release --test compare_with_dsrn -- --ignored --nocapture
+GCT_SEED=$(head -c8 /dev/urandom | od -An -tu8 | tr -d ' ') \
+  cargo test --release --test gct_measurement -- --ignored --nocapture
 ```
 
 A change that is real holds its size on more than one unseen seed. A

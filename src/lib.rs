@@ -1,52 +1,38 @@
 //! A fixed size 256 by 256 bitmap, and an encoding of it.
 //!
-//! [`dsrn`] is disjoint sized-tile region nesting: the bitmap read as a
-//! quadtree whose regions are each bound to a tile size, a bound
-//! region emitting one value per tile, and a region no tile size suits
-//! copied from a neighbour that looks the same or cut into four that
-//! are easier.
+//! [`gct`] is the greedy complex tiler: the bitmap tiled greedily,
+//! biggest first, by tiles bound to one value or copied from a
+//! neighbour; those grouped into complex tiles, each said at one
+//! resolution; the result read as a tree and spelled out in bits.
 //!
 //! # Using it
 //!
-//! The workspace holds every buffer the encoding needs, so it is built
-//! once and fed bitmap after bitmap:
-//!
 //! ```
-//! use bitmap::dsrn::{decode, encode, Encoded, Knobs, Workspace};
-//! use bitmap::pyramid::Pyramid;
+//! use bitmap::gct::{decode, encode};
 //! use bitmap::Bitmap;
 //!
 //! let mut bitmap = Bitmap::new();
 //! bitmap.set_rect(10, 10, 40, 30);
 //! bitmap.set_circle(180, 180, 25);
 //!
-//! let (mut pyramid, mut work) = (Pyramid::new(), Workspace::new());
-//! let (mut out, mut back) = (Encoded::default(), Bitmap::new());
-//!
-//! pyramid.rebuild(&bitmap);
-//! encode(&pyramid, &bitmap, Knobs::default(), &mut work, &mut out);
-//! decode(&out, Knobs::default(), &mut back);
+//! let stream = encode(&bitmap);
+//! let back = decode(&stream);
 //! assert_eq!(back.count_set(), bitmap.count_set());
 //! ```
 //!
 //! # How the crate is laid out
 //!
-//! One folder to a domain, and inside it one file to a purpose. A
-//! `_data` file says what something is and what can be asked of it; a
-//! file named for the folder does the work; a `_diag` file explains
-//! what the work did, for a reader rather than a decoder.
+//! One folder to a domain, and inside it one file to a purpose.
 //!
 //! | folder | its domain |
 //! |---|---|
 //! | [`bitmap`] | the 65536 cells, and what can be drawn on them |
-//! | [`pyramid`] | dsrn's homogeneity pyramid: for every tile of every size, whether it is all one thing |
-//! | [`dsrn`] | the baseline encoding: what a region says, what it costs, how it is written and read |
-//! | [`dsrn_analysis`] | the patterns dsrn's own tests are checked on; goes with dsrn |
-//! | [`gct`] | the greedy complex tiler, the encoding being built to beat dsrn (`docs/gct.md`); depends on nothing in `dsrn` |
+//! | [`gct`] | the greedy complex tiler, the encoding (`docs/gct.md`) |
 //! | [`samples`] | the bitmaps everything is measured on, and where the seed comes from |
-//! | [`table`] | printing any of it, which every experiment does the same way |
+//! | [`table`] | printing any of it, which every measurement does the same way |
 //!
-//! `tests/` holds gct's tests and its comparison against dsrn.
+//! `tests/` holds gct's tests, its measurement, the adversarial search
+//! and the diagnostics.
 //!
 //! `docs/design_statements.md` is what every decision here is weighed
 //! against, and `docs/testing_protocol.md` is how a change to any of
@@ -54,11 +40,8 @@
 
 pub mod bitmap;
 pub mod gct;
-pub mod table;
-pub mod dsrn;
-pub mod dsrn_analysis;
-pub mod pyramid;
 pub mod samples;
+pub mod table;
 
 pub use bitmap::Bitmap;
 

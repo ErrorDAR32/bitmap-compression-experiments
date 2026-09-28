@@ -2,16 +2,8 @@
 //!
 //! Every structure in the crate that holds one bit per position holds
 //! it the same way: four `u64` to a line of 256, least significant bit
-//! first, so position `p` is bit `p % 64` of word `p / 64`. These are
-//! the operations that shape needs, and they are here rather than in
-//! any one of the modules that use them because three of them do.
-//!
-//! All of them are a handful of instructions whatever the line holds. A
-//! run is never searched for, only read off the bits around a position,
-//! and a range is never walked, only masked.
-
-/// How many machine words hold one line of the matrix.
-pub(crate) const LINE_WORDS: usize = 256 / 64;
+//! first, so position `p` is bit `p % 64` of word `p / 64`. This is an
+//! operation that shape needs: a range is never walked, only masked.
 
 /// The bits of word `index` that lie in `lo..=hi`, as a mask.
 ///

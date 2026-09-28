@@ -42,9 +42,12 @@ pub const WHERE_THE_SEED_IS_KEPT: &str = "testing/last_seed";
 /// seed is never forgotten for the length of a whole feature.
 const RUNS_BEFORE_THE_SEED_IS_STALE: u64 = 15;
 
+/// The environment variable that picks a seed for one run.
+const SEED_VARIABLE: &str = "GCT_SEED";
+
 /// The seed a sample group starts from.
 ///
-/// `DSRN_SEED` in the environment wins, so a run can be pinned to any
+/// `GCT_SEED` in the environment wins, so a run can be pinned to any
 /// bitmaps without touching the file, and picking one there always
 /// counts as moving the seed -- it is a deliberate choice, not reuse.
 /// Otherwise the file's seed is reused, which is the common case and
@@ -70,7 +73,7 @@ fn settled() -> (u64, bool) {
         let last = kept.next().and_then(|line| line.trim().parse::<u64>().ok());
         let runs_unmoved = kept.next().and_then(|line| line.trim().parse::<u64>().ok()).unwrap_or(0);
 
-        let asked = std::env::var("DSRN_SEED").ok().and_then(|it| it.trim().parse::<u64>().ok());
+        let asked = std::env::var(SEED_VARIABLE).ok().and_then(|it| it.trim().parse::<u64>().ok());
         let (seed, runs_unmoved) = match asked {
             Some(seed) => (seed, 1),
             None => (last.unwrap_or(0), runs_unmoved + 1),
@@ -96,7 +99,7 @@ fn warn_the_seed_is_stale(seed: u64, runs_unmoved: u64) {
     let _ = writeln!(
         std::io::stderr(),
         "\n  !!! seed {seed} has gone {runs_unmoved} runs without moving -- roll a fresh one: \
-         DSRN_SEED=$(head -c8 /dev/urandom | od -An -tu8 | tr -d ' ') <run again>, then keep \
+         GCT_SEED=$(head -c8 /dev/urandom | od -An -tu8 | tr -d ' ') <run again>, then keep \
          it for the next run so the new corpus gets checked twice, not tuned on once !!!\n"
     );
 }

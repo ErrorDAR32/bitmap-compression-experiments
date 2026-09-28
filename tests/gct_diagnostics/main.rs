@@ -5,7 +5,7 @@
 //! | file | tool |
 //! |---|---|
 //! | `census.rs` | what gct's tree is made of, node kind by level |
-//! | `per_shape.rs` | gct against dsrn on every shape, plan and line set |
+//! | `per_shape.rs` | gct's bits on every shape, plan and line set on its own |
 //! | `noise.rs` | gct's bits on noise at several densities, against the raw cells |
 //! | `render.rs` | PNG images of the bitmaps looked at, in `target/gct_diagnostics/` |
 //!
@@ -21,7 +21,6 @@ mod record;
 
 mod bitmaps;
 mod census;
-mod dsrn;
 mod noise;
 mod per_shape;
 mod render;

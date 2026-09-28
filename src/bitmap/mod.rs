@@ -8,8 +8,8 @@
 //! | `bitmap_drawing` | rectangles and circles, drawn by their shape |
 //!
 //! Nothing here decides anything. What to describe, at what size, in
-//! what order -- all of that is an encoding's, [`crate::dsrn`]'s or
-//! [`crate::gct`]'s, which holds a bitmap and reads it.
+//! what order -- all of that is the encoding's, [`crate::gct`]'s, which
+//! holds a bitmap and reads it.
 
 pub(crate) mod bitmap_words;
 mod bitmap_data;

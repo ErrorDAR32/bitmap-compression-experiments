@@ -5,9 +5,6 @@ describes. `src/gct/` is the code; this file is the one full
 description of its grammar. Kept up to date by hand: if the code
 changes and this doesn't, this file is wrong, not the code.
 
-gct is measured against dsrn (`src/dsrn/`, `docs/dsrn_grammar.md`),
-the baseline it has to beat, and depends on nothing in it.
-
 ## Four steps
 
 Each step is its own folder or file and reads only the step before it.
@@ -167,8 +164,7 @@ reaches (`tree_representation.rs`):
 **The binding above.** A divide at 8x8 or coarser leaves a child to the
 binding above -- no node at all -- when the child is bound whole to the
 value bound above it and unmasked in no complex tile. The value bound
-above is the nearest masking bind's, or clear at the top: the binding
-of dsrn's "left to the closest binding above". Only the tree decides
+above is the nearest masking bind's, or clear at the top. Only the tree decides
 this: the greedy tiler still places the bind, so the complex tiler can
 unmask it where that is cheaper.
 
@@ -263,96 +259,61 @@ assertion backs that. Decoder speed is not a goal; simplicity is.
 
 In `tests/`, per `docs/testing_protocol.md`: `gct_fine` (one bitmap per
 test), `gct_fast` (a small seeded sample), `gct_complete` (everything,
-plus a second seed base), and `compare_with_dsrn` (the measurement
-below). Every check: placed tiles cover every cell once, nothing finer
-than 4x4 copies, every 1x1 tile lies under a residual 2x2, the complex
-tiler's bit cost is the encoder's count, the tree read back is the tree
-written, decoding gives back every cell.
+plus a second seed base and the checkerboards), `gct_measurement` (the
+measurement below), the adversarial search and the diagnostics. Every
+check: placed tiles cover every cell once, nothing finer than 4x4
+copies, every 1x1 tile is said raw, the complex tiler's bit cost is the
+encoder's count, the tree read back is the tree written, decoding gives
+back every cell.
 
 ## Measured
 
 Seed `1950720362523133367`, via
-`cargo test --release --test compare_with_dsrn -- --ignored --nocapture`,
-against dsrn at `Masking::Anywhere`, `FourByFour::ItsOwnGrammar`:
+`cargo test --release --test gct_measurement -- --ignored --nocapture`:
 
-| family | dsrn | gct |
+| family | gct | of the raw cells |
 |---|---|---|
-| laid out like a city, 48 bitmaps | 18300 bits | 12623 bits, -31.0% |
-| grown like a blob, 84 bitmaps | 32518 bits | 30885 bits, -5.0% |
-| drawn with lines, 36 bitmaps | 14034 bits | 11623 bits, -17.2% |
-| sparse, 48 bitmaps | 5130 bits | 4790 bits, -6.6% |
+| laid out like a city, 48 bitmaps | 12622 bits | 19.3% |
+| grown like a blob, 84 bitmaps | 30887 bits | 47.1% |
+| sparse, 48 bitmaps | 4790 bits | 7.3% |
+| drawn with lines, 36 bitmaps | 11618 bits | 17.7% |
 
-On two fresh seeds (`DSRN_SEED` 9216954446512861479 and
-3326496171169911647): city 13180 and 13183 bits (dsrn 20018 and
-19802), blob 30922 and 30925 (dsrn 32561 and 32564), sparse 4821 and
-4785 (dsrn 5159 and 5119), lines 10946 and 11255 (dsrn 13222 and
-13546).
+On two fresh seeds (`GCT_SEED` 9216954446512861479 and
+3326496171169911647): city 13177 and 13181 bits, blob 30922 and 30925,
+sparse 4821 and 4785, lines 10941 and 11248.
 
 Checkerboards of odd square side (`samples/checkerboards.rs`), bits:
 
 | squares | 3 | 5 | 7 | 9 | 11 | 13 | 15 | 17 | 19 | 21 | 23 | 25 | 27 | 29 | 31 |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| dsrn | 65542 | 58938 | 49582 | 38249 | 31486 | 26321 | 23131 | 20004 | 16752 | 14414 | 12982 | 11576 | 9760 | 8155 | 8486 |
-| gct | 65109 | 52225 | 44234 | 33203 | 27612 | 23168 | 20498 | 17883 | 14785 | 12766 | 11521 | 10064 | 8974 | 7670 | 7711 |
-| gct against dsrn | -0.7% | -11.4% | -10.8% | -13.2% | -12.3% | -12.0% | -11.4% | -10.6% | -11.7% | -11.4% | -11.3% | -13.1% | -8.1% | -5.9% | -9.1% |
+| gct | 65173 | 52225 | 44234 | 33203 | 27612 | 23168 | 20498 | 17883 | 14785 | 12766 | 11521 | 10064 | 8974 | 7670 | 7711 |
 
-Worst cases found by the adversarial search (`testing/adversarial/`):
+The worst case the adversarial search has found (`testing/adversarial/`)
+is noise: 65563 bits, four raw 128x128 complex tiles and the start level
+header, 27 over the raw cells.
 
-| attacked | against | gap |
-|---|---|---|
-| gct | dsrn | +110 bits (gct 56226, dsrn 56116) |
-| gct | raw cells | +523 bits (gct 66059) |
-| dsrn | gct | +33349 bits (dsrn 63652, gct 30303) |
-| dsrn | raw cells | +2300 bits (dsrn 67836) |
+| family | complex tiles a bitmap, by nesting | of them masking | tiles a bitmap | masking copies a bitmap | masking binds a bitmap |
+|---|---|---|---|---|---|
+| city | 84.6, 0.2 | 5.2% | 1083.1 | 228.1 | 88.2 |
+| blob | 21.7 | 6.6% | 3205.8 | 1.9 | 7.4 |
+| sparse | 0.4 | 0.0% | 586.8 | 0.1 | 0.0 |
+| lines | 25.6 | 13.1% | 865.5 | 94.3 | 15.9 |
 
-Noise costs gct 65563 bits: four raw 128x128 complex tiles and the
-start level header, 27 over its raw cells (dsrn: 65542, 6 over). The
-records above were found while raw tiles masked every part holding
-more than 2x2 binds and 1x1 tiles; masking only what is cheaper said by
-itself, gct against raw's record costs 65563 (+27) and gct against
-dsrn's 55907, 209 under dsrn.
+| family | body nodes unmasked | masked: unmasked in an outer complex tile | copied | tile | nested complex tile | residual |
+|---|---|---|---|---|---|---|
+| city | 96.34% | 0.00% | 1.37% | 1.58% | 0.05% | 0.65% |
+| blob | 99.91% | 0.00% | 0.01% | 0.08% | 0.00% | 0.00% |
+| sparse | 100.00% | 0.00% | 0.00% | 0.00% | 0.00% | 0.00% |
+| lines | 98.54% | 0.00% | 0.73% | 0.66% | 0.00% | 0.07% |
 
-**Why masking binds need 2 children**, gct bits on the seed above and
-the two fresh ones, measured before masking copies stopped counting
-children bound above:
-
-| masking binds | city | blob | lines | checkerboards |
-|---|---|---|---|---|
-| say 2 children (kept) | 12570, 13136, 13118 | 31352, 31395, 31391 | 11643, 10976, 11279 | 357423 |
-| say 3 children | 12807, 13383, 13361 | 31370, 31413, 31408 | 11674, 11011, 11308 | 358519 |
-| none: clear only is bound above | 12918, 13490, 13476 | 31384, 31426, 31421 | 11687, 11026, 11318 | 358519 |
-
-**Why the masking copy's rule and floor**, measured before the raw
-escape and the bindings above:
-
-| masking copies | city | blob | lines | checkerboards |
-|---|---|---|---|---|
-| say 3 of 4 children or 2 not homogeneous, 8x8 and up (kept) | 12774, 13333, 13323 | 31885, 31984, 31932 | 11589, 10952, 11252 | 349961 |
-| say 2 not homogeneous only | 13056, 13607, 13635 | 32187, 32275, 32234 | 11889, 11241, 11555 | 349961 |
-| also at 4x4 | 13392, 13939, 13903 | 33992, 34055, 34046 | 11935, 11262, 11575 | 356241 |
+A complex tile's body nodes are counted once each: every resolution
+tile unmasked in it, and every masked leaf, whatever its size, belonging
+to the complex tile whose body directly holds it.
 
 **Why the start level header**: a trunk of depth `d` -- every tile
 coarser than level `d` subdivides -- saves `(4^d - 1) / 3` subdivide
 bits for the header's 3. A bitmap that is one tile pays the 3 bits for
 nothing.
 
-| family | dsrn nodes masked | complex tiles a bitmap, by nesting | of them masking | tiles a bitmap | masking copies a bitmap | masking binds a bitmap |
-|---|---|---|---|---|---|---|
-| city | 45.6% of 1776 | 84.2, 0.2 | 4.8% | 1083.3 | 228.1 | 88.2 |
-| blob | 67.0% of 2332 | 22.7 | 0.2% | 3231.7 | 1.9 | 7.3 |
-| sparse | 83.1% of 582 | 0.4 | 0.0% | 586.8 | 0.1 | 0.0 |
-| lines | 38.4% of 1401 | 22.8 | 1.8% | 867.4 | 94.3 | 15.9 |
-
-| family | body nodes unmasked | masked: unmasked in an outer complex tile | copied | tile | nested complex tile | residual |
-|---|---|---|---|---|---|---|
-| city | 96.34% | 0.01% | 1.38% | 1.55% | 0.05% | 0.67% |
-| blob | 99.99% | 0.00% | 0.00% | 0.00% | 0.00% | 0.00% |
-| sparse | 100.00% | 0.00% | 0.00% | 0.00% | 0.00% | 0.00% |
-| lines | 99.42% | 0.00% | 0.22% | 0.27% | 0.00% | 0.09% |
-
-A dsrn node is any code it wrote with a mask to decide on. A complex
-tile's body nodes are counted once each: every resolution tile unmasked
-in it, and every masked leaf, whatever its size, belonging
-to the complex tile whose body directly holds it.
-
-Every earlier version, with its numbers, is in git.
+The measurements behind each rule, and every earlier version with its
+numbers, are in git.

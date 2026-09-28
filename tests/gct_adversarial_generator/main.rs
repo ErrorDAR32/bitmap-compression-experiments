@@ -1,25 +1,21 @@
-//! Adversarial bitmaps: a search for the bitmaps each encoder does worst
-//! on -- gct against dsrn and against the raw cells, and dsrn against
-//! gct and against the raw cells -- one search a core. See
-//! `docs/testing_protocol.md`.
+//! Adversarial bitmaps: a search for the bitmaps gct does worst on --
+//! what it costs beyond the raw cells -- four searches at once, one a
+//! core, each from its own seed. See `docs/testing_protocol.md`.
 //!
-//! Two stages, each a simulated annealing (`anneal.rs`) over
-//! structure-aware changes (`moves.rs`):
+//! Each search has two stages, each a simulated annealing (`anneal.rs`)
+//! over structure-aware changes (`moves.rs`):
 //!
 //! 1. One 64x64 window, in an otherwise clear bitmap, from a clear start
-//!    and from a noisy one: every change lands where it counts, and
-//!    both encoders are quadtrees, so what is bad in a window is bad
-//!    anywhere.
+//!    and from a noisy one: every change lands where it counts, and gct
+//!    reads a quadtree, so what is bad in a window is bad anywhere.
 //! 2. The whole plane: filled with the best window's sixteen variants
 //!    (`plane.rs`), from noise, and from the worst bitmap recorded so
 //!    far, carried on from where the last run left it.
 //!
-//! The worst plane is recorded (`record.rs`) when it beats the record,
-//! and every recorded bitmap must still round trip.
+//! The worst plane of all four is recorded (`record.rs`) when it beats
+//! the record, and the recorded bitmap must still round trip.
 //!
 //! `cargo test --release --test gct_adversarial_generator -- --ignored --nocapture`
-//! -- a few minutes: scoring takes tens of milliseconds an encoder, a
-//! clear window no less than a full plane.
 
 #[path = "../common/mod.rs"]
 mod common;
@@ -35,7 +31,7 @@ use bitmap::gct::tile::Tile;
 use bitmap::samples::sample_seed;
 use bitmap::table::Table;
 use bitmap::Bitmap;
-use objectives::{Encoder, Objective, Scorer, OBJECTIVES};
+use objectives::score;
 use rng::Rng;
 use std::thread;
 
@@ -52,6 +48,12 @@ const PLANE_ITERATIONS: u64 = 100;
 /// disordered.
 const NOISE_DENSITY_DIVISOR: u64 = 2;
 
+/// Searches run at once, one a core.
+const SEARCHES: u64 = 4;
+
+/// What the record is kept under.
+const RECORD: &str = "gct_against_raw";
+
 /// `area` filled with noise, the rest clear.
 fn noise(rng: &mut Rng, area: Tile) -> Bitmap {
     let mut bitmap = Bitmap::new();
@@ -66,106 +68,81 @@ fn noise(rng: &mut Rng, area: Tile) -> Bitmap {
     bitmap
 }
 
-/// What one objective's search found, and which start each stage's
-/// best came from.
-struct Outcome {
-    objective: Objective,
-    window: Found,
-    window_from: &'static str,
-    worst: Found,
-    worst_from: &'static str,
-    record_gap: Option<i64>,
-    beaten: bool,
-}
-
 /// The best of `starts`, each annealed in `area`, and which start it
 /// came from.
-fn best_of(
-    starts: Vec<(&'static str, Bitmap)>,
-    area: Tile,
-    objective: Objective,
-    iterations: u64,
-    rng: &mut Rng,
-    scorer: &mut Scorer,
-) -> (Found, &'static str) {
+fn best_of(starts: Vec<(&'static str, Bitmap)>, area: Tile, iterations: u64, rng: &mut Rng) -> (Found, &'static str) {
     starts
         .into_iter()
-        .map(|(from, start)| (anneal(start, area, objective, iterations, rng, scorer), from))
+        .map(|(from, start)| (anneal(start, area, iterations, rng), from))
         .max_by_key(|(found, _)| found.score.gap)
         .unwrap()
 }
 
-/// One objective's whole search, from its own seed; records what it
-/// found if it beats the record.
-fn search(objective: Objective, seed: u64) -> Outcome {
+/// What one search found, and which start each stage's best came from.
+struct Outcome {
+    window: Found,
+    window_from: &'static str,
+    worst: Found,
+    worst_from: &'static str,
+}
+
+/// One whole search, from its own seed.
+fn search(seed: u64, recorded: Option<Bitmap>) -> Outcome {
     let mut rng = Rng::new(seed);
-    let mut scorer = Scorer::new();
-    let whole = Tile::whole_bitmap();
-
     let window_starts = vec![("clear", Bitmap::new()), ("noise", noise(&mut rng, WINDOW))];
-    let (window, window_from) = best_of(window_starts, WINDOW, objective, WINDOW_ITERATIONS, &mut rng, &mut scorer);
+    let (window, window_from) = best_of(window_starts, WINDOW, WINDOW_ITERATIONS, &mut rng);
 
-    let recorded = record::read(objective.name());
+    let whole = Tile::whole_bitmap();
     let mut plane_starts =
         vec![("window variants", plane::fill_the_plane(&window.bitmap, WINDOW)), ("noise", noise(&mut rng, whole))];
-    plane_starts.extend(recorded.clone().map(|bitmap| ("record", bitmap)));
-    let (worst, worst_from) = best_of(plane_starts, whole, objective, PLANE_ITERATIONS, &mut rng, &mut scorer);
-
-    let record_gap = recorded.map(|bitmap| scorer.score(objective, &bitmap, whole).gap);
-    let beaten = record_gap.is_none_or(|gap| worst.score.gap > gap);
-    if beaten {
-        let note = format!("{}: gap {} bits", objective.name(), worst.score.gap);
-        record::write(objective.name(), &worst.bitmap, &note);
-    }
-    Outcome { objective, window, window_from, worst, worst_from, record_gap, beaten }
+    plane_starts.extend(recorded.map(|bitmap| ("record", bitmap)));
+    let (worst, worst_from) = best_of(plane_starts, whole, PLANE_ITERATIONS, &mut rng);
+    Outcome { window, window_from, worst, worst_from }
 }
 
 #[test]
 #[ignore]
 fn search_adversarial_bitmaps() {
     let seed = sample_seed("adversarial search");
+    let recorded = record::read(RECORD);
     let outcomes: Vec<Outcome> = thread::scope(|scope| {
-        let searches: Vec<_> = OBJECTIVES
-            .iter()
-            .enumerate()
-            .map(|(index, &objective)| scope.spawn(move || search(objective, seed.wrapping_add(index as u64))))
+        let searches: Vec<_> = (0..SEARCHES)
+            .map(|index| {
+                let recorded = recorded.clone();
+                scope.spawn(move || search(seed.wrapping_add(index), recorded))
+            })
             .collect();
         searches.into_iter().map(|search| search.join().unwrap()).collect()
     });
 
-    let mut scorer = Scorer::new();
     let mut table = Table::new(&[
-        "objective",
+        "search",
         "worst window\ngap, bits",
         "window\nfrom",
         "worst plane\ngap, bits",
         "plane\nfrom",
         "gct\nbits",
-        "dsrn\nbits",
-        "record",
     ]);
-    for outcome in outcomes {
-        let worst = &outcome.worst;
-        let gct_bits = worst.score.gct_bits.unwrap_or_else(|| scorer.bits(Encoder::Gct, &worst.bitmap));
-        let dsrn_bits = worst.score.dsrn_bits.unwrap_or_else(|| scorer.bits(Encoder::Dsrn, &worst.bitmap));
+    for (index, outcome) in outcomes.iter().enumerate() {
         table.row(&[
-            outcome.objective.name().to_string(),
+            index.to_string(),
             outcome.window.score.gap.to_string(),
             outcome.window_from.to_string(),
-            worst.score.gap.to_string(),
+            outcome.worst.score.gap.to_string(),
             outcome.worst_from.to_string(),
-            gct_bits.to_string(),
-            dsrn_bits.to_string(),
-            match (outcome.beaten, outcome.record_gap) {
-                (true, Some(gap)) => format!("new, was {gap}"),
-                (true, None) => "new".to_string(),
-                (false, Some(gap)) => format!("kept, {gap}"),
-                (false, None) => unreachable!("with no record, anything found is one"),
-            },
+            outcome.worst.score.gct_bits.to_string(),
         ]);
-        let name = outcome.objective.name();
-        common::check(&record::read(name).expect("recorded"), name);
     }
     println!();
     table.print();
+
+    let worst = outcomes.iter().map(|outcome| &outcome.worst).max_by_key(|found| found.score.gap).unwrap();
+    let record_gap = recorded.map(|bitmap| score(&bitmap, Tile::whole_bitmap()).gap);
+    if record_gap.is_none_or(|gap| worst.score.gap > gap) {
+        record::write(RECORD, &worst.bitmap, &format!("{RECORD}: gap {} bits", worst.score.gap));
+        println!("  new record: {} bits over raw (was {record_gap:?})", worst.score.gap);
+    } else {
+        println!("  record kept: {} bits over raw", record_gap.unwrap());
+    }
+    common::check(&record::read(RECORD).expect("recorded"), RECORD);
 }
