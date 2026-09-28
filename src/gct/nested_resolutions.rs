@@ -22,9 +22,6 @@ pub struct NestedResolutions {
     resolutions: [u8; MOST_NESTINGS],
     /// How many complex tiles it is nested in.
     count: u8,
-    /// [`NestedResolutions::key`], kept up to date as resolutions come
-    /// and go.
-    key: u64,
 }
 
 impl NestedResolutions {
@@ -38,10 +35,19 @@ impl NestedResolutions {
         self.count
     }
 
-    /// One number standing for these resolutions, in order: four bits a
-    /// resolution, plus one so none is zero.
-    pub fn key(&self) -> u64 {
-        self.key
+    /// One number standing for the resolutions, in order, of the complex
+    /// tiles that can reach a tile of `level` or anything under it --
+    /// those whose resolution is `level` or finer: four bits a
+    /// resolution, plus one so none is zero. A tile's bits depend on
+    /// nothing else of its nesting, since every rule asks only the
+    /// complex tiles able to unmask what it is asking about, and what is
+    /// under a tile is finer still. So two nestings differing only in
+    /// coarser resolutions share one key, and one count.
+    pub fn key_for(&self, level: u8) -> u64 {
+        self.resolutions[..self.count as usize]
+            .iter()
+            .filter(|&&resolution| resolution >= level)
+            .fold(0, |key, &resolution| key << RESOLUTION_BITS | (resolution as u64 + 1))
     }
 
     /// The resolution of the complex tile at `nesting`.
@@ -88,12 +94,10 @@ impl NestedResolutions {
     fn push(&mut self, resolution: u8) {
         self.resolutions[self.count as usize] = resolution;
         self.count += 1;
-        self.key = self.key << RESOLUTION_BITS | (resolution as u64 + 1);
     }
 
     /// The innermost complex tile taken off.
     fn pop(&mut self) {
         self.count -= 1;
-        self.key >>= RESOLUTION_BITS;
     }
 }

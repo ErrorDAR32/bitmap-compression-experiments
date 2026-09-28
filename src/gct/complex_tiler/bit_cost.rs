@@ -197,7 +197,7 @@ fn remembered(
     if tile.level > COUNTED_SHAPE.finest_level {
         return bits_counted(complex_tiling, tile, nested, bound_above, counted);
     }
-    let at = counted.index_for(nested.key());
+    let at = counted.index_for(nested.key_for(tile.level));
     let known = counted.pyramids[at].1.get(tile);
     if known != NOT_COUNTED {
         return known - 1;
