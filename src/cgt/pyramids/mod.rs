@@ -1,0 +1,10 @@
+//! Pyramids: one element per tile, at every level. [`pyramid`] is the
+//! generic structure; every other file is one specialization of it,
+//! fixing its shape and supplying its own queries and actions.
+
+pub mod bound_tile_counts;
+pub mod complex_tile_depths;
+pub mod copyable;
+pub mod homogeneity;
+pub mod placements;
+pub mod pyramid;
