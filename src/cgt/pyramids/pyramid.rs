@@ -45,7 +45,7 @@ impl PyramidShape {
 }
 
 /// One element per tile, per level -- see the module doc.
-#[derive(Clone, Debug)]
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub struct Pyramid {
     shape: PyramidShape,
     /// One word-packed plane per level, coarsest first.
