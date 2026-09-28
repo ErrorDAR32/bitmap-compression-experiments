@@ -10,7 +10,7 @@ use crate::gct::grammar::*;
 use crate::gct::nested_resolutions::NestedResolutions;
 use crate::gct::pyramids::pyramid::Pyramid;
 use crate::gct::pyramids::tree::{Node, Tree};
-use crate::gct::tile::{Tile, CELL_LEVEL};
+use crate::gct::tile::{cells_in_tile, Tile, CELL_LEVEL};
 use crate::Bitmap;
 
 /// Spells out `tree` for `bitmap` into `out`, whatever it held before;
@@ -143,9 +143,26 @@ fn write_named_children(
 }
 
 /// A complex tile's payload: the value of every tile of its resolution
-/// unmasked in it.
+/// unmasked in it, a part at a time.
 fn write_payload(tree: &Pyramid, bitmap: &Bitmap, tile: Tile, nesting: u8, size_offset: u8, out: &mut BitStream, runs: &mut Runs) {
-    for part in runs.payload(tree, tile, nesting, size_offset) {
-        out.push(part.top_left_value(bitmap));
+    let resolution = tile.level + size_offset;
+    for &part in runs.payload(tree, tile, nesting) {
+        write_part(bitmap, part, resolution, out);
+    }
+}
+
+/// One part of a payload: the value of each of its tiles of
+/// `resolution`, in Morton order. At 1x1, those are its cells, as they
+/// lie in the bitmap: written a word at a time.
+fn write_part(bitmap: &Bitmap, part: Tile, resolution: u8, out: &mut BitStream) {
+    if resolution == CELL_LEVEL {
+        let cells = cells_in_tile(part.level) as usize;
+        for word in bitmap.square_words(part.top_left_cell(), part.side_in_cells()) {
+            out.push_value(word, cells.min(u64::BITS as usize) as u8);
+        }
+        return;
+    }
+    for tile in part.tiles_at_size_offset(resolution - part.level) {
+        out.push(tile.top_left_value(bitmap));
     }
 }

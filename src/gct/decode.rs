@@ -161,10 +161,35 @@ fn read_node(
     read_payload(reader, tile, nesting, size_offset, read, runs);
 }
 
-/// A complex tile's payload, bound into the cells of the tiles it names.
+/// A complex tile's payload, bound into the cells of the tiles it names,
+/// a part at a time.
 fn read_payload(reader: &mut BitReader, tile: Tile, nesting: u8, size_offset: u8, read: &mut StreamContents, runs: &mut Runs) {
-    for &part in runs.payload(read.tree, tile, nesting, size_offset) {
-        read.bind(part, reader.bit());
+    let resolution = tile.level + size_offset;
+    for &part in runs.payload(read.tree, tile, nesting) {
+        read_part(reader, part, resolution, read.cell_values);
+    }
+}
+
+/// One part of a payload, as [`crate::gct::encode`](mod@crate::gct::encode) writes it: at 1x1,
+/// its cells a word at a time; otherwise each tile of `resolution` bound
+/// to its value.
+fn read_part(reader: &mut BitReader, part: Tile, resolution: u8, cells: &mut Bitmap) {
+    if resolution == CELL_LEVEL {
+        let (corner, side) = (part.top_left_cell(), part.side_in_cells());
+        let count = side * side;
+        if count < u64::BITS as usize {
+            cells.set_in_small_square(corner, side, reader.value(count as u8));
+        } else {
+            for word in cells.square_words_mut(corner, side) {
+                *word |= reader.value(u64::BITS as u8);
+            }
+        }
+        return;
+    }
+    for tile in part.tiles_at_size_offset(resolution - part.level) {
+        if reader.bit() {
+            tile.set_in(cells);
+        }
     }
 }
 

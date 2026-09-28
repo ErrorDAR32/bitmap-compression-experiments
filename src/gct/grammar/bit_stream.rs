@@ -61,19 +61,27 @@ impl BitStream {
     }
 
     /// Writes one bit.
+    #[inline]
     pub fn push(&mut self, bit: bool) {
-        assert!(self.len < MOST_BITS, "a stream longer than any gct writes: MOST_BITS is wrong");
-        if bit {
-            self.words[self.len / WORD_BITS] |= 1 << (self.len % WORD_BITS);
-        }
-        self.len += 1;
+        self.push_value(bit as u64, 1);
     }
 
-    /// Writes the low `width` bits of `value`.
+    /// Writes the low `width` bits of `value`, at most a word: into the
+    /// word the stream ends in, and the next when they straddle it.
+    #[inline]
     pub fn push_value(&mut self, value: u64, width: u8) {
-        for bit in 0..width {
-            self.push(value >> bit & 1 == 1);
+        let width = width as usize;
+        assert!(self.len + width <= MOST_BITS, "a stream longer than any gct writes: MOST_BITS is wrong");
+        if width == 0 {
+            return;
         }
+        let value = if width == WORD_BITS { value } else { value & ((1 << width) - 1) };
+        let (word, shift) = (self.len / WORD_BITS, self.len % WORD_BITS);
+        self.words[word] |= value << shift;
+        if shift + width > WORD_BITS {
+            self.words[word + 1] |= value >> (WORD_BITS - shift);
+        }
+        self.len += width;
     }
 
     /// Reads from the start.
@@ -92,14 +100,32 @@ pub struct BitReader<'a> {
 
 impl BitReader<'_> {
     /// Reads one bit.
+    #[inline]
     pub fn bit(&mut self) -> bool {
-        let bit = self.at < self.stream.len && self.stream.words[self.at / WORD_BITS] >> (self.at % WORD_BITS) & 1 == 1;
-        self.at += 1;
-        bit
+        self.value(1) == 1
     }
 
-    /// Reads `width` bits, as written by [`BitStream::push_value`].
+    /// Reads `width` bits, at most a word, as written by
+    /// [`BitStream::push_value`]: from the word the next bit is in, and
+    /// the next when they straddle it. Past the stream's end every bit is
+    /// 0, and so is every word past the most a stream takes.
+    #[inline]
     pub fn value(&mut self, width: u8) -> u64 {
-        (0..width).fold(0, |value, bit| value | (self.bit() as u64) << bit)
+        let width = width as usize;
+        if width == 0 {
+            return 0;
+        }
+        let (word, shift) = (self.at / WORD_BITS, self.at % WORD_BITS);
+        let words = &self.stream.words;
+        let mut value = words.get(word).map_or(0, |&low| low >> shift);
+        if shift + width > WORD_BITS {
+            value |= words.get(word + 1).map_or(0, |&high| high << (WORD_BITS - shift));
+        }
+        self.at += width;
+        if width == WORD_BITS {
+            value
+        } else {
+            value & ((1 << width) - 1)
+        }
     }
 }

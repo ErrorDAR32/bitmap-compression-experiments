@@ -103,6 +103,15 @@ impl Bitmap {
         self.words[at / BITS_PER_WORD] |= run << (at % BITS_PER_WORD);
     }
 
+    /// The cells of an aligned square of a word of cells or more, top
+    /// left at `(x, y)`, `side` cells a side, to write: its words, in
+    /// Morton order.
+    pub(crate) fn square_words_mut(&mut self, (x, y): (u8, u8), side: usize) -> &mut [u64] {
+        let (at, cells) = (Self::bit_index(x, y), side * side);
+        debug_assert!(cells >= BITS_PER_WORD, "a {side}x{side} square is less than a word");
+        &mut self.words[at / BITS_PER_WORD..(at + cells) / BITS_PER_WORD]
+    }
+
     /// Whether two aligned squares of `side` cells, top left at `a` and
     /// at `b`, hold the same cells. Aligned: `side` a power of two, each
     /// corner's coordinates multiples of it.
