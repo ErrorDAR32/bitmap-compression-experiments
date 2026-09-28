@@ -40,6 +40,13 @@ impl Jbig {
     }
 }
 
+impl Default for Jbig {
+    /// The same as [`Jbig::new`].
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Codec for Jbig {
     fn name(&self) -> String {
         "JBIG (jbigkit)".to_string()

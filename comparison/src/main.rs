@@ -17,17 +17,14 @@
 
 #![warn(missing_docs, clippy::missing_docs_in_private_items)]
 
-mod codecs;
-mod rows;
-
 use bitmap::samples::{LINE_SETS, PLANS, SHAPES, SPARSE};
 use bitmap::Bitmap;
-use codecs::g4::G4;
-use codecs::gct::Gct;
-use codecs::jbig::Jbig;
-use codecs::zstd::Zstd;
-use codecs::Codec;
-use rows::Rows;
+use comparison::codecs::g4::G4;
+use comparison::codecs::gct::Gct;
+use comparison::codecs::jbig::Jbig;
+use comparison::codecs::zstd::Zstd;
+use comparison::codecs::Codec;
+use comparison::rows::{self, Rows};
 use std::time::Instant;
 
 /// Bitmaps each generator makes unless told otherwise: 20 generators,

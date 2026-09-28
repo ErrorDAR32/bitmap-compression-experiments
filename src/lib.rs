@@ -36,6 +36,7 @@
 //!
 //! | folder | its domain |
 //! |---|---|
+//! | [`adversarial`] | searches for the bitmaps an encoder does worst on, by any score |
 //! | [`bitmap`] | the 65536 cells, and what can be drawn on them |
 //! | [`gct`] | the greedy complex tiler, the encoding (`docs/gct.md`) |
 //! | `fixed_list` | the one list gct keeps: a fixed capacity, allocated once, never growing |
@@ -54,6 +55,7 @@
 // checks the private ones.
 #![warn(missing_docs, clippy::missing_docs_in_private_items)]
 
+pub mod adversarial;
 pub mod bitmap;
 mod fixed_list;
 mod morton;

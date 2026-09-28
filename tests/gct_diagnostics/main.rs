@@ -14,11 +14,6 @@
 //!
 //! `cargo test --release --test gct_diagnostics -- --ignored --nocapture <tool>`
 
-// Only its reading is used here.
-#[allow(dead_code)]
-#[path = "../gct_adversarial_generator/record.rs"]
-mod record;
-
 mod bitmaps;
 mod census;
 mod noise;

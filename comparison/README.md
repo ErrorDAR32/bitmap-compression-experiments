@@ -35,3 +35,22 @@ cargo run --release --manifest-path comparison/Cargo.toml -- 400
 ```
 
 The argument, if given, is how many bitmaps each generator makes.
+
+## Adversarial search against each codec
+
+`src/bin/adversarial.rs` runs the library's adversarial search
+(`bitmap::adversarial`, the same one `tests/gct_adversarial_generator`
+runs against the raw cells) against each codec here: four searches at
+once for each of G4, JBIG, zstd 3 and zstd 19, maximizing gct's bits
+less the codec's. The worst found for each is kept in
+`testing/adversarial/gct_against_<codec>.pbm`, replaced only when
+beaten, and each run carries on from it; every record must round trip
+through both encoders, and both are timed on it (the median of 21
+encodes). From the repository root, in release:
+
+```
+cargo run --release --manifest-path comparison/Cargo.toml --bin adversarial
+```
+
+The library holds the search, and the codecs stay here, so gct never
+depends on them.

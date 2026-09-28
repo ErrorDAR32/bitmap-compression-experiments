@@ -24,6 +24,13 @@ impl G4 {
     }
 }
 
+impl Default for G4 {
+    /// The same as [`G4::new`].
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Codec for G4 {
     fn name(&self) -> String {
         "CCITT G4 (fax crate)".to_string()

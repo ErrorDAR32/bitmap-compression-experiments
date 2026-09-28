@@ -6,12 +6,14 @@
 //! The kinds of change learn: each is drawn in proportion to one plus
 //! the times it has raised the score, so a search leans on whatever is
 //! working on the bitmap in front of it.
+//!
+//! What is maximized is the caller's: any score of a bitmap.
 
 use super::moves::CHANGES;
-use super::objectives::{score, Score};
 use super::rng::Rng;
-use bitmap::gct::tile::Tile;
-use bitmap::Bitmap;
+use super::Score;
+use crate::gct::tile::Tile;
+use crate::Bitmap;
 
 /// How many bits a change may lose and still often be kept at the
 /// start: about what one change moves, so early on the search crosses
@@ -38,23 +40,19 @@ fn pick(rng: &mut Rng, successes: &[u64]) -> usize {
     unreachable!("the draw is below the sum")
 }
 
-/// The best bitmap `iterations` changes inside `area` reach from `start`.
-pub fn anneal(
-    start: Bitmap,
-    area: Tile,
-    iterations: u64,
-    rng: &mut Rng,
-) -> Found {
+/// The best bitmap `iterations` changes inside `area` reach from
+/// `start`, by `score`.
+pub fn anneal(start: Bitmap, area: Tile, iterations: u64, rng: &mut Rng, score: &mut impl FnMut(&Bitmap) -> Score) -> Found {
     let mut successes = [0; CHANGES.len()];
     let mut current = start;
-    let mut current_score = score(&current, area);
+    let mut current_score = score(&current);
     let mut best = Found { bitmap: current.clone(), score: current_score };
     for iteration in 0..iterations {
         let temperature = START_TEMPERATURE * (1.0 - iteration as f64 / iterations as f64);
         let kind = pick(rng, &successes);
         let mut next = current.clone();
         CHANGES[kind](rng, &mut next, area);
-        let next_score = score(&next, area);
+        let next_score = score(&next);
         let gain = (next_score.gap - current_score.gap) as f64;
         if gain > 0.0 {
             successes[kind] += 1;

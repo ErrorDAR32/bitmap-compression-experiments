@@ -25,6 +25,13 @@ impl Gct {
     }
 }
 
+impl Default for Gct {
+    /// The same as [`Gct::new`].
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Codec for Gct {
     fn name(&self) -> String {
         "gct".to_string()

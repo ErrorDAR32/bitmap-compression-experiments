@@ -1,7 +1,7 @@
 //! The bitmaps a diagnostic looks at: every adversarial record, and the
 //! PBM image named in `GCT_DIAGNOSE`, if any.
 
-use super::record;
+use bitmap::adversarial::record;
 use bitmap::Bitmap;
 use std::fs;
 use std::path::Path;

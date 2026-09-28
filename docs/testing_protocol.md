@@ -101,6 +101,14 @@ its own so gct never depends on them (`comparison/README.md`):
 cargo run --release --manifest-path comparison/Cargo.toml
 ```
 
+The same crate searches adversarially against each of those codecs --
+the library's search (`bitmap::adversarial`), scored as gct's bits less
+the codec's -- keeping the worst for each in `testing/adversarial/`:
+
+```
+cargo run --release --manifest-path comparison/Cargo.toml --bin adversarial
+```
+
 ## Phase one: fix, with the seed held still
 
 Pick a seed base and leave it alone. While it is held:

@@ -4,8 +4,8 @@
 //! almost match, and structure no power-of-two tile lines up with.
 
 use super::rng::Rng;
-use bitmap::gct::tile::{tile_side, Tile, CELL_LEVEL, DIRECTIONS};
-use bitmap::Bitmap;
+use crate::gct::tile::{tile_side, Tile, CELL_LEVEL, DIRECTIONS};
+use crate::Bitmap;
 
 /// The largest square a painted rectangle or a checkerboard patch
 /// spans, as a share of the area's side: big enough to cross several

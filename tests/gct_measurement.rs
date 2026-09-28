@@ -9,8 +9,7 @@ mod common;
 
 // Only its reading is used here.
 #[allow(dead_code)]
-#[path = "gct_adversarial_generator/record.rs"]
-mod record;
+use bitmap::adversarial::record;
 
 use bitmap::gct::grammar::bit_stream::BitStream;
 use bitmap::gct::Workspace;

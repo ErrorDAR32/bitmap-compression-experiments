@@ -4,7 +4,7 @@
 //! diff. A run starts from it and replaces it only when it beats it,
 //! so the search keeps going across runs.
 
-use bitmap::{Bitmap, HEIGHT, WIDTH};
+use crate::{Bitmap, HEIGHT, WIDTH};
 use std::fs;
 use std::path::PathBuf;
 
