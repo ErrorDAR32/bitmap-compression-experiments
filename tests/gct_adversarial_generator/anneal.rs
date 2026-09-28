@@ -3,9 +3,9 @@
 //! often as the search cools -- so it can climb out of a local best.
 //! The best bitmap seen is what it returns.
 //!
-//! The kinds of change learn: each starts equally likely, and each time
-//! one raises the score it becomes likelier, so a search leans on
-//! whatever is working on the bitmap in front of it.
+//! The kinds of change learn: each is drawn in proportion to one plus
+//! the times it has raised the score, so a search leans on whatever is
+//! working on the bitmap in front of it.
 
 use super::moves::CHANGES;
 use super::objectives::{Objective, Score, Scorer};
@@ -18,26 +18,21 @@ use bitmap::Bitmap;
 /// small valleys freely. It cools linearly to nothing.
 const START_TEMPERATURE: f64 = 8.0;
 
-/// How much likelier a kind of change becomes each time it raises the
-/// score, against the one weight every kind starts with.
-const WEIGHT_PER_SUCCESS: f64 = 1.0;
-const STARTING_WEIGHT: f64 = 1.0;
-
 pub struct Found {
     pub bitmap: Bitmap,
     pub score: Score,
 }
 
-/// A kind of change, drawn by weight.
-fn pick(rng: &mut Rng, weights: &[f64]) -> usize {
-    let mut left = rng.unit() * weights.iter().sum::<f64>();
-    for (kind, &weight) in weights.iter().enumerate() {
-        if left < weight {
+/// A kind of change, drawn in proportion to one plus its successes.
+fn pick(rng: &mut Rng, successes: &[u64]) -> usize {
+    let mut left = rng.below(successes.iter().map(|&count| count + 1).sum());
+    for (kind, &count) in successes.iter().enumerate() {
+        if left <= count {
             return kind;
         }
-        left -= weight;
+        left -= count + 1;
     }
-    weights.len() - 1
+    unreachable!("the draw is below the sum")
 }
 
 /// The best bitmap `iterations` changes inside `area` reach from `start`.
@@ -49,19 +44,19 @@ pub fn anneal(
     rng: &mut Rng,
     scorer: &mut Scorer,
 ) -> Found {
-    let mut weights = [STARTING_WEIGHT; CHANGES.len()];
+    let mut successes = [0; CHANGES.len()];
     let mut current = start;
     let mut current_score = scorer.score(objective, &current, area);
     let mut best = Found { bitmap: current.clone(), score: current_score };
     for iteration in 0..iterations {
         let temperature = START_TEMPERATURE * (1.0 - iteration as f64 / iterations as f64);
-        let kind = pick(rng, &weights);
+        let kind = pick(rng, &successes);
         let mut next = current.clone();
         CHANGES[kind](rng, &mut next, area);
         let next_score = scorer.score(objective, &next, area);
         let gain = (next_score.gap - current_score.gap) as f64;
         if gain > 0.0 {
-            weights[kind] += WEIGHT_PER_SUCCESS;
+            successes[kind] += 1;
         }
         if gain >= 0.0 || (temperature > 0.0 && rng.unit() < (gain / temperature).exp()) {
             current = next;

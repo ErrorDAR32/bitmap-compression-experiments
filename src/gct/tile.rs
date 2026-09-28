@@ -127,12 +127,6 @@ impl Tile {
         bitmap.get(x, y)
     }
 
-    /// Whether any cell of this tile is set in `bitmap`.
-    pub fn any_set_in(self, bitmap: &Bitmap) -> bool {
-        let (left, top, right, bottom) = self.cell_rect();
-        bitmap.any_set_in_rect(left, top, right, bottom)
-    }
-
     /// Sets every cell of this tile in `bitmap`.
     pub fn set_in(self, bitmap: &mut Bitmap) {
         let (left, top, right, bottom) = self.cell_rect();

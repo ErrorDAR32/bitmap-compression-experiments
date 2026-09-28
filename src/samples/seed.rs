@@ -23,7 +23,7 @@
 //! easy to miss in routine output cannot be trusted to prevent. So how
 //! many runs in a row a seed has gone unmoved travels in the same file
 //! as the seed itself, and a run that crosses
-//! [`RUNS_BEFORE_THE_SEED_IS_STALE`] gets a second, much louder line,
+//! `RUNS_BEFORE_THE_SEED_IS_STALE` gets a second, much louder line,
 //! naming the exact command that rolls a fresh one.
 
 use std::io::Write;

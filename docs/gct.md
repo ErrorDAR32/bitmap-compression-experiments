@@ -254,10 +254,8 @@ against dsrn at `Masking::Anywhere`, `FourByFour::ItsOwnGrammar`:
 | laid out like a city, 48 bitmaps | 3422 bits | 3270 bits, -4.4% |
 | grown like a blob, 84 bitmaps | 32518 bits | 31885 bits, -1.9% |
 
-Scoring complex tiles by the bits they save took city from 3277 and
-blob from 31926 (fresh seeds: city 3318 -> 3312 and 3326 -> 3320, blob
-32019 -> 31984 and 31942 -> 31932; checkerboards 350899 -> 349961 bits
-in all).
+On two fresh seeds (`DSRN_SEED` 9216954446512861479 and
+3326496171169911647): city 3312 and 3320 bits, blob 31984 and 31932.
 
 Checkerboards of odd square side (`samples/checkerboards.rs`), bits:
 
@@ -267,9 +265,22 @@ Checkerboards of odd square side (`samples/checkerboards.rs`), bits:
 | gct | 63462 | 50744 | 42098 | 32051 | 26930 | 22857 | 20203 | 17643 | 14675 | 12690 | 11704 | 10239 | 9103 | 7779 | 7783 |
 | gct against dsrn | -3.2% | -13.9% | -15.1% | -16.2% | -14.5% | -13.2% | -12.7% | -11.8% | -12.4% | -12.0% | -9.8% | -11.5% | -6.7% | -4.6% | -8.3% |
 
-Masking copies took city from 3643 and blob from 32573. Which copies
-may mask, on this seed and two fresh ones (`DSRN_SEED`
-9216954446512861479 and 3326496171169911647), gct against dsrn:
+Worst cases found by the adversarial search (`testing/adversarial/`):
+
+| attacked | against | gap |
+|---|---|---|
+| gct | dsrn | +18236 bits (gct 82719, dsrn 64483) |
+| gct | raw cells | +18548 bits (gct 84084) |
+| dsrn | gct | +26297 bits (dsrn 46573, gct 20276) |
+| dsrn | raw cells | +2218 bits (dsrn 67754) |
+
+Most of gct's worst case is plain noise: half-density random cells cost
+gct about 80000 bits, dsrn 65542 -- a bind of the whole bitmap at 1x1,
+its raw cells. gct has no such escape: a 4x4 of noise costs it a
+subdivide, and each of its 2x2s a residual bit and four raw cells.
+
+**Why a masking copy's thresholds are what they are**, gct against dsrn
+on the seed above and the two fresh ones:
 
 | a masking copy says | city | blob |
 |---|---|---|
@@ -277,17 +288,10 @@ may mask, on this seed and two fresh ones (`DSRN_SEED`
 | 2 of 4 children | -3.5%, -3.1%, -3.6% | -1.5%, -1.3%, -1.6% |
 | 3 of 4, or 2 not homogeneous (kept) | -4.2%, -4.0%, -4.4% | -1.8%, -1.7%, -1.9% |
 
-The start level header took city from 3671 and blob from 32856. Trunk
-depths per bitmap were 2-4 on city and 3-7 on blob; a trunk of depth
-`d` saves `(4^d - 1) / 3` subdivide bits for the header's 3. A bitmap
-that is one tile pays the 3 bits for nothing.
-
-Tiles pay the full resolution field where a simple bind used to pay one
-flag bit: 0 extra bits at level 6, +1 at levels 4-5, +2 at levels 0-3.
-That is almost the whole gap to the version before tiles were complex
-tiles (city 3489, blob 32647 on the same seed). A variant giving size offset 0
-a 1-bit prefix measured city 3486 and blob 32655: nesting itself is
-roughly neutral so far.
+**Why the start level header**: trunk depths per bitmap were 2-4 on city
+and 3-7 on blob, and a trunk of depth `d` saves `(4^d - 1) / 3`
+subdivide bits for the header's 3 (28.7 bits a bitmap on city, 283.1 on
+blob). A bitmap that is one tile pays the 3 bits for nothing.
 
 | family | dsrn nodes masked | complex tiles a bitmap, by nesting | of them masking | tiles a bitmap | masking copies a bitmap |
 |---|---|---|---|---|---|
@@ -304,4 +308,4 @@ tile's body nodes are counted once each: every resolution tile unmasked
 in it, and every masked leaf, whatever its size, belonging
 to the complex tile whose body directly holds it.
 
-The history of every earlier version, with its numbers, is in git.
+Every earlier version, with its numbers, is in git.

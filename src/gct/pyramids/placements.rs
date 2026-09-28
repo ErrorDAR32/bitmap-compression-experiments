@@ -93,11 +93,6 @@ pub trait Placements {
     /// The tile placed exactly at `tile`, if any.
     fn placement(&self, tile: Tile) -> Option<Placement>;
 
-    /// Whether a tile was placed exactly at `tile`.
-    fn is_placed(&self, tile: Tile) -> bool {
-        self.placement(tile).is_some()
-    }
-
     fn place(&mut self, tile: Tile, placement: Placement);
 
     /// Every placed tile, coarsest level first, reading order within

@@ -2,9 +2,9 @@
 //!
 //! Row-major, four `u64` to a row, least significant bit leftmost, so
 //! cell `(x, y)` is bit `x % 64` of word `y * 4 + x / 64`. Every reader
-//! in the crate relies on that layout: [`crate::mesh`] copies a row
-//! straight out of it, and [`crate::bits`] holds the word operations
-//! that read a row as runs.
+//! in the crate relies on that layout: [`Bitmap::row`] hands a row out
+//! as words, and `bitmap_words` holds the word operations that read
+//! one.
 //!
 //! The drawing methods take `i64` and clamp, so a caller can ask for a
 //! circle hanging off the edge without doing the arithmetic first.

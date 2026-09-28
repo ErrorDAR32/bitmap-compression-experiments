@@ -66,13 +66,33 @@ fn noise(rng: &mut Rng, area: Tile) -> Bitmap {
     bitmap
 }
 
-/// What one objective's search found.
+/// What one objective's search found, and which start each stage's
+/// best came from.
 struct Outcome {
     objective: Objective,
     window: Found,
+    window_from: &'static str,
     worst: Found,
+    worst_from: &'static str,
     record_gap: Option<i64>,
     beaten: bool,
+}
+
+/// The best of `starts`, each annealed in `area`, and which start it
+/// came from.
+fn best_of(
+    starts: Vec<(&'static str, Bitmap)>,
+    area: Tile,
+    objective: Objective,
+    iterations: u64,
+    rng: &mut Rng,
+    scorer: &mut Scorer,
+) -> (Found, &'static str) {
+    starts
+        .into_iter()
+        .map(|(from, start)| (anneal(start, area, objective, iterations, rng, scorer), from))
+        .max_by_key(|(found, _)| found.score.gap)
+        .unwrap()
 }
 
 /// One objective's whole search, from its own seed; records what it
@@ -82,21 +102,14 @@ fn search(objective: Objective, seed: u64) -> Outcome {
     let mut scorer = Scorer::new();
     let whole = Tile::whole_bitmap();
 
-    let window_starts = [Bitmap::new(), noise(&mut rng, WINDOW)];
-    let window = window_starts
-        .map(|start| anneal(start, WINDOW, objective, WINDOW_ITERATIONS, &mut rng, &mut scorer))
-        .into_iter()
-        .max_by_key(|found| found.score.gap)
-        .unwrap();
+    let window_starts = vec![("clear", Bitmap::new()), ("noise", noise(&mut rng, WINDOW))];
+    let (window, window_from) = best_of(window_starts, WINDOW, objective, WINDOW_ITERATIONS, &mut rng, &mut scorer);
 
     let recorded = record::read(objective.name());
-    let mut plane_starts = vec![plane::fill_the_plane(&window.bitmap, WINDOW), noise(&mut rng, whole)];
-    plane_starts.extend(recorded.clone());
-    let worst = plane_starts
-        .into_iter()
-        .map(|start| anneal(start, whole, objective, PLANE_ITERATIONS, &mut rng, &mut scorer))
-        .max_by_key(|found| found.score.gap)
-        .unwrap();
+    let mut plane_starts =
+        vec![("window variants", plane::fill_the_plane(&window.bitmap, WINDOW)), ("noise", noise(&mut rng, whole))];
+    plane_starts.extend(recorded.clone().map(|bitmap| ("record", bitmap)));
+    let (worst, worst_from) = best_of(plane_starts, whole, objective, PLANE_ITERATIONS, &mut rng, &mut scorer);
 
     let record_gap = recorded.map(|bitmap| scorer.score(objective, &bitmap, whole).gap);
     let beaten = record_gap.is_none_or(|gap| worst.score.gap > gap);
@@ -104,7 +117,7 @@ fn search(objective: Objective, seed: u64) -> Outcome {
         let note = format!("{}: gap {} bits", objective.name(), worst.score.gap);
         record::write(objective.name(), &worst.bitmap, &note);
     }
-    Outcome { objective, window, worst, record_gap, beaten }
+    Outcome { objective, window, window_from, worst, worst_from, record_gap, beaten }
 }
 
 #[test]
@@ -124,7 +137,9 @@ fn search_adversarial_bitmaps() {
     let mut table = Table::new(&[
         "objective",
         "worst window\ngap, bits",
+        "window\nfrom",
         "worst plane\ngap, bits",
+        "plane\nfrom",
         "gct\nbits",
         "dsrn\nbits",
         "record",
@@ -136,7 +151,9 @@ fn search_adversarial_bitmaps() {
         table.row(&[
             outcome.objective.name().to_string(),
             outcome.window.score.gap.to_string(),
+            outcome.window_from.to_string(),
             worst.score.gap.to_string(),
+            outcome.worst_from.to_string(),
             gct_bits.to_string(),
             dsrn_bits.to_string(),
             match (outcome.beaten, outcome.record_gap) {
