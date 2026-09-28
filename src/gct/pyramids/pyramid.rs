@@ -62,7 +62,9 @@ pub struct Pyramid {
     /// a word, and the mask of one element.
     children_across: usize,
     tiles_across: Vec<usize>,
-    per_word: usize,
+    /// Elements a word is a power of two -- an element's bits divide a
+    /// word's -- so a tile's word and place in it are shifts and masks.
+    per_word_shift: u32,
     element_mask: u64,
 }
 
@@ -100,7 +102,7 @@ impl Pyramid {
             levels,
             children_across: shape.children_across(),
             tiles_across: (0..=shape.finest_level).map(|level| shape.tiles_across(level)).collect(),
-            per_word,
+            per_word_shift: per_word.trailing_zeros(),
             element_mask,
         }
     }
@@ -134,7 +136,8 @@ impl Pyramid {
         debug_assert!(self.holds(tile), "{tile:?} is outside this pyramid's levels");
         let index = tile.y as usize * self.tiles_across[tile.level as usize] + tile.x as usize;
         let plane = (tile.level - self.shape.coarsest_level) as usize;
-        (plane, index / self.per_word, (index % self.per_word) * self.shape.element_bits)
+        let in_word = index & ((1 << self.per_word_shift) - 1);
+        (plane, index >> self.per_word_shift, in_word * self.shape.element_bits)
     }
 
     /// A tile's element.
