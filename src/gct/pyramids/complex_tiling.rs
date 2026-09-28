@@ -1,8 +1,9 @@
 //! The complex tiling: the complex tiler's output, and everything the
-//! tree is read from. One 16-bit element per tile, down to single cells:
+//! tree is read from. One 32-bit element per tile, down to single cells:
 //!
 //! - bits 0-7: what the greedy tiler placed exactly at the tile, in the
-//!   placements pyramid's own code;
+//!   placement code ([`super::placements`]) -- the greedy tiler's
+//!   output, written before any other bit;
 //! - bits 8-11: the one tile size every cell under the tile is bound at,
 //!   plus one -- `0` when the tile is not entirely bound at one size;
 //! - bits 12-15: the size offset of the complex tile at the tile -- `0`
@@ -57,9 +58,10 @@ fn with_field(element: u64, field: Field, value: u64) -> u64 {
 }
 
 pub trait ComplexTiling {
-    /// The greedy tiler's placements, with no complex tiles yet, and
-    /// `raw_masked` the tiles a complex tile of 1x1 resolution masks.
-    fn complex_tiling(placements: &Pyramid, raw_masked: &[Tile]) -> Self;
+    /// The greedy tiler's placements, now kept in step, with no complex
+    /// tiles yet, and `raw_masked` the tiles a complex tile of 1x1
+    /// resolution masks.
+    fn complex_tiling(placements: Pyramid, raw_masked: &[Tile]) -> Self;
 
     /// The tile placed exactly at `tile`, if any.
     fn placed_at(&self, tile: Tile) -> Option<Placement>;
@@ -105,22 +107,11 @@ pub trait ComplexTiling {
 }
 
 impl ComplexTiling for Pyramid {
-    fn complex_tiling(placements: &Pyramid, raw_masked: &[Tile]) -> Self {
-        let mut complex_tiling = Pyramid::new(SHAPE);
-        for &tile in raw_masked {
-            complex_tiling.set(tile, with_field(NONE, RAW_MASKS, YES));
-        }
-        let placed: Vec<(Tile, u64)> = placements
-            .placed_tiles()
-            .map(|(tile, placement)| {
-                let bound_size = if placement.is_whole_bind() { tile.level as u64 + 1 } else { NONE };
-                let element = with_field(complex_tiling.get(tile), PLACEMENT, placement_code(placement));
-                let sizes = if placement.is_whole_bind() { 1 << tile.level } else { NONE };
-                (tile, with_field(with_field(element, BOUND_SIZE, bound_size), BOUND_SIZES_UNDER, sizes))
-            })
-            .collect();
-        let mut complex_tiling = complex_tiling.with_propagation_set(bound_size_of_children);
-        complex_tiling.set_all(placed);
+    fn complex_tiling(placements: Pyramid, raw_masked: &[Tile]) -> Self {
+        let raw_masks: Vec<(Tile, u64)> =
+            raw_masked.iter().map(|&tile| (tile, with_field(placements.get(tile), RAW_MASKS, YES))).collect();
+        let mut complex_tiling = placements.with_propagation_set(bound_size_of_children);
+        complex_tiling.set_all(raw_masks);
         complex_tiling
     }
 
@@ -163,6 +154,34 @@ impl ComplexTiling for Pyramid {
     fn clear_complex_tile(&mut self, tile: Tile) {
         let element = with_field(self.get(tile), SIZE_OFFSET, NONE);
         self.set(tile, element);
+    }
+}
+
+/// The placements are the placement bits of this same pyramid, before
+/// it is kept in step: placing a whole bind also records its own bound
+/// size and size, which the complex tiling then carries up.
+impl Placements for Pyramid {
+    fn placements() -> Self {
+        Pyramid::new(SHAPE)
+    }
+
+    fn placement(&self, tile: Tile) -> Option<Placement> {
+        placement_from_code(field(self.get(tile), PLACEMENT))
+    }
+
+    fn place(&mut self, tile: Tile, placement: Placement) {
+        let mut element = with_field(self.get(tile), PLACEMENT, placement_code(placement));
+        if placement.is_whole_bind() {
+            element = with_field(element, BOUND_SIZE, tile.level as u64 + 1);
+            element = with_field(element, BOUND_SIZES_UNDER, 1 << tile.level);
+        }
+        self.set(tile, element);
+    }
+
+    fn placed_tiles(&self) -> impl Iterator<Item = (Tile, Placement)> + '_ {
+        (0..=CELL_LEVEL).flat_map(move |level| {
+            self.tiles_of_level(level).filter_map(move |tile| self.placement(tile).map(|placement| (tile, placement)))
+        })
     }
 }
 

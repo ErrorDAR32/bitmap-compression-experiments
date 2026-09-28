@@ -1,12 +1,11 @@
 //! What the greedy tiler placed: one 8-bit code per tile, over every
-//! level down to single cells -- nothing placed exactly here, or what
+//! level down to single cells, held in the complex tiling pyramid -- nothing placed exactly here, or what
 //! the tile placed here is.
 //!
 //! A copy or a bind may mask some of its children: it says only the
 //! others, and each child it masks is left to tiles placed inside that
 //! child.
 
-use super::pyramid::{Pyramid, PyramidShape};
 use crate::gct::tile::{Tile, CELL_LEVEL};
 
 /// What a placed tile is: bound to one value, or a copy of a same-size
@@ -117,9 +116,9 @@ pub(super) fn placement_from_code(code: u64) -> Option<Placement> {
     }
 }
 
-const SHAPE: PyramidShape =
-    PyramidShape { arity: 4, coarsest_level: 0, finest_level: CELL_LEVEL, element_bits: PLACEMENT_CODE_BITS as usize };
-
+/// What the greedy tiler placed, held in the placement bits of the
+/// complex tiling pyramid ([`super::complex_tiling`]), whose other bits
+/// the complex tiler fills in later.
 pub trait Placements {
     /// Nothing placed anywhere yet.
     fn placements() -> Self;
@@ -132,24 +131,4 @@ pub trait Placements {
     /// Every placed tile, coarsest level first, reading order within
     /// each level.
     fn placed_tiles(&self) -> impl Iterator<Item = (Tile, Placement)> + '_;
-}
-
-impl Placements for Pyramid {
-    fn placements() -> Self {
-        Pyramid::new(SHAPE)
-    }
-
-    fn placement(&self, tile: Tile) -> Option<Placement> {
-        placement_from_code(self.get(tile))
-    }
-
-    fn place(&mut self, tile: Tile, placement: Placement) {
-        self.set(tile, placement_code(placement));
-    }
-
-    fn placed_tiles(&self) -> impl Iterator<Item = (Tile, Placement)> + '_ {
-        (0..=CELL_LEVEL).flat_map(move |level| {
-            self.tiles_of_level(level).filter_map(move |tile| self.placement(tile).map(|placement| (tile, placement)))
-        })
-    }
 }

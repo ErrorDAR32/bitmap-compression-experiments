@@ -60,7 +60,7 @@ pub fn check(bitmap: &Bitmap, label: &str) {
 
     let written = tree(bitmap);
     let stream = write(&written, bitmap);
-    let complex_tiling = complex_tiler(&placements);
+    let complex_tiling = complex_tiler(placements.clone());
     let start_level = written.start_level();
     let counted: u64 =
         Tile::all_of_level(start_level).map(|tile| bits(&complex_tiling, tile, &mut NestedResolutions::none(), BOUND_AT_THE_TOP)).sum();

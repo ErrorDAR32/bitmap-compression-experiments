@@ -3,7 +3,8 @@
 //! it --
 //!
 //! 1. [`greedy_tiler`]: tiles placed biggest first, each bound to one
-//!    value or copying a same-size area -- a placements pyramid.
+//!    value or copying a same-size area -- the placement bits of the
+//!    complex tiling pyramid.
 //! 2. [`complex_tiler`]: those tiles grouped into complex tiles, nested
 //!    as deep as they keep paying -- a complex tiling pyramid.
 //! 3. [`tree_representation`]: the tree read off it, one node per
@@ -41,7 +42,7 @@ pub fn tree(bitmap: &Bitmap) -> Pyramid {
     let homogeneity = Pyramid::homogeneity(bitmap);
     let copyable = Pyramid::copyable(bitmap);
     let placements = greedy_tiler::greedy_tiler(bitmap, &homogeneity, &copyable);
-    let complex_tiling = complex_tiler::complex_tiler::complex_tiler(&placements);
+    let complex_tiling = complex_tiler::complex_tiler::complex_tiler(placements);
     tree_representation::tree_representation(&complex_tiling)
 }
 

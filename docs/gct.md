@@ -13,7 +13,7 @@ output, and step 4 never decides anything.
 
 | step | code | output |
 |---|---|---|
-| 1. greedy tiling | `greedy_tiler.rs` | a placements pyramid: what tile was placed where |
+| 1. greedy tiling | `greedy_tiler.rs` | the placement bits of the complex tiling pyramid: what tile was placed where |
 | 2. complex tiling | `complex_tiler/` | a complex tiling pyramid: the placements, each tile's single bound size, and which tiles are complex tiles at what size offset |
 | 3. tree representation | `tree_representation.rs` | the tree read off the complex tiling alone: one node code per tile, held as a pyramid (`pyramids/tree.rs`) |
 | 4. encoding | `encode.rs` | the tree's grammar with its payloads, then the residual pass |
@@ -46,8 +46,7 @@ fixing the shape, its propagation if any, and its queries.
 |---|---|---|---|---|
 | `homogeneity` | 2 | 0-8 | whether a tile's cells all agree, and on what | homogeneous when all four children are homogeneous and agree |
 | `copyable` | 2 | 0-6 | whether a same-size neighbour (near) or a neighbour of the parent (far) holds the same cells | none |
-| `placements` | 8 | 0-8 | the tile the greedy tiler placed here, if any, and the children it masks | none |
-| `complex_tiling` | 32 | 0-8 | the placement; the one size every cell under the tile is bound at, if any; the complex tile's size offset, if it is one; whether a raw complex tile masks it; the sizes of the whole binds under it | a tile's bound size is its children's when all four share one; the sizes under it are all of its children's |
+| `complex_tiling` | 32 | 0-8 | the placement the greedy tiler made here, if any, and the children it masks -- the greedy tiler writes these bits, the complex tiler the rest; the one size every cell under the tile is bound at, if any; the complex tile's size offset, if it is one; whether a raw complex tile masks it; the sizes of the whole binds under it | a tile's bound size is its children's when all four share one; the sizes under it are all of its children's |
 | `tree` | 8 | 0-7 | the tree's node at a tile | none |
 
 ## Step 1: the greedy tiler

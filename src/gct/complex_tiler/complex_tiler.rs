@@ -34,11 +34,12 @@ struct SearchArea {
     nested: NestedResolutions,
 }
 
-/// Creates complex tiles from the greedy tiler's output (its
-/// placements pyramid), and returns the complex tiling: the placements,
-/// with every committed complex tile's size offset added.
-pub fn complex_tiler(placements: &Pyramid) -> Pyramid {
-    let raw_masked = decide_raw_masking(placements);
+/// Creates complex tiles from the greedy tiler's output -- the complex
+/// tiling pyramid with only its placement bits set -- and returns it
+/// complete: the placements, with every committed complex tile's size
+/// offset added.
+pub fn complex_tiler(placements: Pyramid) -> Pyramid {
+    let raw_masked = decide_raw_masking(&placements);
     let mut complex_tiling = Pyramid::complex_tiling(placements, &raw_masked);
 
     let mut searched = vec![SearchArea { area: Tile::whole_bitmap(), coarsest_level: 0, nested: NestedResolutions::none() }];
