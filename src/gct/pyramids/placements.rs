@@ -6,7 +6,8 @@
 //! others, and each child it masks is left to tiles placed inside that
 //! child.
 
-use crate::gct::tile::{Tile, CELL_LEVEL};
+use crate::gct::grammar::{DIRECTION_MASK, DIRECTION_WIDTH, FAR_WIDTH};
+use crate::gct::tile::{Tile, ALL_CHILDREN, CELL_LEVEL, CHILDREN};
 
 /// What a placed tile is: bound to one value, or a copy of a same-size
 /// area -- a near copy of a neighbour of the tile itself, or a far copy
@@ -86,24 +87,23 @@ pub const FINEST_MASKING_LEVEL: u8 = CELL_LEVEL - 3;
 /// element holds no placement. Bits 0-3 are otherwise `1`/`2` bound to
 /// false/true, `8..=15` copied; bits 4-7 the children it masks.
 const NOTHING: u64 = 0;
-/// Every placement code fits this many bits.
-pub(super) const PLACEMENT_CODE_BITS: u64 = 8;
-/// Bits 0-3: which kind, and a copy's far and direction.
-const KIND_MASK: u64 = 0b1111;
 /// The kind of a bind to false.
 const BOUND_FALSE: u64 = 1;
 /// The kind of a bind to true.
 const BOUND_TRUE: u64 = 2;
-/// Set in the kind of every copy.
-const COPIED: u64 = 0b1000;
-/// Set in a copy's kind when it is far.
-const FAR: u64 = 0b100;
-/// A copy's direction, in the kind's bits 0-1.
-const DIRECTION_MASK: u64 = 0b11;
-/// Where the masked children start: bit 4.
-const MASKED_CHILDREN_SHIFT: u64 = 4;
-/// The masked children's four bits, once shifted down.
-const MASKED_CHILDREN_MASK: u64 = 0b1111;
+/// Set in a copy's kind when it is far: the bit above its direction's.
+const FAR: u64 = 1 << DIRECTION_WIDTH;
+/// Set in the kind of every copy: the bit above far.
+const COPIED: u64 = FAR << FAR_WIDTH;
+/// Bits a kind takes: a copy's direction, far, and the copy bit.
+const KIND_BITS: u64 = COPIED.trailing_zeros() as u64 + 1;
+/// A kind's bits, at the bottom of a code.
+const KIND_MASK: u64 = (1 << KIND_BITS) - 1;
+/// Where the masked children start: after the kind.
+const MASKED_CHILDREN_SHIFT: u64 = KIND_BITS;
+/// Every placement code fits this many bits: the kind, then a bit a
+/// child.
+pub(super) const PLACEMENT_CODE_BITS: u64 = KIND_BITS + CHILDREN as u64;
 
 /// A placement's code; also how the complex tiling pyramid holds it.
 pub(super) fn placement_code(placement: Placement) -> u64 {
@@ -117,7 +117,7 @@ pub(super) fn placement_code(placement: Placement) -> u64 {
 
 /// The placement a code names, if any.
 pub(super) fn placement_from_code(code: u64) -> Option<Placement> {
-    let masked_children = ((code >> MASKED_CHILDREN_SHIFT) & MASKED_CHILDREN_MASK) as u8;
+    let masked_children = ((code >> MASKED_CHILDREN_SHIFT) & ALL_CHILDREN as u64) as u8;
     match code & KIND_MASK {
         NOTHING => None,
         BOUND_FALSE => Some(Placement::Bound { value: false, masked_children }),

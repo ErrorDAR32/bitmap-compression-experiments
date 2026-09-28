@@ -55,6 +55,18 @@ pub struct Effort {
     pub plane: u64,
 }
 
+impl Effort {
+    /// The default effort, but for the changes tried on the plane: the
+    /// program's first argument, if it has one.
+    pub fn from_arguments() -> Self {
+        let mut effort = Self::default();
+        if let Some(plane) = std::env::args().nth(1) {
+            effort.plane = plane.parse().expect("a number of changes");
+        }
+        effort
+    }
+}
+
 impl Default for Effort {
     /// A quick search: 400 changes a window start, 100 a plane start.
     fn default() -> Self {
@@ -122,4 +134,28 @@ pub fn search(seed: u64, recorded: Option<Bitmap>, effort: Effort, score: &mut i
     plane_starts.extend(recorded.map(|bitmap| ("record", bitmap)));
     let (worst, worst_from) = best_of(plane_starts, whole, effort.plane, &mut rng, score);
     Outcome { window, window_from, worst, worst_from }
+}
+
+/// Searches run at once by [`search_at_once`], one a core.
+pub const SEARCHES_AT_ONCE: u64 = 4;
+
+/// [`SEARCHES_AT_ONCE`] whole searches at once, one a thread, the `i`th
+/// from seed `seed + i`, each carrying on from `recorded`, if any, and
+/// scoring with a score of its own that `make_score` makes -- one per
+/// thread, so each may hold its own encoders. What each found, in order.
+pub fn search_at_once<S: FnMut(&Bitmap, Tile) -> Score>(
+    seed: u64,
+    recorded: Option<Bitmap>,
+    effort: Effort,
+    make_score: &(impl Fn() -> S + Sync),
+) -> Vec<Outcome> {
+    std::thread::scope(|scope| {
+        let searches: Vec<_> = (0..SEARCHES_AT_ONCE)
+            .map(|index| {
+                let recorded = recorded.clone();
+                scope.spawn(move || search(seed.wrapping_add(index), recorded, effort, &mut make_score()))
+            })
+            .collect();
+        searches.into_iter().map(|search| search.join().expect("a search")).collect()
+    })
 }

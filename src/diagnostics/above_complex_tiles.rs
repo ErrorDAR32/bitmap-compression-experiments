@@ -10,49 +10,53 @@
 //! order -- a tiling of the whole bitmap, which the tree above places.
 //!
 //! Gathered, to weigh the tree above against a list of those tiles in
-//! Morton order, each with its size:
+//! Morton order, each saying its own size:
 //!
-//! - `divide_bits`: what the divides above spend, by the grammar's
-//!   widths -- a subdivide bit, a mask-present bit at 8x8 or coarser, and
-//!   for a masking divide a flip bit and a 4-bit child mask;
+//! - what the tree spends placing them, by the grammar's widths: a
+//!   subdivide bit a divide (`subdivide_bits`); a mask-present bit a
+//!   divide at 8x8 or coarser, and a flip bit and a 4-bit child mask a
+//!   masking divide (`masking_bits`); a leaf bit every top tile coarser
+//!   than a 2x2 (`leaf_bits`);
 //! - `rest_bits`: every bit written less the start level header and the
-//!   top tiles' own bits (the complex tiler's exact count of each). Equal
-//!   to `divide_bits`, counted the other way;
-//! - `leaf_bits`: of the top tiles' own bits, the one saying "a leaf,
-//!   not a divide" -- every top tile coarser than a 2x2 spends one.
-//!   `divide_bits` and `leaf_bits` are all the tree spends placing the
-//!   top tiles;
-//! - `sizes`: for every top and background tile, the coarsest level a
-//!   tile starting at its first cell could have, and its own level. A
-//!   list says each tile's size from those choices: the tile before it
+//!   top tiles' own bits (the complex tiler's exact count of each):
+//!   `subdivide_bits + masking_bits` counted the other way;
+//! - for every top and background tile, the coarsest level a tile
+//!   starting at its first cell could have, and its own level (`sizes`).
+//!   A list says each tile's size from those choices: the tile before it
 //!   ends where it starts, so it may be as coarse as the coarsest tile
-//!   whose first cell that is, but no coarser than the start level.
-//!
+//!   whose first cell that is, but no coarser than the start level;
+//! - `could_be_background`: the tiles a list would have to say are
+//!   background or not -- those one level under a tile of 8x8 or
+//!   coarser, the start level's own excepted;
 //! - `decisions`: what the tree says at every node above the top tiles
 //!   and at every top tile coarser than a 2x2, by level: a leaf, a whole
 //!   divide, or a masking divide and its child mask.
 //!
-//! Both spell the same thing -- where the top tiles are, and which are
-//! background -- so what either could spend at least is an entropy:
+//! The list, spelled as plainly as the tree is: each size a bit a level
+//! from the coarsest it could be, "this size" or "finer", the bit left
+//! out at the 2x2 floor ([`AboveComplexTiles::list_size_bits`]), and a
+//! bit for each tile that could be background
+//! ([`AboveComplexTiles::list_placing_bits`]). Its size bits are the
+//! tree's subdivide and leaf bits exactly, moved: a divide's bit becomes
+//! a "finer" bit of the first tile under it, a leaf bit the "this size"
+//! bit of its own tile -- and one bit more for each background tile,
+//! whose size the tree never says. Every other bit -- each top tile's
+//! kind and body -- a list spends as the tree does.
 //!
-//! - [`AboveComplexTiles::list_bits`]: each list entry's size and whether
-//!   it is background, coded by how often each follows its coarsest
-//!   level in what was gathered;
-//! - [`AboveComplexTiles::coded_tree_bits`]: each of the tree's
-//!   decisions, coded by how often each is made at its level.
-//!
-//! Only an ideal adaptive coder reaches either. Every other bit -- each
-//! top tile's kind and body -- a list spends as the tree does.
+//! [`AboveComplexTiles::coded_tree_bits`] is what the tree's decisions
+//! would cost at least, each coded by how often it is made at its level
+//! in what was gathered: an entropy, which only an ideal adaptive coder
+//! reaches.
 
 use super::census::{kind, Census};
 use crate::gct::complex_tiler::bit_cost::bits;
 use crate::gct::grammar::{
-    divide_may_mask, BOUND_AT_THE_TOP, FLIP_WIDTH, LEAF_WIDTH, MASK_BIT_WIDTH, MASK_PRESENT_WIDTH, START_LEVEL_WIDTH,
+    divide_may_mask, BOUND_AT_THE_TOP, CHILD_MASK_WIDTH, FLIP_WIDTH, LEAF_WIDTH, MASK_PRESENT_WIDTH, START_LEVEL_WIDTH,
 };
 use crate::gct::nested_resolutions::NestedResolutions;
 use crate::gct::pyramids::pyramid::Pyramid;
 use crate::gct::pyramids::tree::{Node, Tree};
-use crate::gct::tile::{Tile, CELL_LEVEL, CHILDREN_ACROSS};
+use crate::gct::tile::{Tile, ALL_CHILDREN, CELL_LEVEL};
 use crate::gct::Workspace;
 use crate::Bitmap;
 
@@ -68,10 +72,12 @@ const WHOLE_DIVIDE_DECISION: usize = 1;
 const MASKING_DIVIDE_DECISIONS: usize = 2;
 /// Every decision the tree makes: a leaf, a whole divide, or a masking
 /// divide with one of the sixteen child masks.
-const DECISIONS: usize = MASKING_DIVIDE_DECISIONS + (1 << (CHILDREN_ACROSS * CHILDREN_ACROSS));
+const DECISIONS: usize = MASKING_DIVIDE_DECISIONS + ALL_CHILDREN as usize + 1;
 
 /// A list entry's kind: a top tile, or background.
 const ENTRY_KINDS: usize = 2;
+/// The entry kind of a background tile.
+const BACKGROUND_ENTRY: usize = 1;
 
 /// Bits the ideal code of symbols counted `counts` spends on them all:
 /// each costs the log of how rare it is among them.
@@ -90,8 +96,11 @@ pub struct AboveComplexTiles {
     pub bitmaps: usize,
     /// Every bit written.
     pub written_bits: u64,
-    /// What the divides above the top tiles spend, by the grammar.
-    pub divide_bits: u64,
+    /// The divides' subdivide bits.
+    pub subdivide_bits: u64,
+    /// The divides' mask-present bits, and the masking divides' flip bits
+    /// and child masks.
+    pub masking_bits: u64,
     /// Every bit written less the header and the top tiles' own bits.
     pub rest_bits: u64,
     /// The top tiles' leaf bits.
@@ -102,6 +111,8 @@ pub struct AboveComplexTiles {
     /// had at its first cell, then its own level, then top (0) or
     /// background (1).
     pub sizes: [[[u64; ENTRY_KINDS]; LEVELS]; LEVELS],
+    /// Top and background tiles a list would say are background or not.
+    pub could_be_background: u64,
     /// The tree's decisions above the top tiles, by level.
     pub decisions: [[u64; DECISIONS]; LEVELS],
 }
@@ -138,14 +149,14 @@ impl AboveComplexTiles {
             }
             return;
         }
-        self.divide_bits += LEAF_WIDTH as u64;
+        self.subdivide_bits += LEAF_WIDTH as u64;
         if divide_may_mask(tile.level) {
-            self.divide_bits += MASK_PRESENT_WIDTH as u64;
+            self.masking_bits += MASK_PRESENT_WIDTH as u64;
         }
         if tree.divides_whole(tile) {
             self.decisions[tile.level as usize][WHOLE_DIVIDE_DECISION] += 1;
         } else {
-            self.divide_bits += (FLIP_WIDTH + CHILDREN_ACROSS * CHILDREN_ACROSS * MASK_BIT_WIDTH) as u64;
+            self.masking_bits += (FLIP_WIDTH + CHILD_MASK_WIDTH) as u64;
             let named = tile.children().into_iter().enumerate().filter(|&(_, child)| tree.node(child) != Node::Absent);
             let mask: usize = named.map(|(at, _)| 1 << at).sum();
             self.decisions[tile.level as usize][MASKING_DIVIDE_DECISIONS + mask] += 1;
@@ -167,13 +178,18 @@ impl AboveComplexTiles {
             coarsest = coarsest.parent();
         }
         self.sizes[coarsest.level as usize][tile.level as usize][usize::from(kind == BACKGROUND)] += 1;
+        if tile.level > start_level && divide_may_mask(tile.level - 1) {
+            self.could_be_background += 1;
+        }
     }
 
     /// Adds `other`'s counts to these.
     pub fn add(&mut self, other: &Self) {
         self.bitmaps += other.bitmaps;
         self.written_bits += other.written_bits;
-        self.divide_bits += other.divide_bits;
+        self.subdivide_bits += other.subdivide_bits;
+        self.masking_bits += other.masking_bits;
+        self.could_be_background += other.could_be_background;
         self.rest_bits += other.rest_bits;
         self.leaf_bits += other.leaf_bits;
         for (kind, by_level) in &other.tiles {
@@ -197,15 +213,39 @@ impl AboveComplexTiles {
 
     /// Background tiles.
     pub fn background(&self) -> u64 {
-        self.sizes.iter().flatten().map(|kinds| kinds[1]).sum()
+        self.sizes.iter().flatten().map(|kinds| kinds[BACKGROUND_ENTRY]).sum()
     }
 
-    /// The least a list of the top and background tiles in Morton order
-    /// could spend saying each one's size and whether it is background:
-    /// each coded by how often it follows its coarsest level in what was
-    /// gathered.
-    pub fn list_bits(&self) -> f64 {
-        self.sizes.iter().map(|at_coarsest| entropy_bits(at_coarsest.iter().flatten())).sum()
+    /// What the divides above the top tiles spend, by the grammar.
+    pub fn divide_bits(&self) -> u64 {
+        self.subdivide_bits + self.masking_bits
+    }
+
+    /// All the tree spends placing the top tiles: its divides, and each
+    /// top tile's leaf bit.
+    pub fn tree_placing_bits(&self) -> u64 {
+        self.divide_bits() + self.leaf_bits
+    }
+
+    /// What a plain list spends saying every top and background tile's
+    /// size: a bit a level from the coarsest it could be, "this size" or
+    /// "finer", the last left out at the 2x2 floor.
+    pub fn list_size_bits(&self) -> u64 {
+        let mut bits = 0;
+        for (coarsest, by_level) in self.sizes.iter().enumerate() {
+            for (level, kinds) in by_level.iter().enumerate() {
+                let finer_bits = level.saturating_sub(coarsest) as u64;
+                let this_size_bit = if level < CELL_LEVEL as usize - 1 { LEAF_WIDTH as u64 } else { 0 };
+                bits += kinds.iter().sum::<u64>() * (finer_bits * LEAF_WIDTH as u64 + this_size_bit);
+            }
+        }
+        bits
+    }
+
+    /// All a plain list spends placing the tiles: their sizes, and a bit
+    /// for each that could be background.
+    pub fn list_placing_bits(&self) -> u64 {
+        self.list_size_bits() + self.could_be_background
     }
 
     /// The least the tree could spend on its decisions above the top

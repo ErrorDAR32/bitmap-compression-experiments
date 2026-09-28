@@ -1,9 +1,10 @@
 //! Wall-clock time to encode, averaged over a large sample: every
 //! generator's bitmaps -- grown shapes, sparse ones, city plans and line
-//! sets -- `BITMAPS_PER_GENERATOR` distinct bitmaps each, all built
-//! before any is timed, then each encoded once in one workspace. Decoding
-//! is timed apart, after. The saved adversarial bitmaps (`testing/adversarial/saved/`)
-//! get a row of their own, apart from the sample's. Run it in release, on
+//! sets -- `samples::TIMING_PER_GENERATOR` distinct bitmaps each, all
+//! built before any is timed, then each encoded once in one workspace.
+//! Decoding is timed apart, after. The saved adversarial bitmaps
+//! (`testing/adversarial/saved/`) get a row of their own, apart from the
+//! sample's. Run it in release, on
 //! its own -- no profiler, nothing else busy:
 //!
 //! ```text
@@ -14,111 +15,95 @@
 //! The argument, if given, is how many bitmaps each generator makes.
 
 use bitmap::adversarial::record;
+use bitmap::diagnostics::examination::first_difference;
 use bitmap::gct::grammar::bit_stream::BitStream;
 use bitmap::gct::Workspace;
-use bitmap::samples::{LINE_SETS, PLANS, SHAPES, SPARSE};
+use bitmap::samples::{families, HowMany, TIMING_PER_GENERATOR};
+use bitmap::table::Table;
 use bitmap::Bitmap;
 use std::time::{Duration, Instant};
 
-/// Bitmaps each generator makes unless told otherwise: 20 generators,
-/// so 2000 bitmaps -- enough for a steady mean and a tail.
-const BITMAPS_PER_GENERATOR: u64 = 100;
-
-/// Times each adversarial record is encoded: they are few, so each is
-/// timed often enough to average.
+/// Times each saved adversarial bitmap is encoded: they are few, so each
+/// is timed often enough to average.
 const RECORD_REPEATS: usize = 20;
 
 /// Percentile reported as the tail, besides the worst.
 const TAIL_PERCENT: usize = 90;
 
-/// One family's bitmaps, named.
-struct Family {
-    /// What the family is called.
-    name: &'static str,
-    /// Its bitmaps.
-    bitmaps: Vec<Bitmap>,
-}
+/// The median's percentile.
+const MEDIAN_PERCENT: usize = 50;
 
 /// Builds the sample, times encoding every bitmap of it once, then
 /// decoding, and prints both a family at a time.
 fn main() {
-    let per_generator = std::env::args().nth(1).map_or(BITMAPS_PER_GENERATOR, |count| count.parse().expect("a count"));
-    let families = [
-        Family { name: "grown like a blob", bitmaps: SHAPES.iter().flat_map(|shape| shape.take(per_generator)).collect() },
-        Family { name: "sparse", bitmaps: SPARSE.iter().flat_map(|shape| shape.take(per_generator)).collect() },
-        Family { name: "laid out like a city", bitmaps: PLANS.iter().flat_map(|plan| plan.take(per_generator)).collect() },
-        Family { name: "drawn with lines", bitmaps: LINE_SETS.iter().flat_map(|set| set.take(per_generator)).collect() },
-    ];
+    let per_generator = std::env::args().nth(1).map_or(TIMING_PER_GENERATOR, |count| count.parse().expect("a count"));
+    let families = families(HowMany::Each(per_generator));
 
     let (mut workspace, mut stream, mut back) = (Workspace::new(), BitStream::default(), Bitmap::new());
     // One encode first, so the first timed one pays for nothing extra.
-    workspace.encode(&families[0].bitmaps[0], &mut stream);
+    workspace.encode(&families[0].1[0], &mut stream);
 
-    println!("{:<22} {:>8} {:>10} {:>10} {:>10} {:>10} {:>11}", "family", "bitmaps", "mean us", "median us", "p90 us", "max us", "decode us");
+    let tail = format!("p{TAIL_PERCENT} us");
+    let mut table = Table::new(&["family", "bitmaps", "mean us", "median us", &tail, "max us", "decode us"]);
     let (mut every_encode, mut every_decode) = (Vec::new(), Vec::new());
-    for family in &families {
-        let (mut encodes, decodes) = time(&mut workspace, &mut stream, &mut back, family);
-        print_row(family.name, &mut encodes, &decodes);
+    for (name, bitmaps) in &families {
+        let (mut encodes, decodes) = time(&mut workspace, &mut stream, &mut back, name, bitmaps);
+        table.row(&row(name, &mut encodes, &decodes));
         every_encode.extend(encodes);
         every_decode.extend(decodes);
     }
-    print_row("all", &mut every_encode, &every_decode);
+    table.rule();
+    table.row(&row("all", &mut every_encode, &every_decode));
 
     // The saved adversarial bitmaps, apart from the sample: few, and
     // each among the worst found against one encoder, so each is encoded
     // several times.
-    let records = record::saved();
-    let records = Family {
-        name: "adversarial saved",
-        bitmaps: (0..RECORD_REPEATS).flat_map(|_| records.iter().map(|(_, bitmap)| bitmap.clone())).collect(),
-    };
-    let (mut encodes, decodes) = time(&mut workspace, &mut stream, &mut back, &records);
-    print_row(records.name, &mut encodes, &decodes);
+    let saved = record::saved();
+    let repeated: Vec<Bitmap> = (0..RECORD_REPEATS).flat_map(|_| saved.iter().map(|(_, bitmap)| bitmap.clone())).collect();
+    let name = "adversarial, saved";
+    let (mut encodes, decodes) = time(&mut workspace, &mut stream, &mut back, name, &repeated);
+    table.rule();
+    table.row(&row(name, &mut encodes, &decodes));
+    println!();
+    table.print();
 }
 
-/// Encodes every bitmap of `family` once, timing each, then decodes each
-/// stream, timing each and checking it round trips: the encode times and
-/// the decode times.
-fn time(workspace: &mut Workspace, stream: &mut BitStream, back: &mut Bitmap, family: &Family) -> (Vec<Duration>, Vec<Duration>) {
-    let mut encodes = Vec::with_capacity(family.bitmaps.len());
-    let mut streams = Vec::with_capacity(family.bitmaps.len());
-    for bitmap in &family.bitmaps {
+/// Encodes every bitmap of `bitmaps`, the family `name`, once, timing
+/// each, then decodes each stream, timing each and checking it round
+/// trips: the encode times and the decode times.
+fn time(workspace: &mut Workspace, stream: &mut BitStream, back: &mut Bitmap, name: &str, bitmaps: &[Bitmap]) -> (Vec<Duration>, Vec<Duration>) {
+    let mut encodes = Vec::with_capacity(bitmaps.len());
+    let mut streams = Vec::with_capacity(bitmaps.len());
+    for bitmap in bitmaps {
         let start = Instant::now();
         workspace.encode(bitmap, stream);
         encodes.push(start.elapsed());
         streams.push(stream.clone());
     }
     let mut decodes = Vec::with_capacity(streams.len());
-    for (encoded, bitmap) in streams.iter().zip(&family.bitmaps) {
+    for (encoded, bitmap) in streams.iter().zip(bitmaps) {
         let start = Instant::now();
         workspace.decode(encoded, back);
         decodes.push(start.elapsed());
-        assert!(same_cells(back, bitmap), "{} did not round trip", family.name);
+        assert_eq!(first_difference(back, bitmap), None, "{name} did not round trip");
     }
     (encodes, decodes)
 }
 
-/// Prints one row: how many, the encode times' mean, median, tail and
-/// worst, and the decode times' mean.
-fn print_row(name: &str, encodes: &mut [Duration], decodes: &[Duration]) {
+/// One row: how many, the encode times' mean, median, tail and worst,
+/// and the decode times' mean, in microseconds.
+fn row(name: &str, encodes: &mut [Duration], decodes: &[Duration]) -> Vec<String> {
     encodes.sort_unstable();
     let micros = |duration: Duration| duration.as_secs_f64() * 1e6;
     let mean = |times: &[Duration]| times.iter().map(|&time| micros(time)).sum::<f64>() / times.len() as f64;
     let at_percent = |percent: usize| micros(encodes[(encodes.len() - 1) * percent / 100]);
-    println!(
-        "{:<22} {:>8} {:>10.1} {:>10.1} {:>10.1} {:>10.1} {:>11.1}",
-        name,
-        encodes.len(),
-        mean(encodes),
-        at_percent(50),
-        at_percent(TAIL_PERCENT),
-        micros(encodes[encodes.len() - 1]),
-        mean(decodes),
-    );
-}
-
-/// Whether two bitmaps hold the same cells, read one at a time: outside
-/// anything timed.
-fn same_cells(a: &Bitmap, b: &Bitmap) -> bool {
-    (0..=u8::MAX).all(|y| (0..=u8::MAX).all(|x| a.get(x, y) == b.get(x, y)))
+    vec![
+        name.to_string(),
+        encodes.len().to_string(),
+        format!("{:.1}", mean(encodes)),
+        format!("{:.1}", at_percent(MEDIAN_PERCENT)),
+        format!("{:.1}", at_percent(TAIL_PERCENT)),
+        format!("{:.1}", micros(encodes[encodes.len() - 1])),
+        format!("{:.1}", mean(decodes)),
+    ]
 }

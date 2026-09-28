@@ -13,7 +13,7 @@ pub mod point_list;
 
 pub use crate::gct::pyramids::placements::BOUND_AT_THE_TOP;
 use crate::gct::pyramids::placements::FINEST_MASKING_LEVEL;
-use crate::gct::tile::{cells_in_tile, levels_to_cells, CELL_LEVEL};
+use crate::gct::tile::{cells_in_tile, levels_to_cells, CELL_LEVEL, CHILDREN, DIRECTIONS};
 
 /// A residual 2x2's bits in the residual pass: one a cell, in Morton
 /// order -- as its cells lie in the bitmap, so read or written as one
@@ -56,6 +56,11 @@ pub const BINDING_KEPT: u64 = 0;
 pub const BINDING_FLIPPED: u64 = 1;
 /// Bits in the flip bit.
 pub const FLIP_WIDTH: u8 = 1;
+/// Bits in a child mask: a mask bit a child.
+pub const CHILD_MASK_WIDTH: u8 = CHILDREN * MASK_BIT_WIDTH;
+/// What a divide that masks, or a bind that masks, spells before its
+/// child mask: its leaf bit, its mask-present bit and its flip bit.
+pub const MASKING_DIVIDE_HEADER_WIDTH: u8 = LEAF_WIDTH + MASK_PRESENT_WIDTH + FLIP_WIDTH;
 
 /// The code bit after a leaf bit for a copy: far, direction and, at
 /// 8x8 and coarser, a mask-present bit follow.
@@ -71,8 +76,11 @@ pub const CODE_WIDTH: u8 = 1;
 /// or near (a neighbour of the tile itself).
 pub const FAR_WIDTH: u8 = 1;
 /// Bits naming a copy's direction: one of the four in
-/// [`DIRECTIONS`](crate::gct::tile::DIRECTIONS).
-pub const DIRECTION_WIDTH: u8 = 2;
+/// [`DIRECTIONS`].
+pub const DIRECTION_WIDTH: u8 = DIRECTIONS.len().trailing_zeros() as u8;
+const _: () = assert!(DIRECTIONS.len().is_power_of_two());
+/// A direction's bits, at the bottom of a word.
+pub const DIRECTION_MASK: u64 = (1 << DIRECTION_WIDTH) - 1;
 
 /// The mask-present bit's value when a node masks nothing at all. The
 /// bit is skipped where nothing may mask: complex tiles at size offsets

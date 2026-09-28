@@ -2,8 +2,8 @@
 //! Multi-bit values go least significant bit first. Packed 64 to a
 //! word, bit `i` of the run bit `i % 64` of word `i / 64`.
 
-use super::{CODE_WIDTH, DIRECTION_WIDTH, FAR_WIDTH, LEAF_WIDTH, MASK_BIT_WIDTH, MASK_PRESENT_WIDTH, START_LEVEL_WIDTH};
-use crate::gct::tile::{tiles_down_to, CELLS, CELL_LEVEL, CHILDREN_ACROSS};
+use super::{CHILD_MASK_WIDTH, CODE_WIDTH, DIRECTION_WIDTH, FAR_WIDTH, LEAF_WIDTH, MASK_PRESENT_WIDTH, START_LEVEL_WIDTH};
+use crate::gct::tile::{tiles_down_to, CELLS, CELL_LEVEL};
 
 /// Bits a word holds.
 const WORD_BITS: usize = u64::BITS as usize;
@@ -14,7 +14,7 @@ const WORD_BITS: usize = u64::BITS as usize;
 /// code, far, direction, mask-present and a mask bit a child.
 const MOST_NODE_BITS: usize = CELL_LEVEL as usize
     + (LEAF_WIDTH + CODE_WIDTH + FAR_WIDTH + DIRECTION_WIDTH + MASK_PRESENT_WIDTH) as usize
-    + (CHILDREN_ACROSS * CHILDREN_ACROSS * MASK_BIT_WIDTH) as usize;
+    + CHILD_MASK_WIDTH as usize;
 
 /// The most bits a stream takes: the start level, a node at every tile
 /// down to the 2x2 floor, and each cell's value said at most once -- in

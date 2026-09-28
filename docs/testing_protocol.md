@@ -19,7 +19,8 @@ So the protocol is two-phase, and the phases must not be mixed.
 ## Where the seed comes from
 
 `testing/last_seed` holds the seed base every seeded run uses; setting
-`GCT_SEED` overrides it for one run. Every run says which seed each
+`GCT_SEED` overrides it for one run, and moves it. `GCT_SEED=fresh`
+draws a new one for one run and moves nothing. Every run says which seed each
 sample group used, so a number can always be traced to its bitmaps.
 
 ## Tests, diagnostics, tools
@@ -46,7 +47,17 @@ known case -- never to measure anything.
 | fast | a small sample from the seed: every shape, sparse shape, plan and line set at its `tested` count | `cargo test --test gct_fast` |
 | complete | every family at its `timed` count, plus a moderate sample from a second seed base, plus every checkerboard of odd square side 3 to 31 | `cargo test --release --test gct_complete -- --ignored` |
 
-Plain `cargo test` runs fine and fast. Every tier's check
+Plain `cargo test` runs fine and fast. While the algorithm is being
+optimized, the fine tier's saved adversarial bitmaps stay fixed, and
+the fast tier runs on a fresh seed every time -- `GCT_SEED=fresh` draws
+one for that run alone, prints it, and leaves `testing/last_seed` (the
+measurement's held seed) alone, so every run checks bitmaps never seen
+and a failure names the seed that reproduces it:
+
+```
+GCT_SEED=fresh cargo test --release --test gct_fast
+```
+ Every tier's check
 (`tests/common`) examines each bitmap (`diagnostics::examination`) and
 fails on anything wrong: a cell said wrongly, a tile placed or copied
 too fine, the complex tiler's bit count off the encoder's, the divides
@@ -63,7 +74,7 @@ diagnostics gather, and each stopping if gct loses a cell:
 |---|---|
 | `measurement` | one table a sample generator (grown, city, lines, checkerboard, and the saved adversarial bitmaps), a row a parameter set with its parameters, bitmaps, cells set, gct's mean, fewest and most bits, share of the raw cells and encode time; then what the trees hold, family by family |
 | `census` | node kinds by level, for each bitmap looked at |
-| `above` | what the tree above the top tiles spends placing them, family by family, against a Morton-ordered list of the same tiles, both ideally coded |
+| `above` | what the tree above the top tiles spends placing them, family by family, against a plain Morton-ordered list of the same tiles, and the tree ideally coded |
 | `per_shape` | gct's bits on every shape, plan and line set |
 | `noise` | gct's bits on noise at several densities |
 | `render` | PNG images of the bitmaps looked at, in `target/gct_diagnostics/` |

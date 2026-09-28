@@ -14,7 +14,8 @@
 //! its resolution tiles, which are the bitmap's own.
 
 use crate::gct::pyramids::pyramid::{Pyramid, PyramidShape};
-use crate::gct::tile::{Tile, CELL_LEVEL};
+use crate::gct::grammar::{DIRECTION_MASK, DIRECTION_WIDTH, FAR_WIDTH};
+use crate::gct::tile::{Tile, CELL_LEVEL, LEVEL_BITS};
 
 /// What the tree holds at one tile.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -67,10 +68,13 @@ pub enum Node {
     PointList,
 }
 
-/// Bits 0-2 of a node's code: which kind.
-const KIND_MASK: u64 = 0b111;
-/// Where that kind's parameter starts: bits 3 and up.
-const PARAMETER_SHIFT: u64 = 3;
+/// Bits a node's kind takes, at the bottom of its code: enough for the
+/// seven kinds.
+const KIND_BITS: u64 = 3;
+/// A kind's bits.
+const KIND_MASK: u64 = (1 << KIND_BITS) - 1;
+/// Where the kind's parameter starts: right after it.
+const PARAMETER_SHIFT: u64 = KIND_BITS;
 /// The kind of [`Node::Absent`]; also an all-zero element, so a fresh
 /// tree holds no nodes.
 const ABSENT: u64 = 0;
@@ -86,21 +90,20 @@ const COMPLEX_TILE: u64 = 4;
 const RESIDUAL: u64 = 5;
 /// The kind of [`Node::PointList`].
 const POINT_LIST: u64 = 6;
-/// Copied: far in parameter bit 0.
-const FAR: u64 = 0b1;
-/// Copied: direction in parameter bits 1-2.
-const DIRECTION_SHIFT: u64 = 1;
-/// Copied: the direction's two bits, once shifted down.
-const DIRECTION_MASK: u64 = 0b11;
-/// Copied: masks in parameter bit 3.
-const COPY_MASKS: u64 = 0b1000;
-/// Complex tile: size offset in parameter bits 0-3 (up to 8, the whole
-/// bitmap at 1x1), masks in bit 4.
-const SIZE_OFFSET_MASK: u64 = 0b1111;
-/// Complex tile: masks in parameter bit 4.
-const COMPLEX_TILE_MASKS: u64 = 0b1_0000;
-/// Unmasked: the nesting in parameter bits 0-3.
-const NESTING_MASK: u64 = 0b1111;
+/// Copied: far in the parameter's bottom bit...
+const FAR: u64 = 1;
+/// ...its direction right above...
+const DIRECTION_SHIFT: u64 = FAR_WIDTH as u64;
+/// ...and whether it masks above that.
+const COPY_MASKS: u64 = 1 << (DIRECTION_SHIFT + DIRECTION_WIDTH as u64);
+/// Complex tile: the size offset at the bottom of the parameter, up to
+/// a level's worth (the whole bitmap at 1x1)...
+const SIZE_OFFSET_MASK: u64 = (1 << LEVEL_BITS) - 1;
+/// ...and whether it masks right above.
+const COMPLEX_TILE_MASKS: u64 = 1 << LEVEL_BITS;
+/// Unmasked: the nesting, the parameter's bottom bits -- fewer nestings
+/// than levels.
+const NESTING_MASK: u64 = (1 << LEVEL_BITS) - 1;
 
 /// A node's code, as the tree pyramid holds it.
 fn to_code(node: Node) -> u64 {

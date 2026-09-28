@@ -45,30 +45,44 @@ const RUNS_BEFORE_THE_SEED_IS_STALE: u64 = 15;
 /// The environment variable that picks a seed for one run.
 const SEED_VARIABLE: &str = "GCT_SEED";
 
+/// `GCT_SEED`'s value that draws a fresh seed for one run and leaves the
+/// file alone: a check on bitmaps never seen, which moves nothing a
+/// measurement holds still -- what the fast tier runs on while the code
+/// changes.
+pub const FRESH: &str = "fresh";
+
+/// A seed drawn from the process's own randomness: std's hasher keys,
+/// fresh every run.
+fn fresh_seed() -> u64 {
+    use std::hash::{BuildHasher, RandomState};
+    RandomState::new().hash_one(std::process::id())
+}
+
 /// The seed a sample group starts from.
 ///
 /// `GCT_SEED` in the environment wins, so a run can be pinned to any
 /// bitmaps without touching the file, and picking one there always
 /// counts as moving the seed -- it is a deliberate choice, not reuse.
+/// `GCT_SEED=fresh` draws one for this run alone and writes nothing.
 /// Otherwise the file's seed is reused, which is the common case and
 /// the one that gets the note.
 pub fn seed_for_group(group: &str) -> u64 {
-    let (seed, same_as_last) = settled();
-    let _ = writeln!(
-        std::io::stderr(),
-        "  {group}: seed {seed}{}",
-        if same_as_last { ", the same bitmaps as the last run" } else { "" }
-    );
+    let (seed, note) = settled();
+    let _ = writeln!(std::io::stderr(), "  {group}: seed {seed}{note}");
     seed
 }
 
-/// The seed itself, read once however many groups ask for it, and
-/// written down -- with how many runs in a row it has now gone
-/// unmoved -- for the next run to notice.
-fn settled() -> (u64, bool) {
-    /// The seed, and whether it is the same as the last run's, once read.
-    static SETTLED: OnceLock<(u64, bool)> = OnceLock::new();
+/// The seed itself, read once however many groups ask for it, and --
+/// unless fresh -- written down, with how many runs in a row it has now
+/// gone unmoved, for the next run to notice. With it, what to note
+/// after it: whether it is the last run's, or fresh and not kept.
+fn settled() -> (u64, &'static str) {
+    /// The seed, and its note, once settled.
+    static SETTLED: OnceLock<(u64, &'static str)> = OnceLock::new();
     *SETTLED.get_or_init(|| {
+        if std::env::var(SEED_VARIABLE).is_ok_and(|it| it.trim() == FRESH) {
+            return (fresh_seed(), ", fresh for this run, not kept");
+        }
         let held = std::fs::read_to_string(WHERE_THE_SEED_IS_KEPT).ok();
         let mut kept = held.iter().flat_map(|text| text.lines());
         let last = kept.next().and_then(|line| line.trim().parse::<u64>().ok());
@@ -88,7 +102,7 @@ fn settled() -> (u64, bool) {
             let _ = std::fs::create_dir_all(folder);
         }
         let _ = std::fs::write(WHERE_THE_SEED_IS_KEPT, format!("{seed}\n{runs_unmoved}\n"));
-        (seed, Some(seed) == last)
+        (seed, if Some(seed) == last { ", the same bitmaps as the last run" } else { "" })
     })
 }
 

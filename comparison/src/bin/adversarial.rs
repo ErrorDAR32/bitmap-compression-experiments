@@ -21,7 +21,7 @@
 
 #![warn(missing_docs, clippy::missing_docs_in_private_items)]
 
-use bitmap::adversarial::{record, search, Effort, Outcome, Score};
+use bitmap::adversarial::{record, search_at_once, Effort, Score, SEARCHES_AT_ONCE};
 use bitmap::samples::sample_seed;
 use bitmap::table::Table;
 use bitmap::Bitmap;
@@ -31,11 +31,7 @@ use comparison::codecs::jbig::Jbig;
 use comparison::codecs::zstd::Zstd;
 use comparison::codecs::Codec;
 use comparison::rows::Rows;
-use std::thread;
 use std::time::Instant;
-
-/// Searches run at once for each codec, one a core.
-const SEARCHES: u64 = 4;
 
 /// Times each record is encoded to time it: the median is kept.
 const TIMINGS: usize = 21;
@@ -88,10 +84,7 @@ fn median_micros(mut encode: impl FnMut()) -> f64 {
 /// records with both encoders' bits and times.
 fn main() {
     let seed = sample_seed("adversarial search against codecs");
-    let mut effort = Effort::default();
-    if let Some(plane) = std::env::args().nth(1) {
-        effort.plane = plane.parse().expect("a number of changes");
-    }
+    let effort = Effort::from_arguments();
     let mut table = Table::new(&[
         "against",
         "worst gap\nthis run",
@@ -103,18 +96,10 @@ fn main() {
     ]);
     for (index, opponent) in OPPONENTS.iter().enumerate() {
         let recorded = record::read(opponent.record);
-        let outcomes: Vec<Outcome> = thread::scope(|scope| {
-            let searches: Vec<_> = (0..SEARCHES)
-                .map(|search_index| {
-                    let recorded = recorded.clone();
-                    let seed = seed.wrapping_add(index as u64 * SEARCHES + search_index);
-                    scope.spawn(move || {
-                        let (mut gct, mut codec) = (Gct::new(), (opponent.make)());
-                        search(seed, recorded, effort, &mut |bitmap, _| score(&mut gct, codec.as_mut(), bitmap))
-                    })
-                })
-                .collect();
-            searches.into_iter().map(|search| search.join().expect("a search")).collect()
+        let opponent_seed = seed.wrapping_add(index as u64 * SEARCHES_AT_ONCE);
+        let outcomes = search_at_once(opponent_seed, recorded.clone(), effort, &|| {
+            let (mut gct, mut codec) = (Gct::new(), (opponent.make)());
+            move |bitmap: &Bitmap, _| score(&mut gct, codec.as_mut(), bitmap)
         });
         let worst = outcomes.iter().map(|outcome| &outcome.worst).max_by_key(|found| found.score.gap).expect("a search");
 

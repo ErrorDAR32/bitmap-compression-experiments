@@ -7,7 +7,7 @@
 mod common;
 
 use bitmap::samples::checkerboards::checkerboards;
-use bitmap::samples::{every_family, grown, one_laid_out, sample_seed, PLANS, SHAPES};
+use bitmap::samples::{families, grown, one_laid_out, sample_seed, HowMany, PLANS, SHAPES};
 use common::check;
 
 /// How far from the measured seeds the second sample starts.
@@ -21,7 +21,7 @@ const SECOND_SAMPLE_EACH: u64 = 4;
 #[test]
 #[ignore]
 fn every_family_round_trips() {
-    for (family, maps) in every_family() {
+    for (family, maps) in families(HowMany::Timed) {
         for (case, bitmap) in maps.iter().enumerate() {
             check(bitmap, &format!("{family}, case {case}"));
         }

@@ -16,7 +16,7 @@ use crate::gct::nested_resolutions::NestedResolutions;
 use crate::gct::pyramids::complex_tiling::{ComplexTiling, Fields};
 use crate::gct::pyramids::placements::Placement;
 use crate::gct::pyramids::pyramid::Pyramid;
-use crate::gct::tile::{cells_in_tile, tiles_across, Tile, CELL_LEVEL};
+use crate::gct::tile::{cells_in_tile, tiles_across, Tile, CELL_LEVEL, CHILDREN};
 use crate::Bitmap;
 
 /// How many resolution tiles a tile holds `size_offset` levels finer:
@@ -91,7 +91,7 @@ pub fn node_bits(
         }
         Some(bind @ Placement::Bound { value, .. }) => {
             // Spelled as a divide that masks and flips the value bound above.
-            let mut bind_bits = (LEAF_WIDTH + MASK_PRESENT_WIDTH + FLIP_WIDTH) as u64;
+            let mut bind_bits = MASKING_DIVIDE_HEADER_WIDTH as u64;
             for (child, fields) in tile.children().into_iter().zip(complex_tiling.children_fields(tile)) {
                 bind_bits += MASK_BIT_WIDTH as u64;
                 if bind.masks(child) {
@@ -146,7 +146,7 @@ pub fn node_bits(
                     divide_bits += MASK_PRESENT_WIDTH as u64;
                 }
                 let (children, fields) = (tile.children(), complex_tiling.children_fields(tile));
-                let mut left = [false; 4];
+                let mut left = [false; CHILDREN as usize];
                 for at in 0..children.len() {
                     left[at] = fields[at].left_to_binding_above(children[at], bound_above, nested);
                 }

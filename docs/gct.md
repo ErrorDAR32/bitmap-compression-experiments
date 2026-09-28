@@ -570,33 +570,44 @@ first node on each path that is not a divide -- a complex tile of any
 resolution, a copy, a point list, a 2x2 -- is a *top tile*, and a
 child a masking divide leaves to the binding above is a *background
 tile*. Together they tile the whole bitmap once, in Morton order; the
-divides above them and each top tile's leaf bit are all the tree spends
-placing them. Would a list of those tiles in Morton order, each with its
-size, place them for less? A list says each tile's size from the levels
-a tile starting at its first cell could have, and whether it is
-background; the tree says, at every node, leaf, whole divide or masking
-divide with its child mask. Both spell the same thing, so the fair
-comparison is the least each could spend -- each symbol coded by how
-often it occurs in its context over the family (an entropy, which only
-an ideal adaptive coder reaches). Bits a bitmap, seed
-`1950720362523133367`:
+tree above places them. Could a list of them in Morton order, each
+saying its size, place them for less?
 
-| family | all bits | tree placing, as written | tree, ideally coded | list, ideally coded |
-|---|---|---|---|---|
-| city | 12614 | 1443 (11.4%) | 1170 | 1250 |
-| blob | 24669 | 1789 (7.3%) | 1223 | 1289 |
-| sparse | 2389 | 111 (4.6%) | 66 | 72 |
-| lines | 11571 | 2489 (21.5%) | 2101 | 2180 |
-| adversarial, saved | 60265 | 4240 (7.0%) | 2498 | 2524 |
+Dropping the tree does not drop what it says: a decoder must still
+learn where each tile ends. A list says each tile's size from the
+levels a tile starting at its first cell could have -- a bit a level,
+"this size" or "finer", none needed at the 2x2 floor -- and those are
+the tree's subdivide and leaf bits exactly, moved: each divide's bit
+becomes a "finer" bit of the first tile under it, each leaf bit the
+"this size" bit of its own tile. Every check asserts this, bit for bit.
+What differs is background: the tree says it in its divides (a
+mask-present bit on every divide at 8x8 or coarser, a flip bit and a
+4-bit child mask on a masking one) and never says a background tile's
+size; a list says each background tile's size, and needs a bit on every
+tile that could be background. Bits a bitmap, both spelled plainly,
+seed `1950720362523133367`:
 
-The list costs more than the tree in every family, by 1% to 9%, and did
-on seeds `5540450233105962519` and `14458350495405045065` too. A list
-of aligned tiles in Morton order is a quadtree's leaves, so the two
-carry the same information; the tree's divides share one decision
-among four children, where a list says each child's size again. What
-is there to take is the coding: the tree's decisions, coded by how
-often each is made at its level, would spend 2% to 3.4% of all bits less
-(city 273 bits a bitmap, blob 566, lines 388).
+| family | all bits | tree: subdivide + leaf | tree: masking | tree placing | list: sizes | list: background flags | list placing | tree, ideally coded |
+|---|---|---|---|---|---|---|---|---|
+| city | 12614 | 740 | 703 | 1443 | 919 | 563 | 1481 | 1170 |
+| blob | 24669 | 692 | 1097 | 1789 | 1035 | 450 | 1484 | 1223 |
+| sparse | 2389 | 32 | 78 | 111 | 63 | 37 | 100 | 66 |
+| lines | 11571 | 1101 | 1388 | 2489 | 1463 | 799 | 2262 | 2101 |
+| adversarial, saved | 60265 | 2854 | 1386 | 4240 | 3015 | 600 | 3615 | 2498 |
+
+The list places for less than the tree in every family but the city:
+1.2% of all bits on blobs, 2.0% on lines, 1.0% on the saved adversarial
+bitmaps, 0.3% more on cities -- the same on seeds `13540731507949036564`
+and `11721063904049505239`. All of it is in how background is said:
+the tree's mask-present bit on every whole divide costs more than a
+flag on the tiles that could be background. The same trade is open to
+the tree, saying background at the child rather than the divide. The
+last column is the other thing open to it: its decisions coded by how
+often each is made at its level (an entropy, which only an ideal
+adaptive coder reaches) would spend 2% to 3.4% of all bits less. An
+earlier version of this section compared the two by such entropies
+alone, where the tree came out ahead, and concluded a list costs more;
+spelled plainly, as gct spells everything, it does not.
 
 **Why the start level header**: a trunk of depth `d` -- every tile
 coarser than level `d` subdivides -- saves `(4^d - 1) / 3` subdivide

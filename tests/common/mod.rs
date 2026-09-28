@@ -23,6 +23,9 @@ pub const CAP_BITS: usize = RAW_CELLS + RAW_CELLS / 100;
 /// - the bit cost the complex tiler scores with is the encoder's count;
 /// - the divides above the top tiles spend what the grammar says: the
 ///   bits written less the top tiles' own and the header;
+/// - a plain Morton list of the top and background tiles would say
+///   their sizes in the tree's subdivide and leaf bits, and one bit
+///   more for each background tile;
 /// - gct spends at most [`CAP_BITS`], the raw cells and 1%;
 /// - the tree read back from the bits is the tree that was written;
 /// - decoding gives back every cell.
@@ -46,6 +49,11 @@ pub fn check(bitmap: &Bitmap, label: &str) {
             panic!("{label}: cell ({x}, {y}) comes back {} instead of {}", back.get(x, y), bitmap.get(x, y));
         }
         let above = AboveComplexTiles::of(workspace, bitmap, examined.written_bits);
-        assert_eq!(above.divide_bits, above.rest_bits, "{label}: the divides above the top tiles spend other than the grammar says");
+        assert_eq!(above.divide_bits(), above.rest_bits, "{label}: the divides above the top tiles spend other than the grammar says");
+        assert_eq!(
+            above.list_size_bits(),
+            above.subdivide_bits + above.leaf_bits + above.background(),
+            "{label}: a plain Morton list's size bits are not the tree's subdivide and leaf bits and a bit a background tile"
+        );
     });
 }

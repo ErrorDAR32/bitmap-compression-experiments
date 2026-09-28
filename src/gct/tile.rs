@@ -23,6 +23,12 @@ pub fn directions() -> impl Iterator<Item = u8> {
 
 /// A tile is this many of its children wide.
 pub const CHILDREN_ACROSS: u8 = 2;
+/// A tile's children.
+pub const CHILDREN: u8 = CHILDREN_ACROSS * CHILDREN_ACROSS;
+/// One bit a child, every child's set: a child mask naming them all.
+pub const ALL_CHILDREN: u8 = (1 << CHILDREN) - 1;
+/// Bits enough for any level, the whole bitmap to a cell.
+pub const LEVEL_BITS: u8 = (u8::BITS - CELL_LEVEL.leading_zeros()) as u8;
 
 /// Cells in the bitmap.
 pub const CELLS: usize = tiles_across(CELL_LEVEL) * tiles_across(CELL_LEVEL);

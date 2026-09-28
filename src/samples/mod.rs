@@ -204,8 +204,33 @@ impl ExactSizeIterator for Samples {
     }
 }
 
-/// Every family of sample, named, with as many of each as a
-/// measurement should take.
+/// How many bitmaps a family takes from each of its generators: a
+/// shape, a plan or a line set.
+#[derive(Clone, Copy, Debug)]
+pub enum HowMany {
+    /// As many as a timed run of that generator should take: its own
+    /// count.
+    Timed,
+    /// The same number of each.
+    Each(u64),
+}
+
+impl HowMany {
+    /// How many to take of a generator whose own timed count is `timed`.
+    pub fn of(self, timed: u64) -> u64 {
+        match self {
+            HowMany::Timed => timed,
+            HowMany::Each(count) => count,
+        }
+    }
+}
+
+/// Bitmaps each generator makes for a timing, unless told otherwise:
+/// 20 generators, so 2000 bitmaps -- enough for a steady mean and a
+/// tail.
+pub const TIMING_PER_GENERATOR: u64 = 100;
+
+/// Every family of sample, named, with `how_many` of each generator's.
 ///
 /// Four families. Grown bitmaps are cells scattered or clustered to a
 /// density, which is what an algorithm is stressed on. Laid out ones
@@ -214,26 +239,11 @@ impl ExactSizeIterator for Samples {
 /// Drawn ones are lines, straight and diagonal, thin and wide. Sparse
 /// ones are grown too thin to be a shape at all. A result on one is a
 /// quarter of a result.
-pub fn every_family() -> Vec<(String, Vec<BitmapSample>)> {
+pub fn families(how_many: HowMany) -> Vec<(String, Vec<Bitmap>)> {
     vec![
-        (
-            "laid out like a city".to_string(),
-            PLANS.iter().flat_map(|plan| plan.timed()).collect(),
-        ),
-        (
-            "grown like a blob".to_string(),
-            SHAPES.iter().flat_map(|shape| shape.timed()).collect(),
-        ),
-        (
-            "sparse".to_string(),
-            SPARSE.iter().flat_map(|shape| shape.timed()).collect(),
-        ),
-        (
-            "drawn with lines".to_string(),
-            LINE_SETS.iter().flat_map(|set| set.timed()).collect(),
-        ),
+        ("laid out like a city".to_string(), PLANS.iter().flat_map(|plan| plan.take(how_many.of(plan.timed))).collect()),
+        ("grown like a blob".to_string(), SHAPES.iter().flat_map(|shape| shape.take(how_many.of(shape.timed))).collect()),
+        ("sparse".to_string(), SPARSE.iter().flat_map(|shape| shape.take(how_many.of(shape.timed))).collect()),
+        ("drawn with lines".to_string(), LINE_SETS.iter().flat_map(|set| set.take(how_many.of(set.timed))).collect()),
     ]
 }
-
-/// What a family is made of.
-pub type BitmapSample = crate::Bitmap;

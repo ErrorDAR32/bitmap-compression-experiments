@@ -56,8 +56,12 @@ pub struct Examination {
     pub first_difference: Option<(u8, u8)>,
 }
 
-/// The first cell, in reading order, where two bitmaps differ.
+/// The first cell, in reading order, where two bitmaps differ: their
+/// words compared first, a cell at a time only if they differ.
 pub fn first_difference(a: &Bitmap, b: &Bitmap) -> Option<(u8, u8)> {
+    if a.words() == b.words() {
+        return None;
+    }
     (0..=u8::MAX).flat_map(|y| (0..=u8::MAX).map(move |x| (x, y))).find(|&(x, y)| a.get(x, y) != b.get(x, y))
 }
 

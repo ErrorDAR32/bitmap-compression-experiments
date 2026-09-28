@@ -19,7 +19,9 @@ use bitmap::gct::grammar::bit_stream::BitStream;
 use bitmap::adversarial::record;
 use bitmap::gct::Workspace;
 use bitmap::samples::checkerboards::checkerboard;
-use bitmap::samples::{grown, LINE_SETS, PLANS, SHAPES, SPARSE};
+use bitmap::diagnostics::examination::first_difference;
+use bitmap::samples::{families, grown, HowMany};
+use bitmap::table::Table;
 use bitmap::Bitmap;
 
 /// Bitmaps each generator makes: the first of those the timed sample
@@ -37,16 +39,7 @@ const NOISE_BITMAPS: u64 = 1;
 
 /// Builds the sample, then encodes and decodes every bitmap of it.
 fn main() {
-    let mut sample: Vec<Bitmap> = Vec::new();
-    for shape in SHAPES.iter().chain(&SPARSE) {
-        sample.extend(shape.take(BITMAPS_PER_GENERATOR));
-    }
-    for plan in &PLANS {
-        sample.extend(plan.take(BITMAPS_PER_GENERATOR));
-    }
-    for set in &LINE_SETS {
-        sample.extend(set.take(BITMAPS_PER_GENERATOR));
-    }
+    let mut sample: Vec<Bitmap> = families(HowMany::Each(BITMAPS_PER_GENERATOR)).into_iter().flat_map(|(_, bitmaps)| bitmaps).collect();
     sample.push(checkerboard(CHECKERBOARD_SQUARE));
     sample.extend(record::saved().into_iter().map(|(_, bitmap)| bitmap));
     sample.extend(grown(NOISE_SEED, NOISE_DENSITY, 0.0, NOISE_BITMAPS));
@@ -59,7 +52,9 @@ fn main() {
         workspace.encode(bitmap, &mut stream);
         bits += stream.len();
         workspace.decode(&stream, &mut back);
-        assert_eq!(back.count_set(), bitmap.count_set());
+        assert_eq!(first_difference(bitmap, &back), None, "a bitmap did not round trip");
     }
-    println!("{} bitmaps, {} bits", sample.len(), bits);
+    let mut table = Table::new(&["bitmaps", "bits"]);
+    table.row(&[sample.len().to_string(), bits.to_string()]);
+    table.print();
 }

@@ -17,7 +17,7 @@
 
 #![warn(missing_docs, clippy::missing_docs_in_private_items)]
 
-use bitmap::adversarial::{record, search, Effort, Outcome, Score};
+use bitmap::adversarial::{record, search_at_once, Effort, Score};
 use bitmap::diagnostics::examination::Examination;
 use bitmap::gct::encode;
 use bitmap::gct::grammar::bit_stream::BitStream;
@@ -26,10 +26,6 @@ use bitmap::gct::Workspace;
 use bitmap::samples::sample_seed;
 use bitmap::table::Table;
 use bitmap::Bitmap;
-use std::thread;
-
-/// Searches run at once, one a core.
-const SEARCHES: u64 = 4;
 
 /// What the record is kept under.
 const RECORD: &str = "gct_against_raw";
@@ -46,20 +42,9 @@ fn score(bitmap: &Bitmap, area: Tile) -> Score {
 /// the worst bitmap if it beats the one on record.
 fn main() {
     let seed = sample_seed("adversarial search");
-    let mut effort = Effort::default();
-    if let Some(plane) = std::env::args().nth(1) {
-        effort.plane = plane.parse().expect("a number of changes");
-    }
+    let effort = Effort::from_arguments();
     let recorded = record::read(RECORD);
-    let outcomes: Vec<Outcome> = thread::scope(|scope| {
-        let searches: Vec<_> = (0..SEARCHES)
-            .map(|index| {
-                let recorded = recorded.clone();
-                scope.spawn(move || search(seed.wrapping_add(index), recorded, effort, &mut |bitmap, area| score(bitmap, area)))
-            })
-            .collect();
-        searches.into_iter().map(|search| search.join().unwrap()).collect()
-    });
+    let outcomes = search_at_once(seed, recorded.clone(), effort, &|| score);
 
     let mut table = Table::new(&[
         "search",

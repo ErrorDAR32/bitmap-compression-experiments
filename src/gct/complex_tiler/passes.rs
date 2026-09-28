@@ -24,7 +24,7 @@ use super::raw_masking::{decide_raw_masking, MOST_RAW_MASKED};
 use crate::fixed_list::FixedList;
 use crate::gct::pyramids::complex_tiling::ComplexTiling;
 use crate::gct::pyramids::pyramid::Pyramid;
-use crate::gct::tile::{tiles_down_to, Tile, CELL_LEVEL, CHILDREN_ACROSS};
+use crate::gct::tile::{tiles_down_to, Tile, CELL_LEVEL, CHILDREN};
 use crate::gct::nested_resolutions::NestedResolutions;
 use crate::Bitmap;
 
@@ -45,7 +45,7 @@ struct SearchArea {
 const MOST_CANDIDATES: usize = tiles_down_to(FINEST_CANDIDATE_LEVEL);
 
 /// The most roots a search area has: a complex tile's children.
-const MOST_ROOTS: usize = (CHILDREN_ACROSS * CHILDREN_ACROSS) as usize;
+const MOST_ROOTS: usize = CHILDREN as usize;
 
 /// Room the complex tiler works in, allocated once at the most any
 /// bitmap needs.

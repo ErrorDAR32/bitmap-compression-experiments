@@ -62,7 +62,7 @@ fn said_by_itself(placements: &Pyramid, tile: Tile, mut part_cost: impl FnMut(Ti
     match placements.placement(tile) {
         Some(Placement::Bound { masked_children: 0, .. }) => leaf_bind + resolution_width(tile.level) as u64 + 1,
         Some(bind @ Placement::Bound { .. }) => {
-            (LEAF_WIDTH + MASK_PRESENT_WIDTH + FLIP_WIDTH) as u64 + masked_parts(tile, bind, &mut part_cost)
+            MASKING_DIVIDE_HEADER_WIDTH as u64 + masked_parts(tile, bind, &mut part_cost)
         }
         Some(copy @ Placement::Copied { .. }) => {
             let mut bits = leaf_bind + (FAR_WIDTH + DIRECTION_WIDTH) as u64;

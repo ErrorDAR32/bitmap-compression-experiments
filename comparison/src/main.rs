@@ -1,15 +1,16 @@
 //! gct against existing bitmap compressors -- CCITT Group 4, JBIG
 //! (jbigkit) and zstd -- on the same large sample `gct_timing` uses:
-//! every generator, `BITMAPS_PER_GENERATOR` distinct bitmaps each. For
+//! every generator, `samples::TIMING_PER_GENERATOR` distinct bitmaps each. For
 //! each family and codec: the mean encoded size, and the mean time to
 //! encode and to decode, each bitmap encoded once and decoded once and
 //! checked. Run in release, on its own -- no profiler, nothing else
 //! busy:
 //!
+//! From the repository root, so the seed is the repository's:
+//!
 //! ```text
-//! cd comparison
-//! cargo run --release
-//! cargo run --release -- 400
+//! cargo run --release --manifest-path comparison/Cargo.toml
+//! cargo run --release --manifest-path comparison/Cargo.toml -- 400
 //! ```
 //!
 //! The argument, if given, is how many bitmaps each generator makes.
@@ -17,38 +18,33 @@
 
 #![warn(missing_docs, clippy::missing_docs_in_private_items)]
 
-use bitmap::samples::{LINE_SETS, PLANS, SHAPES, SPARSE};
+use bitmap::diagnostics::RAW_CELLS;
+use bitmap::samples::{families, HowMany, TIMING_PER_GENERATOR};
+use bitmap::table::Table;
 use bitmap::Bitmap;
 use comparison::codecs::g4::G4;
 use comparison::codecs::gct::Gct;
 use comparison::codecs::jbig::Jbig;
 use comparison::codecs::zstd::Zstd;
 use comparison::codecs::Codec;
-use comparison::rows::{self, Rows};
+use comparison::rows::Rows;
 use std::time::Instant;
-
-/// Bitmaps each generator makes unless told otherwise: 20 generators,
-/// so 2000 bitmaps.
-const BITMAPS_PER_GENERATOR: u64 = 100;
 
 /// zstd's default level, and a high one: how much more a general
 /// compressor finds when given the time.
 const ZSTD_LEVELS: [i32; 2] = [3, 19];
 
-/// Raw bits a bitmap: one a cell.
-const RAW_BITS: f64 = (rows::WIDTH * rows::HEIGHT) as f64;
-
 /// One family's bitmaps, named, each also in rows.
 struct Family {
     /// What the family is called.
-    name: &'static str,
+    name: String,
     /// Its bitmaps, each with its rows.
     bitmaps: Vec<(Bitmap, Rows)>,
 }
 
 impl Family {
     /// A family of these bitmaps.
-    fn of(name: &'static str, bitmaps: impl Iterator<Item = Bitmap>) -> Self {
+    fn of(name: String, bitmaps: impl Iterator<Item = Bitmap>) -> Self {
         Self { name, bitmaps: bitmaps.map(|bitmap| { let rows = Rows::of(&bitmap); (bitmap, rows) }).collect() }
     }
 }
@@ -81,13 +77,9 @@ impl Totals {
 /// Builds the sample, runs every codec over every family, and prints a
 /// table a family, then one for them all.
 fn main() {
-    let per_generator = std::env::args().nth(1).map_or(BITMAPS_PER_GENERATOR, |count| count.parse().expect("a count"));
-    let families = [
-        Family::of("grown like a blob", SHAPES.iter().flat_map(|shape| shape.take(per_generator))),
-        Family::of("sparse", SPARSE.iter().flat_map(|shape| shape.take(per_generator))),
-        Family::of("laid out like a city", PLANS.iter().flat_map(|plan| plan.take(per_generator))),
-        Family::of("drawn with lines", LINE_SETS.iter().flat_map(|set| set.take(per_generator))),
-    ];
+    let per_generator = std::env::args().nth(1).map_or(TIMING_PER_GENERATOR, |count| count.parse().expect("a count"));
+    let families: Vec<Family> =
+        families(HowMany::Each(per_generator)).into_iter().map(|(name, bitmaps)| Family::of(name, bitmaps.into_iter())).collect();
     let mut codecs: Vec<Box<dyn Codec>> = vec![Box::new(Gct::new()), Box::new(G4::new()), Box::new(Jbig::new())];
     codecs.extend(ZSTD_LEVELS.map(|level| Box::new(Zstd::new(level)) as Box<dyn Codec>));
 
@@ -102,7 +94,7 @@ fn main() {
     let mut overall = vec![Totals::default(); codecs.len()];
     for family in &families {
         let totals: Vec<Totals> = codecs.iter_mut().map(|codec| run(codec.as_mut(), family)).collect();
-        print_table(family.name, &codecs, &totals);
+        print_table(&family.name, &codecs, &totals);
         for (sum, family_totals) in overall.iter_mut().zip(&totals) {
             *sum = sum.plus(*family_totals);
         }
@@ -131,18 +123,19 @@ fn run(codec: &mut dyn Codec, family: &Family) -> Totals {
 /// Prints one family's table: a row a codec, its mean bits (and as a
 /// share of raw), encode and decode microseconds a bitmap.
 fn print_table(name: &str, codecs: &[Box<dyn Codec>], totals: &[Totals]) {
-    println!("\n{name} ({} bitmaps)", totals[0].count);
-    println!("  {:<22} {:>10} {:>8} {:>11} {:>11}", "codec", "bits", "of raw", "encode us", "decode us");
+    let heading = format!("{name}, {} bitmaps", totals[0].count);
+    let mut table = Table::new(&[&heading, "bits\na bitmap", "of the\nraw cells", "encode us\na bitmap", "decode us\na bitmap"]);
     for (codec, totals) in codecs.iter().zip(totals) {
         let count = totals.count as f64;
         let bits = totals.bits as f64 / count;
-        println!(
-            "  {:<22} {:>10.0} {:>7.1}% {:>11.1} {:>11.1}",
-            codec.name(),
-            bits,
-            100.0 * bits / RAW_BITS,
-            totals.encode / count * 1e6,
-            totals.decode / count * 1e6
-        );
+        table.row(&[
+            codec.name().to_string(),
+            format!("{bits:.0}"),
+            format!("{:.1}%", 100.0 * bits / RAW_CELLS as f64),
+            format!("{:.1}", totals.encode / count * 1e6),
+            format!("{:.1}", totals.decode / count * 1e6),
+        ]);
     }
+    println!();
+    table.print();
 }

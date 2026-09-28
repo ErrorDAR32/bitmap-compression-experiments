@@ -2,12 +2,9 @@
 //! first, most significant bit leftmost, 1 a set cell -- the raster
 //! layout G4 and JBIG work in.
 
+pub use bitmap::{HEIGHT, WIDTH};
 use bitmap::Bitmap;
 
-/// Cells a row.
-pub const WIDTH: usize = 256;
-/// Rows.
-pub const HEIGHT: usize = 256;
 /// Bytes a row.
 pub const ROW_BYTES: usize = WIDTH / 8;
 /// Bytes the whole bitmap takes.

@@ -39,13 +39,13 @@
 
 use super::bit_cost::{node_bits, payload_bits};
 use crate::fixed_list::FixedList;
-use crate::gct::grammar::{FLIP_WIDTH, LEAF_WIDTH, MASK_BIT_WIDTH};
+use crate::gct::grammar::{CHILD_MASK_WIDTH, FLIP_WIDTH, LEAF_WIDTH, MASK_BIT_WIDTH};
 use crate::gct::nested_resolutions::NestedResolutions;
 use crate::gct::pyramids::complex_tiling::{ComplexTiling, Fields};
 use crate::gct::pyramids::costs::{Changes, Costs, FINEST_HELD, NO_CANDIDATE, RESOLUTIONS};
 use crate::gct::pyramids::placements::Placement;
 use crate::gct::pyramids::pyramid::Pyramid;
-use crate::gct::tile::{cells_in_tile, tiles_across, Tile, CELL_LEVEL, CHILDREN_ACROSS};
+use crate::gct::tile::{cells_in_tile, tiles_across, Tile, ALL_CHILDREN, CELL_LEVEL};
 use crate::Bitmap;
 
 /// The most tiles of one level a count can reach: every tile of the
@@ -55,7 +55,7 @@ const MOST_REACHED: usize = tiles_across(FINEST_HELD) * tiles_across(FINEST_HELD
 /// The mask bits a divide spends on a child mask, and the flip bit:
 /// what one that leaves children to the binding above spends, and one
 /// that leaves none does not.
-const LEAVING_BITS: i32 = (FLIP_WIDTH + CHILDREN_ACROSS * CHILDREN_ACROSS * MASK_BIT_WIDTH) as i32;
+const LEAVING_BITS: i32 = (FLIP_WIDTH + CHILD_MASK_WIDTH) as i32;
 
 /// The 2x2 floor's level.
 const FLOOR: u8 = CELL_LEVEL - 1;
@@ -179,7 +179,7 @@ impl CostPyramid {
             for &tile in &these[level as usize] {
                 let here = complex_tiling.fields(tile);
                 let reached = match here.placed() {
-                    None if base.unmasking(here, tile).is_none() => 0b1111,
+                    None if base.unmasking(here, tile).is_none() => ALL_CHILDREN,
                     None => 0,
                     Some(Placement::Bound { masked_children, .. } | Placement::Copied { masked_children, .. }) => masked_children,
                 };

@@ -5,7 +5,7 @@ use bitmap::diagnostics::bitmaps::looked_at;
 use bitmap::diagnostics::census::census;
 use bitmap::gct::grammar::bit_stream::BitStream;
 use bitmap::gct::pyramids::tree::Tree;
-use bitmap::gct::tile::CELL_LEVEL;
+use bitmap::gct::tile::{tile_side, CELL_LEVEL};
 use bitmap::gct::Workspace;
 use bitmap::table::Table;
 
@@ -16,7 +16,7 @@ pub fn run() {
         workspace.encode(&bitmap, &mut stream);
         let tree = workspace.tree();
         let headings: Vec<String> = std::iter::once("node".to_string())
-            .chain((0..CELL_LEVEL).map(|level| format!("level {level}\n{0}x{0}", 256 >> level)))
+            .chain((0..CELL_LEVEL).map(|level| format!("level {level}\n{0}x{0}", tile_side(level))))
             .collect();
         let mut table = Table::new(&headings.iter().map(String::as_str).collect::<Vec<_>>());
         for (kind, by_level) in census(tree) {

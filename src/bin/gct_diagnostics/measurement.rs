@@ -9,7 +9,7 @@ use bitmap::diagnostics::RAW_CELLS;
 use bitmap::gct::grammar::bit_stream::BitStream;
 use bitmap::gct::Workspace;
 use bitmap::samples::checkerboards::checkerboards;
-use bitmap::samples::{every_family, LINE_SETS, PLANS, SHAPES, SPARSE};
+use bitmap::samples::{families, HowMany, LINE_SETS, PLANS, SHAPES, SPARSE};
 use bitmap::table::Table;
 use bitmap::Bitmap;
 
@@ -134,7 +134,7 @@ fn print_structure(workspace: &mut Workspace) {
     ]);
 
     let mut stream = BitStream::default();
-    for (family, maps) in every_family() {
+    for (family, maps) in families(HowMany::Timed) {
         let mut stats = TreeStats::default();
         for bitmap in &maps {
             workspace.encode(bitmap, &mut stream);

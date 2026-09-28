@@ -3,10 +3,11 @@
 //! unmask the tile.
 
 use crate::gct::pyramids::complex_tiling::Fields;
-use crate::gct::tile::{Tile, CELL_LEVEL};
+use crate::gct::tile::{Tile, CELL_LEVEL, LEVEL_BITS};
 
 /// Enough for a resolution plus one, up to `CELL_LEVEL + 1`.
-const RESOLUTION_BITS: u64 = 4;
+const RESOLUTION_BITS: u64 = LEVEL_BITS as u64;
+const _: () = assert!(CELL_LEVEL + 1 < 1 << LEVEL_BITS);
 
 /// The most complex tiles a tile can be nested in: each has its own
 /// resolution, a level finer than the whole bitmap's.
