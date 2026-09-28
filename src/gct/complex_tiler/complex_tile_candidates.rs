@@ -27,7 +27,7 @@ use crate::Bitmap;
 
 /// A tile the complex tiler could make a complex tile, at its best
 /// size offset, and what that would save.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Default)]
 pub struct Candidate {
     /// The tile.
     pub tile: Tile,

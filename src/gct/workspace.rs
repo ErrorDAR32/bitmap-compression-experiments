@@ -2,7 +2,10 @@
 //! once and reused for every bitmap after -- the pyramids, the complex
 //! tiler's scratch, the runs' tiles. Encoding takes the bitmap and where
 //! the stream goes; decoding takes the stream and where the bitmap goes.
-//! Once warm, neither allocates, whatever the bitmap.
+//! Every structure is sized at the most any bitmap needs -- the
+//! pyramids by their shape, every list at a bound named where it is
+//! made ([`FixedList`](crate::fixed_list)) -- so neither ever allocates or
+//! grows, whatever the bitmap, the first included.
 
 use crate::gct::complex_tiler::complex_tiler::{complex_tiler, Scratch};
 use crate::gct::decode::{decode, CopyRows, StreamContents};

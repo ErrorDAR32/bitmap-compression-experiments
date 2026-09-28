@@ -27,8 +27,19 @@ Every structure the steps use -- the pyramids, the complex tiler's
 scratch, the runs' tiles -- lives in one `Workspace` (`workspace.rs`),
 allocated once. `workspace.encode(&bitmap, &mut stream)` and
 `workspace.decode(&stream, &mut bitmap)` write into what they are given,
-so once warm, encoding and decoding a bitmap allocates nothing; each
-step clears or overwrites what the last bitmap left.
+and each step clears or overwrites what the last bitmap left.
+
+Nothing grows. Every structure has an upper bound, and is allocated at
+it once: a pyramid at its shape, and every list (`fixed_list.rs`: a
+boxed array of fixed capacity and a length) at a bound named where it is
+made -- a run's tiles at the cells, residual 2x2s at the 2x2s, copied
+rows at a quarter of the cells (copies are 4x4 or bigger), candidates at
+the tiles down to 4x4, and so on. The stream is sized at the most bits
+any stream can take: the start level, 18 bits at every tile down to the
+2x2 floor (8 nesting mask bits and a masking copy's 10-bit header) and
+each cell's value said once -- 458749. Encoding and decoding never
+allocate, the first bitmap included; pushing past a bound would be a
+bug, and panics rather than growing.
 
 ## Pyramids
 

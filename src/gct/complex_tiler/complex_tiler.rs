@@ -20,16 +20,18 @@
 
 use super::cost_lanes::CostLanes;
 use super::complex_tile_candidates::Candidate;
-use super::raw_masking::decide_raw_masking;
+use super::raw_masking::{decide_raw_masking, MOST_RAW_MASKED};
+use crate::fixed_list::FixedList;
 use crate::gct::pyramids::complex_tiling::ComplexTiling;
 use crate::gct::pyramids::placements::{binding_above, Placement};
 use crate::gct::pyramids::pyramid::Pyramid;
-use crate::gct::tile::{Tile, CELL_LEVEL};
+use crate::gct::tile::{tiles_down_to, Tile, CELL_LEVEL, CHILDREN_ACROSS};
 use crate::gct::nested_resolutions::NestedResolutions;
 use crate::Bitmap;
 
 /// Where one pass searches: an area, the coarsest level a candidate in
 /// it may be, and the resolutions of the complex tiles it is nested in.
+#[derive(Clone, Copy, Default)]
 struct SearchArea {
     /// The tile searched in.
     area: Tile,
@@ -39,22 +41,30 @@ struct SearchArea {
     nested: NestedResolutions,
 }
 
-/// Room the complex tiler works in, kept from one bitmap to the next so
-/// it allocates nothing once warm.
+/// The most candidates a pass can commit, or search inside: one a tile,
+/// from the whole bitmap down to 4x4.
+const MOST_CANDIDATES: usize = tiles_down_to(FINEST_CANDIDATE_LEVEL);
+
+/// The most roots a search area has: a complex tile's children.
+const MOST_ROOTS: usize = (CHILDREN_ACROSS * CHILDREN_ACROSS) as usize;
+
+/// Room the complex tiler works in, allocated once at the most any
+/// bitmap needs.
 #[derive(Default)]
 pub struct Scratch {
     /// The tiles a complex tile of 1x1 resolution masks.
-    raw_masked: Vec<Tile>,
+    raw_masked: FixedList<Tile, MOST_RAW_MASKED>,
     /// Every count a search area's candidates ask for.
     lanes: CostLanes,
-    /// A search area's roots, each with the value bound above it.
-    roots: Vec<(Tile, bool)>,
+    /// A search area's roots, each with the value bound above it: the
+    /// whole bitmap, or the four children of a complex tile.
+    roots: FixedList<(Tile, bool), MOST_ROOTS>,
     /// Where this pass searches.
-    searched: Vec<SearchArea>,
+    searched: FixedList<SearchArea, MOST_CANDIDATES>,
     /// Where the next pass searches.
-    next: Vec<SearchArea>,
+    next: FixedList<SearchArea, MOST_CANDIDATES>,
     /// The candidates this pass commits.
-    chosen: Vec<Candidate>,
+    chosen: FixedList<Candidate, MOST_CANDIDATES>,
 }
 
 /// Creates complex tiles from the greedy tiler's output -- the complex
@@ -105,7 +115,7 @@ fn best_at_or_under(
     tile: Tile,
     nested: &NestedResolutions,
     bound_above: bool,
-    chosen: &mut Vec<Candidate>,
+    chosen: &mut FixedList<Candidate, MOST_CANDIDATES>,
 ) -> u64 {
     if tile.level > FINEST_CANDIDATE_LEVEL || nested.unmasking(complex_tiling.fields(tile), tile).is_some() {
         return 0;
@@ -143,7 +153,7 @@ fn best_at_or_under(
 /// Commits `chosen`, adding to `next` where the next pass searches --
 /// inside each one committed, but a point list: it says every cell
 /// under it itself.
-fn commit(chosen: &[Candidate], complex_tiling: &mut Pyramid, next: &mut Vec<SearchArea>) {
+fn commit(chosen: &[Candidate], complex_tiling: &mut Pyramid, next: &mut FixedList<SearchArea, MOST_CANDIDATES>) {
     for candidate in chosen {
         if candidate.point_list {
             complex_tiling.make_point_list(candidate.tile);

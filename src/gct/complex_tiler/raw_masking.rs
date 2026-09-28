@@ -14,13 +14,19 @@
 use crate::gct::grammar::*;
 use crate::gct::pyramids::placements::{Placement, Placements};
 use crate::gct::pyramids::pyramid::Pyramid;
-use crate::gct::tile::{cells_in_tile, Tile, CELL_LEVEL};
+use crate::fixed_list::FixedList;
+use crate::gct::tile::{cells_in_tile, tiles_down_to, Tile, CELL_LEVEL};
+
+/// The most tiles a complex tile of 1x1 resolution masks: every tile
+/// from the whole bitmap down to the 2x2 floor -- nothing finer is
+/// placed.
+pub const MOST_RAW_MASKED: usize = tiles_down_to(CELL_LEVEL - 1);
 
 /// The tiles a complex tile of 1x1 resolution masks, read off what the
 /// greedy tiler placed, into `masked`, whatever it held before. Decided top-down, from the whole bitmap, only
 /// where a tile's cost depends on what is under it: under a tile placed
 /// whole nothing is ever asked.
-pub fn decide_raw_masking(placements: &Pyramid, masked: &mut Vec<Tile>) {
+pub(crate) fn decide_raw_masking(placements: &Pyramid, masked: &mut FixedList<Tile, MOST_RAW_MASKED>) {
     masked.clear();
     cost_in_raw(placements, Tile::whole_bitmap(), masked);
 }
@@ -28,7 +34,7 @@ pub fn decide_raw_masking(placements: &Pyramid, masked: &mut Vec<Tile>) {
 /// What `tile` costs in a raw complex tile, its mask bit included: the
 /// cheaper of its raw cells and itself, its parts each costed the same
 /// way. Adds `tile` to `masked` when itself is cheaper.
-fn cost_in_raw(placements: &Pyramid, tile: Tile, masked: &mut Vec<Tile>) -> u64 {
+fn cost_in_raw(placements: &Pyramid, tile: Tile, masked: &mut FixedList<Tile, MOST_RAW_MASKED>) -> u64 {
     let raw = cells_in_tile(tile.level);
     if tile.level == CELL_LEVEL {
         // A cell is only ever raw.

@@ -15,10 +15,11 @@ use crate::gct::grammar::order::Runs;
 use crate::gct::grammar::point_list;
 use crate::gct::grammar::*;
 use crate::gct::nested_resolutions::NestedResolutions;
-use crate::gct::pyramids::copyable::{FAR_DISTANCE, NEAR_DISTANCE};
+use crate::fixed_list::FixedList;
+use crate::gct::pyramids::copyable::{FAR_DISTANCE, FINEST_COPY_LEVEL, NEAR_DISTANCE};
 use crate::gct::pyramids::pyramid::Pyramid;
 use crate::gct::pyramids::tree::{Node, Tree};
-use crate::gct::tile::{tile_side, Tile, CELL_LEVEL, DIRECTIONS};
+use crate::gct::tile::{tile_side, Tile, CELLS, CELL_LEVEL, DIRECTIONS};
 use crate::Bitmap;
 
 /// Where reading a stream back writes: the tree, and every cell whose
@@ -155,7 +156,7 @@ fn read_payload(reader: &mut BitReader, tile: Tile, nesting: u8, size_offset: u8
 
 /// One row of a copy's own cells: `length` cells from `(x, y)`, each
 /// copied from the cell `offset` away.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Default)]
 struct CopyRow {
     /// The row.
     y: u8,
@@ -167,11 +168,16 @@ struct CopyRow {
     offset: (isize, isize),
 }
 
-/// Room for the rows copies cover, kept from one stream to the next.
+/// The most rows copies cover: a copy's own cells are its tile, or a
+/// child of it -- 4x4 at the least -- so every row holds at least four
+/// cells.
+const MOST_COPY_ROWS: usize = CELLS / tile_side(FINEST_COPY_LEVEL);
+
+/// Room for the rows copies cover, allocated once at the most there are.
 #[derive(Default)]
 pub struct CopyRows(
     /// The rows, in reading order once sorted.
-    Vec<CopyRow>,
+    FixedList<CopyRow, MOST_COPY_ROWS>,
 );
 
 /// Decodes a stream written by [`crate::gct::encode::write`] into
@@ -183,7 +189,7 @@ pub fn decode(stream: &BitStream, read: &mut StreamContents, runs: &mut Runs, co
     copied_rows(read.tree, Tile::whole_bitmap(), &mut copies.0);
     copies.0.sort_unstable_by_key(|row| (row.y, row.x));
     let cells = &mut *read.cell_values;
-    for row in &copies.0 {
+    for row in copies.0.iter() {
         let source_y = (row.y as isize + row.offset.1) as u8;
         for x in row.x as usize..row.x as usize + row.length as usize {
             if cells.get((x as isize + row.offset.0) as u8, source_y) {
@@ -196,7 +202,7 @@ pub fn decode(stream: &BitStream, read: &mut StreamContents, runs: &mut Runs, co
 /// Adds the rows of every copy's own cells at or under `tile`: the whole
 /// copy, or, for a copy that masks, the children it says itself. A
 /// masked child is a node of its own, walked like any other.
-fn copied_rows(tree: &Pyramid, tile: Tile, rows: &mut Vec<CopyRow>) {
+fn copied_rows(tree: &Pyramid, tile: Tile, rows: &mut FixedList<CopyRow, MOST_COPY_ROWS>) {
     match tree.node(tile) {
         Node::Copied { far, direction, masks } => {
             let distance = if far { FAR_DISTANCE } else { NEAR_DISTANCE };
@@ -225,7 +231,7 @@ fn copied_rows(tree: &Pyramid, tile: Tile, rows: &mut Vec<CopyRow>) {
 }
 
 /// Adds one row for each row of `tile`, copied from `offset` away.
-fn add_rows(tile: Tile, offset: (isize, isize), rows: &mut Vec<CopyRow>) {
+fn add_rows(tile: Tile, offset: (isize, isize), rows: &mut FixedList<CopyRow, MOST_COPY_ROWS>) {
     let (left, top, _, bottom) = tile.cell_rect();
     let length = tile.side_in_cells() as u16;
     rows.extend((top..=bottom).map(|y| CopyRow { y, x: left, length, offset }));

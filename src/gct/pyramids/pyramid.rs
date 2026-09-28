@@ -52,8 +52,8 @@ pub struct Pyramid {
     /// What keeps the coarser levels in step on every set, if anything.
     propagation: Option<Propagation>,
     /// Every level's words, coarsest first, each level starting a word
-    /// of its own.
-    words: Vec<u64>,
+    /// of its own: as many as the shape needs, fixed when it is built.
+    words: Box<[u64]>,
     /// Where each level's words start in `words`, by level, and where
     /// the last one's end; held inline, one hop less on every access.
     level_starts: [usize; LEVEL_STARTS],
@@ -94,7 +94,7 @@ impl Pyramid {
         Self {
             shape,
             propagation: None,
-            words: vec![0; level_starts[shape.finest_level as usize + 1]],
+            words: std::iter::repeat_n(0, level_starts[shape.finest_level as usize + 1]).collect(),
             level_starts,
             per_word_shift: per_word.trailing_zeros(),
             element_mask,

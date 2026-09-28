@@ -25,7 +25,8 @@ use crate::gct::nested_resolutions::NestedResolutions;
 use crate::gct::pyramids::complex_tiling::ComplexTiling;
 use crate::gct::pyramids::placements::Placement;
 use crate::gct::pyramids::pyramid::{Pyramid, PyramidShape};
-use crate::gct::tile::{Tile, CELL_LEVEL};
+use crate::fixed_list::FixedList;
+use crate::gct::tile::{tiles_across, Tile, CELL_LEVEL};
 use crate::Bitmap;
 
 /// The finest level held: 4x4, the finest candidate. A 2x2 is counted
@@ -40,22 +41,24 @@ const LANES: usize = CELL_LEVEL as usize + 1;
 /// Lane 0's bit in a set of lanes: every tile holds it.
 const LANE_0: u16 = 1;
 
-/// The lanes, and room to collect the tiles to fill them for.
+/// The most tiles of one level a count can reach: every tile of the
+/// finest level held.
+const MOST_REACHED: usize = tiles_across(FINEST_HELD) * tiles_across(FINEST_HELD);
+
+/// The lanes, and room to collect the tiles to fill them for, all
+/// allocated once.
 pub struct CostLanes {
     /// Each lane's bits, by tile.
-    lanes: Vec<Pyramid>,
+    lanes: [Pyramid; LANES],
     /// The tiles a count can reach, by level, each with the value bound
     /// above it and the lanes it must hold, bit `r` for lane `r`.
-    reached: Vec<Vec<(Tile, bool, u16)>>,
+    reached: [FixedList<(Tile, bool, u16), MOST_REACHED>; FINEST_HELD as usize + 1],
 }
 
 impl Default for CostLanes {
     /// Every lane allocated, nothing counted.
     fn default() -> Self {
-        Self {
-            lanes: (0..LANES).map(|_| Pyramid::new(LANE_SHAPE)).collect(),
-            reached: vec![Vec::new(); FINEST_HELD as usize + 1],
-        }
+        Self { lanes: std::array::from_fn(|_| Pyramid::new(LANE_SHAPE)), reached: std::array::from_fn(|_| FixedList::new()) }
     }
 }
 

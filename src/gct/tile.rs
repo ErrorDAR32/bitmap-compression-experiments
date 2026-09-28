@@ -23,6 +23,15 @@ pub fn directions() -> impl Iterator<Item = u8> {
 /// A tile is this many of its children wide.
 pub const CHILDREN_ACROSS: u8 = 2;
 
+/// Cells in the bitmap.
+pub const CELLS: usize = tiles_across(CELL_LEVEL) * tiles_across(CELL_LEVEL);
+
+/// How many tiles there are from the whole bitmap down to `level`, both
+/// included: `1 + 4 + ... + 4^level`.
+pub const fn tiles_down_to(level: u8) -> usize {
+    ((1usize << (2 * (level as usize + 1))) - 1) / 3
+}
+
 /// Tiles across one row of a level's plane.
 pub const fn tiles_across(level: u8) -> usize {
     1 << level
@@ -46,7 +55,7 @@ pub const fn levels_to_cells(level: u8) -> u8 {
 
 /// A square of the bitmap: its size, and its place among tiles of that
 /// size.
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, Copy, Default, PartialEq, Eq, Hash, Debug)]
 pub struct Tile {
     /// Its size: `0` the whole bitmap, [`CELL_LEVEL`] a single cell,
     /// each level half the side of the one before.
