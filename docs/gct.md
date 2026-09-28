@@ -287,6 +287,16 @@ on the seed above and the two fresh ones:
 | 3 of 4 children | -0.1%, +0.1%, -0.5% | -1.8%, -1.6%, -1.9% |
 | 2 of 4 children | -3.5%, -3.1%, -3.6% | -1.5%, -1.3%, -1.6% |
 | 3 of 4, or 2 not homogeneous (kept) | -4.2%, -4.0%, -4.4% | -1.8%, -1.7%, -1.9% |
+| 2 not homogeneous (with exact-cost complex tiles) | -6.1%, -6.0%, -6.1% | -1.0%, -0.9%, -1.0% |
+
+The first three rows were measured before complex tiles were chosen by
+exact bit cost, the last after: against the kept rule's current 3270,
+3312, 3320 (city) and 31885, 31984, 31932 (blob), dropping the "3 of 4"
+half wins city by about 1.8% and loses blob by about 0.9%.
+
+**Why masking stops at 8x8**: letting copies mask down to 4x4 cost city
+3488, 3533, 3547 bits and blob 33992, 34055, 34046 on the same three
+seeds -- about 6.6% worse on both.
 
 **Why the start level header**: trunk depths per bitmap were 2-4 on city
 and 3-7 on blob, and a trunk of depth `d` saves `(4^d - 1) / 3`
