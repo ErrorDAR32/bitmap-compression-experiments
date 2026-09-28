@@ -21,20 +21,19 @@
 //!   that masks above it, or clear -- handed down once from the whole
 //!   bitmap, for the complex tiler to read at any tile.
 //!
-//! The bound size is carried up by the pyramid's own propagation, its
-//! rule (`carried`) applied in one sweep once the placements are
+//! The bound size is carried up in one sweep once the placements are
 //! complete, a level at a time from the finest: a placed `Bound` tile is
 //! bound at its own size, a placed copy or a bind that masks at none,
 //! and any other tile is bound at one size exactly when all four of its
 //! children are bound at that same size; the sizes of the binds under a
 //! tile are its own whole bind's, or all of its children's. Nothing set
-//! later changes either. One sweep, not a propagation on every set: the
+//! later changes either. One sweep, not a recount on every set: the
 //! greedy tiler places depth first, so each ancestor's bound size would
 //! change again with every sibling placed -- measured three times the
 //! work.
 
 use super::placements::{placement_code, BOUND_AT_THE_TOP, placement_from_code, Placement, Placements, FINEST_MASKING_LEVEL, PLACEMENT_CODE_BITS};
-use super::pyramid::{Propagation, Pyramid, PyramidShape};
+use super::pyramid::{Pyramid, PyramidShape};
 use crate::gct::nested_resolutions::NestedResolutions;
 use crate::gct::tile::{tiles_across, Tile, CELL_LEVEL};
 
@@ -220,7 +219,7 @@ impl ComplexTiling for Pyramid {
         for &tile in raw_masked {
             self.set(tile, with_field(self.get(tile), RAW_MASKS, YES));
         }
-        self.propagate();
+        carry_bound_sizes_up(self);
         hand_bound_above_down(self);
     }
 
@@ -253,7 +252,7 @@ impl ComplexTiling for Pyramid {
 /// bound size and size, which the complex tiling then carries up.
 impl Placements for Pyramid {
     fn placements() -> Self {
-        Pyramid::with_propagation(SHAPE, Propagation::InOneSweep(carried))
+        Pyramid::new(SHAPE)
     }
 
     fn placement(&self, tile: Tile) -> Option<Placement> {
@@ -282,6 +281,14 @@ const PER_WORD: usize = u64::BITS as usize / SHAPE.element_bits;
 /// Two elements a word, which reading a tile's four children as two
 /// whole words relies on.
 const _: () = assert!(PER_WORD == 2);
+
+/// Carries every coarser tile's bound size and the sizes bound under it
+/// up from its four children, by the rule [`carried`], in one sweep,
+/// finest level first. Done once, when the placements are complete:
+/// nothing set afterwards changes either field.
+fn carry_bound_sizes_up(pyramid: &mut Pyramid) {
+    pyramid.sweep_up(carried);
+}
 
 /// Hands the value bound above down from the whole bitmap, a level at a
 /// time, to the 2x2 floor: a tile's children have its value if a bind

@@ -66,20 +66,22 @@ tile's four children are four consecutive pyramid elements, so a whole
 level can be built from the one finer a word at a time
 (`Pyramid::level_words`, `two_levels_mut`).
 
-A pyramid may have a **propagation**: the rule for what a tile holds,
-given its children (`fn(&Pyramid, Tile) -> u64`), fixed when the
-pyramid is built. Then every `set` keeps the coarser levels in step on
-its own: it recomputes the set tile's parent, then that one's parent,
-and stops at the first whose element does not change -- often right
-away, sometimes only at the whole bitmap.
+Setting an element never changes any other. A pyramid whose coarser
+levels follow from its finer ones has a **sweep**: its elements are set,
+then one sweep brings every coarser level in step, each tile once.
+`Pyramid::sweep_up(rule)` is the sweep for a rule of what a tile holds
+given its own element and its four children's: finest level first, a
+level at a time in Morton order, each tile's children read as one group
+of bits, and a tile whose children are all zero passed over. A
+specialized pyramid may sweep another way when its layout allows better.
 
 Every per-tile structure is a specialization: a trait over `Pyramid`
-fixing the shape, its propagation if any, and its queries.
+fixing the shape, its queries, and its sweep if any.
 
-| pyramid | bits | levels | holds | propagation |
+| pyramid | bits | levels | holds | sweep |
 |---|---|---|---|---|
-| `homogeneity` | 2 | 0-8 | whether a tile's cells all agree, and on what | none; built once, a word at a time: the cells off the bitmap's words, then each level folded from the one finer -- homogeneous when all four children are homogeneous and agree |
-| `complex_tiling` | 32 | 0-8 | the placement the greedy tiler made here, if any, and the children it masks -- the greedy tiler writes these bits, the complex tiler the rest; the one size every cell under the tile is bound at, if any; the complex tile's size offset, if it is one; whether a raw complex tile masks it; the sizes of the whole binds under it | none; carried up once, a word at a time, when the placements are complete: a tile's bound size is its children's when all four share one; the sizes under it are all of its children's |
+| `homogeneity` | 2 | 0-8 | whether a tile's cells all agree, and on what | its own, a word at a time: the cells off the bitmap's words, then each level folded from the one finer -- homogeneous when all four children are homogeneous and agree |
+| `complex_tiling` | 32 | 0-8 | the placement the greedy tiler made here, if any, and the children it masks -- the greedy tiler writes these bits, the complex tiler the rest; the one size every cell under the tile is bound at, if any; the complex tile's size offset, if it is one; whether a raw complex tile masks it; the sizes of the whole binds under it | `sweep_up(carried)`, once the placements are complete: a tile's bound size is its children's when all four share one; the sizes under it are all of its children's |
 | `tree` | 8 | 0-7 | the tree's node at a tile | none |
 
 ## Step 1: the greedy tiler
