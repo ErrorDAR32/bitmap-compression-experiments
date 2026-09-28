@@ -1,0 +1,202 @@
+# written by `cargo run --release --bin gct_diagnostics -- census`
+# commit 9a0b0e8, with uncommitted changes
+
+## gct_against_g4: 54016 bits, start level 3
+node,"level 0
+256x256","level 1
+128x128","level 2
+64x64","level 3
+32x32","level 4
+16x16","level 5
+8x8","level 6
+4x4","level 7
+2x2"
+complex tile,0,0,0,0,0,0,104,0
+copy,0,0,0,0,0,2,217,0
+divide,1,4,16,63,252,558,2522,0
+masking bind,0,0,0,0,0,79,0,0
+masking copy,0,0,0,0,0,17,0,0
+masking divide,0,0,0,0,1,223,0,0
+point list,0,0,0,0,0,36,0,0
+raw,0,0,0,1,0,93,0,0
+residual,0,0,0,0,0,0,0,5292
+tile,0,0,0,0,0,1,188,4791
+unmasked,0,0,0,0,3,2,73,5
+
+## gct_against_jbig: 62750 bits, start level 2
+node,"level 0
+256x256","level 1
+128x128","level 2
+64x64","level 3
+32x32","level 4
+16x16","level 5
+8x8","level 6
+4x4","level 7
+2x2"
+complex tile,0,0,0,0,0,2,142,0
+copy,0,0,0,0,0,0,116,0
+divide,1,4,15,44,186,384,1415,0
+masking bind,0,0,0,0,0,15,0,0
+masking copy,0,0,0,0,0,6,0,0
+masking divide,0,0,0,0,0,88,0,0
+point list,0,0,0,0,0,7,0,0
+raw,0,0,1,19,0,193,0,0
+residual,0,0,0,0,0,0,0,3126
+tile,0,0,0,0,0,1,74,2523
+unmasked,0,0,0,1,30,48,127,11
+
+## gct_against_raw: 65567 bits, start level 1
+node,"level 0
+256x256","level 1
+128x128","level 2
+64x64","level 3
+32x32","level 4
+16x16","level 5
+8x8","level 6
+4x4","level 7
+2x2"
+divide,1,0,0,0,0,0,0,0
+raw,0,4,0,0,0,0,0,0
+
+## gct_against_zstd19: 58361 bits, start level 3
+node,"level 0
+256x256","level 1
+128x128","level 2
+64x64","level 3
+32x32","level 4
+16x16","level 5
+8x8","level 6
+4x4","level 7
+2x2"
+complex tile,0,0,0,0,0,0,170,0
+copy,0,0,0,0,0,0,75,0
+divide,1,4,16,62,245,549,2383,0
+masking bind,0,0,0,0,0,62,0,0
+masking divide,0,0,0,0,7,159,0,0
+point list,0,0,0,0,0,37,0,0
+raw,0,0,0,2,0,178,0,0
+residual,0,0,0,0,0,0,0,5147
+tile,0,0,0,0,0,7,116,4385
+unmasked,0,0,0,0,4,9,64,0
+
+## gct_against_zstd3: 60629 bits, start level 3
+node,"level 0
+256x256","level 1
+128x128","level 2
+64x64","level 3
+32x32","level 4
+16x16","level 5
+8x8","level 6
+4x4","level 7
+2x2"
+complex tile,0,0,0,0,0,0,165,0
+copy,0,0,0,0,0,0,88,0
+divide,1,4,16,52,232,534,2362,0
+masking bind,0,0,0,0,0,2,0,0
+masking copy,0,0,0,0,0,2,0,0
+masking divide,0,0,0,0,0,202,0,0
+point list,0,0,0,0,0,29,0,0
+raw,0,0,0,12,0,102,0,0
+residual,0,0,0,0,0,0,0,5014
+tile,0,0,0,0,0,0,52,4410
+unmasked,0,0,0,0,20,57,107,24
+
+## horizontal_streaks_vs_g4: 54016 bits, start level 3
+node,"level 0
+256x256","level 1
+128x128","level 2
+64x64","level 3
+32x32","level 4
+16x16","level 5
+8x8","level 6
+4x4","level 7
+2x2"
+complex tile,0,0,0,0,0,0,104,0
+copy,0,0,0,0,0,2,217,0
+divide,1,4,16,63,252,558,2522,0
+masking bind,0,0,0,0,0,79,0,0
+masking copy,0,0,0,0,0,17,0,0
+masking divide,0,0,0,0,1,223,0,0
+point list,0,0,0,0,0,36,0,0
+raw,0,0,0,1,0,93,0,0
+residual,0,0,0,0,0,0,0,5292
+tile,0,0,0,0,0,1,188,4791
+unmasked,0,0,0,0,3,2,73,5
+
+## inverted_half_noise_vs_raw: 65567 bits, start level 1
+node,"level 0
+256x256","level 1
+128x128","level 2
+64x64","level 3
+32x32","level 4
+16x16","level 5
+8x8","level 6
+4x4","level 7
+2x2"
+divide,1,0,0,0,0,0,0,0
+raw,0,4,0,0,0,0,0,0
+
+## near_repeated_half_vs_zstd19: 58361 bits, start level 3
+node,"level 0
+256x256","level 1
+128x128","level 2
+64x64","level 3
+32x32","level 4
+16x16","level 5
+8x8","level 6
+4x4","level 7
+2x2"
+complex tile,0,0,0,0,0,0,170,0
+copy,0,0,0,0,0,0,75,0
+divide,1,4,16,62,245,549,2383,0
+masking bind,0,0,0,0,0,62,0,0
+masking divide,0,0,0,0,7,159,0,0
+point list,0,0,0,0,0,37,0,0
+raw,0,0,0,2,0,178,0,0
+residual,0,0,0,0,0,0,0,5147
+tile,0,0,0,0,0,7,116,4385
+unmasked,0,0,0,0,4,9,64,0
+
+## near_repeated_half_vs_zstd3: 60629 bits, start level 3
+node,"level 0
+256x256","level 1
+128x128","level 2
+64x64","level 3
+32x32","level 4
+16x16","level 5
+8x8","level 6
+4x4","level 7
+2x2"
+complex tile,0,0,0,0,0,0,165,0
+copy,0,0,0,0,0,0,88,0
+divide,1,4,16,52,232,534,2362,0
+masking bind,0,0,0,0,0,2,0,0
+masking copy,0,0,0,0,0,2,0,0
+masking divide,0,0,0,0,0,202,0,0
+point list,0,0,0,0,0,29,0,0
+raw,0,0,0,12,0,102,0,0
+residual,0,0,0,0,0,0,0,5014
+tile,0,0,0,0,0,0,52,4410
+unmasked,0,0,0,0,20,57,107,24
+
+## split_2x2_grain_vs_jbig: 62750 bits, start level 2
+node,"level 0
+256x256","level 1
+128x128","level 2
+64x64","level 3
+32x32","level 4
+16x16","level 5
+8x8","level 6
+4x4","level 7
+2x2"
+complex tile,0,0,0,0,0,2,142,0
+copy,0,0,0,0,0,0,116,0
+divide,1,4,15,44,186,384,1415,0
+masking bind,0,0,0,0,0,15,0,0
+masking copy,0,0,0,0,0,6,0,0
+masking divide,0,0,0,0,0,88,0,0
+point list,0,0,0,0,0,7,0,0
+raw,0,0,1,19,0,193,0,0
+residual,0,0,0,0,0,0,0,3126
+tile,0,0,0,0,0,1,74,2523
+unmasked,0,0,0,1,30,48,127,11

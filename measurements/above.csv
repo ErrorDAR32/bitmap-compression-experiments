@@ -1,0 +1,22 @@
+# written by `cargo run --release --bin gct_diagnostics -- above`
+# seed 1950720362523133367
+# commit 9a0b0e8, with uncommitted changes
+
+## placing the top tiles, bits a bitmap
+family,"bits
+a bitmap","tree:
+subdivide
++ leaf bits","tree:
+masking
+bits","tree:
+placing","list:
+size bits","list:
+background
+flags","list:
+placing","tree, ideally
+coded"
+"laid out like a city, 48 bitmaps",12614.2,739.8,703.4,1443.2,918.8,562.5,1481.3,1170.4
+"grown like a blob, 84 bitmaps",24668.9,691.9,1097.3,1789.2,1034.5,449.7,1484.2,1222.9
+"sparse, 48 bitmaps",2388.6,32.3,78.4,110.7,62.8,37.1,99.9,66.4
+"drawn with lines, 36 bitmaps",11571.3,1100.9,1387.6,2488.5,1462.9,799.3,2262.2,2101.3
+"adversarial, saved, 5 bitmaps",60264.6,2854.0,1386.2,4240.2,3015.2,599.6,3614.8,2498.1

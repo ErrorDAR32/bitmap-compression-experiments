@@ -23,6 +23,11 @@ four searches a codec each time. The
 longer search moved the zstd records by under 0.1% and JBIG's by 0.5%,
 so they had settled; G4's still gained 3.4%, so it may still be beaten.
 
+Scored when saved -- gct has changed since, so these are a record of
+the search, not gct's bits now; those are in
+`measurements/measurement.csv` (the `adversarial, saved` table) and
+`measurements/census.csv`:
+
 | bitmap | against | gct bits | codec bits | gap |
 |---|---|---:|---:|---:|
 | `horizontal_streaks_vs_g4` | CCITT G4 | 54,016 | 24,920 | 29,096 |
@@ -30,6 +35,9 @@ so they had settled; G4's still gained 3.4%, so it may still be beaten.
 | `near_repeated_half_vs_zstd3` | zstd level 3 | 60,629 | 19,152 | 41,477 |
 | `near_repeated_half_vs_zstd19` | zstd level 19 | 58,361 | 19,984 | 38,377 |
 | `inverted_half_noise_vs_raw` | the raw cells | 65,567 | 65,536 | 31 |
+
+(`inverted_half_noise_vs_raw` is scored by the gct it was saved with,
+not the older one its record's note names.)
 
 What each is, measured on the image:
 

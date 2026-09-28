@@ -511,60 +511,38 @@ gives back every cell.
 
 ## Measured
 
-Seed `1950720362523133367`, via
-`cargo run --release --bin gct_diagnostics -- measurement`:
+No measured number is copied here, where it would go stale. Each
+measuring tool keeps its tables in `measurements/<tool>.csv`, with what
+they were measured on -- the command, the seed, the commit -- as the
+file's notes, and rewrites the file on every run; `show` prints them
+back without measuring (`docs/testing_protocol.md`):
 
-It prints one table a sample generator, a row a parameter set; their
-totals:
+```
+cargo run --release --bin gct_diagnostics -- show
+cargo run --release --bin gct_diagnostics -- show measurement
+```
 
-| generator | parameter sets | bitmaps | gct bits a bitmap | of the raw cells |
-|---|---|---|---|---|
-| grown (density, cluster) | 13 | 132 | 16566 | 25.3% |
-| laid out like a city (pitch, street, courtyards) | 4 | 48 | 12614 | 19.2% |
-| drawn with lines (lines) | 3 | 36 | 11571 | 17.7% |
-| checkerboard (square side) | 15 | 15 | 23821 | 36.3% |
+| file | written by | holds |
+|---|---|---|
+| `measurement.csv` | `gct_diagnostics -- measurement` | bits a bitmap by generator and parameter set, the checkerboards and the saved adversarial bitmaps; what the trees hold, family by family |
+| `census.csv` | `gct_diagnostics -- census` | node kinds by level, for each adversarial record and saved bitmap |
+| `above.csv` | `gct_diagnostics -- above` | the tree above the top tiles against a Morton list of them, below |
+| `per_shape.csv` | `gct_diagnostics -- per_shape` | bits a bitmap and a cell set, shape by shape |
+| `noise.csv` | `gct_diagnostics -- noise` | bits on noise at several densities, against the raw cells |
+| `timing.csv` | `cargo run --release --example gct_timing` | encode and decode times, family by family |
+| `comparison.csv` | `cargo run --release --manifest-path comparison/Cargo.toml` | gct against G4, JBIG and zstd: bits and times, family by family |
 
-Scattered cells against roughly the least they need, `log2(N choose
-k)`: a few cells 219 bits (about 180), a hundred cells 1127 (about
-1060), one percent 5395 (about 5300), 5% scattered 19063 (about
-18800), 20% scattered 48837 (about 47300). Point lists took these from
-1.4 to 2.8 times that least to within 2-20% of it; the grown generator
-fell 22.6% on each of three seeds, and no parameter set of any
-generator rose more than 0.1%.
+In `measurement.csv`'s tables of what the trees hold, a complex tile's
+body nodes are counted once each: every resolution tile unmasked in it,
+and every masked leaf, whatever its size, belonging to the complex tile
+whose body directly holds it.
 
-On two fresh seeds (`GCT_SEED` 9216954446512861479 and
-3326496171169911647): grown 16609 and 16579 bits, city 13171 and 13171,
-lines 10909 and 11205.
+On noise gct spends four raw 128x128 complex tiles, each with its
+payload mode bit, and the start level header: a few bits over the raw
+cells, and never more than the raw cells and 1%, which every check
+holds it to.
 
-Checkerboards of odd square side (`samples/checkerboards.rs`), bits:
-
-| squares | 3 | 5 | 7 | 9 | 11 | 13 | 15 | 17 | 19 | 21 | 23 | 25 | 27 | 29 | 31 |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| gct | 65237 | 52225 | 44186 | 33155 | 27585 | 23156 | 20486 | 17873 | 14773 | 12763 | 11518 | 10052 | 8971 | 7667 | 7676 |
-
-The worst case the adversarial search has found (`testing/adversarial/`)
-is noise: 65567 bits, four raw 128x128 complex tiles, each with its
-payload mode bit, and the start level header, 31 over the raw cells.
-
-| family | complex tiles a bitmap, by nesting | of them masking | tiles a bitmap | masking copies a bitmap | masking binds a bitmap | point lists a bitmap |
-|---|---|---|---|---|---|---|
-| city | 84.6, 0.2 | 5.1% | 1069.2 | 228.1 | 88.2 | 2.7 |
-| blob | 11.8 | 3.3% | 770.9 | 1.0 | 7.4 | 69.1 |
-| sparse | 0.2 | 0.0% | 16.1 | 0.0 | 0.0 | 10.4 |
-| lines | 25.3 | 13.1% | 821.9 | 94.3 | 15.9 | 10.3 |
-
-| family | body nodes unmasked | masked: unmasked in an outer complex tile | copied | tile | nested complex tile | residual |
-|---|---|---|---|---|---|---|
-| city | 96.41% | 0.00% | 1.36% | 1.55% | 0.05% | 0.62% |
-| blob | 99.95% | 0.00% | 0.00% | 0.05% | 0.00% | 0.00% |
-| sparse | 100.00% | 0.00% | 0.00% | 0.00% | 0.00% | 0.00% |
-| lines | 98.48% | 0.00% | 0.76% | 0.68% | 0.00% | 0.07% |
-
-A complex tile's body nodes are counted once each: every resolution
-tile unmasked in it, and every masked leaf, whatever its size, belonging
-to the complex tile whose body directly holds it.
-
-**The tree above the top tiles** (`gct_diagnostics -- above`,
+**The tree above the top tiles** (`above.csv`,
 `diagnostics/above_complex_tiles.rs`). Down from the start level, the
 first node on each path that is not a divide -- a complex tile of any
 resolution, a copy, a point list, a 2x2 -- is a *top tile*, and a
@@ -584,30 +562,17 @@ What differs is background: the tree says it in its divides (a
 mask-present bit on every divide at 8x8 or coarser, a flip bit and a
 4-bit child mask on a masking one) and never says a background tile's
 size; a list says each background tile's size, and needs a bit on every
-tile that could be background. Bits a bitmap, both spelled plainly,
-seed `1950720362523133367`:
-
-| family | all bits | tree: subdivide + leaf | tree: masking | tree placing | list: sizes | list: background flags | list placing | tree, ideally coded |
-|---|---|---|---|---|---|---|---|---|
-| city | 12614 | 740 | 703 | 1443 | 919 | 563 | 1481 | 1170 |
-| blob | 24669 | 692 | 1097 | 1789 | 1035 | 450 | 1484 | 1223 |
-| sparse | 2389 | 32 | 78 | 111 | 63 | 37 | 100 | 66 |
-| lines | 11571 | 1101 | 1388 | 2489 | 1463 | 799 | 2262 | 2101 |
-| adversarial, saved | 60265 | 2854 | 1386 | 4240 | 3015 | 600 | 3615 | 2498 |
-
-The list places for less than the tree in every family but the city:
-1.2% of all bits on blobs, 2.0% on lines, 1.0% on the saved adversarial
-bitmaps, 0.3% more on cities -- the same on seeds `13540731507949036564`
-and `11721063904049505239`. All of it is in how background is said:
-the tree's mask-present bit on every whole divide costs more than a
-flag on the tiles that could be background. The same trade is open to
-the tree, saying background at the child rather than the divide. The
-last column is the other thing open to it: its decisions coded by how
-often each is made at its level (an entropy, which only an ideal
-adaptive coder reaches) would spend 2% to 3.4% of all bits less. An
-earlier version of this section compared the two by such entropies
-alone, where the tree came out ahead, and concluded a list costs more;
-spelled plainly, as gct spells everything, it does not.
+tile that could be background. `above.csv` has both, spelled plainly,
+family by family (`tree: placing` against `list: placing`), and so
+whether the tree's mask-present bit on every whole divide costs more
+than a flag on the tiles that could be background. That trade is open
+to the tree too, saying background at the child rather than the divide.
+Its last column is the other thing open to the tree: its decisions
+coded by how often each is made at its level -- an entropy, which only
+an ideal adaptive coder reaches. Compare the two spelled the same way:
+set against each other as entropies, the tree comes out ahead, and an
+earlier version of this section wrongly concluded from that that a list
+costs more.
 
 **Why the start level header**: a trunk of depth `d` -- every tile
 coarser than level `d` subdivides -- saves `(4^d - 1) / 3` subdivide

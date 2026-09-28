@@ -10,6 +10,14 @@
 //!
 //! A heading with newlines in it stacks, so a long name costs height
 //! rather than width.
+//!
+//! A table is also kept as text, so a measurement is written once and
+//! read back rather than copied by hand: `csv.rs` writes and reads one
+//! table as CSV, and `report.rs` keeps a measurement's tables, with
+//! notes on what they were measured on, in one file of `measurements/`.
+
+pub mod csv;
+pub mod report;
 
 /// A table being built. The first column is left aligned and named
 /// rather than numbered; the rest are right aligned figures.
@@ -22,8 +30,6 @@ pub struct Table {
     rules: Vec<usize>,
 }
 
-
-#[allow(dead_code)]
 impl Table {
     /// A table with these column headings. A heading may hold newlines,
     /// and then it stacks over as many lines as it needs.

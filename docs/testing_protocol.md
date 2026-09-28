@@ -75,6 +75,7 @@ diagnostics gather, and each stopping if gct loses a cell:
 | `measurement` | one table a sample generator (grown, city, lines, checkerboard, and the saved adversarial bitmaps), a row a parameter set with its parameters, bitmaps, cells set, gct's mean, fewest and most bits, share of the raw cells and encode time; then what the trees hold, family by family |
 | `census` | node kinds by level, for each bitmap looked at |
 | `above` | what the tree above the top tiles spends placing them, family by family, against a plain Morton-ordered list of the same tiles, and the tree ideally coded |
+| `show` | the kept measurements, read back from `measurements/` |
 | `per_shape` | gct's bits on every shape, plan and line set |
 | `noise` | gct's bits on noise at several densities |
 | `render` | PNG images of the bitmaps looked at, in `target/gct_diagnostics/` |
@@ -85,6 +86,20 @@ and any PBM image named in `GCT_DIAGNOSE`:
 ```
 cargo run --release --bin gct_diagnostics -- <tool>
 ```
+
+Every tool that measures -- these, `gct_timing` and the comparison --
+keeps its tables in `measurements/<tool>.csv`, rewritten by every run,
+with the command, the seed and the commit it was measured on as the
+file's notes (`src/table/report.rs`). The latest numbers live there and
+nowhere else: no document copies them. `show` prints the kept tables
+back, every one or one by name, without measuring:
+
+```
+cargo run --release --bin gct_diagnostics -- show [<tool>]
+```
+
+A run on a fresh seed rewrites the file too, and its notes say so;
+commit the files measured on the held seed.
 
 ### The adversarial search against the raw cells
 

@@ -72,16 +72,27 @@ pub fn seed_for_group(group: &str) -> u64 {
     seed
 }
 
+/// The run's seed, and its note, once settled.
+static SETTLED: OnceLock<(u64, &'static str)> = OnceLock::new();
+
+/// The note on a fresh seed, drawn for one run and not kept.
+const FRESH_NOTE: &str = ", fresh for this run, not kept";
+
+/// The seed this run's samples came from, and whether it was fresh, if
+/// any sample has been asked for: what a measurement says it was
+/// measured on.
+pub fn seed_in_use() -> Option<(u64, bool)> {
+    SETTLED.get().map(|&(seed, note)| (seed, note == FRESH_NOTE))
+}
+
 /// The seed itself, read once however many groups ask for it, and --
 /// unless fresh -- written down, with how many runs in a row it has now
 /// gone unmoved, for the next run to notice. With it, what to note
 /// after it: whether it is the last run's, or fresh and not kept.
 fn settled() -> (u64, &'static str) {
-    /// The seed, and its note, once settled.
-    static SETTLED: OnceLock<(u64, &'static str)> = OnceLock::new();
     *SETTLED.get_or_init(|| {
         if std::env::var(SEED_VARIABLE).is_ok_and(|it| it.trim() == FRESH) {
-            return (fresh_seed(), ", fresh for this run, not kept");
+            return (fresh_seed(), FRESH_NOTE);
         }
         let held = std::fs::read_to_string(WHERE_THE_SEED_IS_KEPT).ok();
         let mut kept = held.iter().flat_map(|text| text.lines());

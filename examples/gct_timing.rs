@@ -19,6 +19,7 @@ use bitmap::diagnostics::examination::first_difference;
 use bitmap::gct::grammar::bit_stream::BitStream;
 use bitmap::gct::Workspace;
 use bitmap::samples::{families, HowMany, TIMING_PER_GENERATOR};
+use bitmap::table::report::Report;
 use bitmap::table::Table;
 use bitmap::Bitmap;
 use std::time::{Duration, Instant};
@@ -64,8 +65,10 @@ fn main() {
     let (mut encodes, decodes) = time(&mut workspace, &mut stream, &mut back, name, &repeated);
     table.rule();
     table.row(&row(name, &mut encodes, &decodes));
-    println!();
-    table.print();
+    let mut report = Report::new("timing", "cargo run --release --example gct_timing");
+    report.note(format!("{per_generator} bitmaps a generator, the saved adversarial bitmaps {RECORD_REPEATS} times each"));
+    report.add("encode and decode times", table);
+    report.publish();
 }
 
 /// Encodes every bitmap of `bitmaps`, the family `name`, once, timing

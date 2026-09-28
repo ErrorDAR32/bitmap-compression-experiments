@@ -6,6 +6,7 @@ use bitmap::diagnostics::measured::Measured;
 use bitmap::diagnostics::RAW_CELLS;
 use bitmap::gct::Workspace;
 use bitmap::samples::grown;
+use bitmap::table::report::Report;
 use bitmap::table::Table;
 
 /// The densities looked at, from all but incompressible to half.
@@ -17,7 +18,7 @@ const EACH: u64 = 3;
 const SEED: u64 = 1;
 
 /// Prints gct's bits on noise at every density, against the raw cells.
-pub fn run() {
+pub fn run(report: &mut Report) {
     let mut workspace = Workspace::new();
     let mut table = Table::new(&["density", "gct\nbits a bitmap", "gct\nover raw cells"]);
     for density in DENSITIES {
@@ -30,6 +31,6 @@ pub fn run() {
             format!("{:+}", gct_bits as i64 - RAW_CELLS as i64),
         ]);
     }
-    println!();
-    table.print();
+    report.add("noise", table);
+    report.note(format!("noise grown from the fixed seed {SEED}, {EACH} bitmaps a density"));
 }

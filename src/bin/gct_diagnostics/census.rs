@@ -7,10 +7,11 @@ use bitmap::gct::grammar::bit_stream::BitStream;
 use bitmap::gct::pyramids::tree::Tree;
 use bitmap::gct::tile::{tile_side, CELL_LEVEL};
 use bitmap::gct::Workspace;
+use bitmap::table::report::Report;
 use bitmap::table::Table;
 
 /// Prints the census of every bitmap looked at.
-pub fn run() {
+pub fn run(report: &mut Report) {
     let (mut workspace, mut stream) = (Workspace::new(), BitStream::default());
     for (name, bitmap) in looked_at() {
         workspace.encode(&bitmap, &mut stream);
@@ -23,7 +24,6 @@ pub fn run() {
             let row: Vec<String> = std::iter::once(kind.to_string()).chain(by_level.iter().map(|count| count.to_string())).collect();
             table.row(&row);
         }
-        println!("\n  {name}: {} bits, start level {}", stream.len(), tree.start_level());
-        table.print();
+        report.add(format!("{name}: {} bits, start level {}", stream.len(), tree.start_level()), table);
     }
 }

@@ -5,7 +5,8 @@ dependencies only, never gct's. It encodes and decodes the same large
 sample `examples/gct_timing.rs` uses -- every generator, 100 distinct
 bitmaps each (2000 in all) -- with each codec, checks every bitmap
 comes back whole, and prints, a family at a time, each codec's mean
-encoded bits and mean encode and decode time.
+encoded bits and mean encode and decode time -- and keeps those tables
+in `measurements/comparison.csv`, rewritten every run.
 
 | codec | what it is | by |
 |---|---|---|

@@ -8,12 +8,13 @@ use bitmap::diagnostics::above_complex_tiles::AboveComplexTiles;
 use bitmap::gct::grammar::bit_stream::BitStream;
 use bitmap::gct::Workspace;
 use bitmap::samples::{families, HowMany};
+use bitmap::table::report::Report;
 use bitmap::table::Table;
 use bitmap::Bitmap;
 
 /// Prints, for every family and the saved adversarial bitmaps, the bits
 /// placing the top tiles takes in the tree and in a plain list.
-pub fn run() {
+pub fn run(report: &mut Report) {
     let mut table = Table::new(&[
         "family",
         "bits\na bitmap",
@@ -48,6 +49,5 @@ pub fn run() {
             format!("{:.1}", gathered.coded_tree_bits() / gathered.bitmaps as f64),
         ]);
     }
-    println!();
-    table.print();
+    report.add("placing the top tiles, bits a bitmap", table);
 }

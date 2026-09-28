@@ -10,6 +10,7 @@ use bitmap::gct::grammar::bit_stream::BitStream;
 use bitmap::gct::Workspace;
 use bitmap::samples::checkerboards::checkerboards;
 use bitmap::samples::{families, HowMany, LINE_SETS, PLANS, SHAPES, SPARSE};
+use bitmap::table::report::Report;
 use bitmap::table::Table;
 use bitmap::Bitmap;
 
@@ -38,13 +39,15 @@ fn row(measured: &Measured, name: &str, parameters: &str) -> Vec<String> {
     ]
 }
 
-/// One generator's table: a row a parameter set, then their total.
+/// One generator's table, added to `report` under its name: a row a
+/// parameter set, then their total.
 fn generator_table(
     workspace: &mut Workspace,
+    report: &mut Report,
     generator: &str,
     parameter_names: &str,
     sets: Vec<(String, String, Vec<Bitmap>)>,
-) -> Table {
+) {
     let mut table = Table::new(&[
         generator,
         parameter_names,
@@ -65,14 +68,14 @@ fn generator_table(
     }
     table.rule();
     table.row(&row(&total, "all", ""));
-    table
+    report.add(generator, table);
 }
 
-/// Prints one table a sample generator -- grown, laid out as a city,
+/// Adds one table a sample generator -- grown, laid out as a city,
 /// drawn with lines, checkerboards -- with a row a parameter set, then a
 /// row for each saved adversarial bitmap, then what gct's trees hold,
 /// family by family.
-pub fn run() {
+pub fn run(report: &mut Report) {
     let mut workspace = Workspace::new();
     let grown = SHAPES
         .iter()
@@ -97,23 +100,17 @@ pub fn run() {
         .map(|(side, bitmap)| (format!("{side}x{side} squares"), format!("side {side}"), vec![bitmap]))
         .collect();
     let adversarial = record::saved().into_iter().map(|(name, bitmap)| (name, "saved".to_string(), vec![bitmap])).collect();
-    let tables = [
-        generator_table(&mut workspace, "grown", "density, cluster", grown),
-        generator_table(&mut workspace, "laid out like a city", "pitch, street, courtyards", cities),
-        generator_table(&mut workspace, "drawn with lines", "lines", lines),
-        generator_table(&mut workspace, "checkerboard", "square side", boards),
-        generator_table(&mut workspace, "adversarial search", "", adversarial),
-    ];
-    for table in tables {
-        println!();
-        table.print();
-    }
-    print_structure(&mut workspace);
+    generator_table(&mut workspace, report, "grown", "density, cluster", grown);
+    generator_table(&mut workspace, report, "laid out like a city", "pitch, street, courtyards", cities);
+    generator_table(&mut workspace, report, "drawn with lines", "lines", lines);
+    generator_table(&mut workspace, report, "checkerboard", "square side", boards);
+    generator_table(&mut workspace, report, "adversarial, saved", "", adversarial);
+    add_structure(&mut workspace, report);
 }
 
 /// What gct's trees hold, family by family: complex tiles and masking
 /// nodes, and what the complex tiles' bodies are made of.
-fn print_structure(workspace: &mut Workspace) {
+fn add_structure(workspace: &mut Workspace, report: &mut Report) {
     let mut structure = Table::new(&[
         "family",
         "complex tiles a bitmap,\nby nesting",
@@ -167,8 +164,6 @@ fn print_structure(workspace: &mut Workspace) {
         ]);
     }
 
-    for table in [structure, bodies] {
-        println!();
-        table.print();
-    }
+    report.add("what the trees hold", structure);
+    report.add("what complex tiles' bodies are made of", bodies);
 }

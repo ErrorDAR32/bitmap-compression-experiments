@@ -20,6 +20,7 @@
 
 use bitmap::diagnostics::RAW_CELLS;
 use bitmap::samples::{families, HowMany, TIMING_PER_GENERATOR};
+use bitmap::table::report::Report;
 use bitmap::table::Table;
 use bitmap::Bitmap;
 use comparison::codecs::g4::G4;
@@ -91,15 +92,18 @@ fn main() {
         codec.decode();
     }
 
+    let mut report = Report::new("comparison", "cargo run --release --manifest-path comparison/Cargo.toml");
+    report.note(format!("{per_generator} bitmaps a generator"));
     let mut overall = vec![Totals::default(); codecs.len()];
     for family in &families {
         let totals: Vec<Totals> = codecs.iter_mut().map(|codec| run(codec.as_mut(), family)).collect();
-        print_table(&family.name, &codecs, &totals);
+        add_table(&mut report, &family.name, &codecs, &totals);
         for (sum, family_totals) in overall.iter_mut().zip(&totals) {
             *sum = sum.plus(*family_totals);
         }
     }
-    print_table("all", &codecs, &overall);
+    add_table(&mut report, "all", &codecs, &overall);
+    report.publish();
 }
 
 /// Encodes and decodes every bitmap of `family` with `codec`, checking
@@ -120,11 +124,10 @@ fn run(codec: &mut dyn Codec, family: &Family) -> Totals {
     totals
 }
 
-/// Prints one family's table: a row a codec, its mean bits (and as a
-/// share of raw), encode and decode microseconds a bitmap.
-fn print_table(name: &str, codecs: &[Box<dyn Codec>], totals: &[Totals]) {
-    let heading = format!("{name}, {} bitmaps", totals[0].count);
-    let mut table = Table::new(&[&heading, "bits\na bitmap", "of the\nraw cells", "encode us\na bitmap", "decode us\na bitmap"]);
+/// Adds one family's table to `report`: a row a codec, its mean bits
+/// (and as a share of raw), encode and decode microseconds a bitmap.
+fn add_table(report: &mut Report, name: &str, codecs: &[Box<dyn Codec>], totals: &[Totals]) {
+    let mut table = Table::new(&["codec", "bits\na bitmap", "of the\nraw cells", "encode us\na bitmap", "decode us\na bitmap"]);
     for (codec, totals) in codecs.iter().zip(totals) {
         let count = totals.count as f64;
         let bits = totals.bits as f64 / count;
@@ -136,6 +139,5 @@ fn print_table(name: &str, codecs: &[Box<dyn Codec>], totals: &[Totals]) {
             format!("{:.1}", totals.decode / count * 1e6),
         ]);
     }
-    println!();
-    table.print();
+    report.add(format!("{name}, {} bitmaps", totals[0].count), table);
 }

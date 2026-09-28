@@ -1,0 +1,64 @@
+# written by `cargo run --release --manifest-path comparison/Cargo.toml`
+# 100 bitmaps a generator
+# seed 1950720362523133367
+# commit 9a0b0e8, with uncommitted changes
+
+## laid out like a city, 400 bitmaps
+codec,"bits
+a bitmap","of the
+raw cells","encode us
+a bitmap","decode us
+a bitmap"
+gct,12880,19.7%,1236.7,251.3
+CCITT G4 (fax crate),9105,13.9%,176.3,123.3
+JBIG (jbigkit),5317,8.1%,402.4,380.5
+zstd level 3,6783,10.4%,27.7,11.6
+zstd level 19,5234,8.0%,4458.7,17.2
+
+## grown like a blob, 900 bitmaps
+codec,"bits
+a bitmap","of the
+raw cells","encode us
+a bitmap","decode us
+a bitmap"
+gct,39067,59.6%,2288.3,216.6
+CCITT G4 (fax crate),59974,91.5%,538.8,441.2
+JBIG (jbigkit),34606,52.8%,974.0,999.8
+zstd level 3,39953,61.0%,48.6,13.6
+zstd level 19,37798,57.7%,2016.3,15.0
+
+## sparse, 400 bitmaps
+codec,"bits
+a bitmap","of the
+raw cells","encode us
+a bitmap","decode us
+a bitmap"
+gct,2388,3.6%,439.1,9.0
+CCITT G4 (fax crate),4210,6.4%,106.9,22.2
+JBIG (jbigkit),2489,3.8%,323.3,297.5
+zstd level 3,4228,6.5%,18.7,8.3
+zstd level 19,3444,5.3%,5535.8,15.6
+
+## drawn with lines, 300 bitmaps
+codec,"bits
+a bitmap","of the
+raw cells","encode us
+a bitmap","decode us
+a bitmap"
+gct,11274,17.2%,1144.8,226.3
+CCITT G4 (fax crate),13316,20.3%,267.9,144.4
+JBIG (jbigkit),4221,6.4%,558.9,523.4
+zstd level 3,17351,26.5%,40.3,13.9
+zstd level 19,14610,22.3%,2745.4,21.9
+
+## all, 2000 bitmaps
+codec,"bits
+a bitmap","of the
+raw cells","encode us
+a bitmap","decode us
+a bitmap"
+gct,22325,34.1%,1536.6,183.5
+CCITT G4 (fax crate),31649,48.3%,339.3,249.3
+JBIG (jbigkit),17767,27.1%,667.3,664.0
+zstd level 3,22784,34.8%,37.2,12.2
+zstd level 19,20936,31.9%,3318.1,16.6

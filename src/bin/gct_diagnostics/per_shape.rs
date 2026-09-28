@@ -5,12 +5,13 @@ use bitmap::diagnostics::measured::Measured;
 use bitmap::diagnostics::RAW_CELLS;
 use bitmap::gct::Workspace;
 use bitmap::samples::{LINE_SETS, PLANS, SHAPES, SPARSE};
+use bitmap::table::report::Report;
 use bitmap::table::Table;
 use bitmap::Bitmap;
 
 /// Prints gct's bits on every shape, sparse shape, plan and line set,
 /// each on its own row.
-pub fn run() {
+pub fn run(report: &mut Report) {
     let mut workspace = Workspace::new();
     let mut table = Table::new(&["sample", "bitmaps", "cells set\na bitmap", "gct\nbits a bitmap", "gct bits\na cell set", "of the\nraw cells"]);
     let mut measure = |name: &str, bitmaps: Vec<Bitmap>| {
@@ -35,6 +36,5 @@ pub fn run() {
     for set in &LINE_SETS {
         measure(set.name, set.timed().collect());
     }
-    println!();
-    table.print();
+    report.add("every shape, plan and line set", table);
 }

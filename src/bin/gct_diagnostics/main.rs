@@ -1,5 +1,8 @@
 //! The diagnostics tool: prints what `bitmap::diagnostics` gathers from
-//! gct, one tool a file, named by the first argument:
+//! gct, one tool a file, named by the first argument. A tool that
+//! measures also keeps its tables, and what they were measured on, in
+//! `measurements/<tool>.csv`, replacing the last run's -- the latest
+//! numbers are always there, and nowhere copied by hand.
 //!
 //! | tool | prints |
 //! |---|---|
@@ -8,7 +11,8 @@
 //! | `above` | the divides above the top tiles, family by family, against listing those tiles in Morton order |
 //! | `per_shape` | gct's bits on every shape, plan and line set on its own |
 //! | `noise` | gct's bits on noise at several densities, against the raw cells |
-//! | `render` | PNG images of the bitmaps looked at, in `target/gct_diagnostics/` |
+//! | `render` | PNG images of the bitmaps looked at, in `target/gct_diagnostics/`; nothing kept |
+//! | `show` | the kept measurements, every one or the one named next, read back without measuring |
 //!
 //! The bitmaps looked at are the adversarial records and saved bitmaps
 //! (`testing/adversarial/`), plus any PBM image named in `GCT_DIAGNOSE`.
@@ -16,6 +20,7 @@
 //!
 //! ```text
 //! cargo run --release --bin gct_diagnostics -- <tool>
+//! cargo run --release --bin gct_diagnostics -- show measurement
 //! ```
 
 #![warn(missing_docs, clippy::missing_docs_in_private_items)]
@@ -26,16 +31,24 @@ mod measurement;
 mod noise;
 mod per_shape;
 mod render;
+mod show;
 
-/// Every tool, by name.
-const TOOLS: [(&str, fn()); 6] = [
+use bitmap::table::report::Report;
+
+/// A tool that measures: it fills a report, which is printed and kept.
+type Measuring = fn(&mut Report);
+
+/// The tools that measure, by name.
+const MEASURING: [(&str, Measuring); 5] = [
     ("measurement", measurement::run),
     ("census", census::run),
     ("above", above::run),
     ("per_shape", per_shape::run),
     ("noise", noise::run),
-    ("render", render::run),
 ];
+
+/// The tools that keep nothing, by name.
+const OTHERS: [(&str, fn()); 2] = [("render", render::run), ("show", show::run)];
 
 /// The exit code for a tool not named, or named wrongly.
 const USAGE_EXIT_CODE: i32 = 2;
@@ -43,12 +56,15 @@ const USAGE_EXIT_CODE: i32 = 2;
 /// Runs the tool named by the first argument, or says which there are.
 fn main() {
     let asked = std::env::args().nth(1).unwrap_or_default();
-    match TOOLS.iter().find(|(name, _)| *name == asked) {
-        Some((_, run)) => run(),
-        None => {
-            let names: Vec<&str> = TOOLS.iter().map(|(name, _)| *name).collect();
-            eprintln!("usage: gct_diagnostics <tool>, one of: {}", names.join(", "));
-            std::process::exit(USAGE_EXIT_CODE);
-        }
+    if let Some((name, run)) = MEASURING.iter().find(|(name, _)| *name == asked) {
+        let mut report = Report::new(name, &format!("cargo run --release --bin gct_diagnostics -- {name}"));
+        run(&mut report);
+        report.publish();
+    } else if let Some((_, run)) = OTHERS.iter().find(|(name, _)| *name == asked) {
+        run();
+    } else {
+        let names: Vec<&str> = MEASURING.iter().map(|(name, _)| *name).chain(OTHERS.iter().map(|(name, _)| *name)).collect();
+        eprintln!("usage: gct_diagnostics <tool>, one of: {}", names.join(", "));
+        std::process::exit(USAGE_EXIT_CODE);
     }
 }
