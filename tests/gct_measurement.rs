@@ -24,8 +24,6 @@ use std::time::Instant;
 /// The raw cells: what a bitmap costs written out.
 const RAW_CELLS: usize = 256 * 256;
 
-/// The adversarial search's record, measured on its own.
-const ADVERSARIAL_RECORD: &str = "gct_against_raw";
 
 /// `part` as a percentage of `whole`; 0 of nothing.
 fn percent(part: usize, whole: usize) -> f64 {
@@ -131,8 +129,9 @@ fn generator_table(
 }
 
 /// Prints one table a sample generator -- grown, laid out as a city,
-/// drawn with lines, checkerboards -- with a row a parameter set, the
-/// adversarial record's, then what gct's trees hold, family by family.
+/// drawn with lines, checkerboards -- with a row a parameter set, then a
+/// row for each adversarial record, then what gct's trees hold, family
+/// by family.
 #[test]
 #[ignore]
 fn gct_measurement() {
@@ -159,9 +158,7 @@ fn gct_measurement() {
     let boards = checkerboards()
         .map(|(side, bitmap)| (format!("{side}x{side} squares"), format!("side {side}"), vec![bitmap]))
         .collect();
-    let adversarial = record::read(ADVERSARIAL_RECORD)
-        .map(|bitmap| vec![(ADVERSARIAL_RECORD.to_string(), "recorded".to_string(), vec![bitmap])])
-        .unwrap_or_default();
+    let adversarial = record::all().into_iter().map(|(name, bitmap)| (name, "recorded".to_string(), vec![bitmap])).collect();
     let tables = [
         generator_table(&mut workspace, "grown", "density, cluster", grown),
         generator_table(&mut workspace, "laid out like a city", "pitch, street, courtyards", cities),

@@ -1,7 +1,8 @@
 //! A fixed sample for counting gct's instructions: `BITMAPS_PER_GENERATOR`
 //! bitmaps of every generator -- grown shapes, sparse ones, city plans and
 //! line sets, weighted as the timed sample (`gct_timing`) is -- a
-//! checkerboard and noise, encoded, then decoded, all in one workspace. Run it under
+//! checkerboard, every adversarial record (`testing/adversarial/`) and
+//! noise, encoded, then decoded, all in one workspace. Run it under
 //! callgrind, which counts executed instructions exactly and says where
 //! they go:
 //!
@@ -15,6 +16,7 @@
 //! Instructions a bitmap are the total over the bitmap count it prints.
 
 use bitmap::gct::grammar::bit_stream::BitStream;
+use bitmap::adversarial::record;
 use bitmap::gct::Workspace;
 use bitmap::samples::checkerboards::checkerboard;
 use bitmap::samples::{grown, LINE_SETS, PLANS, SHAPES, SPARSE};
@@ -46,6 +48,7 @@ fn main() {
         sample.extend(set.take(BITMAPS_PER_GENERATOR));
     }
     sample.push(checkerboard(CHECKERBOARD_SQUARE));
+    sample.extend(record::all().into_iter().map(|(_, bitmap)| bitmap));
     sample.extend(grown(NOISE_SEED, NOISE_DENSITY, 0.0, NOISE_BITMAPS));
 
     // One workspace, stream and bitmap for the whole sample, as a caller

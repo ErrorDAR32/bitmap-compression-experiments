@@ -2,8 +2,9 @@
 //! generator's bitmaps -- grown shapes, sparse ones, city plans and line
 //! sets -- `BITMAPS_PER_GENERATOR` distinct bitmaps each, all built
 //! before any is timed, then each encoded once in one workspace. Decoding
-//! is timed apart, after. Run it in release, on its own -- no profiler,
-//! nothing else busy:
+//! is timed apart, after. The adversarial records (`testing/adversarial/`)
+//! get a row of their own, apart from the sample's. Run it in release, on
+//! its own -- no profiler, nothing else busy:
 //!
 //! ```text
 //! cargo run --release --example gct_timing
@@ -12,6 +13,7 @@
 //!
 //! The argument, if given, is how many bitmaps each generator makes.
 
+use bitmap::adversarial::record;
 use bitmap::gct::grammar::bit_stream::BitStream;
 use bitmap::gct::Workspace;
 use bitmap::samples::{LINE_SETS, PLANS, SHAPES, SPARSE};
@@ -21,6 +23,10 @@ use std::time::{Duration, Instant};
 /// Bitmaps each generator makes unless told otherwise: 20 generators,
 /// so 2000 bitmaps -- enough for a steady mean and a tail.
 const BITMAPS_PER_GENERATOR: u64 = 100;
+
+/// Times each adversarial record is encoded: they are few, so each is
+/// timed often enough to average.
+const RECORD_REPEATS: usize = 20;
 
 /// Percentile reported as the tail, besides the worst.
 const TAIL_PERCENT: usize = 90;
@@ -51,26 +57,44 @@ fn main() {
     println!("{:<22} {:>8} {:>10} {:>10} {:>10} {:>10} {:>11}", "family", "bitmaps", "mean us", "median us", "p90 us", "max us", "decode us");
     let (mut every_encode, mut every_decode) = (Vec::new(), Vec::new());
     for family in &families {
-        let mut encodes = Vec::with_capacity(family.bitmaps.len());
-        let mut streams = Vec::with_capacity(family.bitmaps.len());
-        for bitmap in &family.bitmaps {
-            let start = Instant::now();
-            workspace.encode(bitmap, &mut stream);
-            encodes.push(start.elapsed());
-            streams.push(stream.clone());
-        }
-        let mut decodes = Vec::with_capacity(streams.len());
-        for (encoded, bitmap) in streams.iter().zip(&family.bitmaps) {
-            let start = Instant::now();
-            workspace.decode(encoded, &mut back);
-            decodes.push(start.elapsed());
-            assert!(same_cells(&back, bitmap), "{} did not round trip", family.name);
-        }
+        let (mut encodes, decodes) = time(&mut workspace, &mut stream, &mut back, family);
         print_row(family.name, &mut encodes, &decodes);
         every_encode.extend(encodes);
         every_decode.extend(decodes);
     }
     print_row("all", &mut every_encode, &every_decode);
+
+    // The adversarial records, apart from the sample: few, and each the
+    // worst found against one encoder, so each is encoded several times.
+    let records = record::all();
+    let records = Family {
+        name: "adversarial records",
+        bitmaps: (0..RECORD_REPEATS).flat_map(|_| records.iter().map(|(_, bitmap)| bitmap.clone())).collect(),
+    };
+    let (mut encodes, decodes) = time(&mut workspace, &mut stream, &mut back, &records);
+    print_row(records.name, &mut encodes, &decodes);
+}
+
+/// Encodes every bitmap of `family` once, timing each, then decodes each
+/// stream, timing each and checking it round trips: the encode times and
+/// the decode times.
+fn time(workspace: &mut Workspace, stream: &mut BitStream, back: &mut Bitmap, family: &Family) -> (Vec<Duration>, Vec<Duration>) {
+    let mut encodes = Vec::with_capacity(family.bitmaps.len());
+    let mut streams = Vec::with_capacity(family.bitmaps.len());
+    for bitmap in &family.bitmaps {
+        let start = Instant::now();
+        workspace.encode(bitmap, stream);
+        encodes.push(start.elapsed());
+        streams.push(stream.clone());
+    }
+    let mut decodes = Vec::with_capacity(streams.len());
+    for (encoded, bitmap) in streams.iter().zip(&family.bitmaps) {
+        let start = Instant::now();
+        workspace.decode(encoded, back);
+        decodes.push(start.elapsed());
+        assert!(same_cells(back, bitmap), "{} did not round trip", family.name);
+    }
+    (encodes, decodes)
 }
 
 /// Prints one row: how many, the encode times' mean, median, tail and

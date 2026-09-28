@@ -103,7 +103,13 @@ cargo run --release --manifest-path comparison/Cargo.toml
 
 The same crate searches adversarially against each of those codecs --
 the library's search (`bitmap::adversarial`), scored as gct's bits less
-the codec's -- keeping the worst for each in `testing/adversarial/`:
+the codec's -- keeping the worst for each in `testing/adversarial/`.
+Every record there is a fixed hard case to optimize against: the fine
+tier checks each one (`adversarial_records_pass_every_check`), the
+instruction count encodes and decodes each, `gct_timing` gives them a
+row of their own, and `gct_measurement` a row each. Runs carry on from
+the records; give each run a fresh `GCT_SEED`, or it repeats the last
+run's moves:
 
 ```
 cargo run --release --manifest-path comparison/Cargo.toml --bin adversarial

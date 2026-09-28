@@ -18,6 +18,18 @@ pub fn path(name: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(FOLDER).join(format!("{name}.pbm"))
 }
 
+/// Every record there is, each named, in name order: the worst bitmaps
+/// found for each search, which the fine tests check and the
+/// optimization benchmarks encode.
+pub fn all() -> Vec<(String, Bitmap)> {
+    let folder = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(FOLDER);
+    let mut names: Vec<String> = fs::read_dir(&folder)
+        .map(|entries| entries.filter_map(|entry| entry.ok()?.path().file_stem()?.to_str().map(str::to_string)).collect())
+        .unwrap_or_default();
+    names.sort();
+    names.into_iter().filter_map(|name| read(&name).map(|bitmap| (name, bitmap))).collect()
+}
+
 /// The record named `name`, if there is one and it reads as a 256x256
 /// plain PBM.
 pub fn read(name: &str) -> Option<Bitmap> {
