@@ -2,16 +2,16 @@
 //! what that is worth, and how candidates rank against each other.
 //!
 //! A candidate is a tile nothing is placed at directly, not already
-//! entirely related to a complex tile enclosing it, tried at every size offset
+//! entirely unmasked in a complex tile it is nested in, tried at every size offset
 //! from `1` to the 2x2 floor (a 1x1 resolution is never tried: 1x1 tiles
 //! are always the residual pass's own). A size offset whose resolution an
-//! enclosing complex tile already has is skipped: those tiles are
-//! already related to it.
+//! complex tile it is nested in already has is skipped: those tiles
+//! are already unmasked in it.
 //!
 //! - `unmasked_cells`: the cells the `Bound` tiles placed at exactly
 //!   that resolution cover.
-//! - `total_cells`: the tile's cells, minus what is already related to
-//!   an enclosing complex tile -- what that one says costs the
+//! - `total_cells`: the tile's cells, minus what is already unmasked in
+//!   a complex tile it is nested in -- what that one binds costs the
 //!   candidate nothing, so it does not count against it either.
 //!
 //! Depth `1` must have all four children unmasked (masking never pays
@@ -30,25 +30,25 @@ pub struct Candidate {
     pub size_offset: usize,
     unmasked_cells: u64,
     total_cells: u64,
-    /// The complex tiles enclosing `tile`.
+    /// The resolutions of the complex tiles `tile` is nested in.
     pub nested: NestedResolutions,
 }
 
 impl Candidate {
     /// `tile`'s best size offset to be a complex tile at, if any.
     pub fn best_for(bound_tile_counts: &Vec<Pyramid>, tile: Tile, nested: &NestedResolutions) -> Option<Candidate> {
-        let related_further_out: u64 = nested
-            .able_to_relate(tile)
+        let unmasked_in_outer: u64 = nested
+            .able_to_unmask(tile)
             .map(|nesting| nested.resolution(nesting))
             .map(|resolution| bound_tile_counts.under(tile, resolution) as u64 * cells_in_tile(resolution))
             .sum();
-        let total_cells = cells_in_tile(tile.level) - related_further_out;
+        let total_cells = cells_in_tile(tile.level) - unmasked_in_outer;
         let max_size_offset = CELL_LEVEL - 1 - tile.level; // 1x1 is never a resolution
         let mut best: Option<Candidate> = None;
         for size_offset in 1..=max_size_offset {
             let resolution = tile.level + size_offset;
             if nested.has_resolution(resolution) {
-                continue; // those tiles are already related to that complex tile
+                continue; // those tiles are already unmasked in that complex tile
             }
             let unmasked = bound_tile_counts.under(tile, resolution);
             if unmasked == 0 || (size_offset == 1 && unmasked != 4) {

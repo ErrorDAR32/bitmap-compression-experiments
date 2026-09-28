@@ -49,7 +49,7 @@ fn all_clear_is_one_tile_in_six_bits() {
     let bitmap = Bitmap::new();
     // leaf + bind + 3 resolution bits (size offset 0, a tile) + 1 value bit
     assert_eq!(encode(&bitmap).len(), 6);
-    assert_eq!(tree(&bitmap).node(Tile::whole_bitmap()), Node::Complex { size_offset: 0, masking: false });
+    assert_eq!(tree(&bitmap).node(Tile::whole_bitmap()), Node::ComplexTile { size_offset: 0, masks: false });
     let placements = greedy_tiler(&bitmap, &Pyramid::homogeneity(&bitmap), &Pyramid::copyable(&bitmap));
     assert_eq!(Vec::<Pyramid>::bound_tile_counts(&placements).under(Tile::whole_bitmap(), 0), 1);
     check(&bitmap, "all clear");
@@ -88,7 +88,7 @@ fn rectangles_and_circles_round_trip() {
 #[test]
 fn one_city_round_trips_with_complex_tiles() {
     let bitmap = one_laid_out(FIXED_SEED, &PLANS[0]);
-    assert!(TreeStats::of(&tree(&bitmap)).complex_tiles() > 0, "a city this regular forms complex tiles");
+    assert!(TreeStats::of(&tree(&bitmap)).tiler_outputs() > 0, "a city this regular forms complex tiles");
     check(&bitmap, "one city");
 }
 

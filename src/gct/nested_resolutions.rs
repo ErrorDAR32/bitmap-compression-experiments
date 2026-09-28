@@ -1,6 +1,6 @@
 //! Nested resolutions: the resolutions of the complex tiles a tile is
 //! nested in, outermost first -- and the one rule for which of them can
-//! relate the tile.
+//! unmask the tile.
 
 use crate::gct::pyramids::bound_tile_counts::BoundTileCounts;
 use crate::gct::pyramids::pyramid::Pyramid;
@@ -8,56 +8,56 @@ use crate::gct::tile::Tile;
 
 #[derive(Clone, Default, Debug)]
 pub struct NestedResolutions {
-    /// The resolution (a level) of each enclosing complex tile,
+    /// The resolution (a level) of each complex tile a tile is nested in,
     /// outermost first; a complex tile's index here is its nesting.
     resolutions: Vec<usize>,
 }
 
 impl NestedResolutions {
-    /// Enclosed by no complex tile.
+    /// Nested in no complex tile.
     pub fn none() -> Self {
         Self::default()
     }
 
-    /// The nesting a complex tile placed here gets: how many enclose it.
+    /// The nesting a complex tile placed here gets: how many it is nested in.
     pub fn next_nesting(&self) -> usize {
         self.resolutions.len()
     }
 
-    /// The resolution of the enclosing complex tile at `nesting`.
+    /// The resolution of the complex tile at `nesting`.
     pub fn resolution(&self, nesting: usize) -> usize {
         self.resolutions[nesting]
     }
 
-    /// Whether some enclosing complex tile already has this resolution.
+    /// Whether a complex tile this is nested in already has this resolution.
     pub fn has_resolution(&self, resolution: usize) -> bool {
         self.resolutions.contains(&resolution)
     }
 
-    /// The enclosing complex tiles that could relate `tile`, nearest
+    /// The complex tiles `tile` is nested in that could unmask it, nearest
     /// first: those whose resolution tiles `tile` covers whole -- one
-    /// coarser than `tile` itself cannot say it.
-    pub fn able_to_relate(&self, tile: Tile) -> impl Iterator<Item = usize> + '_ {
+    /// coarser than `tile` itself cannot bind it.
+    pub fn able_to_unmask(&self, tile: Tile) -> impl Iterator<Item = usize> + '_ {
         (0..self.resolutions.len()).rev().filter(move |&nesting| tile.level <= self.resolutions[nesting])
     }
 
-    /// The nearest enclosing complex tile `tile` is entirely related to:
+    /// The nearest complex tile `tile` is nested in and entirely unmasked in:
     /// every tile of its resolution under `tile` is a `Bound` tile placed
     /// at exactly that size.
-    pub fn relating(&self, bound_tile_counts: &Vec<Pyramid>, tile: Tile) -> Option<usize> {
-        self.able_to_relate(tile).find(|&nesting| bound_tile_counts.entirely_bound_at(tile, self.resolutions[nesting]))
+    pub fn unmasking(&self, bound_tile_counts: &Vec<Pyramid>, tile: Tile) -> Option<usize> {
+        self.able_to_unmask(tile).find(|&nesting| bound_tile_counts.entirely_bound_at(tile, self.resolutions[nesting]))
     }
 
     /// These, with one more complex tile of `resolution` inside them.
-    pub fn with(&self, resolution: usize) -> Self {
+    pub fn with_nested(&self, resolution: usize) -> Self {
         let mut resolutions = self.resolutions.clone();
         resolutions.push(resolution);
         Self { resolutions }
     }
 
-    /// Runs `inside` with one more complex tile of `resolution` enclosing,
+    /// Runs `inside` nested one complex tile of `resolution` deeper,
     /// then takes it off again.
-    pub fn within<R>(&mut self, resolution: usize, inside: impl FnOnce(&mut Self) -> R) -> R {
+    pub fn while_nested<R>(&mut self, resolution: usize, inside: impl FnOnce(&mut Self) -> R) -> R {
         self.resolutions.push(resolution);
         let result = inside(self);
         self.resolutions.pop();

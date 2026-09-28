@@ -7,10 +7,10 @@
 //!   position the tile occupies within it, does -- the same tile two
 //!   tiles away.
 //!
-//! It says whether asking which direction is worth it at all, not which
+//! It tells whether asking which direction is worth it at all, not which
 //! direction: the question is asked of nearly every tile and the answer
 //! is nearly always no. Nothing propagates here -- a tile matching its
-//! neighbour says nothing about whether their parents match -- so each
+//! neighbour tells nothing about whether their parents match -- so each
 //! level is read off the cells.
 
 use super::pyramid::{Pyramid, PyramidShape};

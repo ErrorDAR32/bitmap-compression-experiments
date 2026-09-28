@@ -36,7 +36,7 @@ pub fn greedy_tiler(bitmap: &Bitmap, homogeneity: &Pyramid, copyable: &Pyramid) 
                 }
                 let placement = if let Some(value) = homogeneity.homogeneous_value(tile) {
                     Placement::Bound(value)
-                } else if let Some((far, direction)) = copy_choice(copyable, bitmap, tile) {
+                } else if let Some((far, direction)) = copy_direction(copyable, bitmap, tile) {
                     Placement::Copied { far, direction }
                 } else {
                     continue;
@@ -53,7 +53,7 @@ pub fn greedy_tiler(bitmap: &Bitmap, homogeneity: &Pyramid, copyable: &Pyramid) 
 /// far copy (a same-size neighbour of the tile's parent, at the tile's
 /// own child position within it) rather than a near one (a same-size
 /// neighbour of the tile itself).
-fn copy_choice(copyable: &Pyramid, bitmap: &Bitmap, tile: Tile) -> Option<(bool, usize)> {
+fn copy_direction(copyable: &Pyramid, bitmap: &Bitmap, tile: Tile) -> Option<(bool, usize)> {
     if copyable.near_copyable(tile) {
         let near = (0..DIRECTIONS.len())
             .find(|&direction| tile.neighbour(direction).is_some_and(|beside| same_cells(bitmap, tile, beside)));

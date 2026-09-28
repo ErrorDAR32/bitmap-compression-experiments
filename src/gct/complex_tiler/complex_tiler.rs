@@ -23,7 +23,7 @@ use crate::gct::nested_resolutions::NestedResolutions;
 use crate::Bitmap;
 
 /// Where one pass searches: an area, the coarsest level a candidate in
-/// it may be, and the complex tiles enclosing it.
+/// it may be, and the resolutions of the complex tiles it is nested in.
 struct SearchArea {
     area: Tile,
     coarsest_level: usize,
@@ -53,7 +53,7 @@ fn candidates_in(placements: &Pyramid, bound_tile_counts: &Vec<Pyramid>, searche
     for search in searched {
         for level in search.coarsest_level..=(CELL_LEVEL - 2) {
             for tile in search.area.tiles_at_size_offset(level - search.area.level) {
-                if placements.is_placed(tile) || search.nested.relating(bound_tile_counts, tile).is_some() {
+                if placements.is_placed(tile) || search.nested.unmasking(bound_tile_counts, tile).is_some() {
                     continue;
                 }
                 if let Some(candidate) = Candidate::best_for(bound_tile_counts, tile, &search.nested) {
@@ -84,7 +84,7 @@ fn commit(candidates: Vec<Candidate>, size_offsets: &mut Pyramid) -> Vec<SearchA
         next.push(SearchArea {
             area: candidate.tile,
             coarsest_level: candidate.tile.level + 1,
-            nested: candidate.nested.with(candidate.tile.level + candidate.size_offset),
+            nested: candidate.nested.with_nested(candidate.tile.level + candidate.size_offset),
         });
     }
     next

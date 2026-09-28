@@ -61,20 +61,20 @@ fn compare_with_dsrn() {
         println!(
             "    complex tiles a bitmap, by nesting: [{}], {:.1}% of them masking; tiles a bitmap: {:.1}",
             by_nesting.join(", "),
-            percent(stats.complex_tiles_masking, stats.complex_tiles()),
+            percent(stats.complex_tiles_that_mask, stats.tiler_outputs()),
             per_bitmap(stats.tiles),
         );
         let body_nodes = stats.unmasked + stats.masked();
         println!(
-            "    complex tile body nodes: {:.2}% unmasked, {:.2}% masked (related further out {:.2}%, copied {:.2}%, \
-             tile {:.2}%, nested complex tile {:.2}%, hole {:.2}%)",
+            "    complex tile body nodes: {:.2}% unmasked, {:.2}% masked (unmasked in an outer complex tile {:.2}%, copied {:.2}%, \
+             tile {:.2}%, nested complex tile {:.2}%, residual {:.2}%)",
             percent(stats.unmasked, body_nodes),
             percent(stats.masked(), body_nodes),
-            percent(stats.masked_related_further_out, body_nodes),
+            percent(stats.unmasked_in_outer, body_nodes),
             percent(stats.masked_copied, body_nodes),
             percent(stats.masked_tile, body_nodes),
             percent(stats.masked_nested, body_nodes),
-            percent(stats.masked_hole, body_nodes),
+            percent(stats.masked_residual, body_nodes),
         );
     }
 }

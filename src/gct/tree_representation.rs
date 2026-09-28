@@ -12,62 +12,62 @@ use crate::gct::pyramids::pyramid::Pyramid;
 use crate::gct::tile::{Tile, CELL_LEVEL};
 
 /// What the tree is made from.
-pub struct ComplexTiles<'a> {
+pub struct TilerOutputs<'a> {
     pub placements: &'a Pyramid,
     pub bound_tile_counts: &'a Vec<Pyramid>,
     pub size_offsets: &'a Pyramid,
 }
 
 /// The whole bitmap's tree.
-pub fn tree_representation(complex_tiles: &ComplexTiles) -> Pyramid {
+pub fn tree_representation(tiler_outputs: &TilerOutputs) -> Pyramid {
     let mut tree = Pyramid::tree();
-    set_node(complex_tiles, Tile::whole_bitmap(), &mut NestedResolutions::none(), &mut tree);
+    set_node(tiler_outputs, Tile::whole_bitmap(), &mut NestedResolutions::none(), &mut tree);
     tree
 }
 
-/// Sets the node for `tile`, enclosed by `enclosing`, and every node
+/// Sets the node for `tile`, nested in `nested`, and every node
 /// under it.
-fn set_node(complex_tiles: &ComplexTiles, tile: Tile, nested: &mut NestedResolutions, tree: &mut Pyramid) {
-    let node = node_for(complex_tiles, tile, nested);
+fn set_node(tiler_outputs: &TilerOutputs, tile: Tile, nested: &mut NestedResolutions, tree: &mut Pyramid) {
+    let node = node_for(tiler_outputs, tile, nested);
     tree.set_node(tile, node);
     match node {
-        Node::Split => {
+        Node::Subdivided => {
             for child in tile.children() {
-                set_node(complex_tiles, child, nested, tree);
+                set_node(tiler_outputs, child, nested, tree);
             }
         }
-        Node::Complex { size_offset, masking: true } => nested.within(tile.level + size_offset, |inside| {
+        Node::ComplexTile { size_offset, masks: true } => nested.while_nested(tile.level + size_offset, |inside| {
             for child in tile.children() {
-                set_node(complex_tiles, child, inside, tree);
+                set_node(tiler_outputs, child, inside, tree);
             }
         }),
         _ => {}
     }
 }
 
-/// What `tile` is, enclosed by `enclosing`.
-fn node_for(complex_tiles: &ComplexTiles, tile: Tile, nested: &NestedResolutions) -> Node {
-    if let Some(nesting) = nested.relating(complex_tiles.bound_tile_counts, tile) {
-        return Node::Related { nesting };
+/// What `tile` is, nested in `nested`.
+fn node_for(tiler_outputs: &TilerOutputs, tile: Tile, nested: &NestedResolutions) -> Node {
+    if let Some(nesting) = nested.unmasking(tiler_outputs.bound_tile_counts, tile) {
+        return Node::Unmasked { nesting };
     }
-    let a_tile = Node::Complex { size_offset: 0, masking: false };
+    let bound_tile = Node::ComplexTile { size_offset: 0, masks: false };
     if tile.level == CELL_LEVEL - 1 {
         // The 2x2 floor: a homogeneous 2x2 is a tile; anything else is a
-        // hole, its four cells left to the residual pass.
-        return match complex_tiles.placements.placement(tile) {
-            Some(Placement::Bound(_)) => a_tile,
-            _ => Node::Hole,
+        // residual, its four cells left to the residual pass.
+        return match tiler_outputs.placements.placement(tile) {
+            Some(Placement::Bound(_)) => bound_tile,
+            _ => Node::Residual,
         };
     }
-    match complex_tiles.placements.placement(tile) {
-        Some(Placement::Bound(_)) => a_tile,
+    match tiler_outputs.placements.placement(tile) {
+        Some(Placement::Bound(_)) => bound_tile,
         Some(Placement::Copied { far, direction }) => Node::Copied { far, direction },
-        None => match complex_tiles.size_offsets.complex_tile_size_offset(tile) {
+        None => match tiler_outputs.size_offsets.complex_tile_size_offset(tile) {
             Some(size_offset) => {
-                let masking = !complex_tiles.bound_tile_counts.entirely_bound_at(tile, tile.level + size_offset);
-                Node::Complex { size_offset, masking }
+                let masks = !tiler_outputs.bound_tile_counts.entirely_bound_at(tile, tile.level + size_offset);
+                Node::ComplexTile { size_offset, masks }
             }
-            None => Node::Split,
+            None => Node::Subdivided,
         },
     }
 }

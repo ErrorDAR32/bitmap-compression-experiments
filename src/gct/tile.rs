@@ -56,16 +56,16 @@ impl Tile {
     }
 
     /// Its top left cell.
-    pub const fn top_left_cell(self) -> (usize, usize) {
+    pub const fn top_left_cell(self) -> (u8, u8) {
         let side = self.side_in_cells();
-        (self.x * side, self.y * side)
+        ((self.x * side) as u8, (self.y * side) as u8)
     }
 
     /// Its cells as an inclusive rectangle: left, top, right, bottom.
     pub const fn cell_rect(self) -> (u8, u8, u8, u8) {
-        let (x, y) = self.top_left_cell();
-        let side = self.side_in_cells();
-        (x as u8, y as u8, (x + side - 1) as u8, (y + side - 1) as u8)
+        let (left, top) = self.top_left_cell();
+        let last = (self.side_in_cells() - 1) as u8;
+        (left, top, left + last, top + last)
     }
 
     /// Its four children, in reading order: top left, top right, bottom
@@ -109,7 +109,7 @@ impl Tile {
     /// value, when every cell of it agrees.
     pub fn top_left_value(self, bitmap: &Bitmap) -> bool {
         let (x, y) = self.top_left_cell();
-        bitmap.get(x as u8, y as u8)
+        bitmap.get(x, y)
     }
 
     /// Whether any cell of this tile is set in `bitmap`.
@@ -146,21 +146,24 @@ impl Tile {
 }
 
 /// Whether two same-size tiles hold the same cells, a word of a row at a
-/// time: a tile's row is a run of `side` bits starting at a multiple of
-/// `side`, so it is either whole words or a run inside one word.
+/// time.
 pub fn same_cells(bitmap: &Bitmap, a: Tile, b: Tile) -> bool {
+    const WORD: usize = u64::BITS as usize;
     let side = a.side_in_cells();
     let ((a_x, a_y), (b_x, b_y)) = (a.top_left_cell(), b.top_left_cell());
-    (0..side).all(|row| {
-        let mine = bitmap.row((a_y + row) as u8);
-        let theirs = bitmap.row((b_y + row) as u8);
-        if side >= u64::BITS as usize {
-            let words = side / u64::BITS as usize;
-            let (a_word, b_word) = (a_x / u64::BITS as usize, b_x / u64::BITS as usize);
-            return (0..words).all(|word| mine[a_word + word] == theirs[b_word + word]);
+    let last_row = (side - 1) as u8;
+    // A row of a tile is `side` bits from a column that is a multiple of
+    // `side`, so it is either whole words or a run inside one word.
+    let run = |row: &[u64], x: u8| {
+        let x = x as usize;
+        (row[x / WORD] >> (x % WORD)) & ((1u64 << side) - 1)
+    };
+    (0..=last_row).all(|row| {
+        let (mine, theirs) = (bitmap.row(a_y + row), bitmap.row(b_y + row));
+        if side >= WORD {
+            let (a_word, b_word) = (a_x as usize / WORD, b_x as usize / WORD);
+            return (0..side / WORD).all(|word| mine[a_word + word] == theirs[b_word + word]);
         }
-        let mask = (1u64 << side) - 1;
-        let word = |x: usize, row: &[u64]| (row[x / u64::BITS as usize] >> (x % u64::BITS as usize)) & mask;
-        word(a_x, mine) == word(b_x, theirs)
+        run(mine, a_x) == run(theirs, b_x)
     })
 }

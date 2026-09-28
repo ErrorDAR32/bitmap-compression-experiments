@@ -1,6 +1,6 @@
 //! What a tree holds: tiles, complex tiles by how deeply nested they
-//! are (`0` = enclosed by none), and, inside every complex tile's body,
-//! its nodes -- related to it (unmasked, counted once per tile of its
+//! are (`0` = nested in none), and, inside every complex tile's body,
+//! its nodes -- unmasked in it ( counted once per tile of its
 //! resolution), or masked, by what they are instead. A masked node is
 //! counted once, whatever its size, and belongs to the complex tile
 //! whose body directly holds it.
@@ -14,13 +14,13 @@ use bitmap::gct::pyramids::tree::{Node, Tree};
 pub struct TreeStats {
     pub tiles: usize,
     pub complex_tiles_at_nesting: Vec<usize>,
-    pub complex_tiles_masking: usize,
+    pub complex_tiles_that_mask: usize,
     pub unmasked: usize,
-    pub masked_related_further_out: usize,
+    pub unmasked_in_outer: usize,
     pub masked_copied: usize,
     pub masked_tile: usize,
     pub masked_nested: usize,
-    pub masked_hole: usize,
+    pub masked_residual: usize,
 }
 
 impl TreeStats {
@@ -31,10 +31,10 @@ impl TreeStats {
     }
 
     pub fn masked(&self) -> usize {
-        self.masked_related_further_out + self.masked_copied + self.masked_tile + self.masked_nested + self.masked_hole
+        self.unmasked_in_outer + self.masked_copied + self.masked_tile + self.masked_nested + self.masked_residual
     }
 
-    pub fn complex_tiles(&self) -> usize {
+    pub fn tiler_outputs(&self) -> usize {
         self.complex_tiles_at_nesting.iter().sum()
     }
 
@@ -46,32 +46,32 @@ impl TreeStats {
             *total += added;
         }
         self.tiles += other.tiles;
-        self.complex_tiles_masking += other.complex_tiles_masking;
+        self.complex_tiles_that_mask += other.complex_tiles_that_mask;
         self.unmasked += other.unmasked;
-        self.masked_related_further_out += other.masked_related_further_out;
+        self.unmasked_in_outer += other.unmasked_in_outer;
         self.masked_copied += other.masked_copied;
         self.masked_tile += other.masked_tile;
         self.masked_nested += other.masked_nested;
-        self.masked_hole += other.masked_hole;
+        self.masked_residual += other.masked_residual;
     }
 
     /// `inside`: the nesting of the complex tile whose body directly
     /// holds `tile`, if any.
     fn count(&mut self, tree: &Pyramid, tile: Tile, inside: Option<usize>, nested: &mut NestedResolutions) {
         match tree.node(tile) {
-            Node::Related { nesting } if inside == Some(nesting) => {
+            Node::Unmasked { nesting } if inside == Some(nesting) => {
                 self.unmasked += 1 << (2 * (nested.resolution(nesting) - tile.level));
             }
-            Node::Related { .. } => self.masked_related_further_out += 1,
+            Node::Unmasked { .. } => self.unmasked_in_outer += 1,
             Node::Copied { .. } if inside.is_some() => self.masked_copied += 1,
-            Node::Hole if inside.is_some() => self.masked_hole += 1,
-            Node::Complex { size_offset: 0, .. } => {
+            Node::Residual if inside.is_some() => self.masked_residual += 1,
+            Node::ComplexTile { size_offset: 0, .. } => {
                 self.tiles += 1;
                 if inside.is_some() {
                     self.masked_tile += 1;
                 }
             }
-            Node::Complex { size_offset, masking } => {
+            Node::ComplexTile { size_offset, masks } => {
                 if inside.is_some() {
                     self.masked_nested += 1;
                 }
@@ -80,23 +80,23 @@ impl TreeStats {
                     self.complex_tiles_at_nesting.resize(nesting + 1, 0);
                 }
                 self.complex_tiles_at_nesting[nesting] += 1;
-                if !masking {
+                if !masks {
                     self.unmasked += 1 << (2 * size_offset);
                     return;
                 }
-                self.complex_tiles_masking += 1;
-                nested.within(tile.level + size_offset, |inner| {
+                self.complex_tiles_that_mask += 1;
+                nested.while_nested(tile.level + size_offset, |inner| {
                     for child in tile.children() {
                         self.count(tree, child, Some(nesting), inner);
                     }
                 });
             }
-            Node::Split => {
+            Node::Subdivided => {
                 for child in tile.children() {
                     self.count(tree, child, inside, nested);
                 }
             }
-            Node::Copied { .. } | Node::Hole | Node::None => {}
+            Node::Copied { .. } | Node::Residual | Node::Absent => {}
         }
     }
 }

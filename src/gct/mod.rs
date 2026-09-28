@@ -29,7 +29,7 @@ use pyramids::bound_tile_counts::BoundTileCounts;
 use pyramids::copyable::Copyable;
 use pyramids::homogeneity::Homogeneity;
 use pyramids::pyramid::Pyramid;
-use tree_representation::ComplexTiles;
+use tree_representation::TilerOutputs;
 
 pub use decode::decode;
 
@@ -43,7 +43,7 @@ pub fn tree(bitmap: &Bitmap) -> Pyramid {
     let placements = greedy_tiler::greedy_tiler(bitmap, &homogeneity, &copyable);
     let bound_tile_counts = Vec::<Pyramid>::bound_tile_counts(&placements);
     let size_offsets = complex_tiler::complex_tiler::complex_tiler(&placements, &bound_tile_counts);
-    tree_representation::tree_representation(&ComplexTiles { placements: &placements, bound_tile_counts: &bound_tile_counts, size_offsets: &size_offsets })
+    tree_representation::tree_representation(&TilerOutputs { placements: &placements, bound_tile_counts: &bound_tile_counts, size_offsets: &size_offsets })
 }
 
 /// Encodes `bitmap`.

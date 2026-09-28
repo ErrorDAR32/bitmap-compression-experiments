@@ -28,25 +28,25 @@ pub fn write(tree: &Pyramid, bitmap: &Bitmap) -> BitStream {
 
 /// What reading a stream back gives: the tree, and every cell whose
 /// value the stream said outright -- all but the cells copies cover.
-pub struct ReadBack {
+pub struct StreamContents {
     pub tree: Pyramid,
-    pub cells: Bitmap,
-    pub known: Bitmap,
+    pub cell_values: Bitmap,
+    pub known_cells: Bitmap,
 }
 
-impl ReadBack {
+impl StreamContents {
     /// Every cell of `tile` holds `value`.
-    fn fill(&mut self, tile: Tile, value: bool) {
+    fn bind(&mut self, tile: Tile, value: bool) {
         if value {
-            tile.set_in(&mut self.cells);
+            tile.set_in(&mut self.cell_values);
         }
-        tile.set_in(&mut self.known);
+        tile.set_in(&mut self.known_cells);
     }
 }
 
 /// Reads back what [`write`](fn@write) wrote.
-pub fn read(stream: &BitStream) -> ReadBack {
-    let mut read = ReadBack { tree: Pyramid::tree(), cells: Bitmap::new(), known: Bitmap::new() };
+pub fn read(stream: &BitStream) -> StreamContents {
+    let mut read = StreamContents { tree: Pyramid::tree(), cell_values: Bitmap::new(), known_cells: Bitmap::new() };
     let mut reader = stream.reader();
     tree_grammar::read_node(&mut reader, Tile::whole_bitmap(), &mut NestedResolutions::none(), &mut read);
     residual::read_residual(&mut reader, &mut read);

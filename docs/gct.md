@@ -68,15 +68,15 @@ Cells are always homogeneous, so the whole bitmap is always covered.
 A **complex tile** is a tile said at one chosen **resolution**: a tile
 size finer than its own by its **size offset**. Tile size 0 is the whole
 256x256 bitmap and 8 a single cell, so a resolution is the tile's own
-size plus its size offset. Every part of it is either **related** to it (unmasked: a
-placed `Bound` tile at exactly its resolution, its value in the complex
-tile's payload) or **not related** (masked). A masked part is related to
+size plus its size offset. Every part of it is either **unmasked** in
+it (a placed `Bound` tile at exactly its resolution, its value bound in
+the complex tile's payload) or **masked**. A masked part is unmasked in
 a complex tile further out, a copy, a complex tile nested inside this
 one at another resolution, or further subdivided. Nothing is ever
 repeated to fit a resolution.
 
 **The whole plane is tiled with complex tiles.** A placed `Bound` tile
-related to no complex tile becomes a complex tile whose resolution is
+unmasked in no complex tile becomes a complex tile whose resolution is
 its own size: just a **tile** (size offset 0). So there is no separate
 simple bind.
 
@@ -95,14 +95,14 @@ when one commits nothing.
 
 **A candidate's best resolution** (`complex_tile_candidates.rs`). A
 candidate is a tile with nothing placed exactly at it, not already
-entirely related to an enclosing complex tile. For each size offset from 1 to
-the 2x2 floor, skipping any resolution an enclosing complex tile already
-has:
+entirely unmasked in a complex tile it is nested in. For each size
+offset from 1 to the 2x2 floor, skipping any resolution a complex tile
+it is nested in already has:
 
 - `unmasked_cells`: cells covered by `Bound` tiles at exactly that
   resolution.
-- `total_cells`: the tile's cells, minus what is already related to an
-  enclosing complex tile. What an enclosing one says costs the candidate
+- `total_cells`: the tile's cells, minus what is already unmasked in a
+  complex tile it is nested in. What that one binds costs the candidate
   nothing.
 - Size offset 1 requires all four children unmasked: masking never pays there.
 - Floor: `4 * unmasked_cells >= 3 * total_cells`.
@@ -124,32 +124,33 @@ offsets, top-down, one node per tile it reaches (`tree_representation.rs`):
 
 | node | when |
 |---|---|
-| `Related { nesting }` | the nearest enclosing complex tile whose resolution tiles under this tile are all `Bound` at exactly that size (`nesting` 0 is the outermost) |
-| `Complex { size_offset, masking }` | a placed `Bound` tile (a tile: size offset 0), or a committed complex tile; `masking` when not every resolution tile is related to it |
+| `Unmasked { nesting }` | unmasked in the nearest complex tile it is nested in whose resolution tiles under it are all `Bound` at exactly that size (`nesting` 0 is the outermost) |
+| `ComplexTile { size_offset, masks }` | a placed `Bound` tile (a tile: size offset 0), or a committed complex tile; `masks` when not every resolution tile is unmasked in it |
 | `Copied { far, direction }` | a placed copy |
-| `Split` | anything else coarser than 2x2 |
-| `Hole` | a 2x2 that is not one placed `Bound` tile |
+| `Subdivided` | anything else coarser than 2x2 |
+| `Residual` | a 2x2 that is not one placed `Bound` tile |
+| `Absent` | no node: inside a coarser node's tile |
 
 Node code: bits 0-2 the kind, bits 3-6 its parameter (`pyramids/tree.rs`).
-Values are not held: a related tile's values are its resolution tiles'
+Values are not held: an unmasked tile's values are its resolution tiles'
 cells, read from the bitmap when encoding and written into it when
 decoding. `nested_resolutions.rs` holds the resolutions of the complex
 tiles a node is nested in, and the one rule for which of them can
-relate it: those whose resolution tiles the node covers whole.
+unmask it: those whose resolution tiles the node covers whole.
 
 ## Step 4: the grammar
 
 ```text
-Every node starts with its relation bits: one for each complex tile
-enclosing it that could relate it, nearest first --
-  0: related to this one -- nothing more here; its values come in that
-     complex tile's payload
-  1: not related -- ask the next one out
-A node related to none of them goes on:
+Every node starts with its mask bits: one for each complex tile it is
+nested in that could unmask it, nearest first --
+  0: unmasked in this one -- nothing more here; its values are bound in
+     that complex tile's payload
+  1: masked -- ask the next one out
+A node masked in all of them goes on:
 
 One level above cells (2x2):
 1: a tile + 1 value bit
-0: a hole -- its four cells are left to the residual pass
+0: residual -- its four cells are left to the residual pass
 
 Any coarser level:
 1: leaf
@@ -161,12 +162,12 @@ Any coarser level:
                             nodes follow, this complex tile now the
                             nearest one they are nested in
       then its payload: one value bit for every tile of its resolution
-      related to it, in body order (including nodes inside complex
+      unmasked in it, in body order (including nodes inside complex
       tiles nested in it)
 0: subdivide -- four child nodes
 
 After the whole tree, the residual pass: one raw bit for every cell of
-every hole, in reading order.
+every residual 2x2, in reading order.
 ```
 
 `resolution_width(level)` names size offsets 0 (a tile) to a 2x2 resolution:
@@ -175,9 +176,9 @@ is known from its place in the tree, so this costs nothing to use. The
 payload walk order is written once (`encoder/payload.rs`) and used in
 both directions.
 
-| node | bits, after its relation bits |
+| node | bits, after its mask bits |
 |---|---|
-| related to an enclosing complex tile | none here; its values in that tile's payload |
+| unmasked in a complex tile it is nested in | none here; its values in that tile's payload |
 | copy | `1+1+1+2 = 5` |
 | tile (size offset 0) | `1+1+r+1` |
 | complex tile, size offset 1 | `1+1+r+4` |
@@ -185,15 +186,15 @@ both directions.
 | complex tile, size offset > 1, masking | `1+1+r+1`, four child nodes, then its payload |
 | subdivide | `1` |
 | 2x2 tile | `1+1 = 2` |
-| 2x2 hole | `1`, then 4 raw bits in the residual pass |
+| 2x2 residual | `1`, then 4 raw bits in the residual pass |
 
-(`r` is `resolution_width(level)`. Every enclosing complex tile that
-could relate a node but does not adds one `1` in front.)
+(`r` is `resolution_width(level)`. Every complex tile a node is nested
+in that could unmask it but masks it adds one `1` in front.)
 
 ## Decoding
 
 A copy is chosen on content alone, so its source may not be resolved
-when the tree reaches it; it may even be a hole the residual pass fills.
+when the tree reaches it; it may even be a residual cell the residual pass binds.
 So decoding is separate steps: read the tree (each complex tile's
 payload filled into cells right after its body), read the residual
 pass, then resolve copies by repeated sweeps in reading order, deferring
@@ -232,14 +233,14 @@ roughly neutral so far.
 | city | 34.7% of 378 | 109.2, 1.3, 0.6 | 2.8% | 326.5 |
 | blob | 67.0% of 2332 | 19.0, 3.5, 0.2 | 44.7% | 4991.8 |
 
-| family | body nodes unmasked | masked: related further out | copied | tile | nested complex tile | hole |
+| family | body nodes unmasked | masked: unmasked in an outer complex tile | copied | tile | nested complex tile | residual |
 |---|---|---|---|---|---|---|
 | city | 98.27% | 1.18% | 0.05% | 0.09% | 0.41% | 0.00% |
 | blob | 73.33% | 6.45% | 0.05% | 2.13% | 2.16% | 15.89% |
 
 A dsrn node is any code it wrote with a mask to decide on. A complex
-tile's body nodes are counted once each: every resolution tile related
-to it (unmasked), and every masked leaf, whatever its size, belonging
+tile's body nodes are counted once each: every resolution tile unmasked
+in it, and every masked leaf, whatever its size, belonging
 to the complex tile whose body directly holds it.
 
 The history of every earlier version, with its numbers, is in git.
