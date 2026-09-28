@@ -13,7 +13,7 @@
 mod common;
 mod objectives;
 
-use bitmap::adversarial::{record, search, Outcome};
+use bitmap::adversarial::{record, search, Effort, Outcome};
 use bitmap::gct::tile::Tile;
 use bitmap::samples::sample_seed;
 use bitmap::table::Table;
@@ -37,7 +37,7 @@ fn search_adversarial_bitmaps() {
         let searches: Vec<_> = (0..SEARCHES)
             .map(|index| {
                 let recorded = recorded.clone();
-                scope.spawn(move || search(seed.wrapping_add(index), recorded, &mut |bitmap, area| score(bitmap, area)))
+                scope.spawn(move || search(seed.wrapping_add(index), recorded, Effort::default(), &mut |bitmap, area| score(bitmap, area)))
             })
             .collect();
         searches.into_iter().map(|search| search.join().unwrap()).collect()

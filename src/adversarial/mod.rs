@@ -43,11 +43,24 @@ pub struct Score {
 /// The searched window: a 64x64, the top left one.
 pub const WINDOW: Tile = Tile { level: 2, x: 0, y: 0 };
 
-/// Changes tried on a window, from each start.
-const WINDOW_ITERATIONS: u64 = 400;
+/// How long a search runs: the changes tried from each start, in each
+/// stage. One long search cools slowly -- the temperature falls over all
+/// its changes -- so it can settle deeper than many short ones, each of
+/// which starts hot again.
+#[derive(Clone, Copy, Debug)]
+pub struct Effort {
+    /// Changes tried on a window, from each start.
+    pub window: u64,
+    /// Changes tried on the whole plane, from each start.
+    pub plane: u64,
+}
 
-/// Changes tried on the whole plane, from each start.
-const PLANE_ITERATIONS: u64 = 100;
+impl Default for Effort {
+    /// A quick search: 400 changes a window start, 100 a plane start.
+    fn default() -> Self {
+        Self { window: 400, plane: 100 }
+    }
+}
 
 /// One in this many of a noisy start's cells is set: half, the most
 /// disordered.
@@ -95,17 +108,18 @@ pub struct Outcome {
     pub worst_from: &'static str,
 }
 
-/// One whole search, from its own seed, by `score` -- which is told the
-/// area searched -- carrying on from `recorded`, if any.
-pub fn search(seed: u64, recorded: Option<Bitmap>, score: &mut impl FnMut(&Bitmap, Tile) -> Score) -> Outcome {
+/// One whole search, from its own seed, as long as `effort` says, by
+/// `score` -- which is told the area searched -- carrying on from
+/// `recorded`, if any.
+pub fn search(seed: u64, recorded: Option<Bitmap>, effort: Effort, score: &mut impl FnMut(&Bitmap, Tile) -> Score) -> Outcome {
     let mut rng = Rng::new(seed);
     let window_starts = vec![("clear", Bitmap::new()), ("noise", noise(&mut rng, WINDOW))];
-    let (window, window_from) = best_of(window_starts, WINDOW, WINDOW_ITERATIONS, &mut rng, score);
+    let (window, window_from) = best_of(window_starts, WINDOW, effort.window, &mut rng, score);
 
     let whole = Tile::whole_bitmap();
     let mut plane_starts =
         vec![("window variants", plane::fill_the_plane(&window.bitmap, WINDOW)), ("noise", noise(&mut rng, whole))];
     plane_starts.extend(recorded.map(|bitmap| ("record", bitmap)));
-    let (worst, worst_from) = best_of(plane_starts, whole, PLANE_ITERATIONS, &mut rng, score);
+    let (worst, worst_from) = best_of(plane_starts, whole, effort.plane, &mut rng, score);
     Outcome { window, window_from, worst, worst_from }
 }

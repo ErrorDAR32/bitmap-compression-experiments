@@ -37,7 +37,7 @@ bitmap by hand, to pin a known case -- never to measure anything.
 Plain `cargo test` runs fine and fast. The measurement,
 `gct_measurement`, is ignored like the complete tier and prints its
 numbers -- one table a sample generator (grown, city, lines,
-checkerboard, and the adversarial record), a row a parameter set with
+checkerboard, and the saved adversarial patterns), a row a parameter set with
 its parameters, bitmaps, cells set, gct's mean, fewest and most bits,
 share of the raw cells and encode time, then what the trees hold,
 family by family:
@@ -61,8 +61,8 @@ Diagnostics, in `tests/gct_diagnostics/`, one tool a file, look inside
 gct's results rather than testing them: `census` (node kinds by level),
 `per_shape` (gct's bits on every shape, plan and line set),
 `noise` (bits on noise at several densities) and `render` (PNG images
-in `target/gct_diagnostics/`). They look at the adversarial records and
-any PBM image named in `GCT_DIAGNOSE`:
+in `target/gct_diagnostics/`). They look at the adversarial records, the
+saved patterns and any PBM image named in `GCT_DIAGNOSE`:
 
 ```
 cargo test --release --test gct_diagnostics -- --ignored --nocapture <tool>
@@ -70,8 +70,8 @@ cargo test --release --test gct_diagnostics -- --ignored --nocapture <tool>
 
 Speed is measured in instructions, not time, by callgrind on a fixed
 sample (`examples/gct_instruction_count.rs`: five bitmaps of every
-generator, weighted as the timed sample is, a checkerboard and noise,
-encoded and decoded). Callgrind counts every
+generator, weighted as the timed sample is, a checkerboard, the saved
+adversarial patterns and noise, encoded and decoded). Callgrind counts every
 instruction executed, the same on every run, and says where they go:
 
 ```
@@ -104,16 +104,33 @@ cargo run --release --manifest-path comparison/Cargo.toml
 The same crate searches adversarially against each of those codecs --
 the library's search (`bitmap::adversarial`), scored as gct's bits less
 the codec's -- keeping the worst for each in `testing/adversarial/`.
-Every record there is a fixed hard case to optimize against: the fine
-tier checks each one (`adversarial_records_pass_every_check`), the
-instruction count encodes and decodes each, `gct_timing` gives them a
-row of their own, and `gct_measurement` a row each. Runs carry on from
-the records; give each run a fresh `GCT_SEED`, or it repeats the last
-run's moves:
+Runs carry on from the records; give each run a fresh `GCT_SEED`, or it
+repeats the last run's moves. A search cools over all the changes it
+tries, so one long search settles deeper than many short ones: the
+argument sets how many it tries on the whole plane from each start
+(100 unless told):
 
 ```
-cargo run --release --manifest-path comparison/Cargo.toml --bin adversarial
+GCT_SEED=<fresh> cargo run --release --manifest-path comparison/Cargo.toml --bin adversarial -- 4000
 ```
+
+Records move whenever a run beats them, so they are not what speed is
+measured on. Once a search has settled, its record is saved as a
+pattern in `testing/adversarial/saved/`, named for what it is, with a
+line describing it and the record's scores as comment lines -- never
+replaced by a search, so the benchmarks' inputs stay fixed
+(`testing/adversarial/README.md` lists them):
+
+```
+cargo run --release --example save_adversarial -- <record> <name> "<description>"
+```
+
+The fine tier checks every record and saved pattern
+(`adversarial_bitmaps_pass_every_check`); the instruction count encodes
+and decodes each saved pattern, `gct_timing` gives them a row of their
+own, and `gct_measurement` a row each. Saving a new pattern changes
+the instruction count's sample: count before and after it, apart from
+any code change.
 
 ## Phase one: fix, with the seed held still
 

@@ -9,7 +9,7 @@
 //! | `noise.rs` | gct's bits on noise at several densities, against the raw cells |
 //! | `render.rs` | PNG images of the bitmaps looked at, in `target/gct_diagnostics/` |
 //!
-//! They look at the adversarial records (`testing/adversarial/`), plus
+//! They look at the adversarial records and saved patterns (`testing/adversarial/`), plus
 //! any PBM image named in `GCT_DIAGNOSE` (`bitmaps.rs`).
 //!
 //! `cargo test --release --test gct_diagnostics -- --ignored --nocapture <tool>`

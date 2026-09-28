@@ -1,33 +1,72 @@
-//! The worst bitmap found so far for each objective, kept as a plain
-//! PBM image (`P1`: a header, then one row of `0`/`1` a line, `1` set)
-//! in `testing/adversarial/`, readable by any image viewer and by a
-//! diff. A run starts from it and replaces it only when it beats it,
-//! so the search keeps going across runs.
+//! Adversarial bitmaps kept as plain PBM images (`P1`: a header, then
+//! one row of `0`/`1` a line, `1` set), readable by any image viewer
+//! and by a diff. Two kinds:
+//!
+//! - records, in `testing/adversarial/`: the worst bitmap found so far
+//!   for each objective. A run starts from it and replaces it only when
+//!   it beats it, so the search keeps going across runs;
+//! - saved patterns, in `testing/adversarial/saved/`: bitmaps taken from
+//!   the records once a search has settled, named for what they are and
+//!   never replaced by a search. The benchmarks encode these, so their
+//!   inputs stay fixed while the records move.
+//!
+//! Comment lines (`#`) carry notes: what a bitmap is, and what it scored.
 
 use crate::{Bitmap, HEIGHT, WIDTH};
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// Where the records are kept, under the crate's root.
 const FOLDER: &str = "testing/adversarial";
+/// Where the saved patterns are kept, under the records' folder.
+const SAVED: &str = "saved";
 /// A plain PBM's first word.
 const MAGIC: &str = "P1";
 
+/// The records' folder.
+fn records_folder() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(FOLDER)
+}
+
+/// The saved patterns' folder.
+fn saved_folder() -> PathBuf {
+    records_folder().join(SAVED)
+}
+
 /// The record named `name`'s file.
 pub fn path(name: &str) -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(FOLDER).join(format!("{name}.pbm"))
+    records_folder().join(format!("{name}.pbm"))
+}
+
+/// The saved pattern named `name`'s file.
+pub fn saved_path(name: &str) -> PathBuf {
+    saved_folder().join(format!("{name}.pbm"))
+}
+
+/// Every PBM image in `folder` that reads as a bitmap, each named by its
+/// file's stem, in name order.
+fn every_in(folder: &Path) -> Vec<(String, Bitmap)> {
+    let mut paths: Vec<PathBuf> = fs::read_dir(folder)
+        .map(|entries| entries.filter_map(|entry| Some(entry.ok()?.path())).collect())
+        .unwrap_or_default();
+    paths.retain(|path| path.extension().is_some_and(|extension| extension == "pbm"));
+    paths.sort();
+    paths
+        .into_iter()
+        .filter_map(|path| Some((path.file_stem()?.to_str()?.to_string(), read_from(&path)?)))
+        .collect()
 }
 
 /// Every record there is, each named, in name order: the worst bitmaps
-/// found for each search, which the fine tests check and the
-/// optimization benchmarks encode.
+/// found so far for each search.
 pub fn all() -> Vec<(String, Bitmap)> {
-    let folder = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(FOLDER);
-    let mut names: Vec<String> = fs::read_dir(&folder)
-        .map(|entries| entries.filter_map(|entry| entry.ok()?.path().file_stem()?.to_str().map(str::to_string)).collect())
-        .unwrap_or_default();
-    names.sort();
-    names.into_iter().filter_map(|name| read(&name).map(|bitmap| (name, bitmap))).collect()
+    every_in(&records_folder())
+}
+
+/// Every saved pattern, each named, in name order: the fixed hard cases
+/// the fine tests check and the optimization benchmarks encode.
+pub fn saved() -> Vec<(String, Bitmap)> {
+    every_in(&saved_folder())
 }
 
 /// The record named `name`, if there is one and it reads as a 256x256
@@ -37,7 +76,7 @@ pub fn read(name: &str) -> Option<Bitmap> {
 }
 
 /// A 256x256 plain PBM image, from anywhere.
-pub fn read_from(path: &std::path::Path) -> Option<Bitmap> {
+pub fn read_from(path: &Path) -> Option<Bitmap> {
     let text = fs::read_to_string(path).ok()?;
     let mut words = text.lines().filter(|line| !line.starts_with('#')).flat_map(str::split_whitespace);
     if words.next()? != MAGIC || words.next()?.parse::<usize>().ok()? != WIDTH || words.next()?.parse::<usize>().ok()? != HEIGHT {
@@ -56,15 +95,37 @@ pub fn read_from(path: &std::path::Path) -> Option<Bitmap> {
     Some(bitmap)
 }
 
-/// Records `bitmap` as `name`, `note` in the file's comment line,
-/// replacing any record there was.
-pub fn write(name: &str, bitmap: &Bitmap, note: &str) {
-    let mut text = format!("{MAGIC}\n# {note}\n{WIDTH} {HEIGHT}\n");
+/// The comment lines of the PBM image at `path`, without their `#`.
+pub fn notes_from(path: &Path) -> Vec<String> {
+    let text = fs::read_to_string(path).unwrap_or_default();
+    text.lines().filter_map(|line| line.strip_prefix('#')).map(|note| note.trim().to_string()).collect()
+}
+
+/// `bitmap` as a plain PBM image at `path`, each of `notes` a comment
+/// line, replacing any file there was.
+fn write_to(path: &Path, bitmap: &Bitmap, notes: &[String]) {
+    let mut text = format!("{MAGIC}\n");
+    for note in notes {
+        text.push_str(&format!("# {note}\n"));
+    }
+    text.push_str(&format!("{WIDTH} {HEIGHT}\n"));
     for y in 0..=u8::MAX {
         let row: String = (0..=u8::MAX).map(|x| if bitmap.get(x, y) { '1' } else { '0' }).collect();
         text.push_str(&row);
         text.push('\n');
     }
-    fs::create_dir_all(path(name).parent().unwrap()).unwrap();
-    fs::write(path(name), text).unwrap();
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    fs::write(path, text).unwrap();
+}
+
+/// Records `bitmap` as `name`, `note` in the file's comment line,
+/// replacing any record there was.
+pub fn write(name: &str, bitmap: &Bitmap, note: &str) {
+    write_to(&path(name), bitmap, &[note.to_string()]);
+}
+
+/// Saves `bitmap` as the pattern `name`, `notes` in its comment lines,
+/// replacing any saved pattern of that name.
+pub fn save(name: &str, bitmap: &Bitmap, notes: &[String]) {
+    write_to(&saved_path(name), bitmap, notes);
 }

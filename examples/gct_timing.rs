@@ -2,7 +2,7 @@
 //! generator's bitmaps -- grown shapes, sparse ones, city plans and line
 //! sets -- `BITMAPS_PER_GENERATOR` distinct bitmaps each, all built
 //! before any is timed, then each encoded once in one workspace. Decoding
-//! is timed apart, after. The adversarial records (`testing/adversarial/`)
+//! is timed apart, after. The saved adversarial patterns (`testing/adversarial/saved/`)
 //! get a row of their own, apart from the sample's. Run it in release, on
 //! its own -- no profiler, nothing else busy:
 //!
@@ -64,11 +64,12 @@ fn main() {
     }
     print_row("all", &mut every_encode, &every_decode);
 
-    // The adversarial records, apart from the sample: few, and each the
-    // worst found against one encoder, so each is encoded several times.
-    let records = record::all();
+    // The saved adversarial patterns, apart from the sample: few, and
+    // each among the worst found against one encoder, so each is encoded
+    // several times.
+    let records = record::saved();
     let records = Family {
-        name: "adversarial records",
+        name: "adversarial saved",
         bitmaps: (0..RECORD_REPEATS).flat_map(|_| records.iter().map(|(_, bitmap)| bitmap.clone())).collect(),
     };
     let (mut encodes, decodes) = time(&mut workspace, &mut stream, &mut back, &records);

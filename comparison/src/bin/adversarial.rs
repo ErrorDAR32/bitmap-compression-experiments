@@ -12,11 +12,16 @@
 //!
 //! ```text
 //! cargo run --release --manifest-path comparison/Cargo.toml --bin adversarial
+//! cargo run --release --manifest-path comparison/Cargo.toml --bin adversarial -- 4000
 //! ```
+//!
+//! The argument, if given, is how many changes each search tries on the
+//! whole plane from each start: one long search settles deeper than many
+//! short ones.
 
 #![warn(missing_docs, clippy::missing_docs_in_private_items)]
 
-use bitmap::adversarial::{record, search, Outcome, Score};
+use bitmap::adversarial::{record, search, Effort, Outcome, Score};
 use bitmap::samples::sample_seed;
 use bitmap::table::Table;
 use bitmap::Bitmap;
@@ -83,6 +88,10 @@ fn median_micros(mut encode: impl FnMut()) -> f64 {
 /// records with both encoders' bits and times.
 fn main() {
     let seed = sample_seed("adversarial search against codecs");
+    let mut effort = Effort::default();
+    if let Some(plane) = std::env::args().nth(1) {
+        effort.plane = plane.parse().expect("a number of changes");
+    }
     let mut table = Table::new(&[
         "against",
         "worst gap\nthis run",
@@ -101,7 +110,7 @@ fn main() {
                     let seed = seed.wrapping_add(index as u64 * SEARCHES + search_index);
                     scope.spawn(move || {
                         let (mut gct, mut codec) = (Gct::new(), (opponent.make)());
-                        search(seed, recorded, &mut |bitmap, _| score(&mut gct, codec.as_mut(), bitmap))
+                        search(seed, recorded, effort, &mut |bitmap, _| score(&mut gct, codec.as_mut(), bitmap))
                     })
                 })
                 .collect();

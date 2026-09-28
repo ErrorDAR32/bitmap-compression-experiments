@@ -158,7 +158,7 @@ fn gct_measurement() {
     let boards = checkerboards()
         .map(|(side, bitmap)| (format!("{side}x{side} squares"), format!("side {side}"), vec![bitmap]))
         .collect();
-    let adversarial = record::all().into_iter().map(|(name, bitmap)| (name, "recorded".to_string(), vec![bitmap])).collect();
+    let adversarial = record::saved().into_iter().map(|(name, bitmap)| (name, "saved".to_string(), vec![bitmap])).collect();
     let tables = [
         generator_table(&mut workspace, "grown", "density, cluster", grown),
         generator_table(&mut workspace, "laid out like a city", "pitch, street, courtyards", cities),

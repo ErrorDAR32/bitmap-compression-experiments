@@ -143,14 +143,17 @@ fn patterns_number_cells_across_builds() {
     }
 }
 
-/// Every adversarial record -- the worst bitmap found against the raw
-/// cells and against each other codec -- passes every check: each is a
-/// fixed hard case, kept for working on gct against.
+/// Every adversarial record -- the worst bitmap found so far against
+/// the raw cells and against each other codec -- and every saved
+/// adversarial pattern passes every check: each is a hard case, kept for
+/// working on gct against.
 #[test]
-fn adversarial_records_pass_every_check() {
-    let records = bitmap::adversarial::record::all();
+fn adversarial_bitmaps_pass_every_check() {
+    use bitmap::adversarial::record;
+    let (records, saved) = (record::all(), record::saved());
     assert!(!records.is_empty(), "no adversarial records in testing/adversarial");
-    for (name, bitmap) in records {
+    assert!(!saved.is_empty(), "no saved adversarial patterns in testing/adversarial/saved");
+    for (name, bitmap) in records.into_iter().chain(saved) {
         check(&bitmap, &name);
     }
 }
