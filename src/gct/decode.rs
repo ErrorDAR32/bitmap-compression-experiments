@@ -103,7 +103,7 @@ fn read_node(reader: &mut BitReader, tile: Tile, nested: &mut NestedResolutions,
         return;
     }
     let size_offset = reader.value(resolution_width(tile.level)) as u8;
-    let masks = size_offset > 1 && reader.value(MASK_PRESENT_WIDTH) == MASKING;
+    let masks = complex_tile_may_mask(tile.level, size_offset) && reader.value(MASK_PRESENT_WIDTH) == MASKING;
     read.tree.set_node(tile, Node::ComplexTile { size_offset, masks });
     let nesting = nested.next_nesting();
     if masks {

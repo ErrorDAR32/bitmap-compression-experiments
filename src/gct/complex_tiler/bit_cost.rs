@@ -68,7 +68,7 @@ pub fn bits(complex_tiling: &Pyramid, tile: Tile, nested: &mut NestedResolutions
         None => match complex_tiling.complex_tile_size_offset(tile) {
             Some(size_offset) => {
                 let mut complex_bits = leaf_bind + resolution_width(tile.level) as u64;
-                if size_offset > 1 {
+                if complex_tile_may_mask(tile.level, size_offset) {
                     complex_bits += MASK_PRESENT_WIDTH as u64;
                 }
                 let resolution = tile.level + size_offset;

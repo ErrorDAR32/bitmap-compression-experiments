@@ -56,10 +56,12 @@ const RESIDUAL: u64 = 5;
 const FAR: u64 = 0b1;
 const DIRECTION_SHIFT: u64 = 1;
 const DIRECTION_MASK: u64 = 0b11;
-/// Complex tile: size offset in parameter bits 0-2, masks in bit 3.
-const SIZE_OFFSET_MASK: u64 = 0b111;
-/// Masks, for both copies and complex tiles.
-const MASKS: u64 = 0b1000;
+/// Copied: masks in parameter bit 3.
+const COPY_MASKS: u64 = 0b1000;
+/// Complex tile: size offset in parameter bits 0-3 (up to 8, the whole
+/// bitmap at 1x1), masks in bit 4.
+const SIZE_OFFSET_MASK: u64 = 0b1111;
+const COMPLEX_TILE_MASKS: u64 = 0b1_0000;
 const NESTING_MASK: u64 = 0b1111;
 
 fn to_code(node: Node) -> u64 {
@@ -71,9 +73,11 @@ fn to_code(node: Node) -> u64 {
             (UNMASKED, nesting as u64)
         }
         Node::Copied { far, direction, masks } => {
-            (COPIED, far as u64 | (direction as u64) << DIRECTION_SHIFT | if masks { MASKS } else { 0 })
+            (COPIED, far as u64 | (direction as u64) << DIRECTION_SHIFT | if masks { COPY_MASKS } else { 0 })
         }
-        Node::ComplexTile { size_offset, masks } => (COMPLEX_TILE, size_offset as u64 | if masks { MASKS } else { 0 }),
+        Node::ComplexTile { size_offset, masks } => {
+            (COMPLEX_TILE, size_offset as u64 | if masks { COMPLEX_TILE_MASKS } else { 0 })
+        }
         Node::Residual => (RESIDUAL, 0),
     };
     kind | parameter << PARAMETER_SHIFT
@@ -88,9 +92,12 @@ fn from_code(code: u64) -> Node {
         COPIED => Node::Copied {
             far: parameter & FAR != 0,
             direction: ((parameter >> DIRECTION_SHIFT) & DIRECTION_MASK) as u8,
-            masks: parameter & MASKS != 0,
+            masks: parameter & COPY_MASKS != 0,
         },
-        COMPLEX_TILE => Node::ComplexTile { size_offset: (parameter & SIZE_OFFSET_MASK) as u8, masks: parameter & MASKS != 0 },
+        COMPLEX_TILE => Node::ComplexTile {
+            size_offset: (parameter & SIZE_OFFSET_MASK) as u8,
+            masks: parameter & COMPLEX_TILE_MASKS != 0,
+        },
         RESIDUAL => Node::Residual,
         kind => unreachable!("no node kind {kind}"),
     }

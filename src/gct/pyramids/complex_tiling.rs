@@ -54,9 +54,10 @@ pub trait ComplexTiling {
 
     /// Whether every cell under `tile` is bound by tiles of exactly
     /// `size` -- what being unmasked in a complex tile of that
-    /// resolution needs.
+    /// resolution needs. Always, at 1x1: every cell is a tile of its own,
+    /// so a complex tile of 1x1 resolution says every cell under it raw.
     fn entirely_bound_at(&self, tile: Tile, size: u8) -> bool {
-        self.bound_size(tile) == Some(size)
+        size == CELL_LEVEL || self.bound_size(tile) == Some(size)
     }
 
     /// The size offset of the complex tile at exactly `tile`, if it is one.

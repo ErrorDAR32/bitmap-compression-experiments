@@ -101,9 +101,12 @@ unmasked in no complex tile becomes a complex tile whose resolution is
 its own size: just a **tile** (size offset 0). So there is no separate
 simple bind.
 
-**1x1 tiles are never part of a complex tile.** They are the residual
-pass's own. A resolution is never finer than 2x2, and a candidate never
-finer than 4x4.
+**A 1x1 resolution is the raw escape.** A complex tile of 1x1
+resolution says every cell under it raw and never masks -- every cell
+is a tile of its own, so nothing is repeated to fit it. It is offered
+only where the size offset field has a value to spare for it: 128x128,
+64x64, 32x32 and 8x8. Everywhere else a 1x1 tile is the residual pass's
+own. A candidate is never finer than 4x4.
 
 **The complex tiler never looks at the bitmap.** Every decision comes
 from the placements, the bound tile counts, and the bits the grammar
@@ -187,8 +190,8 @@ Any coarser level:
             child as a node of its own
    1: complex tile -- resolution_width(level) bits: size offset, 0 meaning a
       tile, then
-        size offset 0 or 1: nothing (never masks)
-        size offset > 1:    0: no masking | 1: masking -- four child
+        size offset 0 or 1, or a 1x1 resolution: nothing (never masks)
+        otherwise:          0: no masking | 1: masking -- four child
                             nodes follow, this complex tile now the
                             nearest one they are nested in
       then its payload: one value bit for every tile of its resolution
@@ -201,8 +204,10 @@ every residual 2x2, in reading order.
 ```
 
 `resolution_width(level)` names size offsets 0 (a tile) to a 2x2 resolution:
-3 bits at levels 0-3, 2 at levels 4-5, 1 at level 6. A tile's own level
-is known from its place in the tree, so this costs nothing to use. The
+3 bits at levels 0-3, 2 at levels 4-5, 1 at level 6. Where that leaves a
+value to spare -- levels 1, 2, 3 and 5 -- the next size offset names a
+1x1 resolution, the raw escape. A tile's own level is known from its
+place in the tree, so this costs nothing to use. The
 payload walk order is written once (`grammar/order.rs`) and used in
 both directions.
 
@@ -272,15 +277,13 @@ Worst cases found by the adversarial search (`testing/adversarial/`):
 
 | attacked | against | gap |
 |---|---|---|
-| gct | dsrn | +18236 bits (gct 82719, dsrn 64483) |
-| gct | raw cells | +18548 bits (gct 84084) |
-| dsrn | gct | +26297 bits (dsrn 46573, gct 20276) |
-| dsrn | raw cells | +2218 bits (dsrn 67754) |
+| gct | dsrn | +1062 bits (gct 52051, dsrn 50989) |
+| gct | raw cells | +23 bits (gct 65559) |
+| dsrn | gct | +28845 bits (dsrn 47957, gct 19112) |
+| dsrn | raw cells | +2292 bits (dsrn 67828) |
 
-Most of gct's worst case is plain noise: half-density random cells cost
-gct about 80000 bits, dsrn 65542 -- a bind of the whole bitmap at 1x1,
-its raw cells. gct has no such escape: a 4x4 of noise costs it a
-subdivide, and each of its 2x2s a residual bit and four raw cells.
+Noise costs gct 65559 bits: four raw 128x128 complex tiles and the
+start level header, 23 over its raw cells (dsrn: 65542, 6 over).
 
 **Why the masking copy's rule and floor**, gct bits on the seed above
 and the two fresh ones:

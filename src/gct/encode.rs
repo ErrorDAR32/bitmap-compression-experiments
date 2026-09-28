@@ -72,7 +72,7 @@ fn write_node(tree: &Pyramid, bitmap: &Bitmap, tile: Tile, nested: &mut NestedRe
             out.push_value(LEAF, LEAF_WIDTH);
             out.push_value(BIND, CODE_WIDTH);
             out.push_value(size_offset as u64, resolution_width(tile.level));
-            if size_offset > 1 {
+            if complex_tile_may_mask(tile.level, size_offset) {
                 out.push_value(if masks { MASKING } else { NO_MASKING }, MASK_PRESENT_WIDTH);
             }
             let nesting = nested.next_nesting();

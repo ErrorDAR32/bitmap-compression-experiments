@@ -71,9 +71,10 @@ fn best_at_or_under(
     if tile.level > FINEST_CANDIDATE_LEVEL || nested.unmasking(complex_tiling, tile).is_some() {
         return 0;
     }
-    let own = match complex_tiling.placed_at(tile) {
-        // A tile that masks nothing says everything under it itself.
-        Some(placement) if !placement.masks_any() => return 0,
+    // A placed tile says everything under it itself, but for the
+    // children it masks: only those can hold candidates.
+    let placed = complex_tiling.placed_at(tile);
+    let own = match placed {
         Some(_) => None,
         None => Candidate::best_for(complex_tiling, bound_tiles_per_level, tile, nested),
     };
@@ -81,6 +82,7 @@ fn best_at_or_under(
     let under_saving: u64 = tile
         .children()
         .into_iter()
+        .filter(|&child| placed.is_none_or(|placement| placement.masks(child)))
         .map(|child| best_at_or_under(complex_tiling, bound_tiles_per_level, child, nested, &mut under))
         .sum();
     match own {

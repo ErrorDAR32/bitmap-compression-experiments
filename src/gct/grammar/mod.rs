@@ -37,7 +37,7 @@ pub const DIRECTION_WIDTH: u8 = 2;
 
 /// Whether a complex tile deeper than 1, or a copy at 8x8 or coarser,
 /// masks anything at all. Skipped where nothing masks: complex tiles at
-/// size offsets 0 and 1, copies finer than 8x8.
+/// size offsets 0 and 1 or at a 1x1 resolution, copies finer than 8x8.
 pub const NO_MASKING: u64 = 0;
 pub const MASKING: u64 = 1;
 pub const MASK_PRESENT_WIDTH: u8 = 1;
@@ -50,9 +50,25 @@ pub fn copy_may_mask(level: u8) -> bool {
     level <= FINEST_MASKING_LEVEL
 }
 
-/// How many bits name a complex tile's size offset at `level`: `0` (a tile)
-/// up to a 2x2 resolution -- a 1x1 resolution never is one.
+/// Whether a complex tile at `level` of `size_offset` has a
+/// mask-present bit: not at size offsets 0 and 1, and not at a 1x1
+/// resolution, which says every cell raw.
+pub fn complex_tile_may_mask(level: u8, size_offset: u8) -> bool {
+    size_offset > 1 && size_offset < levels_to_cells(level)
+}
+
+/// How many bits name a complex tile's size offset at `level`: enough
+/// for `0` (a tile) up to a 2x2 resolution.
 pub fn resolution_width(level: u8) -> u8 {
-    let size_offsets = levels_to_cells(level);
-    (u8::BITS - (size_offsets - 1).leading_zeros()) as u8
+    let largest = levels_to_cells(level) - 1;
+    (u8::BITS - largest.leading_zeros()) as u8
+}
+
+/// Whether a 1x1 resolution -- a complex tile saying every cell under it
+/// raw, the escape for what nothing else compresses -- can be named at
+/// `level`: where the size offset field has a value to spare for it
+/// (128x128, 64x64, 32x32 and 8x8). It is never worth widening the field
+/// every other tile of that size pays.
+pub fn raw_resolution_fits(level: u8) -> bool {
+    u32::from(levels_to_cells(level)) < 1 << resolution_width(level)
 }

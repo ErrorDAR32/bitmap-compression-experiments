@@ -30,8 +30,8 @@ pub fn first_difference(a: &Bitmap, b: &Bitmap) -> Option<(u8, u8)> {
 ///
 /// - the greedy tiler's placed tiles cover every cell exactly once;
 /// - nothing finer than 4x4 is copied;
-/// - every 1x1 tile placed is left to the residual pass, under a
-///   residual 2x2 -- never said by the tree;
+/// - every 1x1 tile placed is said raw: left to the residual pass under
+///   a residual 2x2, or inside a complex tile of 1x1 resolution;
 /// - the bit cost the complex tiler scores with is the encoder's count;
 /// - the tree read back from the bits is the tree that was written;
 /// - decoding gives back every cell.
@@ -67,8 +67,11 @@ pub fn check(bitmap: &Bitmap, label: &str) {
             assert!(tile.level < CELL_LEVEL - 1, "{label}: {tile:?} copies, finer than 4x4");
         }
         if tile.level == CELL_LEVEL {
-            let floor = tile.ancestor(CELL_LEVEL - 1);
-            assert_eq!(written.node(floor), Node::Residual, "{label}: 1x1 {tile:?} is not left to the residual pass");
+            let residual = written.node(tile.ancestor(CELL_LEVEL - 1)) == Node::Residual;
+            let raw = (0..CELL_LEVEL).any(|level| {
+                matches!(written.node(tile.ancestor(level)), Node::ComplexTile { size_offset, .. } if level + size_offset == CELL_LEVEL)
+            });
+            assert!(residual || raw, "{label}: 1x1 {tile:?} is neither residual nor in a raw complex tile");
         }
     }
 
