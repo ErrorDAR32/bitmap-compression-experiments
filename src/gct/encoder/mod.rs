@@ -37,11 +37,10 @@ pub struct ReadBack {
 impl ReadBack {
     /// Every cell of `tile` holds `value`.
     fn fill(&mut self, tile: Tile, value: bool) {
-        let (left, top, right, bottom) = tile.cell_rect();
         if value {
-            self.cells.set_rect(left as i64, top as i64, right as i64, bottom as i64);
+            tile.set_in(&mut self.cells);
         }
-        self.known.set_rect(left as i64, top as i64, right as i64, bottom as i64);
+        tile.set_in(&mut self.known);
     }
 }
 

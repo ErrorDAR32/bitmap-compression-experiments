@@ -4,21 +4,25 @@
 //! - near: some same-size neighbour of the tile itself, in
 //!   [`DIRECTIONS`], holds the same cells;
 //! - far: some same-size neighbour of the tile's *parent*, at the child
-//!   position the tile occupies within it, does -- the same neighbour
-//!   test one parent width (two tile widths) away.
+//!   position the tile occupies within it, does -- the same tile two
+//!   tiles away.
 //!
 //! It says whether asking which direction is worth it at all, not which
 //! direction: the question is asked of nearly every tile and the answer
 //! is nearly always no. Nothing propagates here -- a tile matching its
 //! neighbour says nothing about whether their parents match -- so each
-//! level is read off the cells, a row of a tile at a time.
+//! level is read off the cells.
 
 use super::pyramid::{Pyramid, PyramidShape};
-use crate::gct::tile::{tile_side, tiles_across, Tile, CELL_LEVEL, DIRECTIONS};
+use crate::gct::tile::{same_cells, Tile, CELL_LEVEL, DIRECTIONS};
 use crate::Bitmap;
 
 const NEAR: u64 = 0b01;
 const FAR: u64 = 0b10;
+
+/// How many tiles away a near copy and a far copy read from.
+pub const NEAR_DISTANCE: usize = 1;
+pub const FAR_DISTANCE: usize = 2;
 
 /// Cells never copy: a single cell is always homogeneous, so the
 /// greedy tiler binds it before ever asking.
@@ -40,23 +44,15 @@ impl Copyable for Pyramid {
     fn copyable(bitmap: &Bitmap) -> Self {
         let mut pyramid = Pyramid::new(SHAPE);
         for level in 0..=SHAPE.finest_level {
-            let (across, side) = (tiles_across(level) as isize, tile_side(level));
-            for y in 0..across {
-                for x in 0..across {
-                    let matches_at = |distance: isize| {
-                        DIRECTIONS.iter().any(|&(dx, dy)| {
-                            let (at_x, at_y) = (x + distance * dx, y + distance * dy);
-                            at_x >= 0
-                                && at_y >= 0
-                                && at_x < across
-                                && at_y < across
-                                && same_tiles(bitmap, side, (x as usize, y as usize), (at_x as usize, at_y as usize))
-                        })
-                    };
-                    let near = if matches_at(1) { NEAR } else { 0 };
-                    let far = if matches_at(2) { FAR } else { 0 };
-                    pyramid.set(Tile { level, x: x as usize, y: y as usize }, near | far);
-                }
+            for tile in pyramid.tiles_of_level(level).collect::<Vec<_>>() {
+                let matches_at = |distance: usize| {
+                    (0..DIRECTIONS.len()).any(|direction| {
+                        tile.neighbour_at(direction, distance).is_some_and(|other| same_cells(bitmap, tile, other))
+                    })
+                };
+                let near = if matches_at(NEAR_DISTANCE) { NEAR } else { 0 };
+                let far = if matches_at(FAR_DISTANCE) { FAR } else { 0 };
+                pyramid.set(tile, near | far);
             }
         }
         pyramid
@@ -69,21 +65,4 @@ impl Copyable for Pyramid {
     fn far_copyable(&self, tile: Tile) -> bool {
         self.get(tile) & FAR != 0
     }
-}
-
-/// Whether two same-size tiles hold the same cells, a word of a row at
-/// a time. A tile's row is a run of `side` bits starting at a multiple
-/// of `side`, so it is either whole words or a run inside one word.
-fn same_tiles(bitmap: &Bitmap, side: usize, a: (usize, usize), b: (usize, usize)) -> bool {
-    let (a_x, b_x) = (a.0 * side, b.0 * side);
-    (0..side).all(|row| {
-        let mine = bitmap.row((a.1 * side + row) as u8);
-        let theirs = bitmap.row((b.1 * side + row) as u8);
-        if side >= 64 {
-            let words = side / 64;
-            return (0..words).all(|word| mine[a_x / 64 + word] == theirs[b_x / 64 + word]);
-        }
-        let mask = (1u64 << side) - 1;
-        (mine[a_x / 64] >> (a_x % 64)) & mask == (theirs[b_x / 64] >> (b_x % 64)) & mask
-    })
 }

@@ -26,7 +26,7 @@ impl Homogeneity for Pyramid {
     fn homogeneity(bitmap: &Bitmap) -> Self {
         let mut pyramid = Pyramid::new(SHAPE);
         for cell in pyramid.tiles_of_level(CELL_LEVEL).collect::<Vec<_>>() {
-            let value = if bitmap.get(cell.x as u8, cell.y as u8) { VALUE } else { 0 };
+            let value = if cell.top_left_value(bitmap) { VALUE } else { 0 };
             pyramid.set(cell, HOMOGENEOUS | value);
         }
         pyramid.propagate(all_homogeneous_and_agreeing);

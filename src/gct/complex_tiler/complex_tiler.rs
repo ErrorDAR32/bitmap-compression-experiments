@@ -72,15 +72,14 @@ fn commit(candidates: Vec<Candidate>, size_offsets: &mut Pyramid) -> Vec<SearchA
     let mut claimed = Bitmap::new();
     let mut next = Vec::new();
     for candidate in candidates {
-        let (left, top, right, bottom) = candidate.tile.cell_rect();
         // The corner alone catches a tile already inside an earlier,
         // coarser-or-equal commitment; the full rect is still needed the
         // other way round, when this one would contain something smaller
         // already committed.
-        if claimed.get(left, top) || claimed.any_set_in_rect(left, top, right, bottom) {
+        if candidate.tile.top_left_value(&claimed) || candidate.tile.any_set_in(&claimed) {
             continue;
         }
-        claimed.set_rect(left as i64, top as i64, right as i64, bottom as i64);
+        candidate.tile.set_in(&mut claimed);
         size_offsets.set_complex_tile_size_offset(candidate.tile, candidate.size_offset);
         next.push(SearchArea {
             area: candidate.tile,

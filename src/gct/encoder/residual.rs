@@ -18,8 +18,7 @@ fn hole_cells(tree: &Pyramid) -> Bitmap {
         for x in 0..across {
             let tile = Tile { level, x, y };
             if tree.node(tile) == Node::Hole {
-                let (left, top, right, bottom) = tile.cell_rect();
-                holes.set_rect(left as i64, top as i64, right as i64, bottom as i64);
+                tile.set_in(&mut holes);
             }
         }
     }
@@ -27,19 +26,19 @@ fn hole_cells(tree: &Pyramid) -> Bitmap {
 }
 
 /// The hole cells, in reading order.
-fn residual_cells(tree: &Pyramid) -> impl Iterator<Item = (u8, u8)> {
+fn residual_cells(tree: &Pyramid) -> impl Iterator<Item = Tile> {
     let holes = hole_cells(tree);
-    (0..=u8::MAX).flat_map(move |y| (0..=u8::MAX).map(move |x| (x, y))).filter(move |&(x, y)| holes.get(x, y))
+    Tile::all_cells().filter(move |cell| cell.top_left_value(&holes))
 }
 
 pub fn write_residual(tree: &Pyramid, bitmap: &Bitmap, out: &mut BitStream) {
-    for (x, y) in residual_cells(tree) {
-        out.push(bitmap.get(x, y));
+    for cell in residual_cells(tree) {
+        out.push(cell.top_left_value(bitmap));
     }
 }
 
 pub fn read_residual(reader: &mut BitReader, read: &mut ReadBack) {
-    for (x, y) in residual_cells(&read.tree).collect::<Vec<_>>() {
-        read.fill(Tile { level: CELL_LEVEL, x: x as usize, y: y as usize }, reader.bit());
+    for cell in residual_cells(&read.tree).collect::<Vec<_>>() {
+        read.fill(cell, reader.bit());
     }
 }

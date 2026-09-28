@@ -12,31 +12,30 @@
 use crate::gct::encoder::bit_stream::BitStream;
 use crate::gct::encoder::{read, ReadBack};
 use crate::gct::pyramids::pyramid::Pyramid;
-use crate::gct::tile::{tile_side, Tile, CELL_LEVEL, DIRECTIONS};
+use crate::gct::pyramids::copyable::{FAR_DISTANCE, NEAR_DISTANCE};
+use crate::gct::tile::{tile_side, Tile, CELL_LEVEL};
 use crate::gct::pyramids::tree::{Node, Tree};
 use crate::Bitmap;
 
 /// Decodes a stream written by [`crate::gct::encode`].
 pub fn decode(stream: &BitStream) -> Bitmap {
     let ReadBack { tree, mut cells, mut known } = read(stream);
-    let mut left = (0..=u8::MAX).flat_map(|y| (0..=u8::MAX).map(move |x| (x, y))).filter(|&(x, y)| !known.get(x, y)).count();
+    let mut left = Tile::all_cells().filter(|&cell| !cell.top_left_value(&known)).count();
     while left > 0 {
         let before = left;
-        for y in 0..=u8::MAX {
-            for x in 0..=u8::MAX {
-                if known.get(x, y) {
-                    continue;
-                }
-                let (source_x, source_y) = copy_source(&tree, x, y);
-                if !known.get(source_x, source_y) {
-                    continue;
-                }
-                if cells.get(source_x, source_y) {
-                    cells.set(x, y);
-                }
-                known.set(x, y);
-                left -= 1;
+        for cell in Tile::all_cells() {
+            if cell.top_left_value(&known) {
+                continue;
             }
+            let source = copy_source(&tree, cell);
+            if !source.top_left_value(&known) {
+                continue;
+            }
+            if source.top_left_value(&cells) {
+                cell.set_in(&mut cells);
+            }
+            cell.set_in(&mut known);
+            left -= 1;
         }
         assert!(left < before, "nothing resolved in a whole sweep: a copy cycle, which should be impossible");
     }
@@ -44,16 +43,14 @@ pub fn decode(stream: &BitStream) -> Bitmap {
 }
 
 /// The cell a copied cell reads from: the same cell of the copy's
-/// source, one tile side away for a near copy, two for a far one (the
-/// parent a far copy steps to is twice as wide).
-fn copy_source(tree: &Pyramid, x: u8, y: u8) -> (u8, u8) {
+/// source, one tile side away for a near copy, two for a far one.
+fn copy_source(tree: &Pyramid, cell: Tile) -> Tile {
     for level in 0..CELL_LEVEL {
-        let side = tile_side(level);
-        let tile = Tile { level, x: x as usize / side, y: y as usize / side };
-        if let Node::Copied { far, direction } = tree.node(tile) {
-            let step = (side * if far { 2 } else { 1 }) as isize;
-            let (dx, dy) = DIRECTIONS[direction];
-            return ((x as isize + dx * step) as u8, (y as isize + dy * step) as u8);
+        if let Node::Copied { far, direction } = tree.node(cell.ancestor(level)) {
+            let distance = if far { FAR_DISTANCE } else { NEAR_DISTANCE };
+            return cell
+                .neighbour_at(direction, tile_side(level) * distance)
+                .expect("a copy always reads from inside the bitmap");
         }
     }
     unreachable!("a cell the stream did not say is always under a copy")

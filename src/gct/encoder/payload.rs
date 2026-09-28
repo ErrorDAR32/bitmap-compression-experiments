@@ -36,8 +36,7 @@ fn payload_tiles(tree: &Pyramid, tile: Tile, nesting: usize, size_offset: usize)
 
 pub fn write_payload(tree: &Pyramid, bitmap: &Bitmap, tile: Tile, nesting: usize, size_offset: usize, out: &mut BitStream) {
     for part in payload_tiles(tree, tile, nesting, size_offset) {
-        let (x, y) = part.top_left_cell();
-        out.push(bitmap.get(x as u8, y as u8));
+        out.push(part.top_left_value(bitmap));
     }
 }
 

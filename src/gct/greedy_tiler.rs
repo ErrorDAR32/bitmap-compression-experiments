@@ -7,7 +7,7 @@
 //! between sizes; a tile that qualifies is taken immediately. Cells are
 //! always homogeneous, so the pass always covers the whole bitmap.
 
-use crate::gct::pyramids::copyable::Copyable;
+use crate::gct::pyramids::copyable::{Copyable, FAR_DISTANCE};
 use crate::gct::pyramids::homogeneity::Homogeneity;
 use crate::gct::pyramids::placements::{Placement, Placements};
 use crate::gct::pyramids::pyramid::Pyramid;
@@ -27,12 +27,11 @@ pub fn greedy_tiler(bitmap: &Bitmap, homogeneity: &Pyramid, copyable: &Pyramid) 
         for y in 0..across {
             for x in 0..across {
                 let tile = Tile { level, x, y };
-                let (left, top, right, bottom) = tile.cell_rect();
                 // Tiles are placed biggest first and never overlap, so a
                 // claimed corner means a coarser tile covers all of this
                 // one -- same-size tiles partition the plane, and nothing
                 // smaller has run yet.
-                if claimed.get(left, top) {
+                if tile.top_left_value(&claimed) {
                     continue;
                 }
                 let placement = if let Some(value) = homogeneity.homogeneous_value(tile) {
@@ -42,7 +41,7 @@ pub fn greedy_tiler(bitmap: &Bitmap, homogeneity: &Pyramid, copyable: &Pyramid) 
                 } else {
                     continue;
                 };
-                claimed.set_rect(left as i64, top as i64, right as i64, bottom as i64);
+                tile.set_in(&mut claimed);
                 placements.place(tile, placement);
             }
         }
@@ -65,11 +64,8 @@ fn copy_choice(copyable: &Pyramid, bitmap: &Bitmap, tile: Tile) -> Option<(bool,
     if !copyable.far_copyable(tile) {
         return None;
     }
-    let parent = tile.parent();
-    let (child_dx, child_dy) = (tile.x % 2, tile.y % 2);
     (0..DIRECTIONS.len()).find_map(|direction| {
-        let beside_parent = parent.neighbour(direction)?;
-        let far = Tile { level: tile.level, x: beside_parent.x * 2 + child_dx, y: beside_parent.y * 2 + child_dy };
+        let far = tile.neighbour_at(direction, FAR_DISTANCE)?;
         same_cells(bitmap, tile, far).then_some((true, direction))
     })
 }
