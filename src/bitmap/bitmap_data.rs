@@ -13,11 +13,14 @@
 use crate::morton::morton_index;
 use crate::{BITS_PER_WORD, WORDS};
 
+/// Every cell of a bitmap, 64 a word, in Morton order.
+pub(crate) type CellWords = [u64; WORDS];
+
 /// 65536 bits, boxed so that passing one around moves a pointer rather
 /// than eight kilobytes.
 #[derive(Clone)]
 pub struct Bitmap {
-    pub(crate) words: Box<[u64; WORDS]>,
+    pub(crate) words: Box<CellWords>,
 }
 
 impl Bitmap {
@@ -36,7 +39,7 @@ impl Bitmap {
     }
 
     /// The cells, 64 a word, in Morton order.
-    pub(crate) fn words(&self) -> &[u64; WORDS] {
+    pub(crate) fn words(&self) -> &CellWords {
         &self.words
     }
 

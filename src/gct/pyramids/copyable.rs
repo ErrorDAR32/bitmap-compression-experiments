@@ -1,7 +1,7 @@
 //! Matches, bits 2-13 of the [content pyramid](super::content): for
 //! every tile down to 4x4, which same-size tiles hold the same cells --
 //! one bit for each direction, in
-//! [`DIRECTIONS`](crate::gct::tile::DIRECTIONS), at each of
+//! [`DIRECTIONS`], at each of
 //! [`MATCH_DISTANCES`]:
 //!
 //! - near: a neighbour of the tile itself, what a near copy reads;

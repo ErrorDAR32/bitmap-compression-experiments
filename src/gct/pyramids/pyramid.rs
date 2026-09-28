@@ -4,7 +4,7 @@
 //!
 //! A tile is its level and its (x, y) in that level's plane; a tile's
 //! children are the 2x2 block at (2x..2x+1, 2y..2y+1) one level finer.
-//! Each level's plane is stored in [Morton order](crate::morton), so a
+//! Each level's plane is stored in Morton order (`src/morton.rs`), so a
 //! tile's four children are four consecutive elements, and everything
 //! under a tile at any level is one contiguous run. A specialized
 //! pyramid may read and write a level's words directly
@@ -32,6 +32,10 @@ pub struct PyramidShape {
     /// words.
     pub element_bits: usize,
 }
+
+/// One level's elements, packed into words in Morton order: element `i`
+/// is bits `i * element_bits..` of the whole run.
+pub type LevelWords = [u64];
 
 /// What `tile` should hold, worked out from its children's elements in
 /// `pyramid`.
@@ -198,16 +202,15 @@ impl Pyramid {
         (0..=last).flat_map(move |y| (0..=last).map(move |x| Tile { level, x, y }))
     }
 
-    /// A level's elements, packed into words in Morton order: element
-    /// `i` is bits `i * element_bits..` of the whole run. Past the
-    /// level's last element, a word's bits are zero.
-    pub fn level_words(&self, level: u8) -> &[u64] {
+    /// A level's elements. Past the level's last element, a word's
+    /// bits are zero.
+    pub fn level_words(&self, level: u8) -> &LevelWords {
         &self.words[self.level_starts[level as usize]..self.level_starts[level as usize + 1]]
     }
 
     /// `level`'s words to write, and the next finer level's to read --
     /// for building a level from the one below it.
-    pub fn two_levels_mut(&mut self, level: u8) -> (&mut [u64], &[u64]) {
+    pub fn two_levels_mut(&mut self, level: u8) -> (&mut LevelWords, &LevelWords) {
         let (start, split, end) = (
             self.level_starts[level as usize],
             self.level_starts[level as usize + 1],
@@ -219,7 +222,7 @@ impl Pyramid {
 
     /// A level's words, to write directly; nothing propagates. Past the
     /// level's last element, a word's bits must stay zero.
-    pub fn level_words_mut(&mut self, level: u8) -> &mut [u64] {
+    pub fn level_words_mut(&mut self, level: u8) -> &mut LevelWords {
         &mut self.words[self.level_starts[level as usize]..self.level_starts[level as usize + 1]]
     }
 
