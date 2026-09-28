@@ -2,27 +2,28 @@
 //! coarsest and a finest, each element a fixed number of bits, packed
 //! into machine words.
 //!
-//! A tile is its level and its (x, y) in that level's plane; each
-//! level's plane is stored row by row. A tile's children are the
-//! `arity` tiles one level finer that fill it -- with `arity` 4, the
-//! 2x2 block at (2x..2x+1, 2y..2y+1).
+//! A tile is its level and its (x, y) in that level's plane; a tile's
+//! children are the 2x2 block at (2x..2x+1, 2y..2y+1) one level finer.
+//! Each level's plane is stored in [Morton order](crate::morton), so a
+//! tile's four children are four consecutive elements, and everything
+//! under a tile at any level is one contiguous run. A specialized
+//! pyramid may read and write a level's words directly
+//! ([`Pyramid::level_words`]), to build a whole level a word at a time.
 //!
 //! A specialized pyramid (the other files in this folder) fixes the
-//! four parameters, supplies its own queries, and may give the pyramid a
-//! [`Propagation`]: the rule for what a tile holds, given its children.
+//! three parameters, supplies its own queries, and may give the pyramid
+//! a [`Propagation`]: the rule for what a tile holds, given its children.
 //! Then every [`Pyramid::set`] keeps the coarser levels in step on its
 //! own: it recomputes the set tile's parent, then that one's parent, and
 //! stops at the first whose element does not change -- often right
 //! away, sometimes only at the whole bitmap.
 
-use crate::gct::tile::Tile;
+use crate::gct::tile::{tiles_across, Tile, CHILDREN_ACROSS};
+use crate::morton::morton_index;
 
-/// The four parameters every pyramid is built from.
+/// The three parameters every pyramid is built from.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct PyramidShape {
-    /// Children per tile. A perfect square: that many tiles, in a
-    /// square block, fill their parent.
-    pub arity: usize,
     /// The coarsest level held.
     pub coarsest_level: u8,
     /// The finest level held.
@@ -30,20 +31,6 @@ pub struct PyramidShape {
     /// Bits per element. Divides 64, so an element never straddles two
     /// words.
     pub element_bits: usize,
-}
-
-impl PyramidShape {
-    /// Children along one side of a tile.
-    fn children_across(self) -> usize {
-        let across = self.arity.isqrt();
-        assert_eq!(across * across, self.arity, "a pyramid's arity is a perfect square");
-        across
-    }
-
-    /// Tiles across one row of `level`'s plane.
-    fn tiles_across(self, level: u8) -> usize {
-        self.children_across().pow(level as u32)
-    }
 }
 
 /// What `tile` should hold, worked out from its children's elements in
@@ -55,13 +42,12 @@ pub type Propagation = fn(pyramid: &Pyramid, tile: Tile) -> u64;
 pub struct Pyramid {
     shape: PyramidShape,
     propagation: Option<Propagation>,
-    /// One word-packed plane per level, coarsest first.
-    levels: Vec<Vec<u64>>,
-    /// The shape, worked out once rather than on every access: children
-    /// along a side, tiles across each level's plane (by level), elements
-    /// a word, and the mask of one element.
-    children_across: usize,
-    tiles_across: Vec<usize>,
+    /// Every level's words, coarsest first, each level starting a word
+    /// of its own.
+    words: Vec<u64>,
+    /// Where each level's words start in `words`, by level, and where
+    /// the last one's end.
+    level_starts: Vec<usize>,
     /// Elements a word is a power of two -- an element's bits divide a
     /// word's -- so a tile's word and place in it are shifts and masks.
     per_word_shift: u32,
@@ -72,7 +58,7 @@ pub struct Pyramid {
 /// shape; how they propagate is behaviour, not content.
 impl PartialEq for Pyramid {
     fn eq(&self, other: &Self) -> bool {
-        self.shape == other.shape && self.levels == other.levels
+        self.shape == other.shape && self.words == other.words
     }
 }
 
@@ -88,20 +74,18 @@ impl Pyramid {
         );
         assert!(shape.coarsest_level <= shape.finest_level);
         let per_word = u64::BITS as usize / shape.element_bits;
-        let levels = (shape.coarsest_level..=shape.finest_level)
-            .map(|level| {
-                let across = shape.tiles_across(level);
-                vec![0u64; (across * across).div_ceil(per_word)]
-            })
-            .collect();
+        let mut level_starts = vec![0; shape.coarsest_level as usize + 1];
+        for level in shape.coarsest_level..=shape.finest_level {
+            let elements = tiles_across(level).pow(2);
+            level_starts.push(level_starts[level as usize] + elements.div_ceil(per_word));
+        }
         let element_mask =
             if shape.element_bits == u64::BITS as usize { u64::MAX } else { (1 << shape.element_bits) - 1 };
         Self {
             shape,
             propagation: None,
-            levels,
-            children_across: shape.children_across(),
-            tiles_across: (0..=shape.finest_level).map(|level| shape.tiles_across(level)).collect(),
+            words: vec![0; level_starts[shape.finest_level as usize + 1]],
+            level_starts,
             per_word_shift: per_word.trailing_zeros(),
             element_mask,
         }
@@ -130,20 +114,18 @@ impl Pyramid {
         (self.shape.coarsest_level..=self.shape.finest_level).contains(&tile.level)
     }
 
-    /// Where a tile's element sits: its level's plane, the word, and
-    /// the shift within it.
-    fn locate(&self, tile: Tile) -> (usize, usize, usize) {
+    /// Where a tile's element sits: its word, and the shift within it.
+    fn locate(&self, tile: Tile) -> (usize, usize) {
         debug_assert!(self.holds(tile), "{tile:?} is outside this pyramid's levels");
-        let index = tile.y as usize * self.tiles_across[tile.level as usize] + tile.x as usize;
-        let plane = (tile.level - self.shape.coarsest_level) as usize;
+        let index = morton_index(tile.x, tile.y);
         let in_word = index & ((1 << self.per_word_shift) - 1);
-        (plane, index >> self.per_word_shift, in_word * self.shape.element_bits)
+        (self.level_starts[tile.level as usize] + (index >> self.per_word_shift), in_word * self.shape.element_bits)
     }
 
     /// A tile's element.
     pub fn get(&self, tile: Tile) -> u64 {
-        let (plane, word, shift) = self.locate(tile);
-        (self.levels[plane][word] >> shift) & self.element_mask
+        let (word, shift) = self.locate(tile);
+        (self.words[word] >> shift) & self.element_mask
     }
 
     /// Replaces a tile's element, then propagates: each coarser tile
@@ -173,7 +155,7 @@ impl Pyramid {
         }
         let Some(propagation) = self.propagation else { return };
         for level in (self.shape.coarsest_level..self.shape.finest_level).rev() {
-            let across = self.tiles_across[level as usize];
+            let across = tiles_across(level);
             for y in 0..across {
                 for x in 0..across {
                     let tile = Tile { level, x: x as u8, y: y as u8 };
@@ -188,20 +170,20 @@ impl Pyramid {
     fn write(&mut self, tile: Tile, value: u64) {
         let mask = self.element_mask;
         debug_assert!(value & !mask == 0, "{value} does not fit in {} bits", self.shape.element_bits);
-        let (plane, word, shift) = self.locate(tile);
-        let slot = &mut self.levels[plane][word];
+        let (word, shift) = self.locate(tile);
+        let slot = &mut self.words[word];
         *slot = (*slot & !(mask << shift)) | (value << shift);
     }
 
     /// The tile one level coarser that holds `tile`.
     fn parent_of(&self, tile: Tile) -> Tile {
-        let across = self.children_across as u8;
+        let across = CHILDREN_ACROSS;
         Tile { level: tile.level - 1, x: tile.x / across, y: tile.y / across }
     }
 
     /// A tile's children, in reading order.
     pub fn children_of(&self, tile: Tile) -> impl Iterator<Item = Tile> {
-        let across = self.children_across;
+        let across = CHILDREN_ACROSS as usize;
         (0..across).flat_map(move |row| {
             (0..across).map(move |col| {
                 let (x, y) = (tile.x as usize * across + col, tile.y as usize * across + row);
@@ -212,7 +194,33 @@ impl Pyramid {
 
     /// Every tile of one level, in reading order.
     pub fn tiles_of_level(&self, level: u8) -> impl Iterator<Item = Tile> {
-        let last = (self.tiles_across[level as usize] - 1) as u8;
+        let last = (tiles_across(level) - 1) as u8;
         (0..=last).flat_map(move |y| (0..=last).map(move |x| Tile { level, x, y }))
     }
+
+    /// A level's elements, packed into words in Morton order: element
+    /// `i` is bits `i * element_bits..` of the whole run. Past the
+    /// level's last element, a word's bits are zero.
+    pub fn level_words(&self, level: u8) -> &[u64] {
+        &self.words[self.level_starts[level as usize]..self.level_starts[level as usize + 1]]
+    }
+
+    /// `level`'s words to write, and the next finer level's to read --
+    /// for building a level from the one below it.
+    pub fn two_levels_mut(&mut self, level: u8) -> (&mut [u64], &[u64]) {
+        let (start, split, end) = (
+            self.level_starts[level as usize],
+            self.level_starts[level as usize + 1],
+            self.level_starts[level as usize + 2],
+        );
+        let (coarser, finer) = self.words[start..end].split_at_mut(split - start);
+        (coarser, finer)
+    }
+
+    /// A level's words, to write directly; nothing propagates. Past the
+    /// level's last element, a word's bits must stay zero.
+    pub fn level_words_mut(&mut self, level: u8) -> &mut [u64] {
+        &mut self.words[self.level_starts[level as usize]..self.level_starts[level as usize + 1]]
+    }
+
 }

@@ -33,7 +33,7 @@ fn payload_bits(size_offset: u8) -> u64 {
 pub struct CountedBits(Vec<(u64, Pyramid)>);
 
 /// Enough for any tile's bits, the whole bitmap's included.
-const COUNTED_SHAPE: PyramidShape = PyramidShape { arity: 4, coarsest_level: 0, finest_level: CELL_LEVEL, element_bits: 32 };
+const COUNTED_SHAPE: PyramidShape = PyramidShape { coarsest_level: 0, finest_level: CELL_LEVEL, element_bits: 32 };
 const NOT_COUNTED: u64 = 0;
 
 impl CountedBits {

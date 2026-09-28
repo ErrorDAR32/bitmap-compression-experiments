@@ -9,10 +9,11 @@ mod common;
 use bitmap::gct::pyramids::copyable::Copyable;
 use bitmap::gct::pyramids::homogeneity::Homogeneity;
 use bitmap::gct::pyramids::pyramid::{Pyramid, PyramidShape};
-use bitmap::gct::tile::Tile;
+use bitmap::gct::tile::{Tile, CELL_LEVEL};
 use bitmap::gct::pyramids::tree::{Node, Tree};
 use common::tree_stats::TreeStats;
 use bitmap::gct::{encode, tree};
+use bitmap::samples::checkerboards::checkerboard;
 use bitmap::samples::{one_grown, one_laid_out, PLANS};
 use bitmap::Bitmap;
 use common::check;
@@ -26,7 +27,7 @@ fn generic_pyramid_propagates_every_set() {
     fn sum_of_children(pyramid: &Pyramid, tile: Tile) -> u64 {
         pyramid.children_of(tile).into_iter().map(|child| pyramid.get(child)).sum()
     }
-    let shape = PyramidShape { arity: 4, coarsest_level: 0, finest_level: 2, element_bits: 8 };
+    let shape = PyramidShape { coarsest_level: 0, finest_level: 2, element_bits: 8 };
     let mut pyramid = Pyramid::with_propagation(shape, sum_of_children);
     pyramid.set(Tile { level: 2, x: 3, y: 3 }, 1);
     assert_eq!(pyramid.get(Tile { level: 1, x: 1, y: 1 }), 1);
@@ -46,6 +47,23 @@ fn homogeneity_pyramid_sees_a_filled_quarter() {
     assert_eq!(homogeneity.homogeneous_value(Tile { level: 1, x: 0, y: 0 }), Some(true));
     assert_eq!(homogeneity.homogeneous_value(Tile { level: 1, x: 1, y: 0 }), Some(false));
     assert_eq!(homogeneity.homogeneous_value(Tile::whole_bitmap()), None);
+}
+
+/// Every tile of a ragged bitmap and of an odd checkerboard, at every
+/// level, against its own cells read one at a time.
+#[test]
+fn homogeneity_pyramid_matches_the_cells() {
+    for bitmap in [one_grown(FIXED_SEED, 0.20, 0.70), checkerboard(3)] {
+        let homogeneity = Pyramid::homogeneity(&bitmap);
+        for level in 0..=CELL_LEVEL {
+            for tile in Tile::all_of_level(level) {
+                let (left, top, right, bottom) = tile.cell_rect();
+                let first = bitmap.get(left, top);
+                let agree = (top..=bottom).all(|y| (left..=right).all(|x| bitmap.get(x, y) == first));
+                assert_eq!(homogeneity.homogeneous_value(tile), agree.then_some(first), "{tile:?}");
+            }
+        }
+    }
 }
 
 #[test]

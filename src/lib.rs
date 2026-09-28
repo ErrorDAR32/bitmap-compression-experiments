@@ -28,6 +28,7 @@
 //! |---|---|
 //! | [`bitmap`] | the 65536 cells, and what can be drawn on them |
 //! | [`gct`] | the greedy complex tiler, the encoding (`docs/gct.md`) |
+//! | `morton` | the Morton order the bitmap and every pyramid level are laid out in |
 //! | [`samples`] | the bitmaps everything is measured on, and where the seed comes from |
 //! | [`table`] | printing any of it, which every measurement does the same way |
 //!
@@ -39,6 +40,7 @@
 //! it gets measured.
 
 pub mod bitmap;
+mod morton;
 pub mod gct;
 pub mod samples;
 pub mod table;

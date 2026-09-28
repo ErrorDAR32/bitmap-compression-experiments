@@ -1,15 +1,17 @@
 //! The bitmap itself: 256 by 256 bits, packed into machine words.
 //!
-//! Row-major, four `u64` to a row, least significant bit leftmost, so
-//! cell `(x, y)` is bit `x % 64` of word `y * 4 + x / 64`. Every reader
-//! in the crate relies on that layout: [`Bitmap::row`] hands a row out
-//! as words, and `bitmap_words` holds the word operations that read
-//! one.
+//! In [Morton order](crate::morton): cell `i` in that order is bit
+//! `i % 64` of word `i / 64`. Every aligned square
+//! of a power-of-two side -- every tile -- is then one contiguous run of
+//! bits: a 4x4 sixteen bits, an 8x8 exactly one word, anything bigger
+//! whole words. So whole-square questions, like [`Bitmap::same_squares`], are a few
+//! word operations, not one a row.
 //!
 //! The drawing methods take `i64` and clamp, so a caller can ask for a
 //! circle hanging off the edge without doing the arithmetic first.
 
-use crate::{BITS_PER_WORD, HEIGHT, WIDTH, WORDS};
+use crate::morton::morton_index;
+use crate::{BITS_PER_WORD, WORDS};
 
 /// 65536 bits, boxed so that passing one around moves a pointer rather
 /// than eight kilobytes.
@@ -26,11 +28,16 @@ impl Bitmap {
         }
     }
 
-    /// Where a cell's bit sits, counting from the top-left across each
-    /// row in turn. The word is this divided by 64 and the bit within
-    /// it the remainder, which is the whole of the layout.
+    /// Where a cell's bit sits: its Morton index. The word is this
+    /// divided by 64 and the bit within it the remainder, which is the
+    /// whole of the layout.
     fn bit_index(x: u8, y: u8) -> usize {
-        y as usize * WIDTH + x as usize
+        morton_index(x, y)
+    }
+
+    /// The cells, 64 a word, in Morton order.
+    pub(crate) fn words(&self) -> &[u64; WORDS] {
+        &self.words
     }
 
     /// `x` and `y` are `u8`, so every value from 0 to 255 is a valid
@@ -65,75 +72,42 @@ impl Bitmap {
         self.words.iter().map(|w| w.count_ones()).sum()
     }
 
-    /// Splits the set cells into those with no orthogonal neighbour and
-    /// the rest.
-    ///
-    /// A cell standing alone is its own rectangle in every partition,
-    /// and nothing can ever be laid against it: a rectangle touching one
-    /// of its faces would have to contain a cell beside it, and there is
-    /// none. So it decides nothing and nothing decides it, and the work
-    /// of meshing and rewriting can pass it by entirely.
-    ///
-    /// Found a row of words at a time. Whether the cell to the left is
-    /// set is the row shifted up one bit, carrying across the word
-    /// boundary; above and below are the neighbouring rows unshifted.
-    #[doc(hidden)]
-    pub fn split_isolated(&self) -> (Self, Self) {
-        let (mut single_cells, mut rest) = (Self::new(), Self::new());
-        self.split_single_cells_into(&mut single_cells, &mut rest);
-        (single_cells, rest)
-    }
-
-    /// The same, into bitmaps that already exist. Whatever they held is
-    /// overwritten.
-    pub(crate) fn split_single_cells_into(&self, single_cells: &mut Self, rest: &mut Self) {
-        const PER_ROW: usize = WIDTH / BITS_PER_WORD;
-
-        single_cells.words.fill(0);
-        rest.words.copy_from_slice(&*self.words);
-        for y in 0..HEIGHT {
-            let row = y * PER_ROW;
-            for i in 0..PER_ROW {
-                let word = self.words[row + i];
-                if word == 0 {
-                    continue;
-                }
-
-                let left = (word << 1) | if i > 0 { self.words[row + i - 1] >> 63 } else { 0 };
-                let right =
-                    (word >> 1) | if i + 1 < PER_ROW { self.words[row + i + 1] << 63 } else { 0 };
-                let above = if y > 0 { self.words[row - PER_ROW + i] } else { 0 };
-                let below = if y + 1 < HEIGHT { self.words[row + PER_ROW + i] } else { 0 };
-
-                let solo = word & !(left | right | above | below);
-                single_cells.words[row + i] = solo;
-                rest.words[row + i] = word & !solo;
-            }
+    /// Whether two aligned squares of `side` cells, top left at `a` and
+    /// at `b`, hold the same cells. Aligned: `side` a power of two, each
+    /// corner's coordinates multiples of it.
+    pub(crate) fn same_squares(&self, a: (u8, u8), b: (u8, u8), side: usize) -> bool {
+        let (a, b) = (Self::bit_index(a.0, a.1), Self::bit_index(b.0, b.1));
+        let cells = side * side;
+        if cells >= BITS_PER_WORD {
+            let (a, b, words) = (a / BITS_PER_WORD, b / BITS_PER_WORD, cells / BITS_PER_WORD);
+            return self.words[a..a + words] == self.words[b..b + words];
         }
+        self.run(a, cells) == self.run(b, cells)
     }
 
-    /// Clears one cell.
-    #[doc(hidden)]
-    pub fn clear_cell(&mut self, x: u8, y: u8) {
-        const PER_ROW: usize = WIDTH / BITS_PER_WORD;
-        let at = y as usize * PER_ROW + x as usize / BITS_PER_WORD;
-        self.words[at] &= !(1u64 << (x as usize % BITS_PER_WORD));
+    /// Sets every cell of an aligned square.
+    pub(crate) fn set_square(&mut self, (x, y): (u8, u8), side: usize) {
+        let at = Self::bit_index(x, y);
+        let cells = side * side;
+        if cells >= BITS_PER_WORD {
+            self.words[at / BITS_PER_WORD..(at + cells) / BITS_PER_WORD].fill(u64::MAX);
+            return;
+        }
+        self.words[at / BITS_PER_WORD] |= run_mask(cells) << (at % BITS_PER_WORD);
     }
 
-    /// The machine words holding one row.
-    /// One row's bits, four words of it.
-    ///
-    /// Public so a caller can read the matrix a word at a time rather
-    /// than a cell at a time, which is the difference between four
-    /// loads and sixteen for a 4x4 tile.
-    #[doc(hidden)]
-    pub fn row(&self, y: u8) -> &[u64] {
-        const PER_ROW: usize = WIDTH / BITS_PER_WORD;
-        let at = y as usize * PER_ROW;
-        &self.words[at..at + PER_ROW]
+    /// `cells` bits, fewer than a word, from bit `at`: a run never
+    /// straddles two words, since it starts at a multiple of its length.
+    fn run(&self, at: usize, cells: usize) -> u64 {
+        (self.words[at / BITS_PER_WORD] >> (at % BITS_PER_WORD)) & run_mask(cells)
     }
-
 }
+
+/// The low `cells` bits set, fewer than a word.
+fn run_mask(cells: usize) -> u64 {
+    (1u64 << cells) - 1
+}
+
 
 impl Default for Bitmap {
     /// The same as [`Bitmap::new`]: empty.
@@ -147,6 +121,23 @@ impl Default for Bitmap {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{HEIGHT, WIDTH};
+
+    #[test]
+    fn squares_agree_with_their_cells() {
+        let mut m = Bitmap::new();
+        m.set_rect(8, 8, 15, 15);
+        m.set_rect(16, 0, 19, 3);
+        m.set(24, 4);
+        assert!(m.same_squares((16, 0), (8, 8), 4));
+        assert!(!m.same_squares((16, 0), (24, 4), 4));
+        assert!(m.same_squares((0, 64), (64, 0), 64));
+        let mut filled = Bitmap::new();
+        filled.set_square((8, 8), 8);
+        filled.set_square((16, 0), 4);
+        filled.set_square((24, 4), 1);
+        assert!((0..=u8::MAX).all(|y| (0..=u8::MAX).all(|x| filled.get(x, y) == m.get(x, y))));
+    }
 
     #[test]
     fn starts_empty() {

@@ -46,7 +46,7 @@ const BOUND_SIZES_UNDER: Field = Field { shift: RAW_MASKS.shift + RAW_MASKS.bits
 const YES: u64 = 1;
 
 
-const SHAPE: PyramidShape = PyramidShape { arity: 4, coarsest_level: 0, finest_level: CELL_LEVEL, element_bits: 32 };
+const SHAPE: PyramidShape = PyramidShape { coarsest_level: 0, finest_level: CELL_LEVEL, element_bits: 32 };
 
 fn field(element: u64, field: Field) -> u64 {
     (element >> field.shift) & ((1 << field.bits) - 1)

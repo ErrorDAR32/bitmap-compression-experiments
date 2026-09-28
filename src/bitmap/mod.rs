@@ -3,15 +3,13 @@
 //!
 //! | file | what is in it |
 //! |---|---|
-//! | `bitmap_data` | what a bitmap is, and what can be asked of one cell at a time |
-//! | `bitmap_words` | the word layout every reader of a row relies on |
+//! | `bitmap_data` | what a bitmap is, its Morton-order layout, and what can be asked of a cell or an aligned square |
 //! | `bitmap_drawing` | rectangles and circles, drawn by their shape |
 //!
 //! Nothing here decides anything. What to describe, at what size, in
 //! what order -- all of that is the encoding's, [`crate::gct`]'s, which
 //! holds a bitmap and reads it.
 
-pub(crate) mod bitmap_words;
 mod bitmap_data;
 mod bitmap_drawing;
 

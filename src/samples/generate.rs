@@ -7,7 +7,6 @@
 //! changed separately. What a corpus is made of is a decision; how a
 //! bitmap is filled is a mechanism.
 
-use crate::bitmap::bitmap_words::range_mask;
 use crate::{Bitmap, HEIGHT, WIDTH};
 
 /// A bitmap grown from a seed, confined to a `side` by `side` corner.
@@ -95,17 +94,12 @@ fn anywhere_clear(bits: &Bitmap, side: usize, next: &mut impl FnMut() -> u64) ->
         }
     }
 
-    // A word at a time, so that a nearly full corner is scanned in a
-    // few hundred tests rather than tens of thousands. `side` is a
-    // `usize` throughout: it can be 256, which a `u8` cannot hold, and
-    // casting it early is how this went wrong once already.
+    // The first clear cell in reading order. `side` is a `usize`
+    // throughout: it can be 256, which a `u8` cannot hold, and casting
+    // it early is how this went wrong once already.
     for y in 0..side {
-        let row = bits.row(y as u8);
-        for (index, &word) in row.iter().enumerate() {
-            let inside = range_mask(index, 0, (side - 1) as u8);
-            let clear = !word & inside;
-            if clear != 0 {
-                let x = index * 64 + clear.trailing_zeros() as usize;
+        for x in 0..side {
+            if !bits.get(x as u8, y as u8) {
                 return (x as u8, y as u8);
             }
         }

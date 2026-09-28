@@ -129,8 +129,7 @@ impl Tile {
 
     /// Sets every cell of this tile in `bitmap`.
     pub fn set_in(self, bitmap: &mut Bitmap) {
-        let (left, top, right, bottom) = self.cell_rect();
-        bitmap.set_rect(left as i64, top as i64, right as i64, bottom as i64);
+        bitmap.set_square(self.top_left_cell(), self.side_in_cells());
     }
 
     /// Every tile of one level, in reading order.
@@ -160,25 +159,7 @@ impl Tile {
     }
 }
 
-/// Whether two same-size tiles hold the same cells, a word of a row at a
-/// time.
+/// Whether two same-size tiles hold the same cells.
 pub fn same_cells(bitmap: &Bitmap, a: Tile, b: Tile) -> bool {
-    const WORD: usize = u64::BITS as usize;
-    let side = a.side_in_cells();
-    let ((a_x, a_y), (b_x, b_y)) = (a.top_left_cell(), b.top_left_cell());
-    let last_row = (side - 1) as u8;
-    // A row of a tile is `side` bits from a column that is a multiple of
-    // `side`, so it is either whole words or a run inside one word.
-    let run = |row: &[u64], x: u8| {
-        let x = x as usize;
-        (row[x / WORD] >> (x % WORD)) & ((1u64 << side) - 1)
-    };
-    (0..=last_row).all(|row| {
-        let (mine, theirs) = (bitmap.row(a_y + row), bitmap.row(b_y + row));
-        if side >= WORD {
-            let (a_word, b_word) = (a_x as usize / WORD, b_x as usize / WORD);
-            return (0..side / WORD).all(|word| mine[a_word + word] == theirs[b_word + word]);
-        }
-        run(mine, a_x) == run(theirs, b_x)
-    })
+    bitmap.same_squares(a.top_left_cell(), b.top_left_cell(), a.side_in_cells())
 }

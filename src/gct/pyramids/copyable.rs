@@ -27,7 +27,7 @@ pub const FAR_DISTANCE: usize = 2;
 /// Nothing finer than 4x4 copies. A 2x2 is either homogeneous, a tile,
 /// or its four cells are the residual pass's own -- a copy there would
 /// never reach the stream. A cell is always homogeneous.
-const SHAPE: PyramidShape = PyramidShape { arity: 4, coarsest_level: 0, finest_level: CELL_LEVEL - 2, element_bits: 2 };
+const SHAPE: PyramidShape = PyramidShape { coarsest_level: 0, finest_level: CELL_LEVEL - 2, element_bits: 2 };
 
 pub trait Copyable {
     /// The copyable pyramid of `bitmap`.

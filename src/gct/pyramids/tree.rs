@@ -106,7 +106,7 @@ fn from_code(code: u64) -> Node {
     }
 }
 
-const SHAPE: PyramidShape = PyramidShape { arity: 4, coarsest_level: 0, finest_level: CELL_LEVEL - 1, element_bits: 8 };
+const SHAPE: PyramidShape = PyramidShape { coarsest_level: 0, finest_level: CELL_LEVEL - 1, element_bits: 8 };
 
 pub trait Tree {
     /// A tree with no nodes yet.

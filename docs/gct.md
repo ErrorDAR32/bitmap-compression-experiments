@@ -27,10 +27,26 @@ and residual runs (`grammar/order.rs`).
 
 A pyramid (`pyramids/pyramid.rs`) holds one element per tile, at every
 level between a coarsest and a finest, each element a fixed number of
-bits, word-packed. Four parameters: arity (children per tile, 4 here),
-coarsest level, finest level, bits per element. A tile is its level (0
-is the whole 256x256 bitmap, 8 a single cell) and its (x, y) in that
-level's plane.
+bits, word-packed. Three parameters: coarsest level, finest level,
+bits per element. A tile is its level (0 is the whole 256x256 bitmap, 8
+a single cell) and its (x, y) in that level's plane; its children are
+the 2x2 block one level finer.
+
+The bitmap and every pyramid level are laid out in Morton (Z) order
+(`src/morton.rs`): a cell's index interleaves its coordinates' bits, so
+
+```text
+ 0  1  4  5
+ 2  3  6  7
+ 8  9 12 13
+10 11 14 15
+```
+
+and every tile is one contiguous run of bits -- a 4x4 sixteen bits, an
+8x8 one word. Comparing two tiles' cells is comparing two runs, and a
+tile's four children are four consecutive pyramid elements, so a whole
+level can be built from the one finer a word at a time
+(`Pyramid::level_words`, `two_levels_mut`).
 
 A pyramid may have a **propagation**: the rule for what a tile holds,
 given its children (`fn(&Pyramid, Tile) -> u64`), fixed when the
@@ -44,7 +60,7 @@ fixing the shape, its propagation if any, and its queries.
 
 | pyramid | bits | levels | holds | propagation |
 |---|---|---|---|---|
-| `homogeneity` | 2 | 0-8 | whether a tile's cells all agree, and on what | homogeneous when all four children are homogeneous and agree |
+| `homogeneity` | 2 | 0-8 | whether a tile's cells all agree, and on what | none; built once, a word at a time: the cells off the bitmap's words, then each level folded from the one finer -- homogeneous when all four children are homogeneous and agree |
 | `copyable` | 2 | 0-6 | whether a same-size neighbour (near) or a neighbour of the parent (far) holds the same cells | none |
 | `complex_tiling` | 32 | 0-8 | the placement the greedy tiler made here, if any, and the children it masks -- the greedy tiler writes these bits, the complex tiler the rest; the one size every cell under the tile is bound at, if any; the complex tile's size offset, if it is one; whether a raw complex tile masks it; the sizes of the whole binds under it | a tile's bound size is its children's when all four share one; the sizes under it are all of its children's |
 | `tree` | 8 | 0-7 | the tree's node at a tile | none |
