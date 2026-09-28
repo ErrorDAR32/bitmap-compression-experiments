@@ -1,7 +1,7 @@
 //! Complete tests: everything the measurements run on, plus a moderate
 //! sample from a second seed base the measurements never see.
 //!
-//! `cargo test --release --test cgt_complete -- --ignored`
+//! `cargo test --release --test gct_complete -- --ignored`
 
 mod common;
 

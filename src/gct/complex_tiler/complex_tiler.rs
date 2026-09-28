@@ -1,7 +1,7 @@
 //! The complex tiler, the second pass: groups the greedy tiler's placed
 //! tiles into complex tiles, nested as deep as they keep paying. Its
 //! output is one pyramid, which tiles are complex tiles and at what
-//! depth ([`complex_tile_depths`](crate::cgt::pyramids::complex_tile_depths)).
+//! depth ([`complex_tile_depths`](crate::gct::pyramids::complex_tile_depths)).
 //! Never looks at the bitmap: every decision is made from the tiles
 //! the greedy tiler placed.
 //!
@@ -15,11 +15,11 @@
 //! already committed in the same pass.
 
 use super::complex_tile_candidates::Candidate;
-use crate::cgt::pyramids::complex_tile_depths::ComplexTileDepths;
-use crate::cgt::pyramids::placements::Placements;
-use crate::cgt::pyramids::pyramid::Pyramid;
-use crate::cgt::tile::{Tile, CELL_LEVEL};
-use crate::cgt::enclosing::Enclosing;
+use crate::gct::pyramids::complex_tile_depths::ComplexTileDepths;
+use crate::gct::pyramids::placements::Placements;
+use crate::gct::pyramids::pyramid::Pyramid;
+use crate::gct::tile::{Tile, CELL_LEVEL};
+use crate::gct::enclosing::Enclosing;
 use crate::Bitmap;
 
 /// Where one pass searches: an area, the coarsest level a candidate in

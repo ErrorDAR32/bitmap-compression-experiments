@@ -1,11 +1,11 @@
-# cgt: the complex greedy tiler
+# gct: the greedy complex tiler
 
-What every bit in a cgt encoding means, and what decides the tiling it
-describes. `src/cgt/` is the code; this file is the one full
+What every bit in a gct encoding means, and what decides the tiling it
+describes. `src/gct/` is the code; this file is the one full
 description of its grammar. Kept up to date by hand: if the code
 changes and this doesn't, this file is wrong, not the code.
 
-cgt is measured against dsrn (`src/dsrn/`, `docs/dsrn_grammar.md`),
+gct is measured against dsrn (`src/dsrn/`, `docs/dsrn_grammar.md`),
 the baseline it has to beat, and depends on nothing in it.
 
 ## Four steps
@@ -201,8 +201,8 @@ assertion backs that. Decoder speed is not a goal; simplicity is.
 
 ## Tests
 
-In `tests/`, per `docs/testing_protocol.md`: `cgt_fine` (one bitmap per
-test), `cgt_fast` (a small seeded sample), `cgt_complete` (everything,
+In `tests/`, per `docs/testing_protocol.md`: `gct_fine` (one bitmap per
+test), `gct_fast` (a small seeded sample), `gct_complete` (everything,
 plus a second seed base), and `compare_with_dsrn` (the measurement
 below). Every check: placed tiles cover every cell once, the tree read
 back is the tree written, decoding gives back every cell.
@@ -213,7 +213,7 @@ Seed `1950720362523133367`, via
 `cargo test --release --test compare_with_dsrn -- --ignored --nocapture`,
 against dsrn at `Masking::Anywhere`, `FourByFour::ItsOwnGrammar`:
 
-| family | dsrn | cgt |
+| family | dsrn | gct |
 |---|---|---|
 | laid out like a city, 48 bitmaps | 3422 bits | 3671 bits, +7.3% |
 | grown like a blob, 84 bitmaps | 32518 bits | 32856 bits, +1.0% |

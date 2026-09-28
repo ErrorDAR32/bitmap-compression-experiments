@@ -1,11 +1,11 @@
-//! What every cgt test checks of a bitmap, shared by the three tiers.
+//! What every gct test checks of a bitmap, shared by the three tiers.
 
 #![allow(dead_code)] // each test file uses only some of these
 
-use bitmap::cgt::encoder::{read, write};
-use bitmap::cgt::greedy_tiler::greedy_tiler;
-use bitmap::cgt::pyramids::placements::Placements;
-use bitmap::cgt::{decode, tree};
+use bitmap::gct::encoder::{read, write};
+use bitmap::gct::greedy_tiler::greedy_tiler;
+use bitmap::gct::pyramids::placements::Placements;
+use bitmap::gct::{decode, tree};
 use bitmap::Bitmap;
 
 /// The first cell, in reading order, where two bitmaps differ.

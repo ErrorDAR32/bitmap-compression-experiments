@@ -19,10 +19,10 @@
 //! `total_cells` is the same at every depth, so the best depth is the
 //! one with the most unmasked cells, ties toward the coarser.
 
-use crate::cgt::pyramids::bound_tile_counts::BoundTileCounts;
-use crate::cgt::pyramids::pyramid::Pyramid;
-use crate::cgt::tile::{cells_in_tile, Tile, CELL_LEVEL};
-use crate::cgt::enclosing::Enclosing;
+use crate::gct::pyramids::bound_tile_counts::BoundTileCounts;
+use crate::gct::pyramids::pyramid::Pyramid;
+use crate::gct::tile::{cells_in_tile, Tile, CELL_LEVEL};
+use crate::gct::enclosing::Enclosing;
 use std::cmp::Ordering;
 
 pub struct Candidate {

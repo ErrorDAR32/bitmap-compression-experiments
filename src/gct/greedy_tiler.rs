@@ -7,15 +7,15 @@
 //! between sizes; a tile that qualifies is taken immediately. Cells are
 //! always homogeneous, so the pass always covers the whole bitmap.
 
-use crate::cgt::pyramids::copyable::Copyable;
-use crate::cgt::pyramids::homogeneity::Homogeneity;
-use crate::cgt::pyramids::placements::{Placement, Placements};
-use crate::cgt::pyramids::pyramid::Pyramid;
-use crate::cgt::tile::{same_cells, tiles_across, Tile, CELL_LEVEL, DIRECTIONS};
+use crate::gct::pyramids::copyable::Copyable;
+use crate::gct::pyramids::homogeneity::Homogeneity;
+use crate::gct::pyramids::placements::{Placement, Placements};
+use crate::gct::pyramids::pyramid::Pyramid;
+use crate::gct::tile::{same_cells, tiles_across, Tile, CELL_LEVEL, DIRECTIONS};
 use crate::Bitmap;
 
 /// Places tiles over one bitmap, biggest first; what it placed is a
-/// [placements pyramid](crate::cgt::pyramids::placements).
+/// [placements pyramid](crate::gct::pyramids::placements).
 pub fn greedy_tiler(bitmap: &Bitmap) -> Pyramid {
     let homogeneity = Pyramid::homogeneity(bitmap);
     let copyable = Pyramid::copyable(bitmap);

@@ -3,12 +3,12 @@
 //! the tile placed here is.
 
 use super::pyramid::{Pyramid, PyramidShape};
-use crate::cgt::tile::{Tile, CELL_LEVEL};
+use crate::gct::tile::{Tile, CELL_LEVEL};
 
 /// What a placed tile is: bound to one value, or a copy of a same-size
 /// area -- a near copy of a neighbour of the tile itself, or a far copy
 /// of a neighbour of its parent, at the tile's own child position --
-/// in [`DIRECTIONS`](crate::cgt::tile::DIRECTIONS) order.
+/// in [`DIRECTIONS`](crate::gct::tile::DIRECTIONS) order.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Placement {
     Bound(bool),

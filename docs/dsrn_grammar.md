@@ -75,8 +75,8 @@ A **copy**'s 2-bit direction is an index into `DIRECTIONS`:
 Only these four, deliberately: every one of them names a neighbour
 reading order (row-major, top-left to bottom-right) already put before
 this region, which is what lets decode resolve a copy in one pass with
-no deferred-resolution machinery at all -- unlike cgt (`src/cgt/`,
-`docs/cgt.md`), which chooses a copy on content alone and so does need
+no deferred-resolution machinery at all -- unlike gct (`src/gct/`,
+`docs/gct.md`), which chooses a copy on content alone and so does need
 a defer-and-retry decode.
 
 ## Below 4x4: no grammar at all
@@ -97,7 +97,7 @@ say is its own value.
 
 A 4x4 is the coarsest region whose children have no grammar of their
 own, so `Knobs.four_by_four` lets it speak *for* them instead of just
-about itself. Four variants exist; **`ItsOwnGrammar` is the one cgt is
+about itself. Four variants exist; **`ItsOwnGrammar` is the one gct is
 measured against** (`Knobs { masking: Masking::Anywhere, four_by_four:
 FourByFour::ItsOwnGrammar }` in `tests/compare_with_dsrn.rs`). The others
 are real, working alternatives, not dead code, but everything reported
@@ -189,6 +189,6 @@ cells' depth. Either way, that is **one header for the whole region**,
 whatever its size -- a 256x256 region with no exploitable structure at
 all costs one small size field plus 65536 raw payload bits, not one
 subdivide bit for every level it would take a quadtree to walk down to
-find that out. That single-header "give up" is a capability cgt has
+find that out. That single-header "give up" is a capability gct has
 no equivalent for yet: its only raw cells are the 2x2 holes of its
 residual pass.

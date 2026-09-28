@@ -6,7 +6,7 @@
 //! agree.
 
 use super::pyramid::{Pyramid, PyramidShape};
-use crate::cgt::tile::{Tile, CELL_LEVEL};
+use crate::gct::tile::{Tile, CELL_LEVEL};
 use crate::Bitmap;
 
 const HOMOGENEOUS: u64 = 0b01;

@@ -1,7 +1,7 @@
 //! Fast tests: a small sample from the seed in `testing/last_seed` --
 //! every shape and every plan, at its `tested` count.
 //!
-//! `cargo test --test cgt_fast`
+//! `cargo test --test gct_fast`
 
 mod common;
 

@@ -5,9 +5,9 @@
 
 use super::bit_stream::{BitReader, BitStream};
 use super::ReadBack;
-use crate::cgt::pyramids::pyramid::Pyramid;
-use crate::cgt::tile::Tile;
-use crate::cgt::tree::node::{Node, Tree};
+use crate::gct::pyramids::pyramid::Pyramid;
+use crate::gct::tile::Tile;
+use crate::gct::tree::node::{Node, Tree};
 use crate::Bitmap;
 
 /// The tiles of its resolution related to the complex tile at `tile`

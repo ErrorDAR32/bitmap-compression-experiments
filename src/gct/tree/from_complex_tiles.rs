@@ -3,13 +3,13 @@
 //! the tree, one node per tile, top-down. Runs once, after every
 //! complex tile is decided, never interleaved with deciding them.
 
-use crate::cgt::enclosing::Enclosing;
-use crate::cgt::tree::node::{Node, Tree};
-use crate::cgt::pyramids::bound_tile_counts::BoundTileCounts;
-use crate::cgt::pyramids::complex_tile_depths::ComplexTileDepths;
-use crate::cgt::pyramids::placements::{Placement, Placements};
-use crate::cgt::pyramids::pyramid::Pyramid;
-use crate::cgt::tile::{Tile, CELL_LEVEL};
+use crate::gct::enclosing::Enclosing;
+use crate::gct::tree::node::{Node, Tree};
+use crate::gct::pyramids::bound_tile_counts::BoundTileCounts;
+use crate::gct::pyramids::complex_tile_depths::ComplexTileDepths;
+use crate::gct::pyramids::placements::{Placement, Placements};
+use crate::gct::pyramids::pyramid::Pyramid;
+use crate::gct::tile::{Tile, CELL_LEVEL};
 
 /// What the tree is made from.
 pub struct ComplexTiles<'a> {

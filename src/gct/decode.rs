@@ -9,14 +9,14 @@
 //! there is no cycle; an assertion backs that. Decoder speed is not a
 //! goal here; simplicity is.
 
-use crate::cgt::encoder::bit_stream::BitStream;
-use crate::cgt::encoder::{read, ReadBack};
-use crate::cgt::pyramids::pyramid::Pyramid;
-use crate::cgt::tile::{tile_side, Tile, CELL_LEVEL, DIRECTIONS};
-use crate::cgt::tree::node::{Node, Tree};
+use crate::gct::encoder::bit_stream::BitStream;
+use crate::gct::encoder::{read, ReadBack};
+use crate::gct::pyramids::pyramid::Pyramid;
+use crate::gct::tile::{tile_side, Tile, CELL_LEVEL, DIRECTIONS};
+use crate::gct::tree::node::{Node, Tree};
 use crate::Bitmap;
 
-/// Decodes a stream written by [`crate::cgt::encode`].
+/// Decodes a stream written by [`crate::gct::encode`].
 pub fn decode(stream: &BitStream) -> Bitmap {
     let ReadBack { tree, mut cells, mut known } = read(stream);
     let mut left = (0..=u8::MAX).flat_map(|y| (0..=u8::MAX).map(move |x| (x, y))).filter(|&(x, y)| !known.get(x, y)).count();

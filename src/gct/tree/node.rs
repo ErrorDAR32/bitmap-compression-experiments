@@ -13,8 +13,8 @@
 //! Values are not held here: a related tile's values are the cells of
 //! its resolution tiles, which are the bitmap's own.
 
-use crate::cgt::pyramids::pyramid::{Pyramid, PyramidShape};
-use crate::cgt::tile::{Tile, CELL_LEVEL};
+use crate::gct::pyramids::pyramid::{Pyramid, PyramidShape};
+use crate::gct::tile::{Tile, CELL_LEVEL};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Node {

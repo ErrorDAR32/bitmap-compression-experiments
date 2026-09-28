@@ -1,4 +1,4 @@
-//! cgt, the complex greedy tiler: an encoding of a bitmap in four
+//! gct, the greedy complex tiler: an encoding of a bitmap in four
 //! steps, each its own folder or file, each reading only the one before
 //! it --
 //!
@@ -12,7 +12,7 @@
 //!    [`decode`](fn@decode) then resolves copies into cells.
 //!
 //! Everything per tile is held in [`pyramids`]. The grammar and what
-//! each bit costs are in `docs/cgt.md`.
+//! each bit costs are in `docs/gct.md`.
 
 pub mod complex_tiler;
 pub mod decode;
@@ -31,7 +31,7 @@ use tree::from_complex_tiles::ComplexTiles;
 
 pub use decode::decode;
 
-/// The tree the complex greedy tiler makes of `bitmap`: the greedy
+/// The tree the greedy complex tiler makes of `bitmap`: the greedy
 /// tiler's placements, the complex tiler's depths over them, and the
 /// tree read off both.
 pub fn tree(bitmap: &Bitmap) -> Pyramid {

@@ -14,7 +14,7 @@
 //! level is read off the cells, a row of a tile at a time.
 
 use super::pyramid::{Pyramid, PyramidShape};
-use crate::cgt::tile::{tile_side, tiles_across, Tile, CELL_LEVEL, DIRECTIONS};
+use crate::gct::tile::{tile_side, tiles_across, Tile, CELL_LEVEL, DIRECTIONS};
 use crate::Bitmap;
 
 const NEAR: u64 = 0b01;

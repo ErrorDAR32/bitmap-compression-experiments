@@ -42,18 +42,18 @@
 //! | [`pyramid`] | dsrn's homogeneity pyramid: for every tile of every size, whether it is all one thing |
 //! | [`dsrn`] | the baseline encoding: what a region says, what it costs, how it is written and read |
 //! | [`dsrn_analysis`] | experiments on dsrn, which are not the encoding |
-//! | [`cgt`] | the complex greedy tiler, the encoding being built to beat dsrn (`docs/cgt.md`); depends on nothing in `dsrn` |
+//! | [`gct`] | the greedy complex tiler, the encoding being built to beat dsrn (`docs/gct.md`); depends on nothing in `dsrn` |
 //! | [`samples`] | the bitmaps everything is measured on, and where the seed comes from |
 //! | [`table`] | printing any of it, which every experiment does the same way |
 //!
-//! `tests/` holds cgt's tests and its comparison against dsrn.
+//! `tests/` holds gct's tests and its comparison against dsrn.
 //!
 //! `docs/design_statements.md` is what every decision here is weighed
 //! against, and `docs/testing_protocol.md` is how a change to any of
 //! it gets measured.
 
 pub mod bitmap;
-pub mod cgt;
+pub mod gct;
 pub mod table;
 pub mod dsrn;
 pub mod dsrn_analysis;

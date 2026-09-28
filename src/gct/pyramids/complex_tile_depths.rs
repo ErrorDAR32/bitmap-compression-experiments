@@ -6,7 +6,7 @@
 //! never finer than 2x2.
 
 use super::pyramid::{Pyramid, PyramidShape};
-use crate::cgt::tile::{Tile, CELL_LEVEL};
+use crate::gct::tile::{Tile, CELL_LEVEL};
 
 const NONE: u64 = 0;
 

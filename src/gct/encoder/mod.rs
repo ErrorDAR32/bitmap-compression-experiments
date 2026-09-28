@@ -3,17 +3,17 @@
 //! (`tree_grammar`), with each complex tile's payload (`payload`) after
 //! its body, then the residual pass (`residual`) -- the last two being
 //! plain runs of value bits. Nothing here decides anything; resolving
-//! copies into cells is [`crate::cgt::decode`](mod@crate::cgt::decode)'s job.
+//! copies into cells is [`crate::gct::decode`](mod@crate::gct::decode)'s job.
 
 pub mod bit_stream;
 mod payload;
 mod residual;
 mod tree_grammar;
 
-use crate::cgt::pyramids::pyramid::Pyramid;
-use crate::cgt::tile::Tile;
-use crate::cgt::enclosing::Enclosing;
-use crate::cgt::tree::node::Tree;
+use crate::gct::pyramids::pyramid::Pyramid;
+use crate::gct::tile::Tile;
+use crate::gct::enclosing::Enclosing;
+use crate::gct::tree::node::Tree;
 use crate::Bitmap;
 use bit_stream::BitStream;
 

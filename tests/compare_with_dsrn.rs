@@ -1,15 +1,15 @@
-//! cgt against dsrn, the baseline it has to beat: bits a bitmap on
+//! gct against dsrn, the baseline it has to beat: bits a bitmap on
 //! every family, and how much each of the two masks. A measurement,
-//! printed, not a pass/fail check -- though it still stops if cgt loses
+//! printed, not a pass/fail check -- though it still stops if gct loses
 //! a cell.
 //!
 //! `cargo test --release --test compare_with_dsrn -- --ignored --nocapture`
 
 mod common;
 
-use bitmap::cgt::encoder::write;
-use bitmap::cgt::tree::stats::TreeStats;
-use bitmap::cgt::{decode, tree};
+use bitmap::gct::encoder::write;
+use bitmap::gct::tree::stats::TreeStats;
+use bitmap::gct::{decode, tree};
 use bitmap::dsrn::{encode as dsrn_encode, Encoded, FourByFour, Knobs, Masking, Workspace};
 use bitmap::pyramid::Pyramid;
 use bitmap::samples::every_family;
@@ -30,7 +30,7 @@ fn compare_with_dsrn() {
     let (mut pyramid, mut work, mut dsrn_out) = (Pyramid::new(), Workspace::new(), Encoded::default());
 
     for (family, maps) in every_family() {
-        let (mut dsrn_bits, mut cgt_bits, mut dsrn_nodes, mut dsrn_masked) = (0, 0, 0, 0);
+        let (mut dsrn_bits, mut gct_bits, mut dsrn_nodes, mut dsrn_masked) = (0, 0, 0, 0);
         let mut stats = TreeStats::default();
         for (case, bitmap) in maps.iter().enumerate() {
             pyramid.clear();
@@ -40,20 +40,20 @@ fn compare_with_dsrn() {
             dsrn_nodes += dsrn_out.counts.nodes;
             dsrn_masked += dsrn_out.counts.masked_nodes;
 
-            let cgt_tree = tree(bitmap);
-            let stream = write(&cgt_tree, bitmap);
-            assert_eq!(first_difference(bitmap, &decode(&stream)), None, "{family}, case {case}: cgt lost a cell");
-            cgt_bits += stream.len();
-            stats.add(&TreeStats::of(&cgt_tree));
+            let gct_tree = tree(bitmap);
+            let stream = write(&gct_tree, bitmap);
+            assert_eq!(first_difference(bitmap, &decode(&stream)), None, "{family}, case {case}: gct lost a cell");
+            gct_bits += stream.len();
+            stats.add(&TreeStats::of(&gct_tree));
         }
 
         let n = maps.len();
         let per_bitmap = |count: usize| count as f64 / n as f64;
         println!(
-            "\n  {family}, {n} bitmaps: dsrn {} bits a bitmap, cgt {} ({:+.1}%)",
+            "\n  {family}, {n} bitmaps: dsrn {} bits a bitmap, gct {} ({:+.1}%)",
             dsrn_bits / n,
-            cgt_bits / n,
-            100.0 * (cgt_bits as f64 - dsrn_bits as f64) / dsrn_bits as f64
+            gct_bits / n,
+            100.0 * (gct_bits as f64 - dsrn_bits as f64) / dsrn_bits as f64
         );
         println!("    dsrn: {} nodes a bitmap, {:.1}% masked", dsrn_nodes / n, percent(dsrn_masked, dsrn_nodes));
         let by_nesting: Vec<String> =

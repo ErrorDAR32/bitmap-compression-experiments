@@ -1,14 +1,14 @@
 //! The tree's grammar, both directions side by side: how each node of
 //! the tree is spelled out in bits, and read back. The full grammar,
-//! with its costs, is in `docs/cgt.md`.
+//! with its costs, is in `docs/gct.md`.
 
 use super::bit_stream::{BitReader, BitStream};
 use super::payload::{read_payload, write_payload};
 use super::ReadBack;
-use crate::cgt::pyramids::pyramid::Pyramid;
-use crate::cgt::tile::{levels_to_cells, Tile, CELL_LEVEL};
-use crate::cgt::enclosing::Enclosing;
-use crate::cgt::tree::node::{Node, Tree};
+use crate::gct::pyramids::pyramid::Pyramid;
+use crate::gct::tile::{levels_to_cells, Tile, CELL_LEVEL};
+use crate::gct::enclosing::Enclosing;
+use crate::gct::tree::node::{Node, Tree};
 use crate::Bitmap;
 
 /// One bit per enclosing complex tile that could relate a node, nearest

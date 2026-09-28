@@ -4,9 +4,9 @@
 
 use super::bit_stream::{BitReader, BitStream};
 use super::ReadBack;
-use crate::cgt::pyramids::pyramid::Pyramid;
-use crate::cgt::tile::{tiles_across, Tile, CELL_LEVEL};
-use crate::cgt::tree::node::{Node, Tree};
+use crate::gct::pyramids::pyramid::Pyramid;
+use crate::gct::tile::{tiles_across, Tile, CELL_LEVEL};
+use crate::gct::tree::node::{Node, Tree};
 use crate::Bitmap;
 
 /// Every cell of every hole.

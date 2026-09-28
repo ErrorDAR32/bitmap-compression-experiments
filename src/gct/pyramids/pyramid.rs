@@ -13,7 +13,7 @@
 //! element from its children's: set the finest level, then propagate
 //! once, and every coarser level follows.
 
-use crate::cgt::tile::Tile;
+use crate::gct::tile::Tile;
 
 /// The four parameters every pyramid is built from.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

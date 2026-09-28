@@ -1,9 +1,9 @@
 //! The complex tiles enclosing a node, outermost first, by their
 //! resolutions -- and the one rule for which of them can relate a node.
 
-use crate::cgt::pyramids::bound_tile_counts::BoundTileCounts;
-use crate::cgt::pyramids::pyramid::Pyramid;
-use crate::cgt::tile::Tile;
+use crate::gct::pyramids::bound_tile_counts::BoundTileCounts;
+use crate::gct::pyramids::pyramid::Pyramid;
+use crate::gct::tile::Tile;
 
 #[derive(Clone, Default, Debug)]
 pub struct Enclosing {

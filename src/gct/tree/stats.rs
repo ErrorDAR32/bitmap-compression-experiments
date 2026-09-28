@@ -5,10 +5,10 @@
 //! counted once, whatever its size, and belongs to the complex tile
 //! whose body directly holds it.
 
-use crate::cgt::pyramids::pyramid::Pyramid;
-use crate::cgt::tile::Tile;
-use crate::cgt::enclosing::Enclosing;
-use crate::cgt::tree::node::{Node, Tree};
+use crate::gct::pyramids::pyramid::Pyramid;
+use crate::gct::tile::Tile;
+use crate::gct::enclosing::Enclosing;
+use crate::gct::tree::node::{Node, Tree};
 
 #[derive(Default, Clone, Debug)]
 pub struct TreeStats {

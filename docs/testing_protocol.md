@@ -30,9 +30,9 @@ bitmap by hand, to pin a known case -- never to measure anything.
 
 | tier | runs on | command |
 |---|---|---|
-| fine | one bitmap per test: drawn by hand, or grown from a fixed seed | `cargo test --test cgt_fine` |
-| fast | a small sample from the seed: every shape and plan at its `tested` count | `cargo test --test cgt_fast` |
-| complete | every family at its `timed` count, plus a moderate sample from a second seed base | `cargo test --release --test cgt_complete -- --ignored` |
+| fine | one bitmap per test: drawn by hand, or grown from a fixed seed | `cargo test --test gct_fine` |
+| fast | a small sample from the seed: every shape and plan at its `tested` count | `cargo test --test gct_fast` |
+| complete | every family at its `timed` count, plus a moderate sample from a second seed base | `cargo test --release --test gct_complete -- --ignored` |
 
 Plain `cargo test` runs fine and fast. The measurement against dsrn,
 `compare_with_dsrn`, is ignored like the complete tier and prints its

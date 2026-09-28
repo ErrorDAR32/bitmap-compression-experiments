@@ -13,7 +13,7 @@
 
 use super::placements::{Placement, Placements};
 use super::pyramid::{Pyramid, PyramidShape};
-use crate::cgt::tile::{Tile, CELL_LEVEL};
+use crate::gct::tile::{Tile, CELL_LEVEL};
 
 /// Enough for every 2x2 tile of the whole bitmap, 4^7.
 const COUNT_BITS: usize = 16;

@@ -2,18 +2,18 @@
 //! seed, so a failure points at one small, known case. Each also pins
 //! down something specific the bitmap is meant to exercise.
 //!
-//! `cargo test --test cgt_fine`
+//! `cargo test --test gct_fine`
 
 mod common;
 
-use bitmap::cgt::pyramids::bound_tile_counts::BoundTileCounts;
-use bitmap::cgt::pyramids::copyable::Copyable;
-use bitmap::cgt::pyramids::homogeneity::Homogeneity;
-use bitmap::cgt::pyramids::pyramid::{Pyramid, PyramidShape};
-use bitmap::cgt::tile::Tile;
-use bitmap::cgt::tree::node::{Node, Tree};
-use bitmap::cgt::tree::stats::TreeStats;
-use bitmap::cgt::{encode, greedy_tiler::greedy_tiler, tree};
+use bitmap::gct::pyramids::bound_tile_counts::BoundTileCounts;
+use bitmap::gct::pyramids::copyable::Copyable;
+use bitmap::gct::pyramids::homogeneity::Homogeneity;
+use bitmap::gct::pyramids::pyramid::{Pyramid, PyramidShape};
+use bitmap::gct::tile::Tile;
+use bitmap::gct::tree::node::{Node, Tree};
+use bitmap::gct::tree::stats::TreeStats;
+use bitmap::gct::{encode, greedy_tiler::greedy_tiler, tree};
 use bitmap::samples::{one_grown, one_laid_out, PLANS};
 use bitmap::Bitmap;
 use common::check;

@@ -3,7 +3,7 @@
 //! Nothing in this crate is measured on a bitmap anybody drew by hand.
 //! Every sample comes from here, tests and measurements alike, so
 //! changing what anything runs on is a change in one file. The one
-//! exception is a fine test (`tests/cgt_fine.rs`), which may draw one
+//! exception is a fine test (`tests/gct_fine.rs`), which may draw one
 //! small bitmap by hand to pin a known case -- never to measure.
 //!
 //! A sample is settled entirely by four numbers, which is what makes a
