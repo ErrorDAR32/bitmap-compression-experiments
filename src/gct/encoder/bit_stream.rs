@@ -28,7 +28,7 @@ impl BitStream {
     }
 
     /// Writes the low `width` bits of `value`.
-    pub fn push_value(&mut self, value: u64, width: usize) {
+    pub fn push_value(&mut self, value: u64, width: u8) {
         for bit in 0..width {
             self.push(value >> bit & 1 == 1);
         }
@@ -55,7 +55,7 @@ impl BitReader<'_> {
     }
 
     /// Reads `width` bits, as written by [`BitStream::push_value`].
-    pub fn value(&mut self, width: usize) -> u64 {
+    pub fn value(&mut self, width: u8) -> u64 {
         (0..width).fold(0, |value, bit| value | (self.bit() as u64) << bit)
     }
 }

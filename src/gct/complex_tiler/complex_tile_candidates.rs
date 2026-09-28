@@ -27,7 +27,7 @@ use std::cmp::Ordering;
 
 pub struct Candidate {
     pub tile: Tile,
-    pub size_offset: usize,
+    pub size_offset: u8,
     unmasked_cells: u64,
     total_cells: u64,
     /// The resolutions of the complex tiles `tile` is nested in.

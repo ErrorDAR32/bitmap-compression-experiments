@@ -15,7 +15,7 @@ use crate::Bitmap;
 /// whole tile's resolution tiles when it masks nothing, otherwise every
 /// node in its body unmasked in it, in body order -- including nodes
 /// inside complex tiles nested in it.
-fn payload_tiles(tree: &Pyramid, tile: Tile, nesting: usize, size_offset: usize) -> Vec<Tile> {
+fn payload_tiles(tree: &Pyramid, tile: Tile, nesting: u8, size_offset: u8) -> Vec<Tile> {
     let resolution = tile.level + size_offset;
     let Node::ComplexTile { masks: true, .. } = tree.node(tile) else {
         return tile.tiles_at_size_offset(size_offset);
@@ -34,13 +34,13 @@ fn payload_tiles(tree: &Pyramid, tile: Tile, nesting: usize, size_offset: usize)
     tiles
 }
 
-pub fn write_payload(tree: &Pyramid, bitmap: &Bitmap, tile: Tile, nesting: usize, size_offset: usize, out: &mut BitStream) {
+pub fn write_payload(tree: &Pyramid, bitmap: &Bitmap, tile: Tile, nesting: u8, size_offset: u8, out: &mut BitStream) {
     for part in payload_tiles(tree, tile, nesting, size_offset) {
         out.push(part.top_left_value(bitmap));
     }
 }
 
-pub fn read_payload(reader: &mut BitReader, tile: Tile, nesting: usize, size_offset: usize, read: &mut StreamContents) {
+pub fn read_payload(reader: &mut BitReader, tile: Tile, nesting: u8, size_offset: u8, read: &mut StreamContents) {
     for part in payload_tiles(&read.tree, tile, nesting, size_offset) {
         read.bind(part, reader.bit());
     }

@@ -17,9 +17,9 @@ pub trait ComplexTileSizeOffsets {
     fn complex_tile_size_offsets() -> Self;
 
     /// The size offset of the complex tile at exactly `tile`, if it is one.
-    fn complex_tile_size_offset(&self, tile: Tile) -> Option<usize>;
+    fn complex_tile_size_offset(&self, tile: Tile) -> Option<u8>;
 
-    fn set_complex_tile_size_offset(&mut self, tile: Tile, size_offset: usize);
+    fn set_complex_tile_size_offset(&mut self, tile: Tile, size_offset: u8);
 }
 
 impl ComplexTileSizeOffsets for Pyramid {
@@ -27,15 +27,15 @@ impl ComplexTileSizeOffsets for Pyramid {
         Pyramid::new(SHAPE)
     }
 
-    fn complex_tile_size_offset(&self, tile: Tile) -> Option<usize> {
+    fn complex_tile_size_offset(&self, tile: Tile) -> Option<u8> {
         if !self.holds(tile) {
             return None;
         }
         let size_offset = self.get(tile);
-        (size_offset != NONE).then_some(size_offset as usize)
+        (size_offset != NONE).then_some(size_offset as u8)
     }
 
-    fn set_complex_tile_size_offset(&mut self, tile: Tile, size_offset: usize) {
+    fn set_complex_tile_size_offset(&mut self, tile: Tile, size_offset: u8) {
         assert!(size_offset >= 1, "a complex tile's resolution is finer than itself");
         self.set(tile, size_offset as u64);
     }

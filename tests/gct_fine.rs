@@ -93,7 +93,7 @@ fn rectangles_and_circles_round_trip() {
 #[test]
 fn one_city_round_trips_with_complex_tiles() {
     let bitmap = one_laid_out(FIXED_SEED, &PLANS[0]);
-    assert!(TreeStats::of(&tree(&bitmap)).tiler_outputs() > 0, "a city this regular forms complex tiles");
+    assert!(TreeStats::of(&tree(&bitmap)).complex_tiles() > 0, "a city this regular forms complex tiles");
     check(&bitmap, "one city");
 }
 

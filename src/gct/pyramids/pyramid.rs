@@ -24,9 +24,9 @@ pub struct PyramidShape {
     /// square block, fill their parent.
     pub arity: usize,
     /// The coarsest level held.
-    pub coarsest_level: usize,
+    pub coarsest_level: u8,
     /// The finest level held.
-    pub finest_level: usize,
+    pub finest_level: u8,
     /// Bits per element. Divides 64, so an element never straddles two
     /// words.
     pub element_bits: usize,
@@ -41,7 +41,7 @@ impl PyramidShape {
     }
 
     /// Tiles across one row of `level`'s plane.
-    fn tiles_across(self, level: usize) -> usize {
+    fn tiles_across(self, level: u8) -> usize {
         self.children_across().pow(level as u32)
     }
 }
@@ -108,9 +108,10 @@ impl Pyramid {
     /// the shift within it.
     fn locate(&self, tile: Tile) -> (usize, usize, usize) {
         debug_assert!(self.holds(tile), "{tile:?} is outside this pyramid's levels");
-        let index = tile.y * self.shape.tiles_across(tile.level) + tile.x;
+        let index = tile.y as usize * self.shape.tiles_across(tile.level) + tile.x as usize;
         let per_word = u64::BITS as usize / self.shape.element_bits;
-        (tile.level - self.shape.coarsest_level, index / per_word, (index % per_word) * self.shape.element_bits)
+        let plane = (tile.level - self.shape.coarsest_level) as usize;
+        (plane, index / per_word, (index % per_word) * self.shape.element_bits)
     }
 
     fn element_mask(&self) -> u64 {
@@ -155,7 +156,7 @@ impl Pyramid {
 
     /// The tile one level coarser that holds `tile`.
     fn parent_of(&self, tile: Tile) -> Tile {
-        let across = self.shape.children_across();
+        let across = self.shape.children_across() as u8;
         Tile { level: tile.level - 1, x: tile.x / across, y: tile.y / across }
     }
 
@@ -165,15 +166,16 @@ impl Pyramid {
         let mut out = Vec::with_capacity(self.shape.arity);
         for row in 0..across {
             for col in 0..across {
-                out.push(Tile { level: tile.level + 1, x: tile.x * across + col, y: tile.y * across + row });
+                let (x, y) = (tile.x as usize * across + col, tile.y as usize * across + row);
+                out.push(Tile { level: tile.level + 1, x: x as u8, y: y as u8 });
             }
         }
         out
     }
 
     /// Every tile of one level, in reading order.
-    pub fn tiles_of_level(&self, level: usize) -> impl Iterator<Item = Tile> {
-        let across = self.shape.tiles_across(level);
-        (0..across).flat_map(move |y| (0..across).map(move |x| Tile { level, x, y }))
+    pub fn tiles_of_level(&self, level: u8) -> impl Iterator<Item = Tile> {
+        let last = (self.shape.tiles_across(level) - 1) as u8;
+        (0..=last).flat_map(move |y| (0..=last).map(move |x| Tile { level, x, y }))
     }
 }

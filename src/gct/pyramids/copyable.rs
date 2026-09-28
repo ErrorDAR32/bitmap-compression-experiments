@@ -2,7 +2,7 @@
 //! it could copy, two bits a tile --
 //!
 //! - near: some same-size neighbour of the tile itself, in
-//!   [`DIRECTIONS`], holds the same cells;
+//!   [`DIRECTIONS`](crate::gct::tile::DIRECTIONS), holds the same cells;
 //! - far: some same-size neighbour of the tile's *parent*, at the child
 //!   position the tile occupies within it, does -- the same tile two
 //!   tiles away.
@@ -14,7 +14,7 @@
 //! level is read off the cells.
 
 use super::pyramid::{Pyramid, PyramidShape};
-use crate::gct::tile::{same_cells, Tile, CELL_LEVEL, DIRECTIONS};
+use crate::gct::tile::{directions, same_cells, Tile, CELL_LEVEL};
 use crate::Bitmap;
 
 const NEAR: u64 = 0b01;
@@ -46,7 +46,7 @@ impl Copyable for Pyramid {
         for level in 0..=SHAPE.finest_level {
             for tile in pyramid.tiles_of_level(level).collect::<Vec<_>>() {
                 let matches_at = |distance: usize| {
-                    (0..DIRECTIONS.len()).any(|direction| {
+                    directions().any(|direction| {
                         tile.neighbour_at(direction, distance).is_some_and(|other| same_cells(bitmap, tile, other))
                     })
                 };

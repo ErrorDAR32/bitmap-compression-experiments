@@ -26,7 +26,7 @@ use crate::Bitmap;
 /// it may be, and the resolutions of the complex tiles it is nested in.
 struct SearchArea {
     area: Tile,
-    coarsest_level: usize,
+    coarsest_level: u8,
     nested: NestedResolutions,
 }
 

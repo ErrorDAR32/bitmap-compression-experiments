@@ -15,31 +15,31 @@ use crate::Bitmap;
 /// it, nearest first: unmasked in it, or masked.
 const UNMASKED: u64 = 0;
 const MASKED: u64 = 1;
-const MASK_BIT_WIDTH: usize = 1;
+const MASK_BIT_WIDTH: u8 = 1;
 
 const LEAF: u64 = 1;
 const SUBDIVIDE: u64 = 0;
 const RESIDUAL: u64 = 0;
-const LEAF_WIDTH: usize = 1;
+const LEAF_WIDTH: u8 = 1;
 
 const COPY: u64 = 0;
 const BIND: u64 = 1;
-const CODE_WIDTH: usize = 1;
+const CODE_WIDTH: u8 = 1;
 
-const FAR_WIDTH: usize = 1;
-const DIRECTION_WIDTH: usize = 2;
+const FAR_WIDTH: u8 = 1;
+const DIRECTION_WIDTH: u8 = 2;
 
 /// Whether a complex tile deeper than 1 masks anything at all. Skipped
 /// at size offsets 0 and 1, which never mask.
 const NO_MASKING: u64 = 0;
 const MASKING: u64 = 1;
-const MASK_PRESENT_WIDTH: usize = 1;
+const MASK_PRESENT_WIDTH: u8 = 1;
 
 /// How many bits name a complex tile's size offset at `level`: `0` (a tile)
 /// up to a 2x2 resolution -- a 1x1 resolution never is one.
-fn resolution_width(level: usize) -> usize {
+fn resolution_width(level: u8) -> u8 {
     let size_offsets = levels_to_cells(level);
-    (usize::BITS - (size_offsets - 1).leading_zeros()) as usize
+    (u8::BITS - (size_offsets - 1).leading_zeros()) as u8
 }
 
 /// Writes `tile`'s node and everything under it.
@@ -102,7 +102,7 @@ pub fn write_node(tree: &Pyramid, bitmap: &Bitmap, tile: Tile, nested: &mut Nest
 /// Reads `tile`'s node and everything under it, mirroring
 /// [`write_node`].
 pub fn read_node(reader: &mut BitReader, tile: Tile, nested: &mut NestedResolutions, read: &mut StreamContents) {
-    let able_to_unmask: Vec<usize> = nested.able_to_unmask(tile).collect();
+    let able_to_unmask: Vec<u8> = nested.able_to_unmask(tile).collect();
     for nesting in able_to_unmask {
         if reader.value(MASK_BIT_WIDTH) == UNMASKED {
             read.tree.set_node(tile, Node::Unmasked { nesting });
@@ -129,11 +129,11 @@ pub fn read_node(reader: &mut BitReader, tile: Tile, nested: &mut NestedResoluti
     }
     if reader.value(CODE_WIDTH) == COPY {
         let far = reader.value(FAR_WIDTH) != 0;
-        let direction = reader.value(DIRECTION_WIDTH) as usize;
+        let direction = reader.value(DIRECTION_WIDTH) as u8;
         read.tree.set_node(tile, Node::Copied { far, direction });
         return;
     }
-    let size_offset = reader.value(resolution_width(tile.level)) as usize;
+    let size_offset = reader.value(resolution_width(tile.level)) as u8;
     let masks = size_offset > 1 && reader.value(MASK_PRESENT_WIDTH) == MASKING;
     read.tree.set_node(tile, Node::ComplexTile { size_offset, masks });
     let nesting = nested.next_nesting();

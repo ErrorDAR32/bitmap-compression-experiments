@@ -34,7 +34,7 @@ impl TreeStats {
         self.unmasked_in_outer + self.masked_copied + self.masked_tile + self.masked_nested + self.masked_residual
     }
 
-    pub fn tiler_outputs(&self) -> usize {
+    pub fn complex_tiles(&self) -> usize {
         self.complex_tiles_at_nesting.iter().sum()
     }
 
@@ -57,7 +57,7 @@ impl TreeStats {
 
     /// `inside`: the nesting of the complex tile whose body directly
     /// holds `tile`, if any.
-    fn count(&mut self, tree: &Pyramid, tile: Tile, inside: Option<usize>, nested: &mut NestedResolutions) {
+    fn count(&mut self, tree: &Pyramid, tile: Tile, inside: Option<u8>, nested: &mut NestedResolutions) {
         match tree.node(tile) {
             Node::Unmasked { nesting } if inside == Some(nesting) => {
                 self.unmasked += 1 << (2 * (nested.resolution(nesting) - tile.level));
@@ -76,10 +76,11 @@ impl TreeStats {
                     self.masked_nested += 1;
                 }
                 let nesting = nested.next_nesting();
-                if self.complex_tiles_at_nesting.len() <= nesting {
-                    self.complex_tiles_at_nesting.resize(nesting + 1, 0);
+                let at = nesting as usize;
+                if self.complex_tiles_at_nesting.len() <= at {
+                    self.complex_tiles_at_nesting.resize(at + 1, 0);
                 }
-                self.complex_tiles_at_nesting[nesting] += 1;
+                self.complex_tiles_at_nesting[at] += 1;
                 if !masks {
                     self.unmasked += 1 << (2 * size_offset);
                     return;

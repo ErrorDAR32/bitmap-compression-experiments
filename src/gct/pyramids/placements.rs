@@ -12,7 +12,7 @@ use crate::gct::tile::{Tile, CELL_LEVEL};
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Placement {
     Bound(bool),
-    Copied { far: bool, direction: usize },
+    Copied { far: bool, direction: u8 },
 }
 
 /// `0`: nothing placed. `1`/`2`: bound to false/true. `8..=15`: copied,
@@ -38,7 +38,7 @@ fn from_code(code: u64) -> Option<Placement> {
         BOUND_FALSE => Some(Placement::Bound(false)),
         BOUND_TRUE => Some(Placement::Bound(true)),
         _ if code & COPIED != 0 => {
-            Some(Placement::Copied { far: code & FAR != 0, direction: (code & DIRECTION_MASK) as usize })
+            Some(Placement::Copied { far: code & FAR != 0, direction: (code & DIRECTION_MASK) as u8 })
         }
         _ => unreachable!("no placement has code {code}"),
     }

@@ -5,21 +5,16 @@
 use super::bit_stream::{BitReader, BitStream};
 use super::StreamContents;
 use crate::gct::pyramids::pyramid::Pyramid;
-use crate::gct::tile::{tiles_across, Tile, CELL_LEVEL};
+use crate::gct::tile::{Tile, CELL_LEVEL};
 use crate::gct::pyramids::tree::{Node, Tree};
 use crate::Bitmap;
 
 /// Every cell of every residual 2x2.
 fn residual_cell_bitmap(tree: &Pyramid) -> Bitmap {
     let mut residual = Bitmap::new();
-    let level = CELL_LEVEL - 1;
-    let across = tiles_across(level);
-    for y in 0..across {
-        for x in 0..across {
-            let tile = Tile { level, x, y };
-            if tree.node(tile) == Node::Residual {
-                tile.set_in(&mut residual);
-            }
+    for tile in Tile::all_of_level(CELL_LEVEL - 1) {
+        if tree.node(tile) == Node::Residual {
+            tile.set_in(&mut residual);
         }
     }
     residual

@@ -27,14 +27,14 @@ pub enum Node {
     /// `nesting` naming which (`0` the outermost): one value per tile of
     /// its resolution under this one, bound in that complex tile's
     /// payload.
-    Unmasked { nesting: usize },
+    Unmasked { nesting: u8 },
     /// One placed tile, copying a same-size area.
-    Copied { far: bool, direction: usize },
+    Copied { far: bool, direction: u8 },
     /// A complex tile whose resolution is `size_offset` levels finer.
     /// When it `masks` nothing, every tile of its resolution is unmasked
     /// in it (always so at size offsets 0 and 1); when it does, its four
     /// children hold its body.
-    ComplexTile { size_offset: usize, masks: bool },
+    ComplexTile { size_offset: u8, masks: bool },
     /// A 2x2 that is not one bound tile: its four cells are left to the
     /// residual pass.
     Residual,
@@ -78,12 +78,12 @@ fn from_code(code: u64) -> Node {
     match code & KIND_MASK {
         ABSENT => Node::Absent,
         SUBDIVIDED => Node::Subdivided,
-        UNMASKED => Node::Unmasked { nesting: (parameter & NESTING_MASK) as usize },
+        UNMASKED => Node::Unmasked { nesting: (parameter & NESTING_MASK) as u8 },
         COPIED => Node::Copied {
             far: parameter & FAR != 0,
-            direction: ((parameter >> DIRECTION_SHIFT) & DIRECTION_MASK) as usize,
+            direction: ((parameter >> DIRECTION_SHIFT) & DIRECTION_MASK) as u8,
         },
-        COMPLEX_TILE => Node::ComplexTile { size_offset: (parameter & SIZE_OFFSET_MASK) as usize, masks: parameter & MASKS != 0 },
+        COMPLEX_TILE => Node::ComplexTile { size_offset: (parameter & SIZE_OFFSET_MASK) as u8, masks: parameter & MASKS != 0 },
         RESIDUAL => Node::Residual,
         kind => unreachable!("no node kind {kind}"),
     }

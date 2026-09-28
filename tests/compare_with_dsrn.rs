@@ -61,7 +61,7 @@ fn compare_with_dsrn() {
         println!(
             "    complex tiles a bitmap, by nesting: [{}], {:.1}% of them masking; tiles a bitmap: {:.1}",
             by_nesting.join(", "),
-            percent(stats.complex_tiles_that_mask, stats.tiler_outputs()),
+            percent(stats.complex_tiles_that_mask, stats.complex_tiles()),
             per_bitmap(stats.tiles),
         );
         let body_nodes = stats.unmasked + stats.masked();
