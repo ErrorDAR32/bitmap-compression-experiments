@@ -27,6 +27,14 @@ fn set_node(complex_tiling: &Pyramid, tile: Tile, nested: &mut NestedResolutions
                 set_node(complex_tiling, child, nested, tree);
             }
         }
+        Node::Copied { masks: true, .. } => {
+            let copy = complex_tiling.placed_at(tile).expect("a copy is placed");
+            for child in tile.children() {
+                if copy.masks(child) {
+                    set_node(complex_tiling, child, nested, tree);
+                }
+            }
+        }
         Node::ComplexTile { size_offset, masks: true } => nested.while_nested(tile.level + size_offset, |inside| {
             for child in tile.children() {
                 set_node(complex_tiling, child, inside, tree);
@@ -53,7 +61,9 @@ fn node_for(complex_tiling: &Pyramid, tile: Tile, nested: &NestedResolutions) ->
     }
     match complex_tiling.placed_at(tile) {
         Some(Placement::Bound(_)) => bound_tile,
-        Some(Placement::Copied { far, direction }) => Node::Copied { far, direction },
+        Some(Placement::Copied { far, direction, masked_children }) => {
+            Node::Copied { far, direction, masks: masked_children != 0 }
+        }
         None => match complex_tiling.complex_tile_size_offset(tile) {
             Some(size_offset) => {
                 let masks = !complex_tiling.entirely_bound_at(tile, tile.level + size_offset);

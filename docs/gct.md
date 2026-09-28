@@ -66,7 +66,13 @@ cells, coarsest first, skipping anything a coarser tile already claimed:
    `direction` indexes the four neighbours reading order puts first:
    top-left, above, top-right, left. A far copy's source is one parent
    width away, twice a near copy's.
-3. Else leave it for its four children.
+3. Else, at 8x8 or coarser, **a masking copy?** For each near and far
+   source, each child is compared with the same child of the source.
+   The source matching the most children wins (near before far, then
+   direction order); at 3 of 4 or more it is placed as a copy that
+   masks the children that do not match. Those stay unclaimed and are
+   tiled like any other tile.
+4. Else leave it for its four children.
 
 No comparison between sizes: a tile that qualifies is taken at once.
 Cells are always homogeneous, so the whole bitmap is always covered.
@@ -171,7 +177,10 @@ One level above cells (2x2):
 
 Any coarser level:
 1: leaf
-   0: copy  + 1 far/near bit + 2 direction bits
+   0: copy  + 1 far/near bit + 2 direction bits, then at 8x8 or coarser
+            0: no masking | 1: masking -- 4 child mask bits in reading
+            order (0 said by the copy, 1 masked), then each masked
+            child as a node of its own
    1: complex tile -- resolution_width(level) bits: size offset, 0 meaning a
       tile, then
         size offset 0 or 1: nothing (never masks)
@@ -196,7 +205,8 @@ both directions.
 | node | bits, after its mask bits |
 |---|---|
 | unmasked in a complex tile it is nested in | none here; its values in that tile's payload |
-| copy | `1+1+1+2 = 5` |
+| copy | `1+1+1+2 = 5`, `+1` at 8x8 or coarser |
+| masking copy | `1+1+1+2+1+4 = 10`, then its masked children |
 | tile (size offset 0) | `1+1+r+1` |
 | complex tile, size offset 1 | `1+1+r+4` |
 | complex tile, size offset > 1, no masking | `1+1+r+1+N` |
@@ -236,8 +246,13 @@ against dsrn at `Masking::Anywhere`, `FourByFour::ItsOwnGrammar`:
 
 | family | dsrn | gct |
 |---|---|---|
-| laid out like a city, 48 bitmaps | 3422 bits | 3643 bits, +6.5% |
-| grown like a blob, 84 bitmaps | 32518 bits | 32573 bits, +0.2% |
+| laid out like a city, 48 bitmaps | 3422 bits | 3419 bits, -0.1% |
+| grown like a blob, 84 bitmaps | 32518 bits | 31930 bits, -1.8% |
+
+Masking copies took city from 3643 and blob from 32573. Measured on
+the same seed, and not yet checked on a fresh one: allowing 2 of 4
+gave city 3300 and blob 32035; 3 of 4 or 2 non-homogeneous children
+gave city 3277 and blob 31926.
 
 The start level header took city from 3671 and blob from 32856. Trunk
 depths per bitmap were 2-4 on city and 3-7 on blob; a trunk of depth
@@ -251,15 +266,15 @@ tiles (city 3489, blob 32647 on the same seed). A variant giving size offset 0
 a 1-bit prefix measured city 3486 and blob 32655: nesting itself is
 roughly neutral so far.
 
-| family | dsrn nodes masked | complex tiles a bitmap, by nesting | of them masking | tiles a bitmap |
-|---|---|---|---|---|
-| city | 34.7% of 378 | 109.2, 1.3, 0.6 | 2.8% | 326.5 |
-| blob | 67.0% of 2332 | 19.0, 3.5, 0.2 | 44.7% | 4991.8 |
+| family | dsrn nodes masked | complex tiles a bitmap, by nesting | of them masking | tiles a bitmap | masking copies a bitmap |
+|---|---|---|---|---|---|
+| city | 34.7% of 378 | 51.4, 0.0 | 0.3% | 149.2 | 167.1 |
+| blob | 67.0% of 2332 | 17.8 | 29.0% | 4491.1 | 175.1 |
 
 | family | body nodes unmasked | masked: unmasked in an outer complex tile | copied | tile | nested complex tile | residual |
 |---|---|---|---|---|---|---|
-| city | 98.27% | 1.18% | 0.05% | 0.09% | 0.41% | 0.00% |
-| blob | 73.33% | 6.45% | 0.05% | 2.13% | 2.16% | 15.89% |
+| city | 99.84% | 0.06% | 0.06% | 0.02% | 0.02% | 0.00% |
+| blob | 84.58% | 0.00% | 0.03% | 0.12% | 0.00% | 15.26% |
 
 A dsrn node is any code it wrote with a mask to decide on. A complex
 tile's body nodes are counted once each: every resolution tile unmasked

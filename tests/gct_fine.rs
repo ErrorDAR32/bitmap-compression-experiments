@@ -77,7 +77,7 @@ fn a_repeated_quarter_is_a_near_copy() {
     let right_quarter = Tile { level: 1, x: 1, y: 0 };
     assert!(Pyramid::copyable(&bitmap).near_copyable(right_quarter));
     // DIRECTIONS[3] is the neighbour to the left.
-    assert_eq!(tree(&bitmap).node(right_quarter), Node::Copied { far: false, direction: 3 });
+    assert_eq!(tree(&bitmap).node(right_quarter), Node::Copied { far: false, direction: 3, masks: false });
     check(&bitmap, "a repeated quarter");
 }
 

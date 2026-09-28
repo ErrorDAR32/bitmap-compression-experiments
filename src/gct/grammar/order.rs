@@ -24,7 +24,9 @@ pub fn payload_tiles(tree: &Pyramid, tile: Tile, nesting: u8, size_offset: u8) -
             Node::Unmasked { nesting: unmasked_in } if unmasked_in == nesting => {
                 tiles.extend(at.tiles_at_size_offset(resolution - at.level));
             }
-            Node::Subdivided | Node::ComplexTile { masks: true, .. } => pending.extend(at.children().into_iter().rev()),
+            Node::Subdivided | Node::ComplexTile { masks: true, .. } | Node::Copied { masks: true, .. } => {
+                pending.extend(at.children().into_iter().rev())
+            }
             _ => {}
         }
     }

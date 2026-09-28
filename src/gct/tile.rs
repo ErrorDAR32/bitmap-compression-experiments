@@ -20,6 +20,9 @@ pub fn directions() -> impl Iterator<Item = u8> {
     0..DIRECTIONS.len() as u8
 }
 
+/// A tile is this many of its children wide.
+pub const CHILDREN_ACROSS: u8 = 2;
+
 /// Tiles across one row of a level's plane.
 pub const fn tiles_across(level: u8) -> usize {
     1 << level
@@ -72,6 +75,11 @@ impl Tile {
         let (left, top) = self.top_left_cell();
         let last = (self.side_in_cells() - 1) as u8;
         (left, top, left + last, top + last)
+    }
+
+    /// Its place among its parent's children, in reading order.
+    pub const fn child_index(self) -> u8 {
+        (self.y % CHILDREN_ACROSS) * CHILDREN_ACROSS + self.x % CHILDREN_ACROSS
     }
 
     /// Its four children, in reading order: top left, top right, bottom

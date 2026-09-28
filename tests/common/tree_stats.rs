@@ -15,6 +15,7 @@ pub struct TreeStats {
     pub tiles: usize,
     pub complex_tiles_at_nesting: Vec<usize>,
     pub complex_tiles_that_mask: usize,
+    pub copies_that_mask: usize,
     pub unmasked: usize,
     pub unmasked_in_outer: usize,
     pub masked_copied: usize,
@@ -47,6 +48,7 @@ impl TreeStats {
         }
         self.tiles += other.tiles;
         self.complex_tiles_that_mask += other.complex_tiles_that_mask;
+        self.copies_that_mask += other.copies_that_mask;
         self.unmasked += other.unmasked;
         self.unmasked_in_outer += other.unmasked_in_outer;
         self.masked_copied += other.masked_copied;
@@ -63,7 +65,17 @@ impl TreeStats {
                 self.unmasked += 1 << (2 * (nested.resolution(nesting) - tile.level));
             }
             Node::Unmasked { .. } => self.unmasked_in_outer += 1,
-            Node::Copied { .. } if inside.is_some() => self.masked_copied += 1,
+            Node::Copied { masks, .. } => {
+                if inside.is_some() {
+                    self.masked_copied += 1;
+                }
+                if masks {
+                    self.copies_that_mask += 1;
+                    for child in tile.children() {
+                        self.count(tree, child, inside, nested);
+                    }
+                }
+            }
             Node::Residual if inside.is_some() => self.masked_residual += 1,
             Node::ComplexTile { size_offset: 0, .. } => {
                 self.tiles += 1;
@@ -97,7 +109,7 @@ impl TreeStats {
                     self.count(tree, child, inside, nested);
                 }
             }
-            Node::Copied { .. } | Node::Residual | Node::Absent => {}
+            Node::Residual | Node::Absent => {}
         }
     }
 }

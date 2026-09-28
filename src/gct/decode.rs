@@ -87,7 +87,19 @@ fn read_node(reader: &mut BitReader, tile: Tile, nested: &mut NestedResolutions,
     if reader.value(CODE_WIDTH) == COPY {
         let far = reader.value(FAR_WIDTH) != 0;
         let direction = reader.value(DIRECTION_WIDTH) as u8;
-        read.tree.set_node(tile, Node::Copied { far, direction });
+        let masks = copy_may_mask(tile.level) && reader.value(MASK_PRESENT_WIDTH) == MASKING;
+        read.tree.set_node(tile, Node::Copied { far, direction, masks });
+        if masks {
+            let mut masked = Vec::new();
+            for child in tile.children() {
+                if reader.value(MASK_BIT_WIDTH) == MASKED {
+                    masked.push(child);
+                }
+            }
+            for child in masked {
+                read_node(reader, child, nested, read);
+            }
+        }
         return;
     }
     let size_offset = reader.value(resolution_width(tile.level)) as u8;
@@ -136,11 +148,13 @@ pub fn decode(stream: &BitStream) -> Bitmap {
     cell_values
 }
 
-/// The cell a copied cell reads from: the same cell of the copy's
-/// source, one tile side away for a near copy, two for a far one.
+/// The cell a copied cell reads from: the same cell of its nearest
+/// copy's source, one tile side away for a near copy, two for a far
+/// one. The nearest, since a masking copy's masked children may copy
+/// again, from somewhere else.
 fn copy_source(tree: &Pyramid, cell: Tile) -> Tile {
-    for level in 0..CELL_LEVEL {
-        if let Node::Copied { far, direction } = tree.node(cell.ancestor(level)) {
+    for level in (0..CELL_LEVEL).rev() {
+        if let Node::Copied { far, direction, .. } = tree.node(cell.ancestor(level)) {
             let distance = if far { FAR_DISTANCE } else { NEAR_DISTANCE };
             return cell
                 .neighbour_at(direction, tile_side(level) * distance)

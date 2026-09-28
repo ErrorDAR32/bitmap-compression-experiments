@@ -18,8 +18,9 @@ use crate::gct::tile::{Tile, CELL_LEVEL};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Node {
-    /// No node at this tile: it lies inside a coarser node's tile, or is
-    /// finer than the 2x2 floor.
+    /// No node at this tile: it lies inside a coarser node's tile -- a
+    /// leaf's, or a child a masking copy says -- or is finer than the
+    /// 2x2 floor.
     Absent,
     /// The same question asked again of this tile's four children.
     Subdivided,
@@ -28,8 +29,10 @@ pub enum Node {
     /// its resolution under this one, bound in that complex tile's
     /// payload.
     Unmasked { nesting: u8 },
-    /// One placed tile, copying a same-size area.
-    Copied { far: bool, direction: u8 },
+    /// One placed tile, copying a same-size area. When it `masks`, it
+    /// says only its children holding no node: each child with a node
+    /// is masked in it, and said by that node.
+    Copied { far: bool, direction: u8, masks: bool },
     /// A complex tile whose resolution is `size_offset` levels finer.
     /// When it `masks` nothing, every tile of its resolution is unmasked
     /// in it (always so at size offsets 0 and 1); when it does, its four
@@ -49,12 +52,13 @@ const UNMASKED: u64 = 2;
 const COPIED: u64 = 3;
 const COMPLEX_TILE: u64 = 4;
 const RESIDUAL: u64 = 5;
-/// Copied: far in parameter bit 0, direction in bits 1-2.
+/// Copied: far in parameter bit 0, direction in bits 1-2, masks in bit 3.
 const FAR: u64 = 0b1;
 const DIRECTION_SHIFT: u64 = 1;
 const DIRECTION_MASK: u64 = 0b11;
 /// Complex tile: size offset in parameter bits 0-2, masks in bit 3.
 const SIZE_OFFSET_MASK: u64 = 0b111;
+/// Masks, for both copies and complex tiles.
 const MASKS: u64 = 0b1000;
 const NESTING_MASK: u64 = 0b1111;
 
@@ -66,7 +70,9 @@ fn to_code(node: Node) -> u64 {
             assert!(nesting as u64 <= NESTING_MASK, "nesting {nesting} does not fit a node code");
             (UNMASKED, nesting as u64)
         }
-        Node::Copied { far, direction } => (COPIED, far as u64 | (direction as u64) << DIRECTION_SHIFT),
+        Node::Copied { far, direction, masks } => {
+            (COPIED, far as u64 | (direction as u64) << DIRECTION_SHIFT | if masks { MASKS } else { 0 })
+        }
         Node::ComplexTile { size_offset, masks } => (COMPLEX_TILE, size_offset as u64 | if masks { MASKS } else { 0 }),
         Node::Residual => (RESIDUAL, 0),
     };
@@ -82,6 +88,7 @@ fn from_code(code: u64) -> Node {
         COPIED => Node::Copied {
             far: parameter & FAR != 0,
             direction: ((parameter >> DIRECTION_SHIFT) & DIRECTION_MASK) as u8,
+            masks: parameter & MASKS != 0,
         },
         COMPLEX_TILE => Node::ComplexTile { size_offset: (parameter & SIZE_OFFSET_MASK) as u8, masks: parameter & MASKS != 0 },
         RESIDUAL => Node::Residual,

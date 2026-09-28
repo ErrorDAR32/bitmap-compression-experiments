@@ -50,11 +50,23 @@ fn write_node(tree: &Pyramid, bitmap: &Bitmap, tile: Tile, nested: &mut NestedRe
     }
 
     match node {
-        Node::Copied { far, direction } => {
+        Node::Copied { far, direction, masks } => {
             out.push_value(LEAF, LEAF_WIDTH);
             out.push_value(COPY, CODE_WIDTH);
             out.push_value(far as u64, FAR_WIDTH);
             out.push_value(direction as u64, DIRECTION_WIDTH);
+            if copy_may_mask(tile.level) {
+                out.push_value(if masks { MASKING } else { NO_MASKING }, MASK_PRESENT_WIDTH);
+            }
+            if masks {
+                let masked: Vec<Tile> = tile.children().into_iter().filter(|&child| tree.node(child) != Node::Absent).collect();
+                for child in tile.children() {
+                    out.push_value(if masked.contains(&child) { MASKED } else { UNMASKED }, MASK_BIT_WIDTH);
+                }
+                for child in masked {
+                    write_node(tree, bitmap, child, nested, out);
+                }
+            }
         }
         Node::ComplexTile { size_offset, masks } => {
             out.push_value(LEAF, LEAF_WIDTH);

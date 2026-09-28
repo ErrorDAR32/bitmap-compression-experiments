@@ -8,15 +8,27 @@
 //! Cells are always homogeneous, so the pass always covers the whole
 //! bitmap.
 //!
+//! Else, down to 8x8, does a copy say at least
+//! [`MIN_UNMASKED_CHILDREN`] of its children? copy it, masking the
+//! others, which are left to the tiles placed inside them.
+//!
 //! A 2x2 is only ever asked whether it is homogeneous: if not, its four
 //! cells are placed as 1x1 tiles, which the residual pass says.
 
-use crate::gct::pyramids::copyable::{Copyable, FAR_DISTANCE};
+use crate::gct::pyramids::copyable::{Copyable, FAR_DISTANCE, NEAR_DISTANCE};
 use crate::gct::pyramids::homogeneity::Homogeneity;
-use crate::gct::pyramids::placements::{Placement, Placements};
+use crate::gct::pyramids::placements::{Placement, Placements, FINEST_MASKING_LEVEL};
 use crate::gct::pyramids::pyramid::Pyramid;
-use crate::gct::tile::{directions, same_cells, Tile, CELL_LEVEL};
+use crate::gct::tile::{directions, same_cells, Tile, CELL_LEVEL, CHILDREN_ACROSS};
 use crate::Bitmap;
+
+/// The fewest children a masking copy must say. A masking copy costs
+/// about 10 bits before its masked children: a copy, a mask-present bit,
+/// a 4-bit child mask. Subdividing instead costs 1 bit, plus about 5 a
+/// child the copy would have said -- each is a far copy on its own. At
+/// three children masking saves about 6 bits; at two, about 1, too
+/// little to be worth the risk of a worse tiling below it.
+pub const MIN_UNMASKED_CHILDREN: u32 = 3;
 
 /// Places tiles over one bitmap, biggest first; what it placed is a
 /// [placements pyramid](crate::gct::pyramids::placements). Reads the
@@ -38,15 +50,61 @@ pub fn greedy_tiler(bitmap: &Bitmap, homogeneity: &Pyramid, copyable: &Pyramid) 
             let placement = if let Some(value) = homogeneity.homogeneous_value(tile) {
                 Placement::Bound(value)
             } else if let Some((far, direction)) = copyable.holds(tile).then(|| copy_direction(copyable, bitmap, tile)).flatten() {
-                Placement::Copied { far, direction }
+                Placement::Copied { far, direction, masked_children: 0 }
+            } else if let Some(placement) = (tile.level <= FINEST_MASKING_LEVEL).then(|| masking_copy(bitmap, tile)).flatten() {
+                placement
             } else {
                 continue;
             };
-            tile.set_in(&mut claimed);
+            claim(tile, placement, &mut claimed);
             placements.place(tile, placement);
         }
     }
     placements
+}
+
+/// Claims the cells a placed tile says: all of them, but for the
+/// children it masks.
+fn claim(tile: Tile, placement: Placement, claimed: &mut Bitmap) {
+    if !placement.masks_any() {
+        tile.set_in(claimed);
+        return;
+    }
+    for child in tile.children() {
+        if !placement.masks(child) {
+            child.set_in(claimed);
+        }
+    }
+}
+
+/// The copy of `tile` that says the most of its children, masking the
+/// rest, if it says at least [`MIN_UNMASKED_CHILDREN`]: near before far,
+/// then in direction order, on a tie. A child is said when it holds the
+/// same cells as the same child of the copy's source.
+fn masking_copy(bitmap: &Bitmap, tile: Tile) -> Option<Placement> {
+    let mut best: Option<(u32, Placement)> = None;
+    for (far, distance) in [(false, NEAR_DISTANCE), (true, FAR_DISTANCE)] {
+        for direction in directions() {
+            if tile.neighbour_at(direction, distance).is_none() {
+                continue;
+            }
+            // A child's source is its same child in the source tile: the
+            // tile's distance, counted in child sides.
+            let child_distance = distance * CHILDREN_ACROSS as usize;
+            let mut masked_children = 0u8;
+            for child in tile.children() {
+                let source = child.neighbour_at(direction, child_distance).expect("inside the source tile");
+                if !same_cells(bitmap, child, source) {
+                    masked_children |= 1 << child.child_index();
+                }
+            }
+            let unmasked = tile.children().len() as u32 - masked_children.count_ones();
+            if unmasked >= MIN_UNMASKED_CHILDREN && best.is_none_or(|(most, _)| unmasked > most) {
+                best = Some((unmasked, Placement::Copied { far, direction, masked_children }));
+            }
+        }
+    }
+    best.map(|(_, placement)| placement)
 }
 
 /// Which direction a tile copies from, if any, and whether that is a
