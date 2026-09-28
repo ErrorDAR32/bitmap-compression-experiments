@@ -1,5 +1,5 @@
 //! The greedy tiler, the first pass: one rule, asked of the whole bitmap,
-//! then of every tile nothing coarser says, down to single cells:
+//! then of every tile nothing coarser says, down to 2x2s:
 //!
 //! 1. Homogeneous? Bind it.
 //! 2. Down to 4x4, copyable (a same-size neighbour, or, one level up, a
@@ -23,14 +23,16 @@
 //! is the tree's to say, not this pass's: a bind stays a bind here, for
 //! the complex tiler to unmask if that is cheaper.
 //!
-//! A 2x2 is only ever asked whether it is homogeneous: if not, its four
-//! cells are placed as 1x1 tiles, which the residual pass says.
+//! A 2x2 is only ever asked whether it is homogeneous: if not, nothing
+//! is placed in it -- its four cells are said raw, by the residual pass
+//! or a complex tile of 1x1 resolution -- so nothing finer than a 2x2 is
+//! ever placed.
 
 use crate::gct::pyramids::copyable::{matching_direction, matching_directions, FAR_DISTANCE, FINEST_COPY_LEVEL, NEAR_DISTANCE};
 use crate::gct::pyramids::homogeneity::Homogeneity;
 use crate::gct::pyramids::placements::{Placement, Placements, BOUND_AT_THE_TOP, FINEST_MASKING_LEVEL};
 use crate::gct::pyramids::pyramid::Pyramid;
-use crate::gct::tile::{directions, Tile, CHILDREN_ACROSS};
+use crate::gct::tile::{directions, Tile, CELL_LEVEL, CHILDREN_ACROSS};
 use crate::Bitmap;
 
 /// A masking copy costs about 10 bits before its masked children: a
@@ -94,6 +96,11 @@ impl Content<'_> {
 /// above `tile`.
 fn place_at_or_under(content: &Content, tile: Tile, bound_above: bool, placements: &mut Pyramid) {
     let Some(placement) = placement(content, tile, bound_above) else {
+        if tile.level == CELL_LEVEL - 1 {
+            // A 2x2 that is not one tile: its cells are said raw, and
+            // nothing reads a placement finer than a 2x2.
+            return;
+        }
         for child in tile.children() {
             place_at_or_under(content, child, bound_above, placements);
         }

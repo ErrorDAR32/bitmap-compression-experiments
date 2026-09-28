@@ -74,7 +74,7 @@ fixing the shape, its propagation if any, and its queries.
 ## Step 1: the greedy tiler
 
 One rule, asked of the whole bitmap, then of every tile nothing coarser
-says, down to single cells. It reads the homogeneity pyramid, and asks
+says, down to 2x2s. It reads the homogeneity pyramid, and asks
 the bitmap which tiles match which (`copyable.rs`) only of the tiles it
 reaches and cannot bind -- two homogeneous tiles match exactly when their
 values agree, so only two non-homogeneous ones are compared, one cell
@@ -109,9 +109,11 @@ the children a placed tile masks:
 No comparison between sizes: a tile that qualifies is taken at once.
 Cells are always homogeneous, so the whole bitmap is always covered.
 
-A 2x2 is only asked whether it is homogeneous. If it is not, its four
-cells are placed as 1x1 tiles: a copy there could never reach the
-stream, since the 2x2 floor says only a tile or a residual.
+A 2x2 is only asked whether it is homogeneous. If it is not, nothing is
+placed in it: its four cells are said raw, by the residual pass or a
+complex tile of 1x1 resolution, and nothing reads a placement finer than
+a 2x2. (A copy there could never reach the stream either, since the 2x2
+floor says only a tile or a residual.)
 
 ## Step 2: the complex tiler
 
@@ -137,8 +139,8 @@ itself, as the nodes the greedy tiler's tiles make of it, than raw:
 decided once a bitmap, bottom-up, before any complex tile
 (`complex_tiler/raw_masking.rs`). It is offered
 only where the size offset field has a value to spare for it: 128x128,
-64x64, 32x32 and 8x8. Everywhere else a 1x1 tile is the residual pass's
-own. A candidate is never finer than 4x4.
+64x64, 32x32 and 8x8. Everywhere else a cell of a 2x2 that is not one
+tile is the residual pass's own. A candidate is never finer than 4x4.
 
 **The complex tiler decides from the placements** and the bits the
 grammar would spend -- all but what a point list costs, which it reads
@@ -305,8 +307,9 @@ In `tests/`, per `docs/testing_protocol.md`: `gct_fine` (one bitmap per
 test), `gct_fast` (a small seeded sample), `gct_complete` (everything,
 plus a second seed base and the checkerboards), `gct_measurement` (the
 measurement below), the adversarial search and the diagnostics. Every
-check: placed tiles cover every cell once, nothing finer than 4x4
-copies, every 1x1 tile is said raw, the complex tiler's bit cost is the
+check: every cell is said by exactly one placed tile, or lies in a 2x2
+that placed nothing and is said raw; nothing finer than 4x4 copies;
+nothing finer than a 2x2 is placed; the complex tiler's bit cost is the
 encoder's count, the tree read back is the tree written, decoding gives
 back every cell.
 

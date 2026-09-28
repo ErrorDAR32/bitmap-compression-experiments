@@ -36,10 +36,11 @@ pub fn first_difference(a: &Bitmap, b: &Bitmap) -> Option<(u8, u8)> {
 /// Everything that has to hold of one bitmap, each failure naming what
 /// broke:
 ///
-/// - the greedy tiler's placed tiles cover every cell exactly once;
+/// - every cell is said by exactly one of the greedy tiler's placed
+///   tiles, or lies in a 2x2 that is not homogeneous, placed nothing, and
+///   is said raw: a residual 2x2, or inside a complex tile of 1x1
+///   resolution or a point list;
 /// - nothing finer than 4x4 is copied;
-/// - every 1x1 tile placed is said raw: left to the residual pass under
-///   a residual 2x2, or inside a complex tile of 1x1 resolution;
 /// - the bit cost the complex tiler scores with is the encoder's count;
 /// - gct spends at most [`CAP_BITS`], the raw cells and 1%;
 /// - the tree read back from the bits is the tree that was written;
@@ -60,21 +61,33 @@ pub fn check(bitmap: &Bitmap, label: &str) {
 fn check_in(workspace: &mut Workspace, stream: &mut BitStream, back: &mut Bitmap, bitmap: &Bitmap, label: &str) {
     workspace.encode(bitmap, stream);
     let placements = workspace.complex_tiling();
-    let cells = |tile: Tile| tile.side_in_cells() * tile.side_in_cells();
-    let covered: usize = placements
-        .placed_tiles()
-        .map(|(tile, placement)| {
-            let masked = if placement.masks_any() {
-                tile.children().into_iter().filter(|&child| placement.masks(child)).map(cells).sum()
-            } else {
-                0
-            };
-            cells(tile) - masked
-        })
-        .sum();
-    assert_eq!(covered, 256 * 256, "{label}: placed tiles leave cells uncovered or cover some twice");
-
     let written = workspace.tree().clone();
+    for cell in Tile::all_cells() {
+        // Down the cell's path: the first tile placed that does not mask
+        // the way on says it, and nothing under that may be placed.
+        let path = (0..=CELL_LEVEL).map(|level| cell.ancestor(level));
+        let placed: Vec<(Tile, Placement)> = path.filter_map(|at| placements.placement(at).map(|placement| (at, placement))).collect();
+        let sayer = placed.iter().position(|&(at, placement)| at.level == CELL_LEVEL || !placement.masks(cell.ancestor(at.level + 1)));
+        match sayer {
+            Some(sayer) => assert_eq!(sayer + 1, placed.len(), "{label}: {cell:?} is said by two placed tiles"),
+            None => {
+                let square = cell.ancestor(CELL_LEVEL - 1);
+                assert!(placements.placement(square).is_none(), "{label}: {cell:?} is said by no placed tile");
+                let (left, top, ..) = square.cell_rect();
+                let first = bitmap.get(left, top);
+                let homogeneous = (0..2).all(|dy| (0..2).all(|dx| bitmap.get(left + dx, top + dy) == first));
+                assert!(!homogeneous, "{label}: homogeneous {square:?} placed nothing");
+                let residual = written.node(square) == Node::Residual;
+                let raw = (0..CELL_LEVEL).any(|level| match written.node(cell.ancestor(level)) {
+                    Node::ComplexTile { size_offset, .. } => level + size_offset == CELL_LEVEL,
+                    Node::PointList => true,
+                    _ => false,
+                });
+                assert!(residual || raw, "{label}: {cell:?} is neither residual nor in a raw complex tile or a point list");
+            }
+        }
+    }
+
     let complex_tiling = workspace.complex_tiling();
     let start_level = written.start_level();
     let counted: u64 =
@@ -86,17 +99,9 @@ fn check_in(workspace: &mut Workspace, stream: &mut BitStream, back: &mut Bitmap
     );
     assert!(stream.len() <= CAP_BITS, "{label}: {} bits, over the cap of {CAP_BITS}", stream.len());
     for (tile, placement) in placements.placed_tiles() {
+        assert!(tile.level < CELL_LEVEL, "{label}: {tile:?} placed, finer than a 2x2");
         if let Placement::Copied { .. } = placement {
             assert!(tile.level < CELL_LEVEL - 1, "{label}: {tile:?} copies, finer than 4x4");
-        }
-        if tile.level == CELL_LEVEL {
-            let residual = written.node(tile.ancestor(CELL_LEVEL - 1)) == Node::Residual;
-            let raw = (0..CELL_LEVEL).any(|level| match written.node(tile.ancestor(level)) {
-                Node::ComplexTile { size_offset, .. } => level + size_offset == CELL_LEVEL,
-                Node::PointList => true,
-                _ => false,
-            });
-            assert!(residual || raw, "{label}: 1x1 {tile:?} is neither residual nor in a raw complex tile or a point list");
         }
     }
 

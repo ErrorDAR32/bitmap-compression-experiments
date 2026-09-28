@@ -64,8 +64,8 @@ fn node_for(complex_tiling: &Pyramid, tile: Tile, nested: &NestedResolutions) ->
     let tile_node = Node::ComplexTile { size_offset: 0, masks: false };
     let placed = here.placed();
     if tile.level == CELL_LEVEL - 1 {
-        // The 2x2 floor: a homogeneous 2x2 is a tile; anything else was
-        // placed as four 1x1 tiles, left to the residual pass.
+        // The 2x2 floor: a homogeneous 2x2 is a tile; anything else
+        // placed nothing, its cells left to the residual pass.
         return match placed {
             Some(placement) if placement.is_whole_bind() => tile_node,
             None => Node::Residual,
