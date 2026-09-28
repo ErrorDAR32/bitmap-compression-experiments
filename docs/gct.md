@@ -297,10 +297,10 @@ Worst cases found by the adversarial search (`testing/adversarial/`):
 
 | attacked | against | gap |
 |---|---|---|
-| gct | dsrn | +1062 bits (gct 52051, dsrn 50989) |
+| gct | dsrn | +1608 bits (gct 65124, dsrn 63516) |
 | gct | raw cells | +23 bits (gct 65559) |
-| dsrn | gct | +28845 bits (dsrn 47957, gct 19112) |
-| dsrn | raw cells | +2292 bits (dsrn 67828) |
+| dsrn | gct | +31712 bits (dsrn 63559, gct 31847) |
+| dsrn | raw cells | +2293 bits (dsrn 67829) |
 
 Noise costs gct 65559 bits: four raw 128x128 complex tiles and the
 start level header, 23 over its raw cells (dsrn: 65542, 6 over).
