@@ -113,13 +113,14 @@ place(tile, bound):
          place Bind(v)                                    -- done
   2. if tile is 4x4 or coarser:
          for far in [near, far], for d in [top-left, above, top-right, left]:
-             source = the same-size tile 1 (near) or 2 (far) tiles away in d
+             source = the same-size tile at the near or far offset of d
              if source exists and pattern(source) == pattern(tile):
                  place Copy(far, d)                       -- done
   3. if tile is 8x8 or coarser:
          a. masking copy: for each source as in 2, near first, then
             direction order, compare each child with the same child of
-            the source (the child's own pattern, 2 or 4 child sides away):
+            the source (the child's own pattern, the offset twice over in
+            child sides):
                 said        = children that match and are not homogeneous
                               with `bound` (those cost nothing without it)
                 said_rough  = children that match and are not homogeneous
@@ -149,6 +150,14 @@ measured: either half alone was worse). A masking bind is spelled as a
 divide that flips the value bound above, 7 bits before its masked
 children, and each child it says would otherwise be a tile of its own,
 4 bits or more, so it must say 2 (`MIN_UNMASKED_CHILDREN_OF_A_MASKING_BIND`).
+
+**Copy offsets** (`pyramids/copyable.rs`). A near copy reads a
+neighbour before the tile in reading order: (-1,-1), (0,-1), (1,-1),
+(-1,0), in tiles of its own size. A far copy reads (-2,-2), (0,-4),
+(2,-2) or (-4,0): above and left four tiles away, the diagonals two. Any
+offsets before the tile in reading order decode; a workspace can be
+made with others (`Workspace::with_copy_offsets`), and the diagnostics
+tool's `far_offsets` searches for better far ones (`far_offsets.csv`).
 
 **No comparison between sizes:** a tile that qualifies at any rule is
 taken at once, coarsest first. What a tile gets depends only on its own
@@ -531,6 +540,7 @@ cargo run --release --bin gct_diagnostics -- show measurement
 | `above.csv` | `gct_diagnostics -- above` | the tree above the top tiles against a Morton list of them, below |
 | `per_shape.csv` | `gct_diagnostics -- per_shape` | bits a bitmap and a cell set, shape by shape |
 | `noise.csv` | `gct_diagnostics -- noise` | bits on noise at several densities, against the raw cells |
+| `far_offsets.csv` | `gct_diagnostics -- far_offsets` | the search for far copy offsets, and its best against the default |
 | `timing.csv` | `cargo run --release --example gct_timing` | encode and decode times, family by family |
 | `comparison.csv` | `cargo run --release --manifest-path comparison/Cargo.toml` | gct against G4, JBIG and zstd: bits and times, family by family |
 

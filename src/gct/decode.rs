@@ -21,7 +21,7 @@ use crate::gct::grammar::point_list;
 use crate::gct::grammar::*;
 use crate::gct::nested_resolutions::NestedResolutions;
 use crate::fixed_list::FixedList;
-use crate::gct::pyramids::copyable::copy_offset;
+use crate::gct::pyramids::copyable::CopyOffsets;
 use crate::gct::pyramids::pyramid::Pyramid;
 use crate::gct::pyramids::tree::{Node, Tree};
 use crate::gct::tile::{cells_in_tile, tiles_across, Tile, CELL_LEVEL};
@@ -39,6 +39,8 @@ pub struct StreamContents<'a> {
     pub cell_values: &'a mut Bitmap,
     /// The blocks copies cover, and where each copies from.
     pub copies: &'a mut Copies,
+    /// Where copies read from: the offsets the stream was encoded with.
+    pub offsets: &'a CopyOffsets,
 }
 
 impl StreamContents<'_> {
@@ -127,7 +129,7 @@ fn read_node(
         let masks = copy_may_mask(tile.level) && reader.value(MASK_PRESENT_WIDTH) == MASKING;
         read.tree.set_node(tile, Node::Copied { far, direction, masks });
         if !masks {
-            read.copies.cover(tile, tile, far, direction);
+            read.copies.cover(tile, tile, read.offsets.offset(far, direction));
             return;
         }
         let children = tile.children();
@@ -136,7 +138,7 @@ fn read_node(
             if is_masked {
                 read_node(reader, child, nested, bound_above, read, payload_walk);
             } else {
-                read.copies.cover(tile, child, far, direction);
+                read.copies.cover(tile, child, read.offsets.offset(far, direction));
             }
         }
         return;
@@ -226,8 +228,7 @@ impl Copies {
     /// Notes that `part` -- the copy at `copy`, or a child of it the copy
     /// says itself -- is copied from `far` away in `direction`: each of
     /// its blocks from the block the copy's offset away.
-    fn cover(&mut self, copy: Tile, part: Tile, far: bool, direction: u8) {
-        let (dx, dy) = copy_offset(far, direction);
+    fn cover(&mut self, copy: Tile, part: Tile, (dx, dy): (isize, isize)) {
         let reach = tiles_across(BLOCK_LEVEL - copy.level) as isize;
         for block in part.tiles_at_size_offset(BLOCK_LEVEL - part.level) {
             let (x, y) = ((block.x as isize + dx * reach) as u8, (block.y as isize + dy * reach) as u8);

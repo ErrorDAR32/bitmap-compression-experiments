@@ -211,15 +211,20 @@ pub enum HowMany {
     /// As many as a timed run of that generator should take: its own
     /// count.
     Timed,
+    /// As many as a test of that generator should take: the fast
+    /// tier's own, few.
+    Tested,
     /// The same number of each.
     Each(u64),
 }
 
 impl HowMany {
-    /// How many to take of a generator whose own timed count is `timed`.
-    pub fn of(self, timed: u64) -> u64 {
+    /// How many to take of a generator whose own counts are `timed` and
+    /// `tested`.
+    pub fn of(self, timed: u64, tested: u64) -> u64 {
         match self {
             HowMany::Timed => timed,
+            HowMany::Tested => tested,
             HowMany::Each(count) => count,
         }
     }
@@ -241,9 +246,9 @@ pub const TIMING_PER_GENERATOR: u64 = 100;
 /// quarter of a result.
 pub fn families(how_many: HowMany) -> Vec<(String, Vec<Bitmap>)> {
     vec![
-        ("laid out like a city".to_string(), PLANS.iter().flat_map(|plan| plan.take(how_many.of(plan.timed))).collect()),
-        ("grown like a blob".to_string(), SHAPES.iter().flat_map(|shape| shape.take(how_many.of(shape.timed))).collect()),
-        ("sparse".to_string(), SPARSE.iter().flat_map(|shape| shape.take(how_many.of(shape.timed))).collect()),
-        ("drawn with lines".to_string(), LINE_SETS.iter().flat_map(|set| set.take(how_many.of(set.timed))).collect()),
+        ("laid out like a city".to_string(), PLANS.iter().flat_map(|plan| plan.take(how_many.of(plan.timed, plan.tested))).collect()),
+        ("grown like a blob".to_string(), SHAPES.iter().flat_map(|shape| shape.take(how_many.of(shape.timed, shape.tested))).collect()),
+        ("sparse".to_string(), SPARSE.iter().flat_map(|shape| shape.take(how_many.of(shape.timed, shape.tested))).collect()),
+        ("drawn with lines".to_string(), LINE_SETS.iter().flat_map(|set| set.take(how_many.of(set.timed, set.tested))).collect()),
     ]
 }

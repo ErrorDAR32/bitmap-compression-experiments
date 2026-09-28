@@ -28,7 +28,7 @@
 //! or a complex tile of 1x1 resolution -- so nothing finer than a 2x2 is
 //! ever placed.
 
-use crate::gct::pyramids::copyable::{child_offset, copy_offset, matches_at, matching_direction, FINEST_COPY_LEVEL};
+use crate::gct::pyramids::copyable::{child_offset, matches_at, matching_direction, CopyOffsets, FINEST_COPY_LEVEL};
 use crate::gct::pyramids::homogeneity::Homogeneity;
 use crate::gct::pyramids::placements::{Placement, Placements, BOUND_AT_THE_TOP, FINEST_MASKING_LEVEL};
 use crate::gct::pyramids::pyramid::Pyramid;
@@ -58,20 +58,23 @@ pub const MIN_UNMASKED_CHILDREN_OF_A_MASKING_BIND: u32 = 2;
 /// [complex tiling pyramid](crate::gct::pyramids::complex_tiling) with
 /// only its [placement](crate::gct::pyramids::placements) bits set. Reads
 /// only the bitmap's content: which tiles are homogeneous, from its
-/// homogeneity pyramid, and which match which, from its patterns.
-pub fn greedy_tiler(homogeneity: &Pyramid, patterns: &Patterns, placements: &mut Pyramid) {
+/// homogeneity pyramid, and which match which, from its patterns --
+/// copies reading from `offsets`.
+pub fn greedy_tiler(homogeneity: &Pyramid, patterns: &Patterns, offsets: &CopyOffsets, placements: &mut Pyramid) {
     placements.clear();
-    let content = Content { homogeneity, patterns };
+    let content = Content { homogeneity, patterns, offsets };
     place_at_or_under(&content, Tile::whole_bitmap(), BOUND_AT_THE_TOP, placements);
 }
 
 /// What the greedy tiler reads of a bitmap: its homogeneity pyramid and
-/// its patterns.
+/// its patterns -- and where copies read from.
 struct Content<'a> {
     /// Its homogeneity pyramid.
     homogeneity: &'a Pyramid,
     /// Its patterns.
     patterns: &'a Patterns,
+    /// Where copies read from.
+    offsets: &'a CopyOffsets,
 }
 
 impl Content<'_> {
@@ -98,7 +101,7 @@ impl Content<'_> {
 
     /// See [`matching_direction`].
     fn matching_direction(&self, tile: Tile, far: bool) -> Option<u8> {
-        matching_direction(self.patterns, tile, far)
+        matching_direction(self.patterns, self.offsets, tile, far)
     }
 }
 
@@ -194,7 +197,7 @@ fn masking_copy(content: &Content, tile: Tile, children_values: [Option<bool>; 4
     let mut best: Option<(u32, Placement)> = None;
     for far in [false, true] {
         'direction: for direction in directions() {
-            let offset = copy_offset(far, direction);
+            let offset = content.offsets.offset(far, direction);
             if tile.offset_by(offset).is_none() {
                 continue;
             }
@@ -226,9 +229,8 @@ fn masking_copy(content: &Content, tile: Tile, children_values: [Option<bool>; 4
 }
 
 /// Which direction a tile copies from, if any, and whether that is a
-/// far copy (a same-size neighbour of the tile's parent, at the tile's
-/// own child position within it) rather than a near one (a same-size
-/// neighbour of the tile itself): near first.
+/// far copy rather than a near one (a same-size neighbour of the tile
+/// itself), each reading from its own offsets: near first.
 fn copy_direction(content: &Content, tile: Tile) -> Option<(bool, u8)> {
     let near = content.matching_direction(tile, false).map(|direction| (false, direction));
     near.or_else(|| content.matching_direction(tile, true).map(|direction| (true, direction)))

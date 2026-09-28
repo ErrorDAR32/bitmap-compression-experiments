@@ -1,0 +1,23 @@
+# written by `cargo run --release --bin gct_diagnostics -- far_offsets`
+# candidates within 8 tiles, 140 of them
+# seed 1950720362523133367
+# commit 9d82ee8, with uncommitted changes
+
+## hill climb on the fast sample, from the default far offsets
+round,far offsets,score,"laid out like a city
+bits a bitmap","grown like a blob
+bits a bitmap","sparse
+bits a bitmap","drawn with lines
+bits a bitmap"
+0,"[(-2, -2), (0, -4), (2, -2), (-4, 0)]",1.0000,11937,33312,2371,11851
+1,"[(-2, -2), (0, -4), (8, -8), (-4, 0)]",0.9993,11891,33309,2371,11867
+2,"[(-4, -4), (0, -4), (8, -8), (-4, 0)]",0.9993,11892,33304,2371,11867
+
+## the default against the best, on the timed sample
+far offsets,score,"laid out like a city
+bits a bitmap","grown like a blob
+bits a bitmap","sparse
+bits a bitmap","drawn with lines
+bits a bitmap"
+"[(-2, -2), (0, -4), (2, -2), (-4, 0)]",1.0000,11871,24669,2389,11448
+"[(-4, -4), (0, -4), (8, -8), (-4, 0)]",1.0015,11853,24667,2389,11533

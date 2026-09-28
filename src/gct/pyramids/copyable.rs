@@ -1,9 +1,10 @@
 //! Copyable: whether a same-size tile holds the same cells as another
 //! -- what a copy reads, and what each child of a masking copy reads.
 //!
-//! A copy names one of four offsets, near or far ([`NEAR_OFFSETS`],
-//! [`FAR_OFFSETS`]): the same-size tile that many tiles away holds its
-//! cells. Each child of a masking copy reads its same child of that
+//! A copy names one of four offsets, near or far ([`CopyOffsets`], by
+//! default [`NEAR_OFFSETS`] and [`FAR_OFFSETS`]): the same-size tile that
+//! many tiles away holds its cells. The offsets are part of the format:
+//! a stream decodes only with the offsets it was encoded with. Each child of a masking copy reads its same child of that
 //! tile: the offset, counted in child sides -- twice as many.
 //!
 //! Two tiles hold the same cells exactly when their pattern numbers
@@ -18,25 +19,62 @@ use crate::gct::tile::{directions, Tile, CELL_LEVEL, CHILDREN_ACROSS, DIRECTIONS
 pub const NEAR_OFFSETS: [(isize, isize); 4] = DIRECTIONS;
 
 /// Where a far copy reads from, by direction, in tiles of its own size:
-/// the near offsets, twice as far.
-pub const FAR_OFFSETS: [(isize, isize); 4] = [(-2, -2), (0, -2), (2, -2), (-2, 0)];
+/// top left and top right two tiles away, above and left four -- found
+/// by the diagnostics tool's `far_offsets` search, where the near
+/// offsets doubled lost several percent on cities and more on
+/// checkerboards and the saved adversarial bitmaps.
+pub const FAR_OFFSETS: [(isize, isize); 4] = [(-2, -2), (0, -4), (2, -2), (-4, 0)];
 
-/// Every offset reads a tile before the copy in reading order -- above,
-/// or left in the same row -- so decoding resolves every copy, each
-/// source before what copies it.
+/// Whether an offset reads a tile before the copy in reading order --
+/// above, or left in the same row -- as every offset must, so decoding
+/// resolves every copy, each source before what copies it.
+pub const fn precedes((dx, dy): (isize, isize)) -> bool {
+    dy < 0 || (dy == 0 && dx < 0)
+}
+
+/// The default offsets all precede.
 const _: () = {
     let mut at = 0;
     while at < NEAR_OFFSETS.len() {
-        let ((near_x, near_y), (far_x, far_y)) = (NEAR_OFFSETS[at], FAR_OFFSETS[at]);
-        assert!(near_y < 0 || (near_y == 0 && near_x < 0));
-        assert!(far_y < 0 || (far_y == 0 && far_x < 0));
+        assert!(precedes(NEAR_OFFSETS[at]) && precedes(FAR_OFFSETS[at]));
         at += 1;
     }
 };
 
-/// The offset, in tiles of its own size, a copy reads from.
-pub fn copy_offset(far: bool, direction: u8) -> (isize, isize) {
-    if far { FAR_OFFSETS[direction as usize] } else { NEAR_OFFSETS[direction as usize] }
+/// The offsets copies read from, near and far, by direction, in tiles of
+/// the copy's own size.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CopyOffsets {
+    /// A near copy's, by direction.
+    near: [(isize, isize); 4],
+    /// A far copy's, by direction.
+    far: [(isize, isize); 4],
+}
+
+impl Default for CopyOffsets {
+    /// [`NEAR_OFFSETS`] and [`FAR_OFFSETS`].
+    fn default() -> Self {
+        Self { near: NEAR_OFFSETS, far: FAR_OFFSETS }
+    }
+}
+
+impl CopyOffsets {
+    /// The default near offsets and `far`, if every one of them
+    /// [precedes](precedes) the copy.
+    pub fn with_far(far: [(isize, isize); 4]) -> Option<Self> {
+        far.iter().all(|&offset| precedes(offset)).then_some(Self { near: NEAR_OFFSETS, far })
+    }
+
+    /// The far offsets.
+    pub fn far(&self) -> [(isize, isize); 4] {
+        self.far
+    }
+
+    /// The offset a near or far copy in `direction` reads from.
+    #[inline]
+    pub fn offset(&self, far: bool, direction: u8) -> (isize, isize) {
+        if far { self.far[direction as usize] } else { self.near[direction as usize] }
+    }
 }
 
 /// A copy's `offset`, counted in its children's sides: where each child
@@ -51,11 +89,11 @@ pub fn child_offset((dx, dy): (isize, isize)) -> (isize, isize) {
 /// never reach the stream. A cell is always homogeneous.
 pub const FINEST_COPY_LEVEL: u8 = CELL_LEVEL - 2;
 
-/// The first direction whose near or far copy of `tile` holds the same
-/// cells, if any: none past the edge.
-pub fn matching_direction(patterns: &Patterns, tile: Tile, far: bool) -> Option<u8> {
+/// The first direction whose near or far copy of `tile`, by `offsets`,
+/// holds the same cells, if any: none past the edge.
+pub fn matching_direction(patterns: &Patterns, offsets: &CopyOffsets, tile: Tile, far: bool) -> Option<u8> {
     let mine = patterns.number(tile);
-    directions().find(|&direction| matches_at(patterns, tile, mine, copy_offset(far, direction)))
+    directions().find(|&direction| matches_at(patterns, tile, mine, offsets.offset(far, direction)))
 }
 
 /// Whether the same-size tile `offset` away from `tile` holds the same

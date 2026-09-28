@@ -17,6 +17,7 @@ use crate::gct::greedy_tiler::greedy_tiler;
 use crate::gct::pyramids::homogeneity::Homogeneity;
 use crate::gct::pyramids::patterns::Patterns;
 use crate::gct::pyramids::placements::Placements;
+use crate::gct::pyramids::copyable::CopyOffsets;
 use crate::gct::pyramids::pyramid::Pyramid;
 use crate::gct::pyramids::tree::Tree;
 use crate::gct::tree_representation::tree_representation;
@@ -39,6 +40,8 @@ pub struct Workspace {
     copies: Copies,
     /// Room for a payload's parts.
     payload_walk: PayloadWalk,
+    /// Where copies read from, encoding and decoding alike.
+    copy_offsets: CopyOffsets,
 }
 
 impl Workspace {
@@ -52,14 +55,22 @@ impl Workspace {
             tree: Pyramid::tree(),
             copies: Copies::default(),
             payload_walk: PayloadWalk::default(),
+            copy_offsets: CopyOffsets::default(),
         }
+    }
+
+    /// Everything allocated, copies reading from `copy_offsets` rather
+    /// than the default ones: for trying other offsets. A stream decodes
+    /// only in a workspace with the offsets it was encoded with.
+    pub fn with_copy_offsets(copy_offsets: CopyOffsets) -> Self {
+        Self { copy_offsets, ..Self::new() }
     }
 
     /// Encodes `bitmap` into `stream`, whatever it held before.
     pub fn encode(&mut self, bitmap: &Bitmap, stream: &mut BitStream) {
         self.homogeneity.rebuild_homogeneity(bitmap);
         self.patterns.build(bitmap);
-        greedy_tiler(&self.homogeneity, &self.patterns, &mut self.complex_tiling);
+        greedy_tiler(&self.homogeneity, &self.patterns, &self.copy_offsets, &mut self.complex_tiling);
         complex_tiler(&mut self.complex_tiling, bitmap, &mut self.scratch);
         tree_representation(&self.complex_tiling, &mut self.tree);
         write(&self.tree, bitmap, stream, &mut self.payload_walk);
@@ -67,7 +78,8 @@ impl Workspace {
 
     /// Decodes `stream` into `bitmap`, whatever it held before.
     pub fn decode(&mut self, stream: &BitStream, bitmap: &mut Bitmap) {
-        let mut read = StreamContents { tree: &mut self.tree, cell_values: bitmap, copies: &mut self.copies };
+        let mut read =
+            StreamContents { tree: &mut self.tree, cell_values: bitmap, copies: &mut self.copies, offsets: &self.copy_offsets };
         decode(stream, &mut read, &mut self.payload_walk);
     }
 

@@ -6,7 +6,7 @@
 
 mod common;
 
-use bitmap::gct::pyramids::copyable::{child_offset, matches_at, matching_direction, FAR_OFFSETS, FINEST_COPY_LEVEL, NEAR_OFFSETS};
+use bitmap::gct::pyramids::copyable::{child_offset, matches_at, matching_direction, CopyOffsets, FAR_OFFSETS, FINEST_COPY_LEVEL, NEAR_OFFSETS};
 use bitmap::gct::pyramids::patterns::Patterns;
 use bitmap::gct::pyramids::homogeneity::Homogeneity;
 use bitmap::gct::pyramids::pyramid::{Pyramid, PyramidShape};
@@ -170,7 +170,7 @@ fn a_repeated_quarter_is_a_near_copy() {
     // DIRECTIONS[3] is the neighbour to the left.
     let mut patterns = Patterns::default();
     patterns.build(&bitmap);
-    assert_eq!(matching_direction(&patterns, right_quarter, false), Some(3));
+    assert_eq!(matching_direction(&patterns, &CopyOffsets::default(), right_quarter, false), Some(3));
     assert_eq!(tree_of(&bitmap).node(right_quarter), Node::Copied { far: false, direction: 3, masks: false });
     check(&bitmap, "a repeated quarter");
 }
