@@ -1,5 +1,5 @@
-//! The copyable pyramid: for every tile coarser than a cell, whether
-//! it could copy, two bits a tile --
+//! The copyable pyramid: for every tile down to 4x4, whether it could
+//! copy, two bits a tile --
 //!
 //! - near: some same-size neighbour of the tile itself, in
 //!   [`DIRECTIONS`](crate::gct::tile::DIRECTIONS), holds the same cells;
@@ -24,9 +24,10 @@ const FAR: u64 = 0b10;
 pub const NEAR_DISTANCE: usize = 1;
 pub const FAR_DISTANCE: usize = 2;
 
-/// Cells never copy: a single cell is always homogeneous, so the
-/// greedy tiler binds it before ever asking.
-const SHAPE: PyramidShape = PyramidShape { arity: 4, coarsest_level: 0, finest_level: CELL_LEVEL - 1, element_bits: 2 };
+/// Nothing finer than 4x4 copies. A 2x2 is either homogeneous, a tile,
+/// or its four cells are the residual pass's own -- a copy there would
+/// never reach the stream. A cell is always homogeneous.
+const SHAPE: PyramidShape = PyramidShape { arity: 4, coarsest_level: 0, finest_level: CELL_LEVEL - 2, element_bits: 2 };
 
 pub trait Copyable {
     /// The copyable pyramid of `bitmap`.

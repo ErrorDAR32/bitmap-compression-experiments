@@ -101,3 +101,25 @@ fn one_city_round_trips_with_complex_tiles() {
 fn one_ragged_bitmap_round_trips() {
     check(&one_grown(FIXED_SEED, 0.20, 0.70), "one middling ragged bitmap");
 }
+
+#[test]
+fn a_complex_tile_masks_a_residual_2x2() {
+    // The top-left 64x64: four 32x32s of 16x16 blocks, one block set in
+    // each, a different one each time -- no 32x32 is homogeneous or a
+    // copy of another, so the 64x64 is one complex tile at 16x16
+    // resolution. One clear block holds a lone set cell, which no
+    // resolution can say: that block is masked, down to a residual 2x2.
+    const BLOCK: i64 = 16;
+    let mut bitmap = Bitmap::new();
+    for (block_x, block_y) in [(0, 0), (3, 0), (0, 3), (3, 3)] {
+        let (x, y) = (block_x * BLOCK, block_y * BLOCK);
+        bitmap.set_rect(x, y, x + BLOCK - 1, y + BLOCK - 1);
+    }
+    let lone_cell = Tile { level: 8, x: 21, y: 5 };
+    bitmap.set(lone_cell.x, lone_cell.y);
+
+    let written = tree(&bitmap);
+    assert_eq!(written.node(lone_cell.ancestor(2)), Node::ComplexTile { size_offset: 2, masks: true });
+    assert_eq!(written.node(lone_cell.ancestor(7)), Node::Residual);
+    check(&bitmap, "a complex tile masking a residual 2x2");
+}

@@ -48,9 +48,9 @@ fixing the shape, its propagation if any, and its queries.
 | pyramid | bits | levels | holds | propagation |
 |---|---|---|---|---|
 | `homogeneity` | 2 | 0-8 | whether a tile's cells all agree, and on what | homogeneous when all four children are homogeneous and agree |
-| `copyable` | 2 | 0-7 | whether a same-size neighbour (near) or a neighbour of the parent (far) holds the same cells | none |
+| `copyable` | 2 | 0-6 | whether a same-size neighbour (near) or a neighbour of the parent (far) holds the same cells | none |
 | `placements` | 4 | 0-8 | the tile the greedy tiler placed here, if any | none |
-| `bound_tiles_per_level` | 16 | 0-t, one pyramid per size t | how many `Bound` tiles of size t lie under a tile (the complex tiler's scoring) | sum of the children |
+| `bound_tiles_per_level` | 32 | 0-t, one pyramid per size t | how many `Bound` tiles of size t lie under a tile (the complex tiler's scoring) | sum of the children |
 | `complex_tiling` | 16 | 0-8 | the placement; the one size every cell under the tile is bound at, if any; the complex tile's size offset, if it is one | a tile's bound size is its children's when all four share one |
 | `tree` | 8 | 0-7 | the tree's node at a tile | none |
 
@@ -60,7 +60,7 @@ One rule, asked of every tile size from the whole bitmap down to single
 cells, coarsest first, skipping anything a coarser tile already claimed:
 
 1. **Homogeneous?** Place it as `Bound(value)`.
-2. Else **copyable?** Near: a same-size neighbour of the tile itself.
+2. Else, down to 4x4, **copyable?** Near: a same-size neighbour of the tile itself.
    Far: one level up, a same-size neighbour of the tile's parent, at the
    tile's own child position. Place it as `Copied { far, direction }`.
    `direction` indexes the four neighbours reading order puts first:
@@ -70,6 +70,10 @@ cells, coarsest first, skipping anything a coarser tile already claimed:
 
 No comparison between sizes: a tile that qualifies is taken at once.
 Cells are always homogeneous, so the whole bitmap is always covered.
+
+A 2x2 is only asked whether it is homogeneous. If it is not, its four
+cells are placed as 1x1 tiles: a copy there could never reach the
+stream, since the 2x2 floor says only a tile or a residual.
 
 ## Step 2: the complex tiler
 

@@ -43,11 +43,12 @@ fn node_for(complex_tiling: &Pyramid, tile: Tile, nested: &NestedResolutions) ->
     }
     let bound_tile = Node::ComplexTile { size_offset: 0, masks: false };
     if tile.level == CELL_LEVEL - 1 {
-        // The 2x2 floor: a homogeneous 2x2 is a tile; anything else is a
-        // residual, its four cells left to the residual pass.
+        // The 2x2 floor: a homogeneous 2x2 is a tile; anything else was
+        // placed as four 1x1 tiles, left to the residual pass.
         return match complex_tiling.placed_at(tile) {
             Some(Placement::Bound(_)) => bound_tile,
-            _ => Node::Residual,
+            None => Node::Residual,
+            Some(Placement::Copied { .. }) => unreachable!("a 2x2 never copies"),
         };
     }
     match complex_tiling.placed_at(tile) {

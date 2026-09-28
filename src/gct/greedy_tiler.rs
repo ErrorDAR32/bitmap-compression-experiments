@@ -1,11 +1,15 @@
 //! The greedy tiler, the first pass: one rule, asked of every tile size
 //! from the whole bitmap down to single cells, coarsest first, skipping
 //! anything a coarser tile already claimed -- homogeneous? bind it.
-//! Else copyable (a same-size neighbour, or, one level up, a same-size
-//! neighbour of the tile's own parent)? copy it. Else leave it for its
-//! four children to try for themselves. No comparison ever happens
-//! between sizes; a tile that qualifies is taken immediately. Cells are
-//! always homogeneous, so the pass always covers the whole bitmap.
+//! Else, down to 4x4, copyable (a same-size neighbour, or, one level up,
+//! a same-size neighbour of the tile's own parent)? copy it. Else leave
+//! it for its four children to try for themselves. No comparison ever
+//! happens between sizes; a tile that qualifies is taken immediately.
+//! Cells are always homogeneous, so the pass always covers the whole
+//! bitmap.
+//!
+//! A 2x2 is only ever asked whether it is homogeneous: if not, its four
+//! cells are placed as 1x1 tiles, which the residual pass says.
 
 use crate::gct::pyramids::copyable::{Copyable, FAR_DISTANCE};
 use crate::gct::pyramids::homogeneity::Homogeneity;
@@ -33,7 +37,7 @@ pub fn greedy_tiler(bitmap: &Bitmap, homogeneity: &Pyramid, copyable: &Pyramid) 
             }
             let placement = if let Some(value) = homogeneity.homogeneous_value(tile) {
                 Placement::Bound(value)
-            } else if let Some((far, direction)) = copy_direction(copyable, bitmap, tile) {
+            } else if let Some((far, direction)) = copyable.holds(tile).then(|| copy_direction(copyable, bitmap, tile)).flatten() {
                 Placement::Copied { far, direction }
             } else {
                 continue;
