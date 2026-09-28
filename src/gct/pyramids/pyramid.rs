@@ -124,6 +124,7 @@ impl Pyramid {
     }
 
     /// Where a tile's element sits: its word, and the shift within it.
+    #[inline]
     fn locate(&self, tile: Tile) -> (usize, usize) {
         debug_assert!(self.holds(tile), "{tile:?} is outside this pyramid's levels");
         let index = morton_index(tile.x, tile.y);
@@ -132,6 +133,7 @@ impl Pyramid {
     }
 
     /// A tile's element.
+    #[inline]
     pub fn get(&self, tile: Tile) -> u64 {
         let (word, shift) = self.locate(tile);
         (self.words[word] >> shift) & self.element_mask
@@ -139,9 +141,19 @@ impl Pyramid {
 
     /// Replaces a tile's element, then propagates: each coarser tile
     /// holding it is recomputed, up to the first that does not change.
+    #[inline]
     pub fn set(&mut self, tile: Tile, value: u64) {
         self.write(tile, value);
-        let Some(propagation) = self.propagation else { return };
+        if let Some(propagation) = self.propagation {
+            self.propagate_from(tile, propagation);
+        }
+    }
+
+    /// Recomputes each coarser tile holding `tile` by `propagation`, up
+    /// to the first that does not change. Kept out of line: most
+    /// pyramids do not propagate, and their sets stay a few steps.
+    #[inline(never)]
+    fn propagate_from(&mut self, tile: Tile, propagation: Propagation) {
         let mut changed = tile;
         while changed.level > self.shape.coarsest_level {
             let parent = self.parent_of(changed);
@@ -155,6 +167,7 @@ impl Pyramid {
     }
 
     /// Replaces one tile's element, nothing else.
+    #[inline]
     fn write(&mut self, tile: Tile, value: u64) {
         let mask = self.element_mask;
         debug_assert!(value & !mask == 0, "{value} does not fit in {} bits", self.shape.element_bits);

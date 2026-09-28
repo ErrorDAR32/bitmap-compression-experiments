@@ -34,9 +34,10 @@ pub const FINEST_COPY_LEVEL: u8 = CELL_LEVEL - 2;
 /// away from `tile` holds the same cells, bit `d` for direction `d`:
 /// none past the edge. `homogeneity` is `bitmap`'s.
 pub fn matching_directions(homogeneity: &Pyramid, bitmap: &Bitmap, tile: Tile, distance: usize) -> u8 {
+    let mine = homogeneity.homogeneous_value(tile);
     let mut matching = 0;
     for direction in directions() {
-        if tile.neighbour_at(direction, distance).is_some_and(|other| same_content(homogeneity, bitmap, tile, other)) {
+        if matches_at(homogeneity, bitmap, tile, mine, direction, distance) {
             matching |= 1 << direction;
         }
     }
@@ -46,14 +47,17 @@ pub fn matching_directions(homogeneity: &Pyramid, bitmap: &Bitmap, tile: Tile, d
 /// The first direction whose tile `distance` away holds the same cells
 /// as `tile`, if any.
 pub fn matching_direction(homogeneity: &Pyramid, bitmap: &Bitmap, tile: Tile, distance: usize) -> Option<u8> {
-    directions().find(|&direction| {
-        tile.neighbour_at(direction, distance).is_some_and(|other| same_content(homogeneity, bitmap, tile, other))
-    })
+    let mine = homogeneity.homogeneous_value(tile);
+    directions().find(|&direction| matches_at(homogeneity, bitmap, tile, mine, direction, distance))
 }
 
-/// Whether two same-size tiles hold the same cells.
-fn same_content(homogeneity: &Pyramid, bitmap: &Bitmap, tile: Tile, other: Tile) -> bool {
-    match (homogeneity.homogeneous_value(tile), homogeneity.homogeneous_value(other)) {
+/// Whether the same-size tile `distance` away from `tile` in
+/// `direction` holds the same cells as `tile`, whose homogeneous value,
+/// if any, is `mine` -- looked up once for every direction asked.
+#[inline]
+fn matches_at(homogeneity: &Pyramid, bitmap: &Bitmap, tile: Tile, mine: Option<bool>, direction: u8, distance: usize) -> bool {
+    let Some(other) = tile.neighbour_at(direction, distance) else { return false };
+    match (mine, homogeneity.homogeneous_value(other)) {
         (None, None) => same_cells(bitmap, tile, other),
         (mine, theirs) => mine == theirs,
     }
