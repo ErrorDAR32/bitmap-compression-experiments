@@ -22,8 +22,8 @@ pub fn write(tree: &Pyramid, bitmap: &Bitmap, out: &mut BitStream, runs: &mut Ru
     for tile in Tile::all_of_level(start_level) {
         write_node(tree, bitmap, tile, &mut NestedResolutions::none(), out, runs);
     }
-    for cell in runs.residual_cells(tree) {
-        out.push(cell.top_left_value(bitmap));
+    for square in runs.residual_squares(tree) {
+        out.push_value(bitmap.small_square(square.top_left_cell(), square.side_in_cells()), RESIDUAL_SQUARE_BITS);
     }
 }
 

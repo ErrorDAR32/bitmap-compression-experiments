@@ -76,6 +76,21 @@ impl Bitmap {
         self.words.iter().map(|w| w.count_ones()).sum()
     }
 
+    /// An aligned square of fewer than a word of cells, top left at
+    /// `(x, y)`, `side` cells a side: its one run, in Morton order.
+    pub(crate) fn small_square(&self, (x, y): (u8, u8), side: usize) -> u64 {
+        self.run(Self::bit_index(x, y), side * side)
+    }
+
+    /// Sets the cells of an aligned square of fewer than a word of cells,
+    /// top left at `(x, y)`, `side` cells a side, whose bits are set in
+    /// `run`, in Morton order; its other cells stay as they are.
+    pub(crate) fn set_in_small_square(&mut self, (x, y): (u8, u8), side: usize, run: u64) {
+        let at = Self::bit_index(x, y);
+        debug_assert!(run & !run_mask(side * side) == 0, "{run:#b} is more than a {side}x{side} square");
+        self.words[at / BITS_PER_WORD] |= run << (at % BITS_PER_WORD);
+    }
+
     /// Whether two aligned squares of `side` cells, top left at `a` and
     /// at `b`, hold the same cells. Aligned: `side` a power of two, each
     /// corner's coordinates multiples of it.

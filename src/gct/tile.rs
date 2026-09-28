@@ -7,6 +7,7 @@
 //! `u8`, are worked out only where cells are actually read.
 
 use crate::{Bitmap, WIDTH};
+use crate::morton::{morton_coordinates, morton_index};
 
 /// The level of a single cell, the finest there is.
 pub const CELL_LEVEL: u8 = 8;
@@ -145,25 +146,27 @@ impl Tile {
         bitmap.set_square(self.top_left_cell(), self.side_in_cells());
     }
 
-    /// Every tile of one level, in reading order.
+    /// Every tile of one level, in Morton order -- the order the level
+    /// is laid out in, in every pyramid.
     pub fn all_of_level(level: u8) -> impl Iterator<Item = Tile> {
-        let last = (tiles_across(level) - 1) as u8;
-        (0..=last).flat_map(move |y| (0..=last).map(move |x| Tile { level, x, y }))
+        Tile::whole_bitmap().tiles_at_size_offset(level)
     }
 
-    /// Every single cell, in reading order.
+    /// Every single cell, in Morton order.
     pub fn all_cells() -> impl Iterator<Item = Tile> {
         Tile::all_of_level(CELL_LEVEL)
     }
 
-    /// The tiles that fill this one `size_offset` levels finer, in reading
-    /// order.
+    /// The tiles that fill this one `size_offset` levels finer, in Morton
+    /// order: one run of Morton indices, from this tile's own times the
+    /// tiles a tile holds.
     pub fn tiles_at_size_offset(self, size_offset: u8) -> impl Iterator<Item = Tile> {
-        let across = 1usize << size_offset;
         let level = self.level + size_offset;
-        let (first_x, first_y) = (self.x as usize * across, self.y as usize * across);
-        (0..across).flat_map(move |row| {
-            (0..across).map(move |col| Tile { level, x: (first_x + col) as u8, y: (first_y + row) as u8 })
+        let tiles = 1usize << (2 * size_offset);
+        let first = morton_index(self.x, self.y) * tiles;
+        (first..first + tiles).map(move |index| {
+            let (x, y) = morton_coordinates(index);
+            Tile { level, x, y }
         })
     }
 }

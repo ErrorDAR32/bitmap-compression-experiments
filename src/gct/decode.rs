@@ -56,8 +56,9 @@ pub fn read(stream: &BitStream, read: &mut StreamContents, runs: &mut Runs) {
     for tile in Tile::all_of_level(start_level) {
         read_node(&mut reader, tile, &mut NestedResolutions::none(), BOUND_AT_THE_TOP, read, runs);
     }
-    for &cell in runs.residual_cells(read.tree) {
-        read.bind(cell, reader.bit());
+    for &square in runs.residual_squares(read.tree) {
+        let cells = reader.value(RESIDUAL_SQUARE_BITS);
+        read.cell_values.set_in_small_square(square.top_left_cell(), square.side_in_cells(), cells);
     }
 }
 

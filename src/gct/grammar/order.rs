@@ -5,7 +5,7 @@
 use crate::gct::pyramids::pyramid::Pyramid;
 use crate::gct::pyramids::tree::{Node, Tree};
 use crate::fixed_list::FixedList;
-use crate::gct::tile::{tiles_down_to, Tile, CELLS, CELL_LEVEL, CHILDREN_ACROSS};
+use crate::gct::tile::{Tile, CELLS, CELL_LEVEL};
 
 /// The most tiles a walk down the tree waits on at once: three siblings
 /// a level, and a last level's four.
@@ -19,8 +19,6 @@ pub struct Runs {
     tiles: FixedList<Tile, CELLS>,
     /// Tiles still to visit while walking down the tree.
     waiting: FixedList<Tile, MOST_WAITING>,
-    /// The residual 2x2s found: at most every 2x2.
-    squares: FixedList<Tile, { tiles_down_to(CELL_LEVEL - 1) - tiles_down_to(CELL_LEVEL - 2) }>,
 }
 
 impl Runs {
@@ -28,7 +26,8 @@ impl Runs {
     /// (its own nesting `nesting`, size offset `size_offset`), in payload
     /// order: the whole tile's resolution tiles when it masks nothing,
     /// otherwise every node in its body unmasked in it, in body order --
-    /// including nodes inside complex tiles nested in it.
+    /// including nodes inside complex tiles nested in it -- each node's
+    /// resolution tiles in Morton order.
     pub fn payload(&mut self, tree: &Pyramid, tile: Tile, nesting: u8, size_offset: u8) -> &[Tile] {
         self.tiles.clear();
         let resolution = tile.level + size_offset;
@@ -52,39 +51,22 @@ impl Runs {
         &self.tiles
     }
 
-    /// The residual cells, in reading order: every cell of every residual
-    /// 2x2.
-    ///
-    /// The residual 2x2s are found by walking down the tree, only into
-    /// nodes that may hold nodes under them -- a divide, or anything that
-    /// masks -- then put in reading order; each row of them gives its top
-    /// cells left to right, then its bottom ones.
-    pub fn residual_cells(&mut self, tree: &Pyramid) -> &[Tile] {
-        self.squares.clear();
+    /// The residual 2x2s, in Morton order, found by walking down the tree
+    /// in Morton order, only into nodes that may hold nodes under them --
+    /// a divide, or anything that masks. The residual pass says every
+    /// cell of each, its four cells in Morton order -- consecutive, in the
+    /// bitmap too.
+    pub fn residual_squares(&mut self, tree: &Pyramid) -> &[Tile] {
+        self.tiles.clear();
         self.waiting.clear();
         self.waiting.push(Tile::whole_bitmap());
         while let Some(at) = self.waiting.pop() {
             match tree.node(at) {
-                Node::Residual => self.squares.push(at),
+                Node::Residual => self.tiles.push(at),
                 Node::Subdivided | Node::ComplexTile { masks: true, .. } | Node::Copied { masks: true, .. } => {
-                    self.waiting.extend(at.children())
+                    self.waiting.extend(at.children().into_iter().rev())
                 }
                 _ => {}
-            }
-        }
-        self.squares.sort_unstable_by_key(|square| (square.y, square.x));
-        self.tiles.clear();
-        for row_of_squares in self.squares.chunk_by(|a, b| a.y == b.y) {
-            for row in 0..CHILDREN_ACROSS {
-                for square in row_of_squares {
-                    for col in 0..CHILDREN_ACROSS {
-                        self.tiles.push(Tile {
-                            level: CELL_LEVEL,
-                            x: square.x * CHILDREN_ACROSS + col,
-                            y: square.y * CHILDREN_ACROSS + row,
-                        });
-                    }
-                }
             }
         }
         &self.tiles

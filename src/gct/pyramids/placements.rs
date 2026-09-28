@@ -142,7 +142,7 @@ pub trait Placements {
     /// Records `placement` as placed exactly at `tile`.
     fn place(&mut self, tile: Tile, placement: Placement);
 
-    /// Every placed tile, coarsest level first, reading order within
+    /// Every placed tile, coarsest level first, Morton order within
     /// each level.
     fn placed_tiles(&self) -> impl Iterator<Item = (Tile, Placement)> + '_;
 }

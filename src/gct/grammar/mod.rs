@@ -4,7 +4,7 @@
 //! of its own. The full grammar, with its costs, is in `docs/gct.md`.
 //!
 //! A stream is the start level, then the tree, node by node from every
-//! tile of that level in reading order (each complex tile's payload
+//! tile of that level in Morton order (each complex tile's payload
 //! right after its body), then the residual pass.
 
 pub mod bit_stream;
@@ -13,7 +13,12 @@ pub mod point_list;
 
 pub use crate::gct::pyramids::placements::BOUND_AT_THE_TOP;
 use crate::gct::pyramids::placements::FINEST_MASKING_LEVEL;
-use crate::gct::tile::{levels_to_cells, CELL_LEVEL};
+use crate::gct::tile::{cells_in_tile, levels_to_cells, CELL_LEVEL};
+
+/// A residual 2x2's bits in the residual pass: one a cell, in Morton
+/// order -- as its cells lie in the bitmap, so read or written as one
+/// value.
+pub const RESIDUAL_SQUARE_BITS: u8 = cells_in_tile(CELL_LEVEL - 1) as u8;
 
 /// The level the tree starts at, whole bitmap (0) to the 2x2 floor:
 /// every coarser tile subdivides, so none of them is written.

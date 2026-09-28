@@ -253,10 +253,9 @@ impl Pyramid {
         })
     }
 
-    /// Every tile of one level, in reading order.
+    /// Every tile of one level, in Morton order, as the level is laid out.
     pub fn tiles_of_level(&self, level: u8) -> impl Iterator<Item = Tile> {
-        let last = (tiles_across(level) - 1) as u8;
-        (0..=last).flat_map(move |y| (0..=last).map(move |x| Tile { level, x, y }))
+        Tile::all_of_level(level)
     }
 
     /// A level's elements. Past the level's last element, a word's

@@ -34,6 +34,21 @@ pub(crate) fn morton_index(x: u8, y: u8) -> usize {
     SPREAD[x as usize] as usize | (SPREAD[y as usize] as usize) << 1
 }
 
+/// The even bits of `index` gathered into the low byte: the inverse of
+/// [`SPREAD`], one coordinate of a Morton index.
+const fn compact(index: usize) -> u8 {
+    let mut v = index & 0x5555;
+    v = (v | v >> 1) & 0x3333;
+    v = (v | v >> 2) & 0x0f0f;
+    v = (v | v >> 4) & 0x00ff;
+    v as u8
+}
+
+/// The `(x, y)` whose Morton index is `index`.
+pub(crate) const fn morton_coordinates(index: usize) -> (u8, u8) {
+    (compact(index), compact(index >> 1))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -50,5 +65,15 @@ mod tests {
             }
         }
         assert_eq!(morton_index(u8::MAX, u8::MAX), u16::MAX as usize);
+    }
+
+    /// Every coordinate pair comes back from its own Morton index.
+    #[test]
+    fn coordinates_invert_the_index() {
+        for y in 0..=u8::MAX {
+            for x in 0..=u8::MAX {
+                assert_eq!(morton_coordinates(morton_index(x, y)), (x, y));
+            }
+        }
     }
 }

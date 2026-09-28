@@ -243,7 +243,7 @@ unmask it: those whose resolution tiles the node covers whole.
 3 bits: the start level, the level of the tree's coarsest node that does
 not subdivide into four nodes. Every coarser tile does -- the trunk --
 so none of them is written; the tree is written from every tile of the start level,
-in reading order.
+in Morton order.
 
 Every node starts with its mask bits: one for each complex tile it is
 nested in that could unmask it, nearest first --
@@ -277,7 +277,7 @@ Any coarser level:
                             never written; nothing else follows
       then its payload: one value bit for every tile of its resolution
       unmasked in it, in body order (including nodes inside complex
-      tiles nested in it)
+      tiles nested in it), each node's tiles in Morton order
 0: subdivide, then at 8x8 or coarser
      0: four child nodes
      1: masking -- 1 flip bit (0: the binding above stays, 1: it flips,
@@ -285,7 +285,9 @@ Any coarser level:
         the binding above, 1 a node), then each named child as a node
 
 After the whole tree, the residual pass: one raw bit for every cell of
-every residual 2x2, in reading order.
+every residual 2x2, the 2x2s in Morton order, each one's four cells in
+Morton order -- as they lie in the bitmap, so each 2x2 is one 4-bit
+value.
 ```
 
 `resolution_width(level)` names size offsets 0 (a tile) to a 2x2 resolution:
@@ -332,7 +334,9 @@ reading order -- above it, or left of it in the same row -- so one pass
 in reading order resolves them all: one walk of the tree collects each
 copy's own cells (the copy, less the children it masks) as rows, sorted
 into reading order, and each row is copied from the row the copy's
-offset away. Only copied cells are touched.
+offset away. Only copied cells are touched. This is the one walk not
+in Morton order: a copy from the tile up and to the right reads a tile
+that comes later in Morton order, but earlier in reading order.
 
 ## Tests
 
