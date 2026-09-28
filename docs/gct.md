@@ -108,9 +108,10 @@ simple bind.
 
 **A 1x1 resolution is the raw escape.** A complex tile of 1x1
 resolution says cells raw -- every cell is a tile of its own, so
-nothing is repeated to fit it. It masks every part holding anything
-coarser than a 2x2 bind, or a copy: those are cheaper said by
-themselves. It is offered
+nothing is repeated to fit it. It masks every part cheaper said by
+itself, as the nodes the greedy tiler's tiles make of it, than raw:
+decided once a bitmap, bottom-up, before any complex tile
+(`complex_tiler/raw_masking.rs`). It is offered
 only where the size offset field has a value to spare for it: 128x128,
 64x64, 32x32 and 8x8. Everywhere else a 1x1 tile is the residual pass's
 own. A candidate is never finer than 4x4.
@@ -305,10 +306,11 @@ Worst cases found by the adversarial search (`testing/adversarial/`):
 | dsrn | raw cells | +2300 bits (dsrn 67836) |
 
 Noise costs gct 65563 bits: four raw 128x128 complex tiles and the
-start level header, 27 over its raw cells (dsrn: 65542, 6 over). Raw
-tiles mask every part holding more than 2x2 binds and 1x1 tiles, which
-the search turns against them: +523 over raw, where the part masked
-costs more said by itself than raw.
+start level header, 27 over its raw cells (dsrn: 65542, 6 over). The
+records above were found while raw tiles masked every part holding
+more than 2x2 binds and 1x1 tiles; masking only what is cheaper said by
+itself, gct against raw's record costs 65563 (+27) and gct against
+dsrn's 55907, 209 under dsrn.
 
 **Why masking binds need 2 children**, gct bits on the seed above and
 the two fresh ones, measured before masking copies stopped counting

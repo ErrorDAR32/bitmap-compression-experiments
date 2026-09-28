@@ -4,3 +4,4 @@
 pub mod bit_cost;
 pub mod complex_tile_candidates;
 pub mod complex_tiler;
+pub mod raw_masking;
