@@ -60,7 +60,7 @@ impl Default for CopyOffsets {
 
 impl CopyOffsets {
     /// The default near offsets and `far`, if every one of them
-    /// [precedes](precedes) the copy.
+    /// [`precedes`] the copy.
     pub fn with_far(far: [(isize, isize); 4]) -> Option<Self> {
         far.iter().all(|&offset| precedes(offset)).then_some(Self { near: NEAR_OFFSETS, far })
     }
