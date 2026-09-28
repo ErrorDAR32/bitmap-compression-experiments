@@ -4,11 +4,11 @@
 //!
 //! A copy is chosen on content alone, so its source may not be resolved
 //! yet when the tree reaches it -- it may even be a residual cell the
-//! residual pass binds. So copies are resolved last, by repeated sweeps in
-//! reading order, deferring a cell whenever its source is not known
-//! yet. A copy always names something reading order puts before it, so
-//! there is no cycle; an assertion backs that. Decoder speed is not a
-//! goal here; simplicity is.
+//! residual pass binds. So copies are resolved last. Every copied cell's
+//! source is before it in reading order -- above it, or to its left in
+//! the same row -- so one pass in reading order resolves them all: each
+//! copy's own cells, row by row, from the source rows the same offset
+//! away.
 
 use crate::gct::grammar::bit_stream::{BitReader, BitStream};
 use crate::gct::grammar::order::Runs;
@@ -18,7 +18,7 @@ use crate::gct::nested_resolutions::NestedResolutions;
 use crate::gct::pyramids::copyable::{FAR_DISTANCE, NEAR_DISTANCE};
 use crate::gct::pyramids::pyramid::Pyramid;
 use crate::gct::pyramids::tree::{Node, Tree};
-use crate::gct::tile::{tile_side, Tile, CELL_LEVEL};
+use crate::gct::tile::{tile_side, Tile, CELL_LEVEL, DIRECTIONS};
 use crate::Bitmap;
 
 /// Where reading a stream back writes: the tree, and every cell whose
@@ -26,11 +26,9 @@ use crate::Bitmap;
 pub struct StreamContents<'a> {
     /// The tree the stream spells out.
     pub tree: &'a mut Pyramid,
-    /// Every cell's value, where known; clear elsewhere.
+    /// Every cell's value, where the stream binds it outright; clear
+    /// where a copy covers it, until copies are resolved.
     pub cell_values: &'a mut Bitmap,
-    /// Which cells' values the stream binds outright: all but those
-    /// copies cover.
-    pub known_cells: &'a mut Bitmap,
 }
 
 impl StreamContents<'_> {
@@ -39,7 +37,6 @@ impl StreamContents<'_> {
         if value {
             tile.set_in(self.cell_values);
         }
-        tile.set_in(self.known_cells);
     }
 }
 
@@ -48,7 +45,6 @@ impl StreamContents<'_> {
 pub fn read(stream: &BitStream, read: &mut StreamContents, runs: &mut Runs) {
     read.tree.clear();
     read.cell_values.reset();
-    read.known_cells.reset();
     let mut reader = stream.reader();
     let start_level = reader.value(START_LEVEL_WIDTH) as u8;
     for level in 0..start_level {
@@ -157,45 +153,80 @@ fn read_payload(reader: &mut BitReader, tile: Tile, nesting: u8, size_offset: u8
     }
 }
 
+/// One row of a copy's own cells: `length` cells from `(x, y)`, each
+/// copied from the cell `offset` away.
+#[derive(Clone, Copy)]
+struct CopyRow {
+    /// The row.
+    y: u8,
+    /// Its first cell's column.
+    x: u8,
+    /// How many cells.
+    length: u16,
+    /// Where its source is, in cells across and down.
+    offset: (isize, isize),
+}
+
+/// Room for the rows copies cover, kept from one stream to the next.
+#[derive(Default)]
+pub struct CopyRows(
+    /// The rows, in reading order once sorted.
+    Vec<CopyRow>,
+);
+
 /// Decodes a stream written by [`crate::gct::encode::write`] into
-/// `read`, whose cell values end as the bitmap; `runs` is room for the
-/// runs' tiles.
-pub fn decode(stream: &BitStream, read: &mut StreamContents, runs: &mut Runs) {
+/// `read`, whose cell values end as the bitmap; `runs` and `copies` are
+/// room for the runs' tiles and the copied rows.
+pub fn decode(stream: &BitStream, read: &mut StreamContents, runs: &mut Runs, copies: &mut CopyRows) {
     self::read(stream, read, runs);
-    let (tree, cell_values, known_cells) = (&*read.tree, &mut *read.cell_values, &mut *read.known_cells);
-    let mut left = Tile::all_cells().filter(|&cell| !cell.top_left_value(known_cells)).count();
-    while left > 0 {
-        let before = left;
-        for cell in Tile::all_cells() {
-            if cell.top_left_value(known_cells) {
-                continue;
+    copies.0.clear();
+    copied_rows(read.tree, Tile::whole_bitmap(), &mut copies.0);
+    copies.0.sort_unstable_by_key(|row| (row.y, row.x));
+    let cells = &mut *read.cell_values;
+    for row in &copies.0 {
+        let source_y = (row.y as isize + row.offset.1) as u8;
+        for x in row.x as usize..row.x as usize + row.length as usize {
+            if cells.get((x as isize + row.offset.0) as u8, source_y) {
+                cells.set(x as u8, row.y);
             }
-            let source = copy_source(tree, cell);
-            if !source.top_left_value(known_cells) {
-                continue;
-            }
-            if source.top_left_value(cell_values) {
-                cell.set_in(cell_values);
-            }
-            cell.set_in(known_cells);
-            left -= 1;
         }
-        assert!(left < before, "nothing resolved in a whole sweep: a copy cycle, which should be impossible");
     }
 }
 
-/// The cell a copied cell reads from: the same cell of its nearest
-/// copy's source, one tile side away for a near copy, two for a far
-/// one. The nearest, since a masking copy's masked children may copy
-/// again, from somewhere else.
-fn copy_source(tree: &Pyramid, cell: Tile) -> Tile {
-    for level in (0..CELL_LEVEL).rev() {
-        if let Node::Copied { far, direction, .. } = tree.node(cell.ancestor(level)) {
+/// Adds the rows of every copy's own cells at or under `tile`: the whole
+/// copy, or, for a copy that masks, the children it says itself. A
+/// masked child is a node of its own, walked like any other.
+fn copied_rows(tree: &Pyramid, tile: Tile, rows: &mut Vec<CopyRow>) {
+    match tree.node(tile) {
+        Node::Copied { far, direction, masks } => {
             let distance = if far { FAR_DISTANCE } else { NEAR_DISTANCE };
-            return cell
-                .neighbour_at(direction, tile_side(level) * distance)
-                .expect("a copy always reads from inside the bitmap");
+            let (dx, dy) = DIRECTIONS[direction as usize];
+            let reach = (tile_side(tile.level) * distance) as isize;
+            let offset = (dx * reach, dy * reach);
+            if !masks {
+                add_rows(tile, offset, rows);
+                return;
+            }
+            for child in tile.children() {
+                if tree.node(child) == Node::Absent {
+                    add_rows(child, offset, rows);
+                } else {
+                    copied_rows(tree, child, rows);
+                }
+            }
         }
+        Node::Subdivided | Node::ComplexTile { masks: true, .. } => {
+            for child in tile.children() {
+                copied_rows(tree, child, rows);
+            }
+        }
+        _ => {}
     }
-    unreachable!("a cell the stream did not say is always under a copy")
+}
+
+/// Adds one row for each row of `tile`, copied from `offset` away.
+fn add_rows(tile: Tile, offset: (isize, isize), rows: &mut Vec<CopyRow>) {
+    let (left, top, _, bottom) = tile.cell_rect();
+    let length = tile.side_in_cells() as u16;
+    rows.extend((top..=bottom).map(|y| CopyRow { y, x: left, length, offset }));
 }

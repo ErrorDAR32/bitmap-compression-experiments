@@ -292,10 +292,12 @@ A copy is chosen on content alone, so its source may not be resolved
 when the tree reaches it; it may even be a residual cell the residual pass binds.
 So decoding is separate steps: read the tree (each complex tile's
 payload filled into cells right after its body), read the residual
-pass, then resolve copies by repeated sweeps in reading order, deferring
-a cell whenever its source is not known yet. A copy always names
-something reading order puts before it, so there is no cycle; an
-assertion backs that. Decoder speed is not a goal; simplicity is.
+pass, then resolve copies. Every copied cell's source is before it in
+reading order -- above it, or left of it in the same row -- so one pass
+in reading order resolves them all: one walk of the tree collects each
+copy's own cells (the copy, less the children it masks) as rows, sorted
+into reading order, and each row is copied from the row the copy's
+offset away. Only copied cells are touched.
 
 ## Tests
 
