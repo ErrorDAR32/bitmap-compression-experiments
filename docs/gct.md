@@ -259,6 +259,7 @@ against dsrn at `Masking::Anywhere`, `FourByFour::ItsOwnGrammar`:
 | laid out like a city, 48 bitmaps | 18300 bits | 12773 bits, -30.2% |
 | grown like a blob, 84 bitmaps | 32518 bits | 31524 bits, -3.1% |
 | drawn with lines, 36 bitmaps | 14034 bits | 11572 bits, -17.5% |
+| sparse, 48 bitmaps | 5130 bits | 5590 bits, +9.0% |
 
 On two fresh seeds (`DSRN_SEED` 9216954446512861479 and
 3326496171169911647): city 13332 and 13320 bits (dsrn 20018 and

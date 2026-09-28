@@ -121,6 +121,16 @@ pub const SHAPES: [Shape; 9] = [
     Shape { name: "dense blobs", density: 0.50, cluster: 0.95, timed: 2, tested: 1 },
 ];
 
+/// Sparse bitmaps: a handful of cells to a hundredth of them, grown the
+/// same way, where almost everything is clear and each set cell is what
+/// the bits are spent on.
+pub const SPARSE: [Shape; 4] = [
+    Shape { name: "a few cells", density: 0.0002, cluster: 0.00, timed: 12, tested: 2 },
+    Shape { name: "a hundred cells", density: 0.0015, cluster: 0.00, timed: 12, tested: 2 },
+    Shape { name: "sparse clusters", density: 0.005, cluster: 0.70, timed: 12, tested: 2 },
+    Shape { name: "one percent", density: 0.01, cluster: 0.00, timed: 12, tested: 2 },
+];
+
 /// Which of them a general benchmark runs on: enough content to be
 /// connected, ragged enough to be mostly boundary.
 pub fn typical() -> &'static Shape {
@@ -190,12 +200,13 @@ impl ExactSizeIterator for Samples {
 /// Every family of sample, named, with as many of each as a
 /// measurement should take.
 ///
-/// Three families. Grown bitmaps are cells scattered or clustered to a
+/// Four families. Grown bitmaps are cells scattered or clustered to a
 /// density, which is what an algorithm is stressed on. Laid out ones
 /// are streets, blocks and courtyards on a grid at its own offset,
 /// which is structure the quadtree has to find rather than is handed.
-/// Drawn ones are lines, straight and diagonal, thin and wide. A result
-/// on one is a third of a result.
+/// Drawn ones are lines, straight and diagonal, thin and wide. Sparse
+/// ones are grown too thin to be a shape at all. A result on one is a
+/// quarter of a result.
 pub fn every_family() -> Vec<(String, Vec<BitmapSample>)> {
     vec![
         (
@@ -205,6 +216,10 @@ pub fn every_family() -> Vec<(String, Vec<BitmapSample>)> {
         (
             "grown like a blob".to_string(),
             SHAPES.iter().flat_map(|shape| shape.timed()).collect(),
+        ),
+        (
+            "sparse".to_string(),
+            SPARSE.iter().flat_map(|shape| shape.timed()).collect(),
         ),
         (
             "drawn with lines".to_string(),

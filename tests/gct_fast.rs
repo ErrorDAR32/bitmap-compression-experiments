@@ -1,16 +1,16 @@
 //! Fast tests: a small sample from the seed in `testing/last_seed` --
-//! every shape, plan and line set, at its `tested` count.
+//! every shape, sparse shape, plan and line set, at its `tested` count.
 //!
 //! `cargo test --test gct_fast`
 
 mod common;
 
-use bitmap::samples::{LINE_SETS, PLANS, SHAPES};
+use bitmap::samples::{LINE_SETS, PLANS, SHAPES, SPARSE};
 use common::check;
 
 #[test]
 fn every_shape_round_trips() {
-    for shape in &SHAPES {
+    for shape in SHAPES.iter().chain(&SPARSE) {
         for (case, bitmap) in shape.tested().enumerate() {
             check(&bitmap, &format!("{}, case {case}", shape.name));
         }
