@@ -11,8 +11,7 @@ use bitmap::gct::grammar::{BOUND_AT_THE_TOP, START_LEVEL_WIDTH};
 use bitmap::gct::nested_resolutions::NestedResolutions;
 use bitmap::gct::encode::write;
 use bitmap::gct::greedy_tiler::greedy_tiler;
-use bitmap::gct::pyramids::copyable::Copyable;
-use bitmap::gct::pyramids::homogeneity::Homogeneity;
+use bitmap::gct::pyramids::content::Content;
 use bitmap::gct::pyramids::placements::{Placement, Placements};
 use bitmap::gct::pyramids::pyramid::Pyramid;
 use bitmap::gct::pyramids::tree::{Node, Tree};
@@ -43,7 +42,7 @@ pub fn first_difference(a: &Bitmap, b: &Bitmap) -> Option<(u8, u8)> {
 /// - the tree read back from the bits is the tree that was written;
 /// - decoding gives back every cell.
 pub fn check(bitmap: &Bitmap, label: &str) {
-    let placements = greedy_tiler(bitmap, &Pyramid::homogeneity(bitmap), &Pyramid::copyable(bitmap));
+    let placements = greedy_tiler(&Pyramid::content(bitmap));
     let cells = |tile: Tile| tile.side_in_cells() * tile.side_in_cells();
     let covered: usize = placements
         .placed_tiles()

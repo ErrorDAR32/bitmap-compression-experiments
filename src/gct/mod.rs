@@ -28,20 +28,16 @@ pub mod tree_representation;
 
 use crate::Bitmap;
 use grammar::bit_stream::BitStream;
-use pyramids::copyable::Copyable;
-use pyramids::homogeneity::Homogeneity;
+use pyramids::content::Content;
 use pyramids::pyramid::Pyramid;
 
 pub use decode::decode;
 
 /// The tree the greedy complex tiler makes of `bitmap`: the bitmap's
-/// homogeneity and copyable pyramids, built once; the greedy tiler's
-/// placements; the complex tiler's complex tiling; and the tree read
-/// off it.
+/// content pyramid, built once; the greedy tiler's placements; the
+/// complex tiler's complex tiling; and the tree read off it.
 pub fn tree(bitmap: &Bitmap) -> Pyramid {
-    let homogeneity = Pyramid::homogeneity(bitmap);
-    let copyable = Pyramid::copyable(bitmap);
-    let placements = greedy_tiler::greedy_tiler(bitmap, &homogeneity, &copyable);
+    let placements = greedy_tiler::greedy_tiler(&Pyramid::content(bitmap));
     let complex_tiling = complex_tiler::complex_tiler::complex_tiler(placements);
     tree_representation::tree_representation(&complex_tiling)
 }

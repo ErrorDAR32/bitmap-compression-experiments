@@ -60,15 +60,18 @@ fixing the shape, its propagation if any, and its queries.
 
 | pyramid | bits | levels | holds | propagation |
 |---|---|---|---|---|
-| `homogeneity` | 2 | 0-8 | whether a tile's cells all agree, and on what | none; built once, a word at a time: the cells off the bitmap's words, then each level folded from the one finer -- homogeneous when all four children are homogeneous and agree |
-| `copyable` | 2 | 0-6 | whether a same-size neighbour (near) or a neighbour of the parent (far) holds the same cells | none |
+| `content` | 16 | 0-8 | read off the bitmap once, two purposes on separate bits. Bits 0-1, homogeneity (`homogeneity.rs`): whether a tile's cells all agree, and on what. Bits 2-13, matches (`copyable.rs`), down to 4x4: for each of the four directions, whether the same-size tile 1, 2 or 4 tiles away holds the same cells -- what a near copy, a far copy (and a near copy's children) and a far copy's children read | none. Homogeneity is built a word at a time: the cells off the bitmap's words, then each level folded from the one finer (homogeneous when all four children are homogeneous and agree). Matches are one run compare a tile and direction |
 | `complex_tiling` | 32 | 0-8 | the placement the greedy tiler made here, if any, and the children it masks -- the greedy tiler writes these bits, the complex tiler the rest; the one size every cell under the tile is bound at, if any; the complex tile's size offset, if it is one; whether a raw complex tile masks it; the sizes of the whole binds under it | a tile's bound size is its children's when all four share one; the sizes under it are all of its children's |
 | `tree` | 8 | 0-7 | the tree's node at a tile | none |
 
 ## Step 1: the greedy tiler
 
-One rule, asked of every tile size from the whole bitmap down to single
-cells, coarsest first, skipping anything a coarser tile already claimed:
+One rule, asked of the whole bitmap, then of every tile nothing coarser
+says, down to single cells. It reads only the content pyramid -- no cell
+is compared here. What a tile gets depends only on its own cells and
+on what its ancestors got, so the pass walks down depth first, carrying
+the value bound above, into the children of a tile left unplaced and
+the children a placed tile masks:
 
 1. **Homogeneous?** Place it as a bind of its value.
 2. Else, down to 4x4, **copyable?** Near: a same-size neighbour of the tile itself.
@@ -85,8 +88,8 @@ cells, coarsest first, skipping anything a coarser tile already claimed:
    homogeneous: a homogeneous child is cheap without the copy (a tile,
    or 1 bit unmasked in a complex tile), any other is 5 bits or more. A
    child homogeneous with the value bound above does not count: it costs
-   nothing without the copy. The masked children stay unclaimed and are
-   tiled like any other tile.
+   nothing without the copy. The masked children are tiled like any
+   other tile.
 4. Else, at 8x8 or coarser, **a masking bind?** When at least 2
    children are homogeneous with the value *not* bound above, bind the
    tile to it, masking the other children. Every child it leaves

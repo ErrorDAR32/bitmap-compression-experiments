@@ -3,6 +3,7 @@
 //! fixing its shape and supplying its own queries and actions.
 
 pub mod complex_tiling;
+pub mod content;
 pub mod copyable;
 pub mod homogeneity;
 pub mod placements;
