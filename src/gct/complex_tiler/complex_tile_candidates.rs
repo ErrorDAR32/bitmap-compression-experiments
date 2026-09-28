@@ -13,11 +13,11 @@
 //! What a size offset is worth is counted, not guessed: the tile's
 //! [bits](super::bit_cost) as the tiling stands, less its bits as that
 //! complex tile -- its children's read from the [cost
-//! lanes](super::cost_lanes). The best size offset saves the most, and a candidate
+//! pyramids](super::cost_pyramids). The best size offset saves the most, and a candidate
 //! that saves nothing is none.
 
 use super::bit_cost::node_bits;
-use super::cost_lanes::CostLanes;
+use super::cost_pyramids::CostPyramids;
 use crate::gct::grammar::raw_resolution_fits;
 use crate::gct::nested_resolutions::NestedResolutions;
 use crate::gct::pyramids::complex_tiling::{ComplexTiling, Fields};
@@ -47,22 +47,23 @@ pub struct Candidate {
 const FINEST_CHECKED_LEVEL: u8 = CELL_LEVEL - 4;
 
 /// In debug builds, for a candidate of 16x16 or finer, that `bits` read
-/// off the lanes is what the reference count ([`bits`]) gives `tile`
-/// with `fields` as its fields.
+/// off the cost pyramids is what the reference count ([`bits`](super::bit_cost::bits)) gives
+/// `tile` with `fields` as its fields -- the reference carrying the
+/// value bound above down itself, where the cost pyramids read each
+/// tile's own field.
 fn debug_assert_matches_reference(
     complex_tiling: &Pyramid,
     bitmap: &Bitmap,
     tile: Tile,
     fields: Fields,
     nested: &NestedResolutions,
-    bound_above: bool,
     bits: u64,
 ) {
     if cfg!(debug_assertions) && tile.level >= FINEST_CHECKED_LEVEL {
-        let reference = node_bits(complex_tiling, bitmap, tile, fields, &mut nested.clone(), bound_above, &mut |child, inside, bound_above| {
+        let reference = node_bits(complex_tiling, bitmap, tile, fields, &mut nested.clone(), fields.bound_above(), &mut |child, inside, bound_above| {
             super::bit_cost::bits(complex_tiling, bitmap, child, inside, bound_above)
         });
-        assert_eq!(bits, reference, "{tile:?}: the lanes' count is not the reference count");
+        assert_eq!(bits, reference, "{tile:?}: the cost pyramids' count is not the reference count");
     }
 }
 
@@ -85,29 +86,27 @@ pub fn tried_resolutions(here: Fields, level: u8, nested: &NestedResolutions) ->
 
 impl Candidate {
     /// `tile`'s best size offset to be a complex tile at, if any saves
-    /// bits, nested in `nested`, `bound_above` the value bound above it,
-    /// every count read from `lanes`. Changes nothing: each size offset
+    /// bits, nested in `nested`, every count read from `costs`. Changes nothing: each size offset
     /// is scored as the complex tile it would be.
     pub fn best_for(
         complex_tiling: &Pyramid,
         bitmap: &Bitmap,
-        lanes: &CostLanes,
+        costs: &CostPyramids,
         tile: Tile,
         nested: &NestedResolutions,
-        bound_above: bool,
     ) -> Option<Candidate> {
         let here = complex_tiling.fields(tile);
-        let without = lanes.without(tile);
+        let without = costs.without(tile);
         // A size offset's bits: the tile as that complex tile, its
-        // children read from the lane of its resolution.
+        // children read from the cost pyramid of its resolution.
         let with = |fields: Fields, resolution: u8| {
-            let bits = node_bits(complex_tiling, bitmap, tile, fields, &mut nested.clone(), bound_above, &mut |child, inside, bound_above| {
-                lanes.child_bits(complex_tiling, bitmap, child, inside, bound_above, resolution)
+            let bits = node_bits(complex_tiling, bitmap, tile, fields, &mut nested.clone(), here.bound_above(), &mut |child, inside, _| {
+                costs.child_bits(complex_tiling, bitmap, child, inside, resolution)
             });
-            debug_assert_matches_reference(complex_tiling, bitmap, tile, fields, nested, bound_above, bits);
+            debug_assert_matches_reference(complex_tiling, bitmap, tile, fields, nested, bits);
             bits
         };
-        debug_assert_matches_reference(complex_tiling, bitmap, tile, here, nested, bound_above, without);
+        debug_assert_matches_reference(complex_tiling, bitmap, tile, here, nested, without);
         let mut best: Option<Candidate> = None;
         for resolution in tried_resolutions(here, tile.level, nested) {
             let size_offset = resolution - tile.level;

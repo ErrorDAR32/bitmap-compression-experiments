@@ -76,18 +76,6 @@ impl Placement {
 /// masks: clear.
 pub const BOUND_AT_THE_TOP: bool = false;
 
-/// The value bound above `tile`: the value of the nearest bind that
-/// masks above it, or clear -- `placed_at` telling what is placed where.
-pub fn binding_above(tile: Tile, placed_at: impl Fn(Tile) -> Option<Placement>) -> bool {
-    (0..tile.level)
-        .rev()
-        .find_map(|level| match placed_at(tile.ancestor(level)) {
-            Some(Placement::Bound { value, masked_children }) if masked_children != 0 => Some(value),
-            _ => None,
-        })
-        .unwrap_or(BOUND_AT_THE_TOP)
-}
-
 /// The finest level a placed tile masks at: 8x8. Masking a 4x4 never
 /// pays -- its children, 2x2s, cost at most 2 bits each, less than the
 /// 4-bit child mask saves. Measured (`docs/gct.md`): allowing copies to

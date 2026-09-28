@@ -18,12 +18,11 @@
 //! children keep between them. Tiles that do not overlap cost bits
 //! independently, so that is the best a pass can do.
 
-use super::cost_lanes::CostLanes;
+use super::cost_pyramids::CostPyramids;
 use super::complex_tile_candidates::Candidate;
 use super::raw_masking::{decide_raw_masking, MOST_RAW_MASKED};
 use crate::fixed_list::FixedList;
 use crate::gct::pyramids::complex_tiling::ComplexTiling;
-use crate::gct::pyramids::placements::{binding_above, Placement};
 use crate::gct::pyramids::pyramid::Pyramid;
 use crate::gct::tile::{tiles_down_to, Tile, CELL_LEVEL, CHILDREN_ACROSS};
 use crate::gct::nested_resolutions::NestedResolutions;
@@ -55,10 +54,10 @@ pub struct Scratch {
     /// The tiles a complex tile of 1x1 resolution masks.
     raw_masked: FixedList<Tile, MOST_RAW_MASKED>,
     /// Every count a search area's candidates ask for.
-    lanes: CostLanes,
-    /// A search area's roots, each with the value bound above it: the
-    /// whole bitmap, or the four children of a complex tile.
-    roots: FixedList<(Tile, bool), MOST_ROOTS>,
+    costs: CostPyramids,
+    /// A search area's roots: the whole bitmap, or the four children of
+    /// a complex tile.
+    roots: FixedList<Tile, MOST_ROOTS>,
     /// Where this pass searches.
     searched: FixedList<SearchArea, MOST_CANDIDATES>,
     /// Where the next pass searches.
@@ -72,7 +71,7 @@ pub struct Scratch {
 /// in place: the placements, with every committed complex tile's size
 /// offset added.
 pub fn complex_tiler(complex_tiling: &mut Pyramid, bitmap: &Bitmap, scratch: &mut Scratch) {
-    let Scratch { raw_masked, lanes, roots, searched, next, chosen } = scratch;
+    let Scratch { raw_masked, costs, roots, searched, next, chosen } = scratch;
     decide_raw_masking(complex_tiling, raw_masked);
     complex_tiling.fill_in(raw_masked);
 
@@ -82,15 +81,10 @@ pub fn complex_tiler(complex_tiling: &mut Pyramid, bitmap: &Bitmap, scratch: &mu
         chosen.clear();
         for search in searched.iter() {
             roots.clear();
-            roots.extend(
-                search
-                    .area
-                    .tiles_at_size_offset(search.coarsest_level - search.area.level)
-                    .map(|tile| (tile, binding_above(tile, |at| complex_tiling.placed_at(at)))),
-            );
-            lanes.fill(complex_tiling, bitmap, roots.iter().copied(), &search.nested);
-            for &(tile, bound_above) in roots.iter() {
-                best_at_or_under(complex_tiling, bitmap, lanes, tile, &search.nested, bound_above, chosen);
+            roots.extend(search.area.tiles_at_size_offset(search.coarsest_level - search.area.level));
+            costs.fill(complex_tiling, bitmap, roots.iter().copied(), &search.nested);
+            for &tile in roots.iter() {
+                best_at_or_under(complex_tiling, bitmap, costs, tile, &search.nested, chosen);
             }
         }
         next.clear();
@@ -106,15 +100,14 @@ const FINEST_CANDIDATE_LEVEL: u8 = CELL_LEVEL - 2;
 /// Adds to `chosen` the candidates at or under `tile` that save the most
 /// bits between them, none overlapping, and returns what they save:
 /// `tile`'s own candidate, or the best under each of its children,
-/// whichever saves more -- `tile`'s own on a tie. `bound_above` is the
-/// value bound above `tile`; every count is read from `lanes`.
+/// whichever saves more -- `tile`'s own on a tie. Every count is read
+/// from `costs`.
 fn best_at_or_under(
     complex_tiling: &Pyramid,
     bitmap: &Bitmap,
-    lanes: &CostLanes,
+    costs: &CostPyramids,
     tile: Tile,
     nested: &NestedResolutions,
-    bound_above: bool,
     chosen: &mut FixedList<Candidate, MOST_CANDIDATES>,
 ) -> u64 {
     if tile.level > FINEST_CANDIDATE_LEVEL || nested.unmasking(complex_tiling.fields(tile), tile).is_some() {
@@ -125,11 +118,7 @@ fn best_at_or_under(
     let placed = complex_tiling.placed_at(tile);
     let own = match placed {
         Some(_) => None,
-        None => Candidate::best_for(complex_tiling, bitmap, lanes, tile, nested, bound_above),
-    };
-    let bound_inside = match placed {
-        Some(Placement::Bound { value, .. }) => value,
-        _ => bound_above,
+        None => Candidate::best_for(complex_tiling, bitmap, costs, tile, nested),
     };
     // The best under the children go on `chosen` first, to be taken off
     // again if the tile's own does better.
@@ -138,7 +127,7 @@ fn best_at_or_under(
         .children()
         .into_iter()
         .filter(|&child| placed.is_none_or(|placement| placement.masks(child)))
-        .map(|child| best_at_or_under(complex_tiling, bitmap, lanes, child, nested, bound_inside, chosen))
+        .map(|child| best_at_or_under(complex_tiling, bitmap, costs, child, nested, chosen))
         .sum();
     match own {
         Some(candidate) if candidate.saving >= under_saving => {

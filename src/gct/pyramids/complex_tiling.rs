@@ -16,7 +16,10 @@
 //!   at a resolution none is placed at;
 //! - bit 26: whether the complex tile at the tile, of 1x1 resolution,
 //!   says its cells as a point list ([`crate::gct::grammar::point_list`])
-//!   rather than raw, masking nothing.
+//!   rather than raw, masking nothing;
+//! - bit 27: the value bound above the tile -- that of the nearest bind
+//!   that masks above it, or clear -- handed down once from the whole
+//!   bitmap, for the complex tiler to read at any tile.
 //!
 //! The bound size is carried up once, when the placements are complete,
 //! a level at a time from the finest: a placed `Bound` tile is bound at
@@ -26,7 +29,7 @@
 //! its own whole bind's, or all of its children's. Nothing set later
 //! changes either, so nothing propagates.
 
-use super::placements::{placement_code, placement_from_code, Placement, Placements, FINEST_MASKING_LEVEL, PLACEMENT_CODE_BITS};
+use super::placements::{placement_code, BOUND_AT_THE_TOP, placement_from_code, Placement, Placements, FINEST_MASKING_LEVEL, PLACEMENT_CODE_BITS};
 use super::pyramid::{Pyramid, PyramidShape};
 use crate::gct::nested_resolutions::NestedResolutions;
 use crate::gct::tile::{tiles_across, Tile, CELL_LEVEL};
@@ -55,10 +58,12 @@ const RAW_MASKS: Field = Field { shift: SIZE_OFFSET.shift + SIZE_OFFSET.bits, bi
 const BOUND_SIZES_UNDER: Field = Field { shift: RAW_MASKS.shift + RAW_MASKS.bits, bits: CELL_LEVEL as u64 + 1 };
 /// Whether the complex tile here is a point list.
 const POINT_LIST: Field = Field { shift: BOUND_SIZES_UNDER.shift + BOUND_SIZES_UNDER.bits, bits: 1 };
+/// The value bound above the tile.
+const BOUND_ABOVE: Field = Field { shift: POINT_LIST.shift + POINT_LIST.bits, bits: 1 };
 /// A one-bit field's value for yes.
 const YES: u64 = 1;
 
-/// 32 bits an element: the fields above take 27.
+/// 32 bits an element: the fields above take 28.
 const SHAPE: PyramidShape = PyramidShape { coarsest_level: 0, finest_level: CELL_LEVEL, element_bits: 32 };
 
 /// `field`'s value in `element`.
@@ -126,6 +131,12 @@ impl Fields {
         Fields(with_field(self.as_complex_tile(CELL_LEVEL - level).0, POINT_LIST, YES))
     }
 
+    /// The value bound above the tile: the nearest bind that masks above
+    /// it, or clear.
+    pub fn bound_above(self) -> bool {
+        field(self.0, BOUND_ABOVE) == YES
+    }
+
     /// Whether the complex tile at exactly the tile says its cells as a
     /// point list.
     pub fn is_point_list(self) -> bool {
@@ -144,7 +155,8 @@ impl Fields {
 pub trait ComplexTiling {
     /// Fills in the rest of the greedy tiler's placements, in place: the
     /// tiles in `raw_masked` masked by a complex tile of 1x1 resolution,
-    /// and the bound sizes carried up. No complex tiles yet.
+    /// the bound sizes carried up, and the value bound above every tile
+    /// handed down. No complex tiles yet.
     fn fill_in(&mut self, raw_masked: &[Tile]);
 
     /// `tile`'s fields, for asking several things of it.
@@ -199,6 +211,7 @@ impl ComplexTiling for Pyramid {
             self.set(tile, with_field(self.get(tile), RAW_MASKS, YES));
         }
         carry_bound_sizes_up(self);
+        hand_bound_above_down(self);
     }
 
     fn fields(&self, tile: Tile) -> Fields {
@@ -268,6 +281,30 @@ fn carry_bound_sizes_up(pyramid: &mut Pyramid) {
             let shift = at % PER_WORD * SHAPE.element_bits;
             let element = coarser[at / PER_WORD] >> shift & ELEMENT_MASK;
             coarser[at / PER_WORD] = coarser[at / PER_WORD] & !(ELEMENT_MASK << shift) | carried(element, children) << shift;
+        }
+    }
+}
+
+/// Hands the value bound above down from the whole bitmap, a level at a
+/// time, to the 2x2 floor: a tile's children have its value if a bind
+/// that masks is placed at it, else the value bound above it -- all four
+/// consecutive elements, two words, set at once. After the bound sizes
+/// are carried up, which reads children that must hold nothing else.
+fn hand_bound_above_down(pyramid: &mut Pyramid) {
+    let top = pyramid.fields(Tile::whole_bitmap()).0;
+    pyramid.set(Tile::whole_bitmap(), with_field(top, BOUND_ABOVE, BOUND_AT_THE_TOP as u64));
+    let children_bit = |bound: bool| (bound as u64) << BOUND_ABOVE.shift | (bound as u64) << (BOUND_ABOVE.shift + SHAPE.element_bits as u64);
+    for level in 0..CELL_LEVEL - 1 {
+        let (coarser, finer) = pyramid.finer_level_mut(level);
+        for at in 0..tiles_across(level).pow(2) {
+            let element = coarser[at / PER_WORD] >> (at % PER_WORD * SHAPE.element_bits) & ELEMENT_MASK;
+            let inside = match placement_from_code(field(element, PLACEMENT)) {
+                Some(Placement::Bound { value, masked_children }) if masked_children != 0 => value,
+                _ => field(element, BOUND_ABOVE) == YES,
+            };
+            for word in &mut finer[2 * at..2 * at + 2] {
+                *word = *word & !children_bit(true) | children_bit(inside);
+            }
         }
     }
 }

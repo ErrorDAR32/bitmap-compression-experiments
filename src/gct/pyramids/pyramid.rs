@@ -204,6 +204,18 @@ impl Pyramid {
         (coarser, finer)
     }
 
+    /// `level`'s words to read, and the next finer level's to write --
+    /// for handing something down from a level to the one below it.
+    pub fn finer_level_mut(&mut self, level: u8) -> (&LevelWords, &mut LevelWords) {
+        let (start, split, end) = (
+            self.level_starts[level as usize],
+            self.level_starts[level as usize + 1],
+            self.level_starts[level as usize + 2],
+        );
+        let (coarser, finer) = self.words[start..end].split_at_mut(split - start);
+        (coarser, finer)
+    }
+
     /// A level's words, to write directly; nothing propagates. Past the
     /// level's last element, a word's bits must stay zero.
     pub fn level_words_mut(&mut self, level: u8) -> &mut LevelWords {
