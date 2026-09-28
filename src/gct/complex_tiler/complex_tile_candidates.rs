@@ -23,8 +23,12 @@ use crate::gct::pyramids::placements::binding_above;
 use crate::gct::pyramids::pyramid::Pyramid;
 use crate::gct::tile::{Tile, CELL_LEVEL};
 
+/// A tile the complex tiler could make a complex tile, at its best
+/// size offset, and what that would save.
 pub struct Candidate {
+    /// The tile.
     pub tile: Tile,
+    /// How many levels finer than the tile its resolution would be.
     pub size_offset: u8,
     /// The bits it saves, as the tiling stood when it was counted.
     pub saving: u64,

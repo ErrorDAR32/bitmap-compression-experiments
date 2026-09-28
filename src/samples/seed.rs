@@ -66,6 +66,7 @@ pub fn seed_for_group(group: &str) -> u64 {
 /// written down -- with how many runs in a row it has now gone
 /// unmoved -- for the next run to notice.
 fn settled() -> (u64, bool) {
+    /// The seed, and whether it is the same as the last run's, once read.
     static SETTLED: OnceLock<(u64, bool)> = OnceLock::new();
     *SETTLED.get_or_init(|| {
         let held = std::fs::read_to_string(WHERE_THE_SEED_IS_KEPT).ok();

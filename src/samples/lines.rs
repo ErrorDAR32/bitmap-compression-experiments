@@ -9,9 +9,13 @@ use crate::{Bitmap, WIDTH};
 /// A kind of drawing: how many lines a bitmap is given, and how many to
 /// measure over and to test.
 pub struct LineSet {
+    /// What a measurement calls it.
     pub name: &'static str,
+    /// How many lines each bitmap is given.
     pub lines: u64,
+    /// How many to measure over.
     pub timed: u64,
+    /// How many a test takes.
     pub tested: u64,
 }
 
@@ -53,8 +57,11 @@ const ORIENTATIONS: [(i64, i64); 4] = [(1, 0), (0, 1), (1, 1), (1, -1)];
 
 /// A run of drawings from consecutive seeds, built one at a time.
 pub struct Drawings {
+    /// The next drawing's seed.
     seed: u64,
+    /// How many drawings are still to come.
     left: u64,
+    /// What every drawing is drawn by.
     set: &'static LineSet,
 }
 

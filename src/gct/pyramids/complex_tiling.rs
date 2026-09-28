@@ -26,37 +26,46 @@ use super::pyramid::{Pyramid, PyramidShape};
 use crate::gct::nested_resolutions::NestedResolutions;
 use crate::gct::tile::{Tile, CELL_LEVEL};
 
+/// A field's value for nothing: no bound size, no size offset.
 const NONE: u64 = 0;
 
 /// Where a field sits in an element, and how wide it is.
 #[derive(Clone, Copy)]
 struct Field {
+    /// The field's lowest bit in the element.
     shift: u64,
+    /// The field's width, in bits.
     bits: u64,
 }
 
+/// The greedy tiler's placement code, bits 0-7.
 const PLACEMENT: Field = Field { shift: 0, bits: PLACEMENT_CODE_BITS };
 /// Enough for a level plus one, up to `CELL_LEVEL + 1`.
 const BOUND_SIZE: Field = Field { shift: PLACEMENT.shift + PLACEMENT.bits, bits: 4 };
 /// Enough for a size offset, up to `CELL_LEVEL`.
 const SIZE_OFFSET: Field = Field { shift: BOUND_SIZE.shift + BOUND_SIZE.bits, bits: 4 };
+/// Whether a complex tile of 1x1 resolution masks the tile.
 const RAW_MASKS: Field = Field { shift: SIZE_OFFSET.shift + SIZE_OFFSET.bits, bits: 1 };
 /// One bit a size, `CELL_LEVEL + 1` of them.
 const BOUND_SIZES_UNDER: Field = Field { shift: RAW_MASKS.shift + RAW_MASKS.bits, bits: CELL_LEVEL as u64 + 1 };
+/// A one-bit field's value for yes.
 const YES: u64 = 1;
 
-
+/// 32 bits an element: the fields above take 26.
 const SHAPE: PyramidShape = PyramidShape { coarsest_level: 0, finest_level: CELL_LEVEL, element_bits: 32 };
 
+/// `field`'s value in `element`.
 fn field(element: u64, field: Field) -> u64 {
     (element >> field.shift) & ((1 << field.bits) - 1)
 }
 
+/// `element` with `field` replaced by `value`.
 fn with_field(element: u64, field: Field, value: u64) -> u64 {
     let mask = ((1 << field.bits) - 1) << field.shift;
     (element & !mask) | (value << field.shift)
 }
 
+/// The complex tiling's queries and updates, over its fields.
 pub trait ComplexTiling {
     /// The greedy tiler's placements, now kept in step, with no complex
     /// tiles yet, and `raw_masked` the tiles a complex tile of 1x1

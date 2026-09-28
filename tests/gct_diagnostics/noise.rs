@@ -11,10 +11,13 @@ const DENSITIES: [f64; 4] = [0.5, 0.35, 0.2, 0.1];
 
 /// Bitmaps a density, from a fixed seed: noise is noise.
 const EACH: u64 = 3;
+/// The fixed seed they are grown from.
 const SEED: u64 = 1;
 
+/// The raw cells: what a bitmap costs written out.
 const RAW_CELLS: usize = 256 * 256;
 
+/// Prints gct's bits on noise at every density, against the raw cells.
 #[test]
 #[ignore]
 fn noise() {

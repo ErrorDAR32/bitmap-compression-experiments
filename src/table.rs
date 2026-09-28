@@ -14,8 +14,11 @@
 /// A table being built. The first column is left aligned and named
 /// rather than numbered; the rest are right aligned figures.
 pub struct Table {
+    /// Each column's heading, one entry a line of it.
     headings: Vec<Vec<String>>,
+    /// Each row's fields, in column order.
     rows: Vec<Vec<String>>,
+    /// Where rules go: before the row at each of these indices.
     rules: Vec<usize>,
 }
 
@@ -55,6 +58,7 @@ impl Table {
             .collect()
     }
 
+    /// One printed line of `fields`, each column `widths` wide.
     fn line(&self, widths: &[usize], fields: &[String]) -> String {
         let mut out = String::from("  ");
         for (c, width) in widths.iter().enumerate() {
@@ -76,6 +80,7 @@ impl Table {
         format!("{bars}{}", tail.trim_end())
     }
 
+    /// A rule across every column, each `widths` wide.
     fn rule_line(&self, widths: &[usize]) -> String {
         let mut out = String::from("  ");
         for (c, width) in widths.iter().enumerate() {

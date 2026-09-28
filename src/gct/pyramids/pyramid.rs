@@ -44,7 +44,9 @@ pub type Propagation = fn(pyramid: &Pyramid, tile: Tile) -> u64;
 /// One element per tile, per level -- see the module doc.
 #[derive(Clone, Debug)]
 pub struct Pyramid {
+    /// The three parameters it was built from.
     shape: PyramidShape,
+    /// What keeps the coarser levels in step on every set, if anything.
     propagation: Option<Propagation>,
     /// Every level's words, coarsest first, each level starting a word
     /// of its own.
@@ -55,6 +57,7 @@ pub struct Pyramid {
     /// Elements a word is a power of two -- an element's bits divide a
     /// word's -- so a tile's word and place in it are shifts and masks.
     per_word_shift: u32,
+    /// One element's bits, at the bottom of a word.
     element_mask: u64,
 }
 
@@ -109,6 +112,7 @@ impl Pyramid {
         Self { propagation: Some(propagation), ..self }
     }
 
+    /// The three parameters it was built from.
     pub fn shape(&self) -> PyramidShape {
         self.shape
     }

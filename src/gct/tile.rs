@@ -48,8 +48,12 @@ pub const fn levels_to_cells(level: u8) -> u8 {
 /// size.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub struct Tile {
+    /// Its size: `0` the whole bitmap, [`CELL_LEVEL`] a single cell,
+    /// each level half the side of the one before.
     pub level: u8,
+    /// Its column among the tiles of its level, left to right.
     pub x: u8,
+    /// Its row among the tiles of its level, top to bottom.
     pub y: u8,
 }
 

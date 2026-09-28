@@ -30,13 +30,20 @@ fn payload_bits(size_offset: u8) -> u64 {
 /// pyramid is a short search -- holding each tile's bits plus one, `0`
 /// not counted yet.
 #[derive(Default)]
-pub struct CountedBits(Vec<(u64, Pyramid)>);
+pub struct CountedBits(
+    /// Each nesting's key, and its pyramid of counted bits.
+    Vec<(u64, Pyramid)>,
+);
 
 /// Enough for any tile's bits, the whole bitmap's included.
 const COUNTED_SHAPE: PyramidShape = PyramidShape { coarsest_level: 0, finest_level: CELL_LEVEL, element_bits: 32 };
+/// A tile's element before its bits are counted: counted bits are held
+/// plus one, so zero is free to mean not yet.
 const NOT_COUNTED: u64 = 0;
 
 impl CountedBits {
+    /// The pyramid of bits counted under `nesting_key`'s nesting, made
+    /// empty the first time it is asked for.
     fn pyramid_for(&mut self, nesting_key: u64) -> &mut Pyramid {
         let at = match self.0.iter().position(|(key, _)| *key == nesting_key) {
             Some(at) => at,

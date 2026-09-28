@@ -19,11 +19,14 @@ use bitmap::Bitmap;
 
 /// The checkerboard in the sample: odd squares, so nothing lines up.
 const CHECKERBOARD_SQUARE: u8 = 7;
-/// Noise in the sample: half the cells, scattered, from a fixed seed.
+/// Noise in the sample: half the cells, scattered...
 const NOISE_DENSITY: f64 = 0.5;
+/// ...from a fixed seed...
 const NOISE_SEED: u64 = 1;
+/// ...one bitmap of it.
 const NOISE_BITMAPS: u64 = 1;
 
+/// Builds the sample, then encodes and decodes every bitmap of it.
 fn main() {
     let mut sample: Vec<Bitmap> = Vec::new();
     for shape in SHAPES.iter().chain(&SPARSE) {

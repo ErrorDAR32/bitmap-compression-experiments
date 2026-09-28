@@ -18,8 +18,11 @@ use bitmap::Bitmap;
 /// small valleys freely. It cools linearly to nothing.
 const START_TEMPERATURE: f64 = 8.0;
 
+/// The worst bitmap a search found, and its score.
 pub struct Found {
+    /// The bitmap.
     pub bitmap: Bitmap,
+    /// Its score.
     pub score: Score,
 }
 

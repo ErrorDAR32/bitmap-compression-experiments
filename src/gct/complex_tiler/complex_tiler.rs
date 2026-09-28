@@ -29,8 +29,11 @@ use crate::gct::nested_resolutions::NestedResolutions;
 /// Where one pass searches: an area, the coarsest level a candidate in
 /// it may be, and the resolutions of the complex tiles it is nested in.
 struct SearchArea {
+    /// The tile searched in.
     area: Tile,
+    /// The coarsest level a candidate in it may be.
     coarsest_level: u8,
+    /// The resolutions of the complex tiles `area` is nested in.
     nested: NestedResolutions,
 }
 

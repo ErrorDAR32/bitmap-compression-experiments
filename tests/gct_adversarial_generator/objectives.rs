@@ -9,7 +9,10 @@ use bitmap::Bitmap;
 /// What one bitmap scored: gct's bits, and how far over the raw cells.
 #[derive(Clone, Copy, Debug)]
 pub struct Score {
+    /// gct's bits less the raw cells of the area searched: how far over
+    /// raw it went.
     pub gap: i64,
+    /// gct's bits for the whole bitmap.
     pub gct_bits: u64,
 }
 

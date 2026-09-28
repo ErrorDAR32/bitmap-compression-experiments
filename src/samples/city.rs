@@ -22,6 +22,7 @@ use crate::Bitmap;
 /// The grid is shifted by a random offset in each city, so however the
 /// pitch divides the bitmap, the blocks do not land on tile corners.
 pub struct Plan {
+    /// What a measurement calls it.
     pub name: &'static str,
     /// How far apart the streets run, in cells.
     pub pitch: i64,
@@ -29,8 +30,9 @@ pub struct Plan {
     pub street: i64,
     /// How many courtyards are cut out of each block.
     pub courtyards: u64,
-    /// How many to measure over, and how many a unit test takes.
+    /// How many to measure over...
     pub timed: u64,
+    /// ...and how many a test takes.
     pub tested: u64,
 }
 
@@ -67,8 +69,11 @@ pub const PLANS: [Plan; 4] = [
 
 /// A run of cities from consecutive seeds, built one at a time.
 pub struct Cities {
+    /// The next city's seed.
     seed: u64,
+    /// How many cities are still to come.
     left: u64,
+    /// What every city is laid out by.
     plan: &'static Plan,
 }
 

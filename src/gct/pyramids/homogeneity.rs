@@ -14,9 +14,12 @@ use super::pyramid::Pyramid;
 use crate::gct::tile::{Tile, CELL_LEVEL};
 use crate::Bitmap;
 
+/// Bit 0: whether every cell of the tile agrees.
 const HOMOGENEOUS: u64 = 0b01;
+/// Bit 1: the value they agree on, when they do.
 const VALUE: u64 = 0b10;
 
+/// Homogeneity's query, over the content pyramid.
 pub trait Homogeneity {
     /// What `tile` holds, if every cell of it agrees.
     fn homogeneous_value(&self, tile: Tile) -> Option<bool>;
@@ -34,6 +37,7 @@ const PER_WORD: usize = u64::BITS as usize / SHAPE.element_bits;
 /// Four elements' bit 0, and their bit 1: the homogeneous and value
 /// bits of a tile's four children, which are one word.
 const CHILDREN_HOMOGENEOUS: u64 = 0x0001_0001_0001_0001 * HOMOGENEOUS;
+/// The four children's value bits, in the same word.
 const CHILDREN_VALUES: u64 = 0x0001_0001_0001_0001 * VALUE;
 /// Every run of cells a word of elements holds, homogeneous, each cell's
 /// value its element's value bit: one entry for every value of that many

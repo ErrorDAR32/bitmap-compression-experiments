@@ -20,8 +20,10 @@ use super::pyramid::Pyramid;
 use crate::gct::tile::{directions, same_cells, Tile, CELL_LEVEL, CHILDREN_ACROSS, DIRECTIONS};
 use crate::Bitmap;
 
-/// How many tiles away a near copy and a far copy read from.
+/// How many tiles away a near copy reads from: its own neighbour.
 pub const NEAR_DISTANCE: usize = 1;
+/// How many tiles away a far copy reads from: its parent's neighbour,
+/// at the tile's own child position.
 pub const FAR_DISTANCE: usize = 2;
 /// Every distance a match is held at: a near copy's, a far copy's, and
 /// that of a far copy's children.
@@ -42,6 +44,7 @@ fn match_bit(direction: u8, distance: usize) -> u64 {
     1 << (FIRST_MATCH_BIT + at * DIRECTIONS.len() + direction as usize)
 }
 
+/// The match queries, over the content pyramid.
 pub trait Copyable {
     /// Whether the same-size tile `distance` away from `tile` in
     /// `direction` holds the same cells: false past the edge, and for

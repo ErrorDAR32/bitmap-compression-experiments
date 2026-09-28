@@ -2,8 +2,10 @@
 //! Multi-bit values go least significant bit first. One bit to an
 //! entry, nothing packed -- the length is the vector's own.
 
+/// A written stream: every bit, in the order written.
 #[derive(Default, Clone, PartialEq, Eq, Debug)]
 pub struct BitStream {
+    /// The bits, one to an entry, first written first.
     bits: Vec<bool>,
 }
 
@@ -13,6 +15,7 @@ impl BitStream {
         self.bits.len()
     }
 
+    /// Whether nothing has been written.
     pub fn is_empty(&self) -> bool {
         self.bits.is_empty()
     }
@@ -42,7 +45,9 @@ impl BitStream {
 
 /// Reads a [`BitStream`] back, in order. Past the end, bits read as 0.
 pub struct BitReader<'a> {
+    /// The stream read from.
     stream: &'a BitStream,
+    /// The next bit to read.
     at: usize,
 }
 

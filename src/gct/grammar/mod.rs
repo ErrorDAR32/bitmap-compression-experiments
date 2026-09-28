@@ -19,34 +19,63 @@ use crate::gct::tile::{levels_to_cells, CELL_LEVEL};
 pub const START_LEVEL_WIDTH: u8 = (u8::BITS - (CELL_LEVEL - 1).leading_zeros()) as u8;
 
 /// One mask bit per complex tile a node is nested in that could unmask
-/// it, nearest first: unmasked in it, or masked.
+/// it, nearest first: this one means the node is unmasked in that
+/// complex tile -- its value is in the complex tile's payload, and the
+/// node ends here.
 pub const UNMASKED: u64 = 0;
+/// A mask bit meaning the node is masked in that complex tile: the next
+/// complex tile out is asked, or, after the last, the node itself
+/// follows.
 pub const MASKED: u64 = 1;
+/// Bits in one mask bit.
 pub const MASK_BIT_WIDTH: u8 = 1;
 
+/// The leaf bit's value for a leaf: a copy or a bind follows, or, at
+/// the 2x2 floor, a tile and its value.
 pub const LEAF: u64 = 1;
+/// The leaf bit's value for a divide, above the 2x2 floor: the node's
+/// children follow, or, at 8x8 and coarser, first its mask-present bit.
 pub const SUBDIVIDE: u64 = 0;
+/// The leaf bit's value at the 2x2 floor for a residual: its four cells
+/// are left to the residual pass.
 pub const RESIDUAL: u64 = 0;
+/// Bits in the leaf bit.
 pub const LEAF_WIDTH: u8 = 1;
 
-/// Whether a divide that masks keeps the value bound above it for
-/// the children it leaves unnamed, or flips it -- a bind that masks.
+/// A divide that masks keeps the value bound above it for the children
+/// it leaves unnamed.
 pub const BINDING_KEPT: u64 = 0;
+/// A divide that masks flips the value bound above it for the children
+/// it leaves unnamed: a bind that masks.
 pub const BINDING_FLIPPED: u64 = 1;
+/// Bits in the flip bit.
 pub const FLIP_WIDTH: u8 = 1;
 
+/// The code bit after a leaf bit for a copy: far, direction and, at
+/// 8x8 and coarser, a mask-present bit follow.
 pub const COPY: u64 = 0;
+/// The code bit after a leaf bit for a bind: a complex tile's size
+/// offset, its mask-present bit where it may mask, its body and its
+/// payload follow.
 pub const BIND: u64 = 1;
+/// Bits in the code bit.
 pub const CODE_WIDTH: u8 = 1;
 
+/// Bits saying whether a copy is far (a neighbour of the tile's parent)
+/// or near (a neighbour of the tile itself).
 pub const FAR_WIDTH: u8 = 1;
+/// Bits naming a copy's direction: one of the four in
+/// [`DIRECTIONS`](crate::gct::tile::DIRECTIONS).
 pub const DIRECTION_WIDTH: u8 = 2;
 
-/// Whether a complex tile deeper than 1, or a copy at 8x8 or coarser,
-/// masks anything at all. Skipped where nothing masks: complex tiles at
-/// size offsets 0 and 1 or at a 1x1 resolution, copies finer than 8x8.
+/// The mask-present bit's value when a node masks nothing at all. The
+/// bit is skipped where nothing may mask: complex tiles at size offsets
+/// 0 and 1 or at a 1x1 resolution, copies and divides finer than 8x8.
 pub const NO_MASKING: u64 = 0;
+/// The mask-present bit's value when a node masks some of what it
+/// holds: its child mask, or its children's mask bits, follow.
 pub const MASKING: u64 = 1;
+/// Bits in the mask-present bit.
 pub const MASK_PRESENT_WIDTH: u8 = 1;
 
 /// Whether a copy at `level` has a mask-present bit. A masking copy's

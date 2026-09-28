@@ -8,13 +8,18 @@ use bitmap::{Bitmap, HEIGHT, WIDTH};
 use std::fs;
 use std::path::PathBuf;
 
+/// Where the records are kept, under the crate's root.
 const FOLDER: &str = "testing/adversarial";
+/// A plain PBM's first word.
 const MAGIC: &str = "P1";
 
+/// The record named `name`'s file.
 pub fn path(name: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(FOLDER).join(format!("{name}.pbm"))
 }
 
+/// The record named `name`, if there is one and it reads as a 256x256
+/// plain PBM.
 pub fn read(name: &str) -> Option<Bitmap> {
     read_from(&path(name))
 }
@@ -39,6 +44,8 @@ pub fn read_from(path: &std::path::Path) -> Option<Bitmap> {
     Some(bitmap)
 }
 
+/// Records `bitmap` as `name`, `note` in the file's comment line,
+/// replacing any record there was.
 pub fn write(name: &str, bitmap: &Bitmap, note: &str) {
     let mut text = format!("{MAGIC}\n# {note}\n{WIDTH} {HEIGHT}\n");
     for y in 0..=u8::MAX {

@@ -21,8 +21,24 @@ use crate::gct::tile::{Tile, CELL_LEVEL};
 /// nothing is placed at says its value.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Placement {
-    Bound { value: bool, masked_children: u8 },
-    Copied { far: bool, direction: u8, masked_children: u8 },
+    /// Bound to one value.
+    Bound {
+        /// The value it binds.
+        value: bool,
+        /// The children it masks, bit `i` for child `i`.
+        masked_children: u8,
+    },
+    /// A copy of a same-size area.
+    Copied {
+        /// Whether it copies a neighbour of its parent rather than of
+        /// itself.
+        far: bool,
+        /// Which of [`DIRECTIONS`](crate::gct::tile::DIRECTIONS) it
+        /// copies from.
+        direction: u8,
+        /// The children it masks, bit `i` for child `i`.
+        masked_children: u8,
+    },
 }
 
 impl Placement {
@@ -31,6 +47,7 @@ impl Placement {
         Placement::Bound { value, masked_children: 0 }
     }
 
+    /// The children it masks, bit `i` for child `i`.
     fn masked_children(self) -> u8 {
         match self {
             Placement::Bound { masked_children, .. } | Placement::Copied { masked_children, .. } => masked_children,
@@ -77,19 +94,27 @@ pub fn binding_above(tile: Tile, placed_at: impl Fn(Tile) -> Option<Placement>) 
 /// costs every family bits on every seed, blob about 6.6%.
 pub const FINEST_MASKING_LEVEL: u8 = CELL_LEVEL - 3;
 
-/// Bits 0-3: `0` nothing placed, `1`/`2` bound to false/true, `8..=15`
-/// copied, far in bit 2 and direction in bits 0-1. Bits 4-7: the
-/// children it masks.
+/// A placement code's bits 0-3 for nothing placed: `0`, so an all-zero
+/// element holds no placement. Bits 0-3 are otherwise `1`/`2` bound to
+/// false/true, `8..=15` copied; bits 4-7 the children it masks.
 const NOTHING: u64 = 0;
 /// Every placement code fits this many bits.
 pub(super) const PLACEMENT_CODE_BITS: u64 = 8;
+/// Bits 0-3: which kind, and a copy's far and direction.
 const KIND_MASK: u64 = 0b1111;
+/// The kind of a bind to false.
 const BOUND_FALSE: u64 = 1;
+/// The kind of a bind to true.
 const BOUND_TRUE: u64 = 2;
+/// Set in the kind of every copy.
 const COPIED: u64 = 0b1000;
+/// Set in a copy's kind when it is far.
 const FAR: u64 = 0b100;
+/// A copy's direction, in the kind's bits 0-1.
 const DIRECTION_MASK: u64 = 0b11;
+/// Where the masked children start: bit 4.
 const MASKED_CHILDREN_SHIFT: u64 = 4;
+/// The masked children's four bits, once shifted down.
 const MASKED_CHILDREN_MASK: u64 = 0b1111;
 
 /// A placement's code; also how the complex tiling pyramid holds it.
@@ -126,6 +151,7 @@ pub trait Placements {
     /// The tile placed exactly at `tile`, if any.
     fn placement(&self, tile: Tile) -> Option<Placement>;
 
+    /// Records `placement` as placed exactly at `tile`.
     fn place(&mut self, tile: Tile, placement: Placement);
 
     /// Every placed tile, coarsest level first, reading order within

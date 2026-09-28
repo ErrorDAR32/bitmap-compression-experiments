@@ -16,8 +16,10 @@ use super::pyramid::{Pyramid, PyramidShape};
 use crate::gct::tile::CELL_LEVEL;
 use crate::Bitmap;
 
+/// 16 bits a tile, every level: homogeneity's 2 and the matches' 12.
 pub(super) const SHAPE: PyramidShape = PyramidShape { coarsest_level: 0, finest_level: CELL_LEVEL, element_bits: 16 };
 
+/// Building the content pyramid.
 pub trait Content {
     /// The content pyramid of `bitmap`.
     fn content(bitmap: &Bitmap) -> Self;

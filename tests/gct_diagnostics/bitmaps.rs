@@ -6,7 +6,9 @@ use bitmap::Bitmap;
 use std::fs;
 use std::path::Path;
 
+/// Where the adversarial records are, under the crate's root.
 const RECORDS: &str = "testing/adversarial";
+/// The environment variable naming one more PBM image to look at.
 const EXTRA: &str = "GCT_DIAGNOSE";
 
 /// Every adversarial record, then `GCT_DIAGNOSE`'s image, each named.

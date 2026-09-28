@@ -64,6 +64,7 @@ pub fn sample_seed(group: &str) -> u64 {
 /// One shape worth measuring on: what it looks like, the two numbers
 /// that make it, and how many of it a timed run should take.
 pub struct Shape {
+    /// What a measurement calls it.
     pub name: &'static str,
     /// The share of the cells that end up set.
     pub density: f64,
@@ -143,10 +144,16 @@ pub fn typical() -> &'static Shape {
 /// to hold two thousand at once, and because the sweeps that compare
 /// seed ranges would otherwise spend their first seconds allocating.
 pub struct Samples {
+    /// The next bitmap's seed.
     seed: u64,
+    /// How many bitmaps are still to come.
     left: u64,
+    /// The side of the corner every bitmap is grown in, in cells.
     side: usize,
+    /// The share of that corner's cells each bitmap ends up with set.
     density: f64,
+    /// How often a new cell lands beside one already set rather than
+    /// anywhere at all.
     cluster: f64,
 }
 

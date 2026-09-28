@@ -25,6 +25,7 @@ fn kind(tree: &bitmap::gct::pyramids::pyramid::Pyramid, tile: Tile, node: Node) 
     }
 }
 
+/// Prints the census of every bitmap looked at.
 #[test]
 #[ignore]
 fn census() {

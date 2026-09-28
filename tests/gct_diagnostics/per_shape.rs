@@ -9,6 +9,8 @@ use bitmap::Bitmap;
 /// The raw cells: what a bitmap costs written out.
 const RAW_CELLS: usize = 256 * 256;
 
+/// Prints gct's bits on every shape, sparse shape, plan and line set,
+/// each on its own row.
 #[test]
 #[ignore]
 fn per_shape() {

@@ -80,9 +80,13 @@ fn best_of(starts: Vec<(&'static str, Bitmap)>, area: Tile, iterations: u64, rng
 
 /// What one search found, and which start each stage's best came from.
 struct Outcome {
+    /// The worst found in the window stage, searching one small tile.
     window: Found,
+    /// Which start the window stage's worst came from.
     window_from: &'static str,
+    /// The worst found over the whole bitmap.
     worst: Found,
+    /// Which start that came from.
     worst_from: &'static str,
 }
 
@@ -100,6 +104,8 @@ fn search(seed: u64, recorded: Option<Bitmap>) -> Outcome {
     Outcome { window, window_from, worst, worst_from }
 }
 
+/// Runs the searches in parallel, prints what each found, and records
+/// the worst bitmap if it beats the one on record.
 #[test]
 #[ignore]
 fn search_adversarial_bitmaps() {

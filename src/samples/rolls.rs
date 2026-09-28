@@ -2,15 +2,21 @@
 //! congruential generator, so a seed means a bitmap and nothing drifts
 //! between runs or machines.
 
-/// Knuth's MMIX constants.
+/// Knuth's MMIX multiplier...
 const MULTIPLIER: u64 = 6364136223846793005;
+/// ...and increment.
 const INCREMENT: u64 = 1442695040888963407;
 /// The low bits of an LCG repeat quickly; only the high ones are used.
 const DISCARDED_LOW_BITS: u32 = 33;
 
-pub(super) struct Rolls(pub(super) u64);
+/// The dice.
+pub(super) struct Rolls(
+    /// The generator's state: the seed, before the first roll.
+    pub(super) u64,
+);
 
 impl Rolls {
+    /// The next roll: the state's high bits, after one step.
     fn next(&mut self) -> u64 {
         self.0 = self.0.wrapping_mul(MULTIPLIER).wrapping_add(INCREMENT);
         self.0 >> DISCARDED_LOW_BITS

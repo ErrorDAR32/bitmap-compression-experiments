@@ -9,6 +9,7 @@ use crate::gct::tile::Tile;
 /// Enough for a resolution plus one, up to `CELL_LEVEL + 1`.
 const RESOLUTION_BITS: u64 = 4;
 
+/// The complex tiles a tile is nested in, by their resolutions.
 #[derive(Clone, Default, Debug)]
 pub struct NestedResolutions {
     /// The resolution (a level) of each complex tile a tile is nested in,

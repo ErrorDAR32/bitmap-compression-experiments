@@ -10,36 +10,54 @@ use bitmap::gct::tile::Tile;
 use bitmap::gct::nested_resolutions::NestedResolutions;
 use bitmap::gct::pyramids::tree::{Node, Tree};
 
+/// The counts, over one tree or added up over many.
 #[derive(Default, Clone, Debug)]
 pub struct TreeStats {
+    /// Whole binds that are nodes: complex tiles at size offset 0 that
+    /// mask nothing.
     pub tiles: usize,
+    /// Complex tiles deeper than size offset 0, by nesting.
     pub complex_tiles_at_nesting: Vec<usize>,
+    /// Those of them that mask some of their body.
     pub complex_tiles_that_mask: usize,
+    /// Copies that mask some of their children.
     pub copies_that_mask: usize,
+    /// Binds that mask some of their children.
     pub binds_that_mask: usize,
+    /// Tiles of a complex tile's resolution unmasked in it: one payload
+    /// bit each.
     pub unmasked: usize,
+    /// Nodes in a complex tile's body unmasked in an outer one instead.
     pub unmasked_in_outer: usize,
+    /// Masked in a complex tile's body: copies...
     pub masked_copied: usize,
+    /// ...whole binds...
     pub masked_tile: usize,
+    /// ...nested complex tiles...
     pub masked_nested: usize,
+    /// ...and residual 2x2s.
     pub masked_residual: usize,
 }
 
 impl TreeStats {
+    /// The counts of one tree.
     pub fn of(tree: &Pyramid) -> Self {
         let mut stats = Self::default();
         stats.count(tree, Tile::whole_bitmap(), None, &mut NestedResolutions::none());
         stats
     }
 
+    /// Every node masked in a complex tile's body, whatever it is.
     pub fn masked(&self) -> usize {
         self.unmasked_in_outer + self.masked_copied + self.masked_tile + self.masked_nested + self.masked_residual
     }
 
+    /// Complex tiles deeper than size offset 0, at every nesting.
     pub fn complex_tiles(&self) -> usize {
         self.complex_tiles_at_nesting.iter().sum()
     }
 
+    /// Adds `other`'s counts to these.
     pub fn add(&mut self, other: &TreeStats) {
         if self.complex_tiles_at_nesting.len() < other.complex_tiles_at_nesting.len() {
             self.complex_tiles_at_nesting.resize(other.complex_tiles_at_nesting.len(), 0);
@@ -59,8 +77,9 @@ impl TreeStats {
         self.masked_residual += other.masked_residual;
     }
 
-    /// `inside`: the nesting of the complex tile whose body directly
-    /// holds `tile`, if any.
+    /// Counts `tile`'s node and everything under it; `inside` the
+    /// nesting of the complex tile whose body directly holds `tile`, if
+    /// any, and `nested` the resolutions of those it is nested in.
     fn count(&mut self, tree: &Pyramid, tile: Tile, inside: Option<u8>, nested: &mut NestedResolutions) {
         match tree.node(tile) {
             Node::Unmasked { nesting } if inside == Some(nesting) => {

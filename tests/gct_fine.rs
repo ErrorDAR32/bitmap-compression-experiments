@@ -23,8 +23,11 @@ use common::check;
 /// test always runs on the same one bitmap.
 const FIXED_SEED: u64 = 7;
 
+/// A generic pyramid summing its children keeps every coarser level in
+/// step through each set.
 #[test]
 fn generic_pyramid_propagates_every_set() {
+    /// The propagation: a tile holds the sum of its children.
     fn sum_of_children(pyramid: &Pyramid, tile: Tile) -> u64 {
         pyramid.children_of(tile).into_iter().map(|child| pyramid.get(child)).sum()
     }
@@ -40,6 +43,8 @@ fn generic_pyramid_propagates_every_set() {
     assert_eq!(pyramid.get(Tile::whole_bitmap()), 16);
 }
 
+/// With the top-left quarter filled, that quarter is homogeneous and set,
+/// the next one homogeneous and clear, and the whole bitmap neither.
 #[test]
 fn homogeneity_pyramid_sees_a_filled_quarter() {
     let mut bitmap = Bitmap::new();
@@ -67,6 +72,7 @@ fn homogeneity_pyramid_matches_the_cells() {
     }
 }
 
+/// An empty bitmap is one tile at the top, in 9 bits.
 #[test]
 fn all_clear_is_one_tile_in_nine_bits() {
     let bitmap = Bitmap::new();
@@ -77,6 +83,7 @@ fn all_clear_is_one_tile_in_nine_bits() {
     check(&bitmap, "all clear");
 }
 
+/// A full bitmap is 9 bits too, and passes every check.
 #[test]
 fn all_set_round_trips() {
     let mut bitmap = Bitmap::new();
@@ -111,6 +118,8 @@ fn content_pyramid_matches_the_cells() {
     }
 }
 
+/// The top-right quarter repeating the top-left one matches it, and is
+/// placed as a near copy of it.
 #[test]
 fn a_repeated_quarter_is_a_near_copy() {
     let mut bitmap = Bitmap::new();
@@ -123,6 +132,8 @@ fn a_repeated_quarter_is_a_near_copy() {
     check(&bitmap, "a repeated quarter");
 }
 
+/// Overlapping rectangles and circles, set and cleared, pass every
+/// check.
 #[test]
 fn rectangles_and_circles_round_trip() {
     let mut bitmap = Bitmap::new();
@@ -133,6 +144,7 @@ fn rectangles_and_circles_round_trip() {
     check(&bitmap, "rectangles and circles");
 }
 
+/// A regular city forms complex tiles, and passes every check.
 #[test]
 fn one_city_round_trips_with_complex_tiles() {
     let bitmap = one_laid_out(FIXED_SEED, &PLANS[0]);
@@ -140,11 +152,13 @@ fn one_city_round_trips_with_complex_tiles() {
     check(&bitmap, "one city");
 }
 
+/// A middling, ragged bitmap passes every check.
 #[test]
 fn one_ragged_bitmap_round_trips() {
     check(&one_grown(FIXED_SEED, 0.20, 0.70), "one middling ragged bitmap");
 }
 
+/// A complex tile masks down to a residual 2x2 where a lone cell sits.
 #[test]
 fn a_complex_tile_masks_a_residual_2x2() {
     // The top-left 64x64: four 32x32s of 16x16 blocks, one block set in
@@ -152,6 +166,7 @@ fn a_complex_tile_masks_a_residual_2x2() {
     // copy of another, so the 64x64 is one complex tile at 16x16
     // resolution. One clear block holds a lone set cell, which no
     // resolution can say: that block is masked, down to a residual 2x2.
+    /// The side of one block, in cells.
     const BLOCK: i64 = 16;
     let mut bitmap = Bitmap::new();
     for (block_x, block_y) in [(0, 0), (3, 0), (0, 3), (3, 3)] {

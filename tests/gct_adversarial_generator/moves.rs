@@ -12,11 +12,13 @@ use bitmap::Bitmap;
 /// tile boundaries, small enough to stay one local change.
 const PATCH_SHARE_OF_SIDE: usize = 4;
 
-/// The longest checkerboard period tried; odd periods from 3 up, so
-/// none lines up with the grid.
+/// The longest checkerboard period tried; odd periods only, so none
+/// lines up with the grid...
 const LONGEST_CHECKER_PERIOD: u64 = 15;
+/// ...from this shortest one up.
 const SHORTEST_CHECKER_PERIOD: u64 = 3;
 
+/// Flips one cell: set to clear, clear to set.
 pub fn flip(bitmap: &mut Bitmap, x: u8, y: u8) {
     if bitmap.get(x, y) {
         bitmap.unset(x, y);
@@ -44,6 +46,7 @@ pub type Change = fn(&mut Rng, &mut Bitmap, Tile);
 /// Every kind of change, which a search picks among.
 pub const CHANGES: [Change; 5] = [flip_a_cell, flip_a_tile, paint_a_rectangle, copy_almost, xor_a_checkerboard];
 
+/// Flips one cell of `area`, anywhere.
 fn flip_a_cell(rng: &mut Rng, bitmap: &mut Bitmap, area: Tile) {
     let (x, y) = some_cell(rng, area);
     flip(bitmap, x, y);

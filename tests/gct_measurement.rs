@@ -17,6 +17,7 @@ use common::tree_stats::TreeStats;
 /// The raw cells: what a bitmap costs written out.
 const RAW_CELLS: usize = 256 * 256;
 
+/// `part` as a percentage of `whole`; 0 of nothing.
 fn percent(part: usize, whole: usize) -> f64 {
     if whole == 0 {
         0.0
@@ -25,6 +26,8 @@ fn percent(part: usize, whole: usize) -> f64 {
     }
 }
 
+/// Prints, for every family and the checkerboards, gct's bits a bitmap,
+/// what its trees hold, and where the bits go.
 #[test]
 #[ignore]
 fn gct_measurement() {

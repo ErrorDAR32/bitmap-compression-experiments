@@ -23,8 +23,12 @@ use crate::Bitmap;
 /// What reading a stream back gives: the tree, and every cell whose
 /// value the stream binds outright -- all but the cells copies cover.
 pub struct StreamContents {
+    /// The tree the stream spells out.
     pub tree: Pyramid,
+    /// Every cell's value, where known; clear elsewhere.
     pub cell_values: Bitmap,
+    /// Which cells' values the stream binds outright: all but those
+    /// copies cover.
     pub known_cells: Bitmap,
 }
 

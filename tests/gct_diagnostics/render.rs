@@ -7,19 +7,30 @@ use bitmap::Bitmap;
 use std::fs;
 use std::path::PathBuf;
 
+/// Where the images go, under the crate's root.
 const FOLDER: &str = "target/gct_diagnostics";
+/// Each cell is this many pixels square.
 const PIXELS_A_CELL: usize = 2;
+/// The bitmap's side, in cells.
 const SIDE: usize = 256;
+/// A set cell's grey level.
 const BLACK: u8 = 0;
+/// A clear cell's grey level.
 const WHITE: u8 = 255;
 
-/// The PNG format's fixed values.
+/// The PNG format's fixed values: the file signature...
 const SIGNATURE: &[u8] = b"\x89PNG\r\n\x1a\n";
+/// ...8 bits a pixel...
 const BIT_DEPTH: u8 = 8;
+/// ...the greyscale colour type...
 const GREYSCALE: u8 = 0;
+/// ...deflate, the only compression method...
 const DEFLATE: u8 = 0;
+/// ...adaptive filtering, the only filter method...
 const ADAPTIVE_FILTERING: u8 = 0;
+/// ...no interlacing...
 const NO_INTERLACE: u8 = 0;
+/// ...and each row's filter type: none.
 const NO_FILTER: u8 = 0;
 /// CRC-32's reversed polynomial, as PNG uses it.
 const CRC_POLYNOMIAL: u32 = 0xEDB8_8320;
@@ -53,6 +64,8 @@ fn adler32(bytes: &[u8]) -> u32 {
     (b << 16) | a
 }
 
+/// Appends one PNG chunk to `out`: its length, `kind`, `data`, and the
+/// CRC of the last two.
 fn chunk(out: &mut Vec<u8>, kind: &[u8; 4], data: &[u8]) {
     out.extend((data.len() as u32).to_be_bytes());
     let mut body = kind.to_vec();
@@ -96,6 +109,7 @@ pub fn png(bitmap: &Bitmap) -> Vec<u8> {
     out
 }
 
+/// Writes a PNG of every bitmap looked at, and prints where.
 #[test]
 #[ignore]
 fn render() {

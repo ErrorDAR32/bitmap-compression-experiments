@@ -39,6 +39,10 @@
 //! against, and `docs/testing_protocol.md` is how a change to any of
 //! it gets measured.
 
+// Every item is documented, private ones included; `cargo clippy`
+// checks the private ones.
+#![warn(missing_docs, clippy::missing_docs_in_private_items)]
+
 pub mod bitmap;
 mod morton;
 pub mod gct;
@@ -47,10 +51,13 @@ pub mod table;
 
 pub use bitmap::Bitmap;
 
-/// The bitmap is always this wide and this tall. Nothing is sized at
-/// run time, which is what lets a workspace be built once and reused.
+/// The bitmap is always this wide... Nothing is sized at run time,
+/// which is what lets a workspace be built once and reused.
 pub const WIDTH: usize = 256;
+/// ...and this tall.
 pub const HEIGHT: usize = 256;
 
+/// Cells a word holds.
 pub(crate) const BITS_PER_WORD: usize = 64;
+/// Words a bitmap takes.
 pub(crate) const WORDS: usize = (WIDTH * HEIGHT) / BITS_PER_WORD;

@@ -20,6 +20,7 @@ pub(crate) type CellWords = [u64; WORDS];
 /// than eight kilobytes.
 #[derive(Clone)]
 pub struct Bitmap {
+    /// The cells, 64 a word, in Morton order.
     pub(crate) words: Box<CellWords>,
 }
 
@@ -126,6 +127,8 @@ mod tests {
     use super::*;
     use crate::{HEIGHT, WIDTH};
 
+    /// Square compares and square fills agree with the same squares drawn
+    /// cell by cell.
     #[test]
     fn squares_agree_with_their_cells() {
         let mut m = Bitmap::new();
@@ -142,6 +145,7 @@ mod tests {
         assert!((0..=u8::MAX).all(|y| (0..=u8::MAX).all(|x| filled.get(x, y) == m.get(x, y))));
     }
 
+    /// A new bitmap has nothing set.
     #[test]
     fn starts_empty() {
         let m = Bitmap::new();
@@ -150,6 +154,7 @@ mod tests {
         assert!(!m.get(255, 255));
     }
 
+    /// Setting then unsetting one cell leaves it, and the count, as before.
     #[test]
     fn set_and_unset_single_bit() {
         let mut m = Bitmap::new();
@@ -161,6 +166,8 @@ mod tests {
         assert_eq!(m.count_set(), 0);
     }
 
+    /// A rectangle includes both corners, whichever way round they are
+    /// named.
     #[test]
     fn rect_is_inclusive_and_order_independent() {
         let mut m = Bitmap::new();
@@ -175,6 +182,7 @@ mod tests {
         assert_eq!(m.count_set(), 0);
     }
 
+    /// A rectangle hanging off the edge is clamped to the bitmap.
     #[test]
     fn rect_clamps_to_bounds() {
         let mut m = Bitmap::new();
@@ -182,6 +190,8 @@ mod tests {
         assert_eq!(m.count_set(), 4);
     }
 
+    /// A circle holds its centre and cells at its radius, not its bounding
+    /// box's corners.
     #[test]
     fn circle_includes_center_and_excludes_far_corners() {
         let mut m = Bitmap::new();
@@ -193,6 +203,7 @@ mod tests {
         assert!(!m.get(133, 133));
     }
 
+    /// Unsetting a circle clears what setting it set.
     #[test]
     fn unset_circle_clears_previously_set_bits() {
         let mut m = Bitmap::new();
@@ -203,6 +214,7 @@ mod tests {
         assert_eq!(m.count_set(), 0);
     }
 
+    /// Resetting clears every cell.
     #[test]
     fn reset_clears_everything() {
         let mut m = Bitmap::new();

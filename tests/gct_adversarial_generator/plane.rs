@@ -9,9 +9,13 @@
 use bitmap::gct::tile::{tile_side, Tile};
 use bitmap::Bitmap;
 
+/// A window can be turned four ways...
 const ROTATIONS: usize = 4;
+/// ...mirrored or not...
 const MIRRORINGS: usize = 2;
+/// ...and inverted or not...
 const INVERSIONS: usize = 2;
+/// ...so this many variants of it fill the plane.
 const VARIANTS: usize = ROTATIONS * MIRRORINGS * INVERSIONS;
 
 /// Where `(x, y)` of a `side` square lands under a variant.
