@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 description = "gct against existing bitmap compressors: CCITT Group 4, JBIG (jbigkit) and zstd"
 publish = false
+default-run = "comparison"
 
 # Its own workspace: the external codecs never enter gct's build.
 [workspace]
