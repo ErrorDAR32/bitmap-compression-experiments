@@ -54,7 +54,7 @@ pub mod bitmap;
 pub mod cgt;
 pub mod table;
 pub mod dsrn;
-pub mod dsrn_exp;
+pub mod dsrn_analysis;
 pub mod pyramid;
 pub mod samples;
 

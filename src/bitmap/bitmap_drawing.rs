@@ -20,7 +20,7 @@ impl Bitmap {
 
     /// Whether any cell of the inclusive rectangle is set, a row of
     /// words at a time rather than a cell at a time -- the same
-    /// word-at-a-time reasoning [`crate::pyramid::same_tiles`] already
+    /// word-at-a-time reasoning the copyable pyramid ([`crate::cgt::pyramids::copyable`]) already
     /// relies on for comparing a whole tile row in one operation.
     /// Unlike `set_rect`/`unset_rect`, this takes already-valid `u8`
     /// coordinates: every caller (a region's own `top_left_cell` and

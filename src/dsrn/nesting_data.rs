@@ -248,7 +248,7 @@ pub struct CodeCounts {
     /// level of the tile each one is about -- one bind's worth of
     /// value or one copy's worth of direction, whatever its size.
     ///
-    /// This is the number [`crate::dsrn_exp::greedy_tiles`] counts
+    /// This is the number [`crate::cgt::greedy_tiler`] counts
     /// against, so the two are comparable: a tile a binding absorbs
     /// still costs its own bit and is counted here once, the same as
     /// a tile that pays for its own header.
@@ -268,7 +268,7 @@ pub struct Encoded {
 
 impl CodeCounts {
     /// Every payload-bearing tile this encode produced, whatever its
-    /// size or kind -- the same count [`crate::dsrn_exp::greedy_tiles`]
+    /// size or kind -- the same count [`crate::cgt::greedy_tiler`]
     /// reports for its own pass, so the two are directly comparable.
     pub fn total_tiles(&self) -> usize {
         self.bound_tiles_at_level.iter().sum::<usize>()

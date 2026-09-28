@@ -143,11 +143,7 @@ impl Pyramid {
 /// A tile's row is a run of `side` bits starting at a multiple of
 /// `side`, so it is either whole words or a run inside one word, and
 /// never straddles two.
-///
-/// `pub(crate)`: dsrn_exp's greedy tiler reuses this same word-level
-/// comparison to precompute far-copy candidates the same way this
-/// file precomputes near ones, without duplicating it.
-pub(crate) fn same_tiles(bitmap: &Bitmap, side: usize, a: (usize, usize), b: (usize, usize)) -> bool {
+fn same_tiles(bitmap: &Bitmap, side: usize, a: (usize, usize), b: (usize, usize)) -> bool {
     let (a_x, b_x) = (a.0 * side, b.0 * side);
     for row in 0..side {
         let mine = bitmap.row((a.1 * side + row) as u8);

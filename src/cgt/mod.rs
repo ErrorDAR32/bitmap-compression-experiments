@@ -22,7 +22,6 @@ pub mod greedy_tiler;
 pub mod pyramids;
 pub mod tile;
 pub mod tree;
-pub mod tree_stats;
 
 use crate::Bitmap;
 use encoder::bit_stream::BitStream;

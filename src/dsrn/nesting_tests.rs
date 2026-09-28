@@ -1,7 +1,7 @@
 //! What has to be true of every encoding, held to on every sample.
 //!
 //! Nothing here measures anything. Size belongs to
-//! [`crate::dsrn_exp`]; these are the statements that make a number
+//! [`crate::dsrn_analysis`]; these are the statements that make a number
 //! from there worth reading at all.
 
 #![cfg(test)]
@@ -15,7 +15,7 @@ use crate::{samples, Bitmap};
 /// Every bitmap the tests run on: both families, the known patterns,
 /// and the awkward shapes that have caught something before.
 fn every_case() -> Vec<Bitmap> {
-    let mut cases = crate::dsrn_exp::emitted::known_patterns()
+    let mut cases = crate::dsrn_analysis::emitted::known_patterns()
         .into_iter()
         .map(|(_, bitmap)| bitmap)
         .collect::<Vec<_>>();

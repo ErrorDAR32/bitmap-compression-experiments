@@ -1,5 +1,5 @@
-//! Experiments on the encoding: what it emits, where the bits go, and
-//! what changes when a knob moves.
+//! Experiments on dsrn, the baseline encoding: what it emits, where the
+//! bits go, and what changes when a knob moves.
 //!
 //! These are not the encoding. They stand beside it, hold it, feed it
 //! bitmaps and print what came out, and every one of them decodes what
@@ -12,17 +12,11 @@
 //! | `emitted` | what does it emit, and what are the codes made of |
 //! | `where_the_bits_go` | which regions give up, and could anything have described them |
 //! | `masking_thresholds` | what does forbidding a mask below a size cost |
+//! | `four_by_four` | what a 4x4 that always masks costs |
 
 pub mod emitted;
 pub mod four_by_four;
-pub mod greedy_tiles;
-mod greedy_tiles_tests;
 pub mod masking_thresholds;
-pub mod tile_or_subdivide;
-mod tile_or_subdivide_tests;
-pub mod tile_stream;
-mod tile_stream_tests;
-pub mod tile_tree;
 pub mod where_the_bits_go;
 
 use crate::dsrn::{decode, encode, Encoded, Knobs, Workspace};
