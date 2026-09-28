@@ -18,13 +18,16 @@ pub enum Placement {
 /// `0`: nothing placed. `1`/`2`: bound to false/true. `8..=15`: copied,
 /// far in bit 2, direction in bits 0-1.
 const NOTHING: u64 = 0;
+/// Every placement code fits this many bits.
+pub(super) const PLACEMENT_CODE_BITS: u64 = 4;
 const BOUND_FALSE: u64 = 1;
 const BOUND_TRUE: u64 = 2;
 const COPIED: u64 = 0b1000;
 const FAR: u64 = 0b100;
 const DIRECTION_MASK: u64 = 0b11;
 
-fn to_code(placement: Placement) -> u64 {
+/// A placement's 4-bit code; also how the complex tiling pyramid holds it.
+pub(super) fn placement_code(placement: Placement) -> u64 {
     match placement {
         Placement::Bound(false) => BOUND_FALSE,
         Placement::Bound(true) => BOUND_TRUE,
@@ -32,7 +35,8 @@ fn to_code(placement: Placement) -> u64 {
     }
 }
 
-fn from_code(code: u64) -> Option<Placement> {
+/// The placement a 4-bit code names, if any.
+pub(super) fn placement_from_code(code: u64) -> Option<Placement> {
     match code {
         NOTHING => None,
         BOUND_FALSE => Some(Placement::Bound(false)),
@@ -44,7 +48,8 @@ fn from_code(code: u64) -> Option<Placement> {
     }
 }
 
-const SHAPE: PyramidShape = PyramidShape { arity: 4, coarsest_level: 0, finest_level: CELL_LEVEL, element_bits: 4 };
+const SHAPE: PyramidShape =
+    PyramidShape { arity: 4, coarsest_level: 0, finest_level: CELL_LEVEL, element_bits: PLACEMENT_CODE_BITS as usize };
 
 pub trait Placements {
     /// Nothing placed anywhere yet.
@@ -71,11 +76,11 @@ impl Placements for Pyramid {
     }
 
     fn placement(&self, tile: Tile) -> Option<Placement> {
-        from_code(self.get(tile))
+        placement_from_code(self.get(tile))
     }
 
     fn place(&mut self, tile: Tile, placement: Placement) {
-        self.set(tile, to_code(placement));
+        self.set(tile, placement_code(placement));
     }
 
     fn placed_tiles(&self) -> impl Iterator<Item = (Tile, Placement)> + '_ {

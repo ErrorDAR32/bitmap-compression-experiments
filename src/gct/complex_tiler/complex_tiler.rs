@@ -1,7 +1,9 @@
 //! The complex tiler, the second pass: groups the greedy tiler's placed
 //! tiles into complex tiles, nested as deep as they keep paying. Its
-//! output is one pyramid, which tiles are complex tiles and at what
-//! size offset ([`complex_tile_size_offsets`](crate::gct::pyramids::complex_tile_size_offsets)).
+//! output is one pyramid, the
+//! [`complex_tiling`](crate::gct::pyramids::complex_tiling): the
+//! placements, each tile's single bound size, and which tiles are
+//! complex tiles at what size offset -- all the tree is read from.
 //! Never looks at the bitmap: every decision is made from the tiles
 //! the greedy tiler placed.
 //!
@@ -15,8 +17,8 @@
 //! already committed in the same pass.
 
 use super::complex_tile_candidates::Candidate;
-use crate::gct::pyramids::complex_tile_size_offsets::ComplexTileSizeOffsets;
-use crate::gct::pyramids::placements::Placements;
+use crate::gct::pyramids::bound_tiles_per_level::BoundTilesPerLevel;
+use crate::gct::pyramids::complex_tiling::ComplexTiling;
 use crate::gct::pyramids::pyramid::Pyramid;
 use crate::gct::tile::{Tile, CELL_LEVEL};
 use crate::gct::nested_resolutions::NestedResolutions;
@@ -30,33 +32,34 @@ struct SearchArea {
     nested: NestedResolutions,
 }
 
-/// Creates complex tiles from the greedy tiler's output: which tiles
-/// are complex tiles, and at what size offset, given what the greedy tiler
-/// placed and its bound tile counts.
-pub fn complex_tiler(placements: &Pyramid, bound_tile_counts: &Vec<Pyramid>) -> Pyramid {
-    let mut size_offsets = Pyramid::complex_tile_size_offsets();
+/// Creates complex tiles from the greedy tiler's output (its
+/// placements pyramid), and returns the complex tiling: the placements,
+/// with every committed complex tile's size offset added.
+pub fn complex_tiler(placements: &Pyramid) -> Pyramid {
+    let bound_tiles_per_level = Vec::<Pyramid>::bound_tiles_per_level(placements);
+    let mut complex_tiling = Pyramid::complex_tiling(placements);
 
     let mut searched = vec![SearchArea { area: Tile::whole_bitmap(), coarsest_level: 0, nested: NestedResolutions::none() }];
     while !searched.is_empty() {
-        let mut candidates = candidates_in(placements, bound_tile_counts, &searched);
+        let mut candidates = candidates_in(&complex_tiling, &bound_tiles_per_level, &searched);
         candidates.sort_by(Candidate::best_first);
-        searched = commit(candidates, &mut size_offsets);
+        searched = commit(candidates, &mut complex_tiling);
     }
-    size_offsets
+    complex_tiling
 }
 
 /// Every candidate in this pass's search areas, biggest tile size
 /// first, down to the smallest a complex tile can be (4x4, so its
 /// resolution is at least 2x2).
-fn candidates_in(placements: &Pyramid, bound_tile_counts: &Vec<Pyramid>, searched: &[SearchArea]) -> Vec<Candidate> {
+fn candidates_in(complex_tiling: &Pyramid, bound_tiles_per_level: &Vec<Pyramid>, searched: &[SearchArea]) -> Vec<Candidate> {
     let mut candidates = Vec::new();
     for search in searched {
         for level in search.coarsest_level..=(CELL_LEVEL - 2) {
             for tile in search.area.tiles_at_size_offset(level - search.area.level) {
-                if placements.is_placed(tile) || search.nested.unmasking(bound_tile_counts, tile).is_some() {
+                if complex_tiling.placed_at(tile).is_some() || search.nested.unmasking(complex_tiling, tile).is_some() {
                     continue;
                 }
-                if let Some(candidate) = Candidate::best_for(bound_tile_counts, tile, &search.nested) {
+                if let Some(candidate) = Candidate::best_for(bound_tiles_per_level, tile, &search.nested) {
                     candidates.push(candidate);
                 }
             }
@@ -68,7 +71,7 @@ fn candidates_in(placements: &Pyramid, bound_tile_counts: &Vec<Pyramid>, searche
 /// Commits `candidates`, best first, skipping any overlapping one
 /// already committed; returns where the next pass searches -- inside
 /// each one committed.
-fn commit(candidates: Vec<Candidate>, size_offsets: &mut Pyramid) -> Vec<SearchArea> {
+fn commit(candidates: Vec<Candidate>, complex_tiling: &mut Pyramid) -> Vec<SearchArea> {
     let mut claimed = Bitmap::new();
     let mut next = Vec::new();
     for candidate in candidates {
@@ -80,7 +83,7 @@ fn commit(candidates: Vec<Candidate>, size_offsets: &mut Pyramid) -> Vec<SearchA
             continue;
         }
         candidate.tile.set_in(&mut claimed);
-        size_offsets.set_complex_tile_size_offset(candidate.tile, candidate.size_offset);
+        complex_tiling.make_complex_tile(candidate.tile, candidate.size_offset);
         next.push(SearchArea {
             area: candidate.tile,
             coarsest_level: candidate.tile.level + 1,

@@ -7,7 +7,7 @@
 
 mod common;
 
-use bitmap::gct::encoder::write;
+use bitmap::gct::encode::write;
 use common::tree_stats::TreeStats;
 use bitmap::gct::{decode, tree};
 use bitmap::dsrn::{encode as dsrn_encode, Encoded, FourByFour, Knobs, Masking, Workspace};

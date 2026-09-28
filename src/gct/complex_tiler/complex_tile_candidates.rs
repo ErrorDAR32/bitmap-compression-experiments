@@ -19,7 +19,7 @@
 //! `total_cells` is the same at every size offset, so the best one is the
 //! one with the most unmasked cells, ties toward the coarser.
 
-use crate::gct::pyramids::bound_tile_counts::BoundTileCounts;
+use crate::gct::pyramids::bound_tiles_per_level::BoundTilesPerLevel;
 use crate::gct::pyramids::pyramid::Pyramid;
 use crate::gct::tile::{cells_in_tile, Tile, CELL_LEVEL};
 use crate::gct::nested_resolutions::NestedResolutions;
@@ -36,11 +36,11 @@ pub struct Candidate {
 
 impl Candidate {
     /// `tile`'s best size offset to be a complex tile at, if any.
-    pub fn best_for(bound_tile_counts: &Vec<Pyramid>, tile: Tile, nested: &NestedResolutions) -> Option<Candidate> {
+    pub fn best_for(bound_tiles_per_level: &Vec<Pyramid>, tile: Tile, nested: &NestedResolutions) -> Option<Candidate> {
         let unmasked_in_outer: u64 = nested
             .able_to_unmask(tile)
             .map(|nesting| nested.resolution(nesting))
-            .map(|resolution| bound_tile_counts.under(tile, resolution) as u64 * cells_in_tile(resolution))
+            .map(|resolution| bound_tiles_per_level.under(tile, resolution) as u64 * cells_in_tile(resolution))
             .sum();
         let total_cells = cells_in_tile(tile.level) - unmasked_in_outer;
         let max_size_offset = CELL_LEVEL - 1 - tile.level; // 1x1 is never a resolution
@@ -50,7 +50,7 @@ impl Candidate {
             if nested.has_resolution(resolution) {
                 continue; // those tiles are already unmasked in that complex tile
             }
-            let unmasked = bound_tile_counts.under(tile, resolution);
+            let unmasked = bound_tiles_per_level.under(tile, resolution);
             if unmasked == 0 || (size_offset == 1 && unmasked != 4) {
                 continue; // nothing to gain, or masking at size_offset 1, which never pays
             }

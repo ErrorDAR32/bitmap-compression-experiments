@@ -6,7 +6,7 @@
 
 mod common;
 
-use bitmap::gct::pyramids::bound_tile_counts::BoundTileCounts;
+use bitmap::gct::pyramids::bound_tiles_per_level::BoundTilesPerLevel;
 use bitmap::gct::pyramids::copyable::Copyable;
 use bitmap::gct::pyramids::homogeneity::Homogeneity;
 use bitmap::gct::pyramids::pyramid::{Pyramid, PyramidShape};
@@ -56,7 +56,7 @@ fn all_clear_is_one_tile_in_six_bits() {
     assert_eq!(encode(&bitmap).len(), 6);
     assert_eq!(tree(&bitmap).node(Tile::whole_bitmap()), Node::ComplexTile { size_offset: 0, masks: false });
     let placements = greedy_tiler(&bitmap, &Pyramid::homogeneity(&bitmap), &Pyramid::copyable(&bitmap));
-    assert_eq!(Vec::<Pyramid>::bound_tile_counts(&placements).under(Tile::whole_bitmap(), 0), 1);
+    assert_eq!(Vec::<Pyramid>::bound_tiles_per_level(&placements).under(Tile::whole_bitmap(), 0), 1);
     check(&bitmap, "all clear");
 }
 

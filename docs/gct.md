@@ -17,12 +17,14 @@ output, and step 4 never decides anything.
 | step | code | output |
 |---|---|---|
 | 1. greedy tiling | `greedy_tiler.rs` | a placements pyramid: what tile was placed where |
-| 2. complex tiling | `complex_tiler/` | a complex tile size offsets pyramid: which tiles are complex tiles, at what size offset |
-| 3. tree representation | `tree_representation.rs` | the tree read off both: one node code per tile, held as a pyramid (`pyramids/tree.rs`) |
-| 4. encoding | `encoder/` | the tree's grammar with its payloads, then the residual pass |
+| 2. complex tiling | `complex_tiler/` | a complex tiling pyramid: the placements, each tile's single bound size, and which tiles are complex tiles at what size offset |
+| 3. tree representation | `tree_representation.rs` | the tree read off the complex tiling alone: one node code per tile, held as a pyramid (`pyramids/tree.rs`) |
+| 4. encoding | `encode.rs` | the tree's grammar with its payloads, then the residual pass |
 
-`decode.rs` reads the bits back (through `encoder/`) and resolves
-copies into cells.
+`decode.rs` reads the bits back and resolves copies into cells. Both
+follow `grammar/`, the one place every rule of the bitstream lives:
+its constants and widths, the bit stream, and the order of the payload
+and residual runs (`grammar/order.rs`).
 
 ## Pyramids
 
@@ -48,8 +50,8 @@ fixing the shape, its propagation if any, and its queries.
 | `homogeneity` | 2 | 0-8 | whether a tile's cells all agree, and on what | homogeneous when all four children are homogeneous and agree |
 | `copyable` | 2 | 0-7 | whether a same-size neighbour (near) or a neighbour of the parent (far) holds the same cells | none |
 | `placements` | 4 | 0-8 | the tile the greedy tiler placed here, if any | none |
-| `bound_tile_counts` | 16 | 0-t, one pyramid per size t | how many `Bound` tiles of size t lie under a tile | sum of the children |
-| `complex_tile_size_offsets` | 4 | 0-6 | a complex tile's size offset, if a tile is one | none |
+| `bound_tiles_per_level` | 16 | 0-t, one pyramid per size t | how many `Bound` tiles of size t lie under a tile (the complex tiler's scoring) | sum of the children |
+| `complex_tiling` | 16 | 0-8 | the placement; the one size every cell under the tile is bound at, if any; the complex tile's size offset, if it is one | a tile's bound size is its children's when all four share one |
 | `tree` | 8 | 0-7 | the tree's node at a tile | none |
 
 ## Step 1: the greedy tiler
@@ -125,12 +127,12 @@ way never once won on the sample corpus.
 
 ## Step 3: the tree
 
-Read off the placements, bound tile counts and complex tile size
-offsets, top-down, one node per tile it reaches (`tree_representation.rs`):
+Read off the complex tiling alone, top-down, one node per tile it
+reaches (`tree_representation.rs`):
 
 | node | when |
 |---|---|
-| `Unmasked { nesting }` | unmasked in the nearest complex tile it is nested in whose resolution tiles under it are all `Bound` at exactly that size (`nesting` 0 is the outermost) |
+| `Unmasked { nesting }` | unmasked in the nearest complex tile it is nested in whose resolution is the tile's single bound size (`nesting` 0 is the outermost) |
 | `ComplexTile { size_offset, masks }` | a placed `Bound` tile (a tile: size offset 0), or a committed complex tile; `masks` when not every resolution tile is unmasked in it |
 | `Copied { far, direction }` | a placed copy |
 | `Subdivided` | anything else coarser than 2x2 |
@@ -179,7 +181,7 @@ every residual 2x2, in reading order.
 `resolution_width(level)` names size offsets 0 (a tile) to a 2x2 resolution:
 3 bits at levels 0-3, 2 at levels 4-5, 1 at level 6. A tile's own level
 is known from its place in the tree, so this costs nothing to use. The
-payload walk order is written once (`encoder/payload.rs`) and used in
+payload walk order is written once (`grammar/order.rs`) and used in
 both directions.
 
 | node | bits, after its mask bits |

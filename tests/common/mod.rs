@@ -4,7 +4,8 @@
 
 pub mod tree_stats;
 
-use bitmap::gct::encoder::{read, write};
+use bitmap::gct::decode::read;
+use bitmap::gct::encode::write;
 use bitmap::gct::greedy_tiler::greedy_tiler;
 use bitmap::gct::pyramids::copyable::Copyable;
 use bitmap::gct::pyramids::homogeneity::Homogeneity;

@@ -2,7 +2,7 @@
 //! nested in, outermost first -- and the one rule for which of them can
 //! unmask the tile.
 
-use crate::gct::pyramids::bound_tile_counts::BoundTileCounts;
+use crate::gct::pyramids::complex_tiling::ComplexTiling;
 use crate::gct::pyramids::pyramid::Pyramid;
 use crate::gct::tile::Tile;
 
@@ -44,8 +44,8 @@ impl NestedResolutions {
     /// The nearest complex tile `tile` is nested in and entirely unmasked in:
     /// every tile of its resolution under `tile` is a `Bound` tile placed
     /// at exactly that size.
-    pub fn unmasking(&self, bound_tile_counts: &Vec<Pyramid>, tile: Tile) -> Option<u8> {
-        self.able_to_unmask(tile).find(|&nesting| bound_tile_counts.entirely_bound_at(tile, self.resolution(nesting)))
+    pub fn unmasking(&self, complex_tiling: &Pyramid, tile: Tile) -> Option<u8> {
+        self.able_to_unmask(tile).find(|&nesting| complex_tiling.entirely_bound_at(tile, self.resolution(nesting)))
     }
 
     /// These, with one more complex tile of `resolution` inside them.

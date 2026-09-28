@@ -1,13 +1,10 @@
-//! A complex tile's payload: one value bit for every tile of its
-//! resolution unmasked in it, bound after its body. One walk,
-//! [`payload_tiles`], says which tiles and in what order, for both
-//! directions.
+//! The order of the two plain runs of value bits: a complex tile's
+//! payload, and the residual pass. One walk each, used by both
+//! directions, so writing and reading can never disagree.
 
-use super::bit_stream::{BitReader, BitStream};
-use super::StreamContents;
 use crate::gct::pyramids::pyramid::Pyramid;
-use crate::gct::tile::Tile;
 use crate::gct::pyramids::tree::{Node, Tree};
+use crate::gct::tile::{Tile, CELL_LEVEL};
 use crate::Bitmap;
 
 /// The tiles of its resolution unmasked in the complex tile at `tile`
@@ -15,7 +12,7 @@ use crate::Bitmap;
 /// whole tile's resolution tiles when it masks nothing, otherwise every
 /// node in its body unmasked in it, in body order -- including nodes
 /// inside complex tiles nested in it.
-fn payload_tiles(tree: &Pyramid, tile: Tile, nesting: u8, size_offset: u8) -> Vec<Tile> {
+pub fn payload_tiles(tree: &Pyramid, tile: Tile, nesting: u8, size_offset: u8) -> Vec<Tile> {
     let resolution = tile.level + size_offset;
     let Node::ComplexTile { masks: true, .. } = tree.node(tile) else {
         return tile.tiles_at_size_offset(size_offset);
@@ -34,14 +31,19 @@ fn payload_tiles(tree: &Pyramid, tile: Tile, nesting: u8, size_offset: u8) -> Ve
     tiles
 }
 
-pub fn write_payload(tree: &Pyramid, bitmap: &Bitmap, tile: Tile, nesting: u8, size_offset: u8, out: &mut BitStream) {
-    for part in payload_tiles(tree, tile, nesting, size_offset) {
-        out.push(part.top_left_value(bitmap));
+/// Every cell of every residual 2x2.
+fn residual_cell_bitmap(tree: &Pyramid) -> Bitmap {
+    let mut residual = Bitmap::new();
+    for tile in Tile::all_of_level(CELL_LEVEL - 1) {
+        if tree.node(tile) == Node::Residual {
+            tile.set_in(&mut residual);
+        }
     }
+    residual
 }
 
-pub fn read_payload(reader: &mut BitReader, tile: Tile, nesting: u8, size_offset: u8, read: &mut StreamContents) {
-    for part in payload_tiles(&read.tree, tile, nesting, size_offset) {
-        read.bind(part, reader.bit());
-    }
+/// The residual cells, in reading order.
+pub fn residual_cells(tree: &Pyramid) -> impl Iterator<Item = Tile> {
+    let residual = residual_cell_bitmap(tree);
+    Tile::all_cells().filter(move |cell| cell.top_left_value(&residual))
 }

@@ -1,5 +1,6 @@
-//! For every tile and every tile size: how many `Bound` tiles of
-//! exactly that size the greedy tiler placed under it.
+//! Bound tiles per level: for every tile and every tile size (level),
+//! how many `Bound` tiles of exactly that size the greedy tiler placed
+//! under it -- what the complex tiler scores candidates with.
 //!
 //! One pyramid per size, each running from the whole bitmap down to
 //! that size: each placed `Bound` tile of that size sets its own element
@@ -22,33 +23,27 @@ const fn shape(size: u8) -> PyramidShape {
     PyramidShape { arity: 4, coarsest_level: 0, finest_level: size, element_bits: COUNT_BITS }
 }
 
-/// One pyramid per tile size, indexed by that size: level 0 (the whole
-/// bitmap) to `CELL_LEVEL - 1` (2x2).
-pub trait BoundTileCounts {
+/// One pyramid per tile size (level), indexed by that level: the whole
+/// bitmap (0) to 2x2 (`CELL_LEVEL - 1`).
+pub trait BoundTilesPerLevel {
     /// Counts what `placements` holds.
-    fn bound_tile_counts(placements: &Pyramid) -> Self;
+    fn bound_tiles_per_level(placements: &Pyramid) -> Self;
 
     /// How many `Bound` tiles of exactly `size` lie under `tile` -- none
     /// when `size` is coarser than `tile` itself.
     fn under(&self, tile: Tile, size: u8) -> u32;
-
-    /// Whether every tile of `size` under `tile` is a `Bound` tile
-    /// placed at exactly that size.
-    fn entirely_bound_at(&self, tile: Tile, size: u8) -> bool {
-        self.under(tile, size) == 1 << (2 * (size - tile.level))
-    }
 }
 
-impl BoundTileCounts for Vec<Pyramid> {
-    fn bound_tile_counts(placements: &Pyramid) -> Self {
-        let mut by_size: Vec<Pyramid> =
+impl BoundTilesPerLevel for Vec<Pyramid> {
+    fn bound_tiles_per_level(placements: &Pyramid) -> Self {
+        let mut per_level: Vec<Pyramid> =
             (0..CELL_LEVEL).map(|size| Pyramid::with_propagation(shape(size), sum_of_children)).collect();
         for (tile, placement) in placements.placed_tiles() {
             if tile.level < CELL_LEVEL && matches!(placement, Placement::Bound(_)) {
-                by_size[tile.level as usize].set(tile, 1);
+                per_level[tile.level as usize].set(tile, 1);
             }
         }
-        by_size
+        per_level
     }
 
     fn under(&self, tile: Tile, size: u8) -> u32 {
