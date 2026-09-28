@@ -2,138 +2,101 @@
 //! or read a bitstream -- nothing here ever decides anything. Building
 //! that tree is entirely `greedy_tiles.rs`'s own job (`greedy_tiler`
 //! then `complex_tiler`, producing one whole-bitmap [`Node`]); this
-//! file only says how a [`Node`], in whatever [`Context`] it sits in,
-//! is spelled out in bits, and how to read that back -- "build trees
-//! first, then traverse the tree to encode," never combined.
+//! file only says how a [`Node`] is spelled out in bits, and how to read
+//! that back -- "build trees first, then traverse the tree to encode,"
+//! never combined. The residual pass (raw bits for whatever cells the
+//! tree leaves uncovered) is a separate stage after the tree, in both
+//! directions.
 //!
 //! # The grammar
 //!
-//! One shape, reused everywhere: a leaf-or-subdivide bit, and, at a
-//! leaf, a bind-or-copy bit. A complex tile's own body ([`write_body_node`])
-//! is not a second grammar bolted on -- it is this exact same shape,
-//! with the one addition a body actually needs: a `bind` leaf can be a
-//! *run* of more than one resolution-tile value, not just its own
-//! single one, so above the resolution a `bind` leaf spends one further
-//! bit saying which. Already at the resolution a run is never more than
-//! one value long, so that bit is never spent there -- free context,
-//! the same reasoning [`resolution_width`] already relies on.
+//! The whole plane is tiled with complex tiles: a bind is always a
+//! complex tile, and a complex tile whose resolution is its own size is
+//! just a *tile*. A node inside a complex tile is either related to it
+//! (unmasked) or not (masked); a masked node may still be related to a
+//! complex tile further out, nearest first.
 //!
 //! ```text
-//! Open or Plain, at any level down to one above cells:
-//! 1: leaf -- this region is exactly one placed tile
-//!    0: copy   + 1 far/near bit + 2 direction bits
-//!    1: bind
-//!       0: simple  -- 1 value bit
-//!       1: complex (Open only) -- resolution_width(level) bits (depth - 1),
-//!             then the complex tile's own body (below)
-//! 0: subdivide -- recurse into all four children, same context
+//! Every node starts with its relation bits: one for each complex tile
+//! enclosing it that could relate it (the node covers whole tiles of
+//! that complex tile's resolution), nearest first --
+//!   0: related to this one -- nothing more here; its values come in
+//!      that complex tile's payload
+//!   1: not related -- ask the next one out
+//! A node related to none of them goes on:
 //!
-//! Open or Plain, one level above cells, in place of the above:
-//! 1: this 2x2 is a homogeneous placed tile + 1 value bit
-//! 0: it is not -- its four cells are holes, no further bits
+//! One level above cells (2x2):
+//! 1: a tile + 1 value bit
+//! 0: a hole -- its four cells are left to the residual pass
 //!
-//! A complex tile's own body, right after its resolution bits, only
-//! when depth > 1 (depth 1 never masks, so this is skipped there,
-//! known on both sides to mean "no masking" for free):
-//! 0: the whole of the body is flat -- one value bit a resolution
-//!    tile, 4^depth of them, in reading order
-//! 1: masked somewhere -- one body node (below) for each of the
-//!    complex tile's own four direct children
-//!
-//! One body node, above the complex tile's own resolution:
+//! Any coarser level:
 //! 1: leaf
-//!    0: copy   + 1 far/near bit + 2 direction bits
-//!    1: bind
-//!       0: this one placed tile's own single value -- masked whole,
-//!          bigger than the resolution
-//!       1: flat -- a run of resolution-tile values below this node,
-//!          in reading order
-//! 0: subdivide -- recurse into this node's own four children
-//!
-//! One body node, already at the complex tile's own resolution: the
-//! same shape, minus the run-length bit (never needed here -- a leaf
-//! this deep is always exactly one value):
-//! 1: leaf
-//!    0: copy, masked -- + 1 far/near bit + 2 direction bits
-//!    1: bind -- this one resolution tile's own value
-//! 0: subdivide
-//!    (resolution 2x2 only: nothing more to read -- a hole, the
-//!    top-level tree's own floor)
-//!    (otherwise: finer content below -- four `Plain` children follow)
+//!    0: copy  + 1 far/near bit + 2 direction bits
+//!    1: complex tile -- resolution_width(level) bits: depth, 0 meaning
+//!       a tile, then
+//!         depth 0 or 1: nothing (never masks)
+//!         depth > 1:    0: no masking | 1: masking -- four child nodes
+//!                       follow, this complex tile now the nearest
+//!                       enclosing one
+//!       then its payload: one value bit for every tile of its
+//!       resolution related to it, in the order the body related them
+//! 0: subdivide -- four child nodes
 //! ```
 //!
-//! Whatever the tree never covers -- every hole a 2x2 leaves, and
-//! nothing else -- gets exactly one raw bit a cell, in reading order,
-//! appended once the whole tree is written. [`claim_owners`] is the one
-//! function that says which cells those are, shared by both directions
-//! so the trailing pass's own reading order can never disagree between
-//! them.
+//! [`claim_owners`] is the one function that says which cells the tree
+//! covers, shared by both directions so the residual pass's reading
+//! order can never disagree between them.
 //!
-//! Decoding is two passes, exactly like [`crate::dsrn_exp::tile_stream`]:
-//! a copy is chosen on content alone by `greedy_tiler`, so its source
-//! may not be resolved yet by the time the tree reaches it, and may
-//! even be a hole the trailing pass has not read yet. [`parse_node`]
-//! reads the whole tree with no value resolution at all; [`claim_owners`]
-//! then walks that already-built tree, recording every cell as a value
-//! or a direction to read one from; the trailing raw bits fill in
-//! whatever is left; then [`resolve`] resolves by repeated sweeps,
-//! deferring a copy to the next one whenever its source is not resolved
-//! yet. No cycle is possible -- a copy always names something reading
-//! order puts before it -- so this always finishes, backed by an
-//! assertion rather than blind trust.
+//! Decoding is separate steps, never interleaved: [`parse_node`] reads
+//! the whole tree (each complex tile's payload filled in right after its
+//! body is read); [`claim_owners`] records every cell as a value or a
+//! direction to read one from; [`read_residual`] fills whatever is left;
+//! [`resolve`] resolves copies by repeated sweeps, deferring a copy
+//! whenever its source is not resolved yet. No cycle is possible -- a
+//! copy always names something reading order puts before it -- so this
+//! always finishes, backed by an assertion rather than blind trust.
+//! Decoder speed is not a goal; simplicity is.
 
 use crate::dsrn::region::{deepest_depth, Region, DIRECTIONS};
 use crate::dsrn::stream::EncodedBitmap;
-use crate::dsrn_exp::greedy_tiles::{complex_tiler, greedy_tiler, Context, Node};
-use crate::pyramid::Pyramid;
+use crate::dsrn_exp::greedy_tiles::{complex_tiler, greedy_tiler, Node};
+use crate::pyramid::{Pyramid, CELL_LEVEL};
 use crate::Bitmap;
 
 const LEAF_WIDTH: usize = 1;
+const LEAF: u64 = 1;
+const SUBDIVIDE: u64 = 0;
+const HOLE: u64 = 0;
+
 const CODE_WIDTH: usize = 1;
+const COPY: u64 = 0;
+const BIND: u64 = 1;
+
 const FAR_WIDTH: usize = 1;
 const DIRECTION_WIDTH: usize = 2;
 const VALUE_WIDTH: usize = 1;
-const COMPLEX_FLAG_WIDTH: usize = 1;
 
-const COPY: u64 = 0;
-const BIND: u64 = 1;
-const SIMPLE: u64 = 0;
-const COMPLEX: u64 = 1;
+/// One bit for each enclosing complex tile that could relate a node:
+/// related (unmasked) or not (masked).
+const RELATION_WIDTH: usize = 1;
+const RELATED: u64 = 0;
+const UNRELATED: u64 = 1;
 
-/// Whether a complex tile's own top-level body is flat outright -- `0`
-/// skips straight to the shared value list every complex tile used to
-/// be, `1` means at least something inside needs masking. Skipped
-/// entirely at depth 1, where masking never pays for itself and the
-/// body is always flat, so this bit would carry no information there.
+/// Whether a complex tile deeper than 1 masks anything at all -- `0`
+/// goes straight to its payload, every tile of its resolution related
+/// to it. Skipped at depth 0 and 1, which never mask.
 const MASK_PRESENT_WIDTH: usize = 1;
 const NO_MASKING: u64 = 0;
 const MASKING: u64 = 1;
 
-/// A body node reuses the exact same leaf-or-subdivide, then
-/// bind-or-copy shape [`write_node`] already has for `Open`/`Plain` --
-/// `LEAF_WIDTH`, `CODE_WIDTH`, `BIND` and `COPY` all mean exactly what
-/// they do there. The one thing a body node can say that an ordinary
-/// leaf cannot is that a `bind` leaf is a *run* of more than one
-/// resolution-tile value rather than just its own single one, so a
-/// `bind` leaf above the resolution spends one further bit to say
-/// which. Already at the resolution a run is never more than one tile
-/// long, so nothing there can ever need that bit, the same "free
-/// context, no bit to spend" reasoning [`resolution_width`] already
-/// relies on.
-const FLAT_WIDTH: usize = 1;
-const FLAT: u64 = 1;
-const SINGLE: u64 = 0;
-
-/// How many bits it takes to name a `depth - 1` value at `region.level`
-/// -- a complex tile's own resolution field, sized to what a region at
-/// that level could actually need rather than a flat width everywhere.
-/// A resolution is never 1x1 (1x1 tiles are always the trailing raw
-/// pass's own), so `depth` never exceeds `deepest_depth - 1` and
-/// `depth - 1` takes `deepest_depth - 1` values; a region's own level
-/// is already known from its place in the tree -- free context, not a
-/// bit anyone has to spend.
+/// How many bits it takes to name a complex tile's depth at
+/// `region.level`: `0` (a tile) up to `deepest_depth - 1` (a 2x2
+/// resolution; 1x1 is never one, 1x1 tiles are always the residual
+/// pass's own) -- `deepest_depth` values. A region's own level is
+/// already known from its place in the tree -- free context, not a bit
+/// anyone has to spend.
 fn resolution_width(level: usize) -> usize {
-    bits_to_name(deepest_depth(level) - 1)
+    bits_to_name(deepest_depth(level))
 }
 
 /// How many bits it takes to name one of `count` values, `0`-indexed --
@@ -147,176 +110,104 @@ fn bits_to_name(count: usize) -> usize {
 }
 
 /// Encodes a bitmap: `greedy_tiler` then `complex_tiler`'s own tree,
-/// said in as few structural bits as reaching each of its nodes costs,
-/// then one raw bit for every cell the tree leaves uncovered.
+/// then the residual pass.
 pub fn encode(pyramid: &Pyramid, bitmap: &Bitmap) -> EncodedBitmap {
     let tree = complex_tiler(&greedy_tiler(pyramid, bitmap));
     let mut out = EncodedBitmap::default();
-    write_node(&tree, Region::whole_bitmap(), Context::Open, &mut out);
+    write_node(&tree, Region::whole_bitmap(), &mut Vec::new(), &mut out);
 
     let mut owner: Vec<Option<Owner>> = vec![None; 256 * 256];
     let mut covered = Bitmap::new();
-    claim_owners(&tree, Region::whole_bitmap(), Context::Open, &mut owner, &mut covered);
-    for y in 0..=u8::MAX {
-        for x in 0..=u8::MAX {
-            if !covered.get(x, y) {
-                out.push_value(bitmap.get(x, y) as u64, 1);
-            }
-        }
-    }
+    claim_owners(&tree, Region::whole_bitmap(), &mut Vec::new(), &mut owner, &mut covered);
+    write_residual(&covered, bitmap, &mut out);
     out
 }
 
-/// Writes one [`Node`] in `context`, for `region`.
-fn write_node(node: &Node, region: Region, context: Context, out: &mut EncodedBitmap) {
-    use crate::pyramid::CELL_LEVEL;
+/// Writes one [`Node`], for `region`. `enclosing` holds the resolutions
+/// of the complex tiles enclosing it, outermost first.
+fn write_node(node: &Node, region: Region, enclosing: &mut Vec<usize>, out: &mut EncodedBitmap) {
+    for nesting in (0..enclosing.len()).rev() {
+        if region.level > enclosing[nesting] {
+            continue; // finer than that complex tile's resolution: it cannot relate this
+        }
+        if matches!(node, Node::Related { nesting: related, .. } if *related == nesting) {
+            out.push_value(RELATED, RELATION_WIDTH);
+            return;
+        }
+        out.push_value(UNRELATED, RELATION_WIDTH);
+    }
 
     if region.level == CELL_LEVEL - 1 {
         match node {
-            Node::Bound(value) => {
-                out.push_value(1, LEAF_WIDTH);
-                out.push_value(*value as u64, VALUE_WIDTH);
+            Node::Complex { depth: 0, body } => {
+                out.push_value(LEAF, LEAF_WIDTH);
+                write_payload(body, enclosing.len(), out);
             }
-            Node::Hole => out.push_value(0, LEAF_WIDTH),
-            _ => unreachable!("one level above cells is always Bound or Hole"),
+            Node::Hole => out.push_value(HOLE, LEAF_WIDTH),
+            _ => unreachable!("one level above cells is always a tile or a hole"),
         }
         return;
     }
 
     match node {
-        Node::Bound(value) => {
-            out.push_value(1, LEAF_WIDTH);
-            out.push_value(BIND, CODE_WIDTH);
-            if context == Context::Open {
-                out.push_value(SIMPLE, COMPLEX_FLAG_WIDTH);
-            }
-            out.push_value(*value as u64, VALUE_WIDTH);
-        }
         Node::Copied { far, direction } => {
-            out.push_value(1, LEAF_WIDTH);
+            out.push_value(LEAF, LEAF_WIDTH);
             out.push_value(COPY, CODE_WIDTH);
             out.push_value(*far as u64, FAR_WIDTH);
             out.push_value(*direction as u64, DIRECTION_WIDTH);
         }
         Node::Complex { depth, body } => {
-            debug_assert_eq!(context, Context::Open, "a complex tile can never nest inside another's body");
-            out.push_value(1, LEAF_WIDTH);
+            out.push_value(LEAF, LEAF_WIDTH);
             out.push_value(BIND, CODE_WIDTH);
-            out.push_value(COMPLEX, COMPLEX_FLAG_WIDTH);
-            out.push_value((*depth - 1) as u64, resolution_width(region.level));
-            write_complex_body(body, region, *depth, region.level + *depth, out);
+            out.push_value(*depth as u64, resolution_width(region.level));
+            let nesting = enclosing.len();
+            if *depth > 1 {
+                let masking = matches!(**body, Node::Split(_));
+                out.push_value(if masking { MASKING } else { NO_MASKING }, MASK_PRESENT_WIDTH);
+            }
+            if let Node::Split(children) = &**body {
+                enclosing.push(region.level + depth);
+                for (child_region, child) in region.children().into_iter().zip(children.iter()) {
+                    write_node(child, child_region, enclosing, out);
+                }
+                enclosing.pop();
+            }
+            write_payload(body, nesting, out);
         }
         Node::Split(children) => {
-            out.push_value(0, LEAF_WIDTH);
-            for (child_region, child_node) in region.children().into_iter().zip(children.iter()) {
-                write_node(child_node, child_region, context, out);
+            out.push_value(SUBDIVIDE, LEAF_WIDTH);
+            for (child_region, child) in region.children().into_iter().zip(children.iter()) {
+                write_node(child, child_region, enclosing, out);
             }
         }
-        Node::Flat(_) => unreachable!("Flat only ever appears inside a complex tile's own body"),
-        Node::Hole => unreachable!("Hole only ever appears one level above cells"),
+        Node::Related { .. } => unreachable!("a related node was already written by its relation bits"),
+        Node::Hole => unreachable!("a hole only ever appears one level above cells"),
     }
 }
 
-/// Writes a complex tile's own top-level body -- `region` is the
-/// complex tile's own region, not one of its children. Skips the
-/// mask-present bit entirely at `depth == 1` (masking never pays for
-/// itself there, so the body is always `Flat` and the bit would carry
-/// no information); otherwise writes it, then either the whole flat
-/// value list or, one node per direct child, [`write_body_node`].
-fn write_complex_body(body: &Node, region: Region, depth: usize, limit_level: usize, out: &mut EncodedBitmap) {
-    if depth == 1 {
-        let Node::Flat(values) = body else { unreachable!("masking never pays for itself at depth 1") };
-        for &value in values {
-            out.push_value(value as u64, VALUE_WIDTH);
-        }
-        return;
-    }
-    match body {
-        Node::Flat(values) => {
-            out.push_value(NO_MASKING, MASK_PRESENT_WIDTH);
-            for &value in values {
-                out.push_value(value as u64, VALUE_WIDTH);
-            }
-        }
-        Node::Split(children) => {
-            out.push_value(MASKING, MASK_PRESENT_WIDTH);
-            for (child_region, child_node) in region.children().into_iter().zip(children.iter()) {
-                write_body_node(child_node, child_region, limit_level, out);
-            }
-        }
-        _ => unreachable!("a complex tile's own top-level body is always Flat or Split"),
+/// Writes a complex tile's payload: the values of every node in its
+/// body related to it (`nesting`), in the order the body walk meets
+/// them -- including inside complex tiles nested in it.
+fn write_payload(body: &Node, nesting: usize, out: &mut EncodedBitmap) {
+    let mut values = Vec::new();
+    collect_payload(body, nesting, &mut values);
+    for value in values {
+        out.push_value(value as u64, VALUE_WIDTH);
     }
 }
 
-/// Writes one body node, for `region`, down to `limit_level` -- the
-/// complex tile's own resolution, the finest a body node ever goes.
-/// Exactly the ordinary leaf-or-subdivide, bind-or-copy grammar
-/// [`write_node`] already has: `LEAF_WIDTH` then, at a leaf,
-/// `CODE_WIDTH`. The only new thing a `bind` leaf can say is that it is
-/// a *run* of resolution-tile values rather than one placed tile's own
-/// single value -- [`FLAT_WIDTH`], spent only above the resolution,
-/// where a run longer than one is actually possible.
-///
-/// Already at the resolution (`region.level == limit_level`),
-/// `subdivide` does not mean "more body nodes" -- there is nothing
-/// finer left for the complex tile itself to say -- it means finer
-/// content the resolution does not reach, read by the ordinary tree in
-/// `Context::Plain`, exactly like crossing into a region [`write_node`]
-/// was never told to expect a complex tile inside. At the 2x2 floor
-/// specifically that finer content is never read as a tree node at all
-/// (the top-level tree's own floor, nothing below 2x2 ever is), so
-/// `subdivide` there is simply a hole, no further bits.
-fn write_body_node(node: &Node, region: Region, limit_level: usize, out: &mut EncodedBitmap) {
-    use crate::pyramid::CELL_LEVEL;
-
-    let above_resolution = region.level < limit_level;
+fn collect_payload(node: &Node, nesting: usize, values: &mut Vec<bool>) {
     match node {
-        Node::Bound(value) => {
-            out.push_value(1, LEAF_WIDTH);
-            out.push_value(BIND, CODE_WIDTH);
-            if above_resolution {
-                out.push_value(SINGLE, FLAT_WIDTH);
-            }
-            out.push_value(*value as u64, VALUE_WIDTH);
-        }
-        Node::Flat(values) => {
-            debug_assert!(above_resolution, "a run at the resolution itself is never more than one value long");
-            out.push_value(1, LEAF_WIDTH);
-            out.push_value(BIND, CODE_WIDTH);
-            out.push_value(FLAT, FLAT_WIDTH);
-            for &value in values {
-                out.push_value(value as u64, VALUE_WIDTH);
-            }
-        }
-        Node::Copied { far, direction } => {
-            out.push_value(1, LEAF_WIDTH);
-            out.push_value(COPY, CODE_WIDTH);
-            out.push_value(*far as u64, FAR_WIDTH);
-            out.push_value(*direction as u64, DIRECTION_WIDTH);
-        }
-        Node::Hole => {
-            debug_assert!(!above_resolution && limit_level == CELL_LEVEL - 1, "a hole only ever appears at the 2x2 floor");
-            out.push_value(0, LEAF_WIDTH);
-        }
-        Node::Split(children) => {
-            out.push_value(0, LEAF_WIDTH);
-            if above_resolution {
-                for (child_region, child_node) in region.children().into_iter().zip(children.iter()) {
-                    write_body_node(child_node, child_region, limit_level, out);
-                }
-            } else {
-                for (child_region, child_node) in region.children().into_iter().zip(children.iter()) {
-                    write_node(child_node, child_region, Context::Plain, out);
-                }
-            }
-        }
-        Node::Complex { .. } => unreachable!("a complex tile can never nest inside another's body"),
+        Node::Related { nesting: related, values: these } if *related == nesting => values.extend(these),
+        Node::Complex { body, .. } => collect_payload(body, nesting, values),
+        Node::Split(children) => children.iter().for_each(|child| collect_payload(child, nesting, values)),
+        _ => {}
     }
 }
 
-/// What a cell's owner says, once the tree and the trailing raw pass
-/// have both been read: its own value, or a direction and distance to
-/// read the matching cell from.
+/// What a cell's owner says, once the tree and the residual pass have
+/// both been read: its own value, or a direction and distance to read
+/// the matching cell from.
 #[derive(Clone, Copy)]
 enum Owner {
     Bound(bool),
@@ -326,47 +217,36 @@ enum Owner {
 /// Walks an already-built [`Node`] tree, recording every cell it covers
 /// as a value or a direction to read one from, and marking `covered`
 /// to match. The one function both `encode` (to find which cells the
-/// tree leaves for the trailing raw pass) and `decode` (to actually
-/// resolve them) use, so the two can never disagree about which cells
-/// those are or in what order.
-fn claim_owners(node: &Node, region: Region, context: Context, owner: &mut [Option<Owner>], covered: &mut Bitmap) {
+/// tree leaves for the residual pass) and `decode` (to actually resolve
+/// them) use, so the two can never disagree about which cells those are.
+fn claim_owners(
+    node: &Node,
+    region: Region,
+    enclosing: &mut Vec<usize>,
+    owner: &mut [Option<Owner>],
+    covered: &mut Bitmap,
+) {
     match node {
-        Node::Bound(value) => {
-            mark_owner(owner, region, Owner::Bound(*value));
+        Node::Related { nesting, values } => {
+            let depth = enclosing[*nesting] - region.level;
+            for (tile, &value) in region.tiles_at_depth(depth).into_iter().zip(values) {
+                mark_owner(owner, tile, Owner::Bound(value));
+            }
             mark_covered(covered, region);
         }
         Node::Copied { far, direction } => {
             mark_owner(owner, region, Owner::Copied { direction: *direction, side: region.side_in_cells(), far: *far });
             mark_covered(covered, region);
         }
-        Node::Hole => {} // its cells are left entirely to the trailing raw pass
-        Node::Flat(values) => {
-            let Context::Body { limit_level } = context else {
-                unreachable!("Flat only ever appears inside a complex tile's own body")
-            };
-            for (tile, &value) in region.tiles_at_depth(limit_level - region.level).into_iter().zip(values) {
-                mark_owner(owner, tile, Owner::Bound(value));
-            }
-            mark_covered(covered, region);
-        }
+        Node::Hole => {} // its cells are left entirely to the residual pass
         Node::Complex { depth, body } => {
-            claim_owners(body, region, Context::Body { limit_level: region.level + depth }, owner, covered);
+            enclosing.push(region.level + depth);
+            claim_owners(body, region, enclosing, owner, covered);
+            enclosing.pop();
         }
         Node::Split(children) => {
-            // The crossover from a complex tile's own body into `Plain`
-            // happens once *this* node -- the one doing the splitting
-            // -- is already at the resolution: that is exactly when
-            // `build_body_node` itself switches to building its own
-            // children with `build_node(..., Context::Plain)` instead
-            // of recursing into more body nodes, and `write_body_node`
-            // makes the same check against its own `region`, never the
-            // child's.
-            let child_context = match context {
-                Context::Body { limit_level } if region.level == limit_level => Context::Plain,
-                other => other,
-            };
-            for (child_region, child_node) in region.children().into_iter().zip(children.iter()) {
-                claim_owners(child_node, child_region, child_context, owner, covered);
+            for (child_region, child) in region.children().into_iter().zip(children.iter()) {
+                claim_owners(child, child_region, enclosing, owner, covered);
             }
         }
     }
@@ -390,143 +270,123 @@ fn mark_owner(owner: &mut [Option<Owner>], region: Region, says: Owner) {
     }
 }
 
-/// Decodes a stream written by [`encode`]: parses the whole tree first,
-/// with no value resolution at all, then a separate pass
-/// ([`claim_owners`]) reads it back into cell owners, then the trailing
-/// raw bits fill in whatever is left, then [`resolve`] resolves every
-/// cell.
-pub fn decode(stream: &EncodedBitmap) -> Bitmap {
-    let mut at = 0usize;
-    let tree = parse_node(stream, &mut at, Region::whole_bitmap(), Context::Open);
-
-    let mut owner: Vec<Option<Owner>> = vec![None; 256 * 256];
-    let mut covered = Bitmap::new();
-    claim_owners(&tree, Region::whole_bitmap(), Context::Open, &mut owner, &mut covered);
-
+/// The residual pass: one raw bit for every cell the tree leaves
+/// uncovered, in reading order, after the whole tree.
+fn write_residual(covered: &Bitmap, bitmap: &Bitmap, out: &mut EncodedBitmap) {
     for y in 0..=u8::MAX {
         for x in 0..=u8::MAX {
             if !covered.get(x, y) {
-                let value = stream.take(at, 1) != 0;
-                at += 1;
-                owner[y as usize * 256 + x as usize] = Some(Owner::Bound(value));
+                out.push_value(bitmap.get(x, y) as u64, VALUE_WIDTH);
             }
         }
     }
+}
 
+/// Reads back what [`write_residual`] wrote, into the cells the tree
+/// left uncovered.
+fn read_residual(covered: &Bitmap, stream: &EncodedBitmap, at: &mut usize, owner: &mut [Option<Owner>]) {
+    for y in 0..=u8::MAX {
+        for x in 0..=u8::MAX {
+            if !covered.get(x, y) {
+                owner[y as usize * 256 + x as usize] = Some(Owner::Bound(read_value(stream, at)));
+            }
+        }
+    }
+}
+
+/// Decodes a stream written by [`encode`].
+pub fn decode(stream: &EncodedBitmap) -> Bitmap {
+    let mut at = 0usize;
+    let tree = parse_node(stream, &mut at, Region::whole_bitmap(), &mut Vec::new());
+
+    let mut owner: Vec<Option<Owner>> = vec![None; 256 * 256];
+    let mut covered = Bitmap::new();
+    claim_owners(&tree, Region::whole_bitmap(), &mut Vec::new(), &mut owner, &mut covered);
+    read_residual(&covered, stream, &mut at, &mut owner);
     resolve(&owner)
 }
 
-/// Reads one [`Node`] in `context`, for `region`, mirroring
-/// [`write_node`] exactly.
-fn parse_node(stream: &EncodedBitmap, at: &mut usize, region: Region, context: Context) -> Node {
-    use crate::pyramid::CELL_LEVEL;
+/// Reads one [`Node`], for `region`, mirroring [`write_node`] exactly.
+fn parse_node(stream: &EncodedBitmap, at: &mut usize, region: Region, enclosing: &mut Vec<usize>) -> Node {
+    for nesting in (0..enclosing.len()).rev() {
+        if region.level > enclosing[nesting] {
+            continue;
+        }
+        if read_bits(stream, at, RELATION_WIDTH) == RELATED {
+            // Placeholders: the values come in that complex tile's
+            // payload, read once its whole body has been.
+            let count = 1usize << (2 * (enclosing[nesting] - region.level));
+            return Node::Related { nesting, values: vec![false; count] };
+        }
+    }
 
-    let leaf = stream.take(*at, LEAF_WIDTH) != 0;
-    *at += LEAF_WIDTH;
-
+    let leaf = read_bits(stream, at, LEAF_WIDTH) == LEAF;
     if region.level == CELL_LEVEL - 1 {
-        if leaf {
-            let value = stream.take(*at, VALUE_WIDTH) != 0;
-            *at += VALUE_WIDTH;
-            return Node::Bound(value);
-        }
-        return Node::Hole;
-    }
-
-    if !leaf {
-        return Node::Split(Box::new(region.children().map(|child| parse_node(stream, at, child, context))));
-    }
-
-    let code = stream.take(*at, CODE_WIDTH);
-    *at += CODE_WIDTH;
-    if code == BIND {
-        let complex = context == Context::Open && {
-            let complex = stream.take(*at, COMPLEX_FLAG_WIDTH) == COMPLEX;
-            *at += COMPLEX_FLAG_WIDTH;
-            complex
-        };
-        if complex {
-            let width = resolution_width(region.level);
-            let depth = stream.take(*at, width) as usize + 1;
-            *at += width;
-            let body = parse_complex_body(stream, at, region, depth, region.level + depth);
-            Node::Complex { depth, body: Box::new(body) }
-        } else {
-            let value = stream.take(*at, VALUE_WIDTH) != 0;
-            *at += VALUE_WIDTH;
-            Node::Bound(value)
-        }
-    } else {
-        let far = stream.take(*at, FAR_WIDTH) != 0;
-        *at += FAR_WIDTH;
-        let direction = stream.take(*at, DIRECTION_WIDTH) as usize;
-        *at += DIRECTION_WIDTH;
-        Node::Copied { far, direction }
-    }
-}
-
-/// Reads a complex tile's own top-level body, mirroring
-/// [`write_complex_body`] exactly.
-fn parse_complex_body(stream: &EncodedBitmap, at: &mut usize, region: Region, depth: usize, limit_level: usize) -> Node {
-    if depth == 1 {
-        let values = (0..4).map(|_| read_value(stream, at)).collect();
-        return Node::Flat(values);
-    }
-    let masking = stream.take(*at, MASK_PRESENT_WIDTH) == MASKING;
-    *at += MASK_PRESENT_WIDTH;
-    if !masking {
-        let count = 1usize << (2 * depth);
-        let values = (0..count).map(|_| read_value(stream, at)).collect();
-        return Node::Flat(values);
-    }
-    Node::Split(Box::new(region.children().map(|child| parse_body_node(stream, at, child, limit_level))))
-}
-
-/// Reads one body node, mirroring [`write_body_node`] exactly.
-fn parse_body_node(stream: &EncodedBitmap, at: &mut usize, region: Region, limit_level: usize) -> Node {
-    use crate::pyramid::CELL_LEVEL;
-
-    let above_resolution = region.level < limit_level;
-    let leaf = stream.take(*at, LEAF_WIDTH) != 0;
-    *at += LEAF_WIDTH;
-
-    if !leaf {
-        if above_resolution {
-            return Node::Split(Box::new(region.children().map(|child| parse_body_node(stream, at, child, limit_level))));
-        }
-        if limit_level == CELL_LEVEL - 1 {
+        if !leaf {
             return Node::Hole;
         }
-        return Node::Split(Box::new(region.children().map(|child| parse_node(stream, at, child, Context::Plain))));
+        return Node::Complex { depth: 0, body: Box::new(parse_complex_body(stream, at, region, 0, enclosing)) };
     }
+    if !leaf {
+        return Node::Split(Box::new(region.children().map(|child| parse_node(stream, at, child, enclosing))));
+    }
+    if read_bits(stream, at, CODE_WIDTH) == COPY {
+        let far = read_bits(stream, at, FAR_WIDTH) != 0;
+        let direction = read_bits(stream, at, DIRECTION_WIDTH) as usize;
+        return Node::Copied { far, direction };
+    }
+    let depth = read_bits(stream, at, resolution_width(region.level)) as usize;
+    Node::Complex { depth, body: Box::new(parse_complex_body(stream, at, region, depth, enclosing)) }
+}
 
-    let code = stream.take(*at, CODE_WIDTH);
-    *at += CODE_WIDTH;
-    if code == BIND {
-        if above_resolution {
-            let flat = stream.take(*at, FLAT_WIDTH) == FLAT;
-            *at += FLAT_WIDTH;
-            if flat {
-                let count = 1usize << (2 * (limit_level - region.level));
-                let values = (0..count).map(|_| read_value(stream, at)).collect();
-                return Node::Flat(values);
+/// Reads a complex tile's body and then its payload, mirroring the
+/// `Complex` arm of [`write_node`].
+fn parse_complex_body(
+    stream: &EncodedBitmap,
+    at: &mut usize,
+    region: Region,
+    depth: usize,
+    enclosing: &mut Vec<usize>,
+) -> Node {
+    let nesting = enclosing.len();
+    let masking = depth > 1 && read_bits(stream, at, MASK_PRESENT_WIDTH) == MASKING;
+    let mut body = if masking {
+        enclosing.push(region.level + depth);
+        let children = region.children().map(|child| parse_node(stream, at, child, enclosing));
+        enclosing.pop();
+        Node::Split(Box::new(children))
+    } else {
+        Node::Related { nesting, values: vec![false; 1usize << (2 * depth)] }
+    };
+    read_payload(&mut body, nesting, stream, at);
+    body
+}
+
+/// Fills in the values of every node related to `nesting`, in the same
+/// order [`collect_payload`] wrote them.
+fn read_payload(node: &mut Node, nesting: usize, stream: &EncodedBitmap, at: &mut usize) {
+    match node {
+        Node::Related { nesting: related, values } if *related == nesting => {
+            for value in values.iter_mut() {
+                *value = read_value(stream, at);
             }
         }
-        Node::Bound(read_value(stream, at))
-    } else {
-        let far = stream.take(*at, FAR_WIDTH) != 0;
-        *at += FAR_WIDTH;
-        let direction = stream.take(*at, DIRECTION_WIDTH) as usize;
-        *at += DIRECTION_WIDTH;
-        Node::Copied { far, direction }
+        Node::Complex { body, .. } => read_payload(body, nesting, stream, at),
+        Node::Split(children) => children.iter_mut().for_each(|child| read_payload(child, nesting, stream, at)),
+        _ => {}
     }
+}
+
+/// Reads `width` bits and advances past them.
+fn read_bits(stream: &EncodedBitmap, at: &mut usize, width: usize) -> u64 {
+    let bits = stream.take(*at, width);
+    *at += width;
+    bits
 }
 
 /// Reads one value bit and advances past it.
 fn read_value(stream: &EncodedBitmap, at: &mut usize) -> bool {
-    let value = stream.take(*at, VALUE_WIDTH) != 0;
-    *at += VALUE_WIDTH;
-    value
+    read_bits(stream, at, VALUE_WIDTH) != 0
 }
 
 /// Resolves every cell's owner into an actual bitmap, deferring a copy
@@ -565,71 +425,86 @@ fn resolve(owner: &[Option<Owner>]) -> Bitmap {
     bitmap
 }
 
-/// What every complex tile's own body holds, node by node: the
-/// resolution tiles its flat runs say outright (unmasked), and the
-/// nodes it masks out, by what they are -- a placed `Bound` tile bigger
-/// than the resolution, a `Copied` tile, or finer content below the
-/// resolution (read by the plain tree, or, at a 2x2 resolution, left as
-/// a hole). A masked node is counted once, whatever its size.
-#[derive(Default, Clone, Copy)]
+/// What the tree holds: tiles, complex tiles by how deeply nested they
+/// are (`0` = enclosed by none), and, inside every complex tile's body,
+/// its nodes -- related to it (unmasked, one per tile of its
+/// resolution), or masked, by what they are instead. A masked node is
+/// counted once, whatever its size, and belongs to the complex tile
+/// whose body directly holds it.
+#[derive(Default, Clone)]
 struct ComplexCounts {
-    complex_tiles: usize,
+    tiles: usize,
+    complex_tiles_at_nesting: Vec<usize>,
     complex_tiles_masking: usize,
     unmasked: usize,
-    masked_bound: usize,
+    masked_related_further_out: usize,
     masked_copied: usize,
-    masked_finer: usize,
+    masked_tile: usize,
+    masked_nested: usize,
+    masked_hole: usize,
 }
 
 impl ComplexCounts {
     fn masked(&self) -> usize {
-        self.masked_bound + self.masked_copied + self.masked_finer
+        self.masked_related_further_out + self.masked_copied + self.masked_tile + self.masked_nested + self.masked_hole
+    }
+
+    fn complex_tiles(&self) -> usize {
+        self.complex_tiles_at_nesting.iter().sum()
     }
 
     fn add(&mut self, other: &ComplexCounts) {
-        self.complex_tiles += other.complex_tiles;
+        self.tiles += other.tiles;
+        if self.complex_tiles_at_nesting.len() < other.complex_tiles_at_nesting.len() {
+            self.complex_tiles_at_nesting.resize(other.complex_tiles_at_nesting.len(), 0);
+        }
+        for (total, added) in self.complex_tiles_at_nesting.iter_mut().zip(&other.complex_tiles_at_nesting) {
+            *total += added;
+        }
         self.complex_tiles_masking += other.complex_tiles_masking;
         self.unmasked += other.unmasked;
-        self.masked_bound += other.masked_bound;
+        self.masked_related_further_out += other.masked_related_further_out;
         self.masked_copied += other.masked_copied;
-        self.masked_finer += other.masked_finer;
+        self.masked_tile += other.masked_tile;
+        self.masked_nested += other.masked_nested;
+        self.masked_hole += other.masked_hole;
     }
 
-    /// Walks the top-level tree, down into every complex tile it finds.
-    fn count(&mut self, node: &Node, region: Region) {
+    /// `inside`: the nesting of the complex tile whose body directly
+    /// holds `node`, if any.
+    fn count(&mut self, node: &Node, inside: Option<usize>) {
         match node {
-            Node::Complex { depth, body } => {
-                self.complex_tiles += 1;
-                let before = self.masked();
-                self.count_body(body, region, region.level + depth);
-                if self.masked() > before {
+            Node::Related { nesting, values } => {
+                if inside == Some(*nesting) {
+                    self.unmasked += values.len();
+                } else {
+                    self.masked_related_further_out += 1;
+                }
+            }
+            Node::Copied { .. } if inside.is_some() => self.masked_copied += 1,
+            Node::Hole if inside.is_some() => self.masked_hole += 1,
+            Node::Copied { .. } | Node::Hole => {}
+            Node::Complex { depth: 0, .. } => {
+                self.tiles += 1;
+                if inside.is_some() {
+                    self.masked_tile += 1;
+                }
+            }
+            Node::Complex { body, .. } => {
+                if inside.is_some() {
+                    self.masked_nested += 1;
+                }
+                let nesting = inside.map_or(0, |outer| outer + 1);
+                if self.complex_tiles_at_nesting.len() <= nesting {
+                    self.complex_tiles_at_nesting.resize(nesting + 1, 0);
+                }
+                self.complex_tiles_at_nesting[nesting] += 1;
+                if matches!(**body, Node::Split(_)) {
                     self.complex_tiles_masking += 1;
                 }
+                self.count(body, Some(nesting));
             }
-            Node::Split(children) => {
-                for (child_region, child) in region.children().into_iter().zip(children.iter()) {
-                    self.count(child, child_region);
-                }
-            }
-            _ => {}
-        }
-    }
-
-    fn count_body(&mut self, node: &Node, region: Region, limit_level: usize) {
-        let above_resolution = region.level < limit_level;
-        match node {
-            Node::Flat(values) => self.unmasked += values.len(),
-            Node::Bound(_) if above_resolution => self.masked_bound += 1,
-            Node::Bound(_) => self.unmasked += 1,
-            Node::Copied { .. } => self.masked_copied += 1,
-            Node::Hole => self.masked_finer += 1,
-            Node::Split(_) if !above_resolution => self.masked_finer += 1,
-            Node::Split(children) => {
-                for (child_region, child) in region.children().into_iter().zip(children.iter()) {
-                    self.count_body(child, child_region, limit_level);
-                }
-            }
-            Node::Complex { .. } => unreachable!("a complex tile can never nest inside another's body"),
+            Node::Split(children) => children.iter().for_each(|child| self.count(child, inside)),
         }
     }
 }
@@ -667,46 +542,51 @@ pub fn run() {
             our_bits += encode(&pyramid, bitmap).len();
 
             let mut this_one = ComplexCounts::default();
-            this_one.count(&complex_tiler(&greedy_tiler(&pyramid, bitmap)), Region::whole_bitmap());
+            this_one.count(&complex_tiler(&greedy_tiler(&pyramid, bitmap)), None);
             complex.add(&this_one);
         }
         let n = maps.len();
+        let per_bitmap = |count: usize| count as f64 / n as f64;
         println!(
             "\n  {family}, {n} bitmaps: dsrn {} bits a bitmap, tile-or-subdivide {} ({:+.1}%)",
             dsrn_bits / n,
             our_bits / n,
             100.0 * (our_bits as f64 - dsrn_bits as f64) / dsrn_bits as f64
         );
+        println!("    dsrn: {} nodes a bitmap, {:.1}% masked", dsrn_nodes / n, percent(dsrn_masked, dsrn_nodes));
+        let by_nesting: Vec<String> =
+            complex.complex_tiles_at_nesting.iter().map(|&count| format!("{:.1}", per_bitmap(count))).collect();
         println!(
-            "    dsrn: {} nodes a bitmap, {:.1}% masked",
-            dsrn_nodes / n,
-            percent(dsrn_masked, dsrn_nodes)
+            "    complex tiles a bitmap, by nesting: [{}], {:.1}% of them masking; tiles a bitmap: {:.1}",
+            by_nesting.join(", "),
+            percent(complex.complex_tiles_masking, complex.complex_tiles()),
+            per_bitmap(complex.tiles),
         );
         let body_nodes = complex.unmasked + complex.masked();
         println!(
-            "    complex tiles: {} a bitmap, {:.1}% of them masking; body nodes {:.2}% unmasked, {:.2}% masked \
-             (bound {:.2}%, copied {:.2}%, finer {:.2}%)",
-            complex.complex_tiles / n,
-            percent(complex.complex_tiles_masking, complex.complex_tiles),
+            "    complex tile body nodes: {:.2}% unmasked, {:.2}% masked (related further out {:.2}%, copied {:.2}%, \
+             tile {:.2}%, nested complex tile {:.2}%, hole {:.2}%)",
             percent(complex.unmasked, body_nodes),
             percent(complex.masked(), body_nodes),
-            percent(complex.masked_bound, body_nodes),
+            percent(complex.masked_related_further_out, body_nodes),
             percent(complex.masked_copied, body_nodes),
-            percent(complex.masked_finer, body_nodes),
+            percent(complex.masked_tile, body_nodes),
+            percent(complex.masked_nested, body_nodes),
+            percent(complex.masked_hole, body_nodes),
         );
     }
 }
 
 /// Test-only: whether walking `tree` with [`claim_owners`], filling
 /// whatever it leaves uncovered straight from `bitmap` instead of a
-/// trailing raw pass, and [`resolve`]-ing the result reproduces
-/// `bitmap` exactly -- checks `complex_tiler`'s own tree-building
-/// independent of any bitstream at all.
+/// residual pass, and [`resolve`]-ing the result reproduces `bitmap`
+/// exactly -- checks `complex_tiler`'s own tree-building independent of
+/// any bitstream at all.
 #[cfg(test)]
 pub(crate) fn tree_reproduces(tree: &Node, bitmap: &Bitmap) -> bool {
     let mut owner: Vec<Option<Owner>> = vec![None; 256 * 256];
     let mut covered = Bitmap::new();
-    claim_owners(tree, Region::whole_bitmap(), Context::Open, &mut owner, &mut covered);
+    claim_owners(tree, Region::whole_bitmap(), &mut Vec::new(), &mut owner, &mut covered);
     for y in 0..=u8::MAX {
         for x in 0..=u8::MAX {
             if !covered.get(x, y) {
@@ -722,7 +602,7 @@ pub(crate) fn tree_reproduces(tree: &Node, bitmap: &Bitmap) -> bool {
 #[cfg(test)]
 pub(crate) fn write_whole_tree(tree: &Node) -> EncodedBitmap {
     let mut out = EncodedBitmap::default();
-    write_node(tree, Region::whole_bitmap(), Context::Open, &mut out);
+    write_node(tree, Region::whole_bitmap(), &mut Vec::new(), &mut out);
     out
 }
 
@@ -730,5 +610,5 @@ pub(crate) fn write_whole_tree(tree: &Node) -> EncodedBitmap {
 #[cfg(test)]
 pub(crate) fn parse_whole_tree(stream: &EncodedBitmap) -> Node {
     let mut at = 0usize;
-    parse_node(stream, &mut at, Region::whole_bitmap(), Context::Open)
+    parse_node(stream, &mut at, Region::whole_bitmap(), &mut Vec::new())
 }
