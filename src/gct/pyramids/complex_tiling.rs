@@ -114,6 +114,17 @@ impl Fields {
         field(self.0, RAW_MASKS) == YES
     }
 
+    /// Whether the tile, `tile`, a child of a divide nested in `nested`,
+    /// is left to the binding above it, of `bound_above`: the divide
+    /// masks (8x8 or coarser), the tile is bound whole to that value, and
+    /// unmasked in no complex tile it is nested in -- which would say it
+    /// for a bit, where the binding above says it for none.
+    pub fn left_to_binding_above(self, tile: Tile, bound_above: bool, nested: &NestedResolutions) -> bool {
+        tile.level <= FINEST_MASKING_LEVEL + 1
+            && field(self.0, PLACEMENT) == placement_code(Placement::bound(bound_above))
+            && nested.unmasking(self, tile).is_none()
+    }
+
     /// Whether any whole bind of `size` is placed at or under the tile.
     pub fn any_bound_under(self, size: u8) -> bool {
         field(self.0, BOUND_SIZES_UNDER) & (1 << size) != 0
@@ -177,19 +188,14 @@ pub trait ComplexTiling {
         self.fields(tile).any_bound_under(size)
     }
 
-    /// Whether `tile`, a child of a divide nested in `nested`, is left to
-    /// the binding above it, of `bound_above`: the divide masks (8x8 or
-    /// coarser), `tile` is bound whole to that value, and unmasked in no
-    /// complex tile it is nested in -- which would say it for a bit, where
-    /// the binding above says it for none.
+    /// See [`Fields::left_to_binding_above`].
     fn left_to_binding_above(&self, tile: Tile, bound_above: bool, nested: &NestedResolutions) -> bool {
-        if tile.level > FINEST_MASKING_LEVEL + 1 {
-            return false;
-        }
-        let here = self.fields(tile);
-        matches!(here.placed(), Some(Placement::Bound { value, masked_children: 0 }) if value == bound_above)
-            && nested.unmasking(here, tile).is_none()
+        self.fields(tile).left_to_binding_above(tile, bound_above, nested)
     }
+
+    /// A tile's four children's fields, in reading order, found with one
+    /// lookup.
+    fn children_fields(&self, tile: Tile) -> [Fields; 4];
 
     /// See [`Fields::complex_tile_size_offset`].
     fn complex_tile_size_offset(&self, tile: Tile) -> Option<u8> {
@@ -216,6 +222,11 @@ impl ComplexTiling for Pyramid {
 
     fn fields(&self, tile: Tile) -> Fields {
         Fields(self.get(tile))
+    }
+
+    fn children_fields(&self, tile: Tile) -> [Fields; 4] {
+        let [a, b, c, d] = self.children_elements(tile);
+        [Fields(a), Fields(b), Fields(c), Fields(d)]
     }
 
     fn make_complex_tile(&mut self, tile: Tile, size_offset: u8) {

@@ -60,8 +60,8 @@ fn debug_assert_matches_reference(
     bits: u64,
 ) {
     if cfg!(debug_assertions) && tile.level >= FINEST_CHECKED_LEVEL {
-        let reference = node_bits(complex_tiling, bitmap, tile, fields, &mut nested.clone(), fields.bound_above(), &mut |child, inside, bound_above| {
-            super::bit_cost::bits(complex_tiling, bitmap, child, inside, bound_above)
+        let reference = node_bits(complex_tiling, bitmap, tile, fields, &mut nested.clone(), fields.bound_above(), &mut |child, fields, inside, bound_above| {
+            super::bit_cost::bits_with(complex_tiling, bitmap, child, fields, inside, bound_above)
         });
         assert_eq!(bits, reference, "{tile:?}: the cost pyramids' count is not the reference count");
     }
@@ -100,8 +100,8 @@ impl Candidate {
         // A size offset's bits: the tile as that complex tile, its
         // children read from the cost pyramid of its resolution.
         let with = |fields: Fields, resolution: u8| {
-            let bits = node_bits(complex_tiling, bitmap, tile, fields, &mut nested.clone(), here.bound_above(), &mut |child, inside, _| {
-                costs.child_bits(complex_tiling, bitmap, child, inside, resolution)
+            let bits = node_bits(complex_tiling, bitmap, tile, fields, &mut nested.clone(), here.bound_above(), &mut |child, fields, inside, _| {
+                costs.child_bits(complex_tiling, bitmap, child, fields, inside, resolution)
             });
             debug_assert_matches_reference(complex_tiling, bitmap, tile, fields, nested, bits);
             bits

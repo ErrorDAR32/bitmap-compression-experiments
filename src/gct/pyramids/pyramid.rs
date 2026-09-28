@@ -139,6 +139,23 @@ impl Pyramid {
         (self.words[word] >> shift) & self.element_mask
     }
 
+    /// A tile's four children's elements, in reading order -- which, for
+    /// one 2x2 group, is Morton order: four consecutive elements, found
+    /// with one lookup.
+    #[inline]
+    pub fn children_elements(&self, tile: Tile) -> [u64; 4] {
+        debug_assert!(self.holds(Tile { level: tile.level + 1, ..tile }), "{tile:?}'s children are outside this pyramid's levels");
+        let first = morton_index(tile.x, tile.y) * 4;
+        let start = self.level_starts[tile.level as usize + 1];
+        let mut elements = [0; 4];
+        for (child, element) in elements.iter_mut().enumerate() {
+            let index = first + child;
+            let shift = (index & ((1 << self.per_word_shift) - 1)) * self.shape.element_bits;
+            *element = (self.words[start + (index >> self.per_word_shift)] >> shift) & self.element_mask;
+        }
+        elements
+    }
+
     /// Replaces a tile's element, then propagates: each coarser tile
     /// holding it is recomputed, up to the first that does not change.
     #[inline]

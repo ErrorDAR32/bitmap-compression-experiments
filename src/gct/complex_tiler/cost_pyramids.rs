@@ -25,7 +25,7 @@ use super::bit_cost::node_bits;
 use super::complex_tile_candidates::tried_resolutions;
 use crate::fixed_list::FixedList;
 use crate::gct::nested_resolutions::NestedResolutions;
-use crate::gct::pyramids::complex_tiling::ComplexTiling;
+use crate::gct::pyramids::complex_tiling::{ComplexTiling, Fields};
 use crate::gct::pyramids::placements::Placement;
 use crate::gct::pyramids::pyramid::{Pyramid, PyramidShape};
 use crate::gct::tile::{tiles_across, Tile, CELL_LEVEL};
@@ -131,8 +131,8 @@ impl CostPyramids {
                 let here = complex_tiling.fields(tile);
                 for resolution in (0..PYRAMIDS as u8).filter(|&resolution| resolutions & 1 << resolution != 0) {
                     let mut nested = nesting_of(base, resolution);
-                    let bits = node_bits(complex_tiling, bitmap, tile, here, &mut nested, here.bound_above(), &mut |child, nested, _| {
-                        self.child_bits(complex_tiling, bitmap, child, nested, resolution)
+                    let bits = node_bits(complex_tiling, bitmap, tile, here, &mut nested, here.bound_above(), &mut |child, fields, nested, _| {
+                        self.child_bits(complex_tiling, bitmap, child, fields, nested, resolution)
                     });
                     self.pyramids[resolution as usize].set(tile, bits);
                 }
@@ -141,11 +141,19 @@ impl CostPyramids {
     }
 
     /// `tile`'s bits under a candidate of `resolution`, nested as
-    /// `nested` says: held, or, for a 2x2, counted now.
-    pub fn child_bits(&self, complex_tiling: &Pyramid, bitmap: &Bitmap, tile: Tile, nested: &mut NestedResolutions, resolution: u8) -> u64 {
+    /// `nested` says: held, or, for a 2x2, whose fields are `here`,
+    /// counted now.
+    pub fn child_bits(
+        &self,
+        complex_tiling: &Pyramid,
+        bitmap: &Bitmap,
+        tile: Tile,
+        here: Fields,
+        nested: &mut NestedResolutions,
+        resolution: u8,
+    ) -> u64 {
         if tile.level > FINEST_HELD {
-            let here = complex_tiling.fields(tile);
-            return node_bits(complex_tiling, bitmap, tile, here, nested, here.bound_above(), &mut |_, _, _| {
+            return node_bits(complex_tiling, bitmap, tile, here, nested, here.bound_above(), &mut |_, _, _, _| {
                 unreachable!("a 2x2 has no child nodes")
             });
         }
