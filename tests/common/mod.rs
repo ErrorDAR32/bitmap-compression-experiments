@@ -4,7 +4,11 @@
 
 pub mod tree_stats;
 
+use bitmap::gct::complex_tiler::bit_cost::bits;
+use bitmap::gct::complex_tiler::complex_tiler::complex_tiler;
 use bitmap::gct::decode::read;
+use bitmap::gct::grammar::START_LEVEL_WIDTH;
+use bitmap::gct::nested_resolutions::NestedResolutions;
 use bitmap::gct::encode::write;
 use bitmap::gct::greedy_tiler::greedy_tiler;
 use bitmap::gct::pyramids::copyable::Copyable;
@@ -28,6 +32,7 @@ pub fn first_difference(a: &Bitmap, b: &Bitmap) -> Option<(u8, u8)> {
 /// - nothing finer than 4x4 is copied;
 /// - every 1x1 tile placed is left to the residual pass, under a
 ///   residual 2x2 -- never said by the tree;
+/// - the bit cost the complex tiler scores with is the encoder's count;
 /// - the tree read back from the bits is the tree that was written;
 /// - decoding gives back every cell.
 pub fn check(bitmap: &Bitmap, label: &str) {
@@ -47,6 +52,16 @@ pub fn check(bitmap: &Bitmap, label: &str) {
     assert_eq!(covered, 256 * 256, "{label}: placed tiles leave cells uncovered or cover some twice");
 
     let written = tree(bitmap);
+    let stream = write(&written, bitmap);
+    let complex_tiling = complex_tiler(&placements);
+    let start_level = written.start_level();
+    let counted: u64 =
+        Tile::all_of_level(start_level).map(|tile| bits(&complex_tiling, tile, &mut NestedResolutions::none())).sum();
+    assert_eq!(
+        counted + START_LEVEL_WIDTH as u64,
+        stream.len() as u64,
+        "{label}: the complex tiler's bit cost is not the encoder's count"
+    );
     for (tile, placement) in placements.placed_tiles() {
         if let Placement::Copied { .. } = placement {
             assert!(tile.level < CELL_LEVEL - 1, "{label}: {tile:?} copies, finer than 4x4");
@@ -57,7 +72,6 @@ pub fn check(bitmap: &Bitmap, label: &str) {
         }
     }
 
-    let stream = write(&written, bitmap);
     assert!(read(&stream).tree == written, "{label}: the tree read back is not the tree written");
 
     let back = decode(&stream);
