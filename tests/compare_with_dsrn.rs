@@ -1,7 +1,7 @@
 //! gct against dsrn, the baseline it has to beat: bits a bitmap on
-//! every family, and how much each of the two masks. A measurement,
-//! printed, not a pass/fail check -- though it still stops if gct loses
-//! a cell.
+//! every family and on every checkerboard, and how much each of the two
+//! masks. A measurement, printed, not a pass/fail check -- though it
+//! still stops if gct loses a cell.
 //!
 //! `cargo test --release --test compare_with_dsrn -- --ignored --nocapture`
 
@@ -12,6 +12,7 @@ use common::tree_stats::TreeStats;
 use bitmap::gct::{decode, tree};
 use bitmap::dsrn::{encode as dsrn_encode, Encoded, FourByFour, Knobs, Masking, Workspace};
 use bitmap::pyramid::Pyramid;
+use bitmap::samples::checkerboards::checkerboards;
 use bitmap::samples::every_family;
 use bitmap::table::Table;
 use common::first_difference;
@@ -99,7 +100,23 @@ fn compare_with_dsrn() {
             share(stats.masked_residual, body_nodes),
         ]);
     }
-    for table in [bits, structure, bodies] {
+    let mut boards = Table::new(&["checkerboard", "dsrn\nbits", "gct\nbits", "gct\nagainst dsrn"]);
+    for (square_side, bitmap) in checkerboards() {
+        pyramid.clear();
+        pyramid.rebuild(&bitmap);
+        dsrn_encode(&pyramid, &bitmap, knobs, &mut work, &mut dsrn_out);
+        let dsrn_bits = dsrn_out.bits();
+        let stream = write(&tree(&bitmap), &bitmap);
+        assert_eq!(first_difference(&bitmap, &decode(&stream)), None, "checkerboard {square_side}: gct lost a cell");
+        boards.row(&[
+            format!("{square_side}x{square_side} squares"),
+            dsrn_bits.to_string(),
+            stream.len().to_string(),
+            format!("{:+.1}%", 100.0 * (stream.len() as f64 - dsrn_bits as f64) / dsrn_bits as f64),
+        ]);
+    }
+
+    for table in [bits, structure, bodies, boards] {
         println!();
         table.print();
     }

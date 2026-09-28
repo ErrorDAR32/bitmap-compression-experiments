@@ -252,6 +252,14 @@ against dsrn at `Masking::Anywhere`, `FourByFour::ItsOwnGrammar`:
 | laid out like a city, 48 bitmaps | 3422 bits | 3277 bits, -4.2% |
 | grown like a blob, 84 bitmaps | 32518 bits | 31926 bits, -1.8% |
 
+Checkerboards of odd square side (`samples/checkerboards.rs`), bits:
+
+| squares | 3 | 5 | 7 | 9 | 11 | 13 | 15 | 17 | 19 | 21 | 23 | 25 | 27 | 29 | 31 |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| dsrn | 65542 | 58938 | 49582 | 38249 | 31486 | 26321 | 23131 | 20004 | 16752 | 14414 | 12982 | 11576 | 9760 | 8155 | 8486 |
+| gct | 63462 | 51680 | 42098 | 32051 | 26930 | 22798 | 20150 | 17596 | 14634 | 12657 | 11661 | 10283 | 9177 | 7859 | 7863 |
+| gct against dsrn | -3.2% | -12.3% | -15.1% | -16.2% | -14.5% | -13.4% | -12.9% | -12.0% | -12.6% | -12.2% | -10.2% | -11.2% | -6.0% | -3.6% | -7.3% |
+
 Masking copies took city from 3643 and blob from 32573. Which copies
 may mask, on this seed and two fresh ones (`DSRN_SEED`
 9216954446512861479 and 3326496171169911647), gct against dsrn:

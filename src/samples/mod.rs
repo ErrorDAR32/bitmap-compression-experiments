@@ -2,9 +2,11 @@
 //!
 //! Nothing in this crate is measured on a bitmap anybody drew by hand.
 //! Every sample comes from here, tests and measurements alike, so
-//! changing what anything runs on is a change in one file. The one
-//! exception is a fine test (`tests/gct_fine.rs`), which may draw one
-//! small bitmap by hand to pin a known case -- never to measure.
+//! changing what anything runs on is a change in one file. Two
+//! exceptions: a fine test (`tests/gct_fine.rs`) may draw one small
+//! bitmap by hand to pin a known case, never to measure; and
+//! [`checkerboards`] are drawn, deliberately, as the one family that
+//! is the same on every seed.
 //!
 //! A sample is settled entirely by four numbers, which is what makes a
 //! result reproducible: the same seed, side, density and cluster weight
@@ -17,7 +19,11 @@
 //! checkerboard, three tiled motifs found by search. They are gone, and
 //! little was lost: the generator reaches worse ground than any of
 //! them. The worst motif cost 13,057 instructions per set cell, where
-//! `grown(_, 0.50, 0.00)` costs 124,610.
+//! `grown(_, 0.50, 0.00)` costs 124,610. Checkerboards came back for a
+//! different reason: squares of an odd side never line up with the
+//! power-of-two grid, so one board exercises everything at once --
+//! homogeneous tiles inside squares, subdivisions along every cut,
+//! copies of the repeating pattern, masking where a copy almost fits.
 //!
 //! Two families live here. [`SHAPES`] are grown: cells scattered or
 //! clustered to a density, which is what an algorithm is stressed on.
@@ -32,6 +38,7 @@
 //! seed never seen. A change measured only on the corpus it was tuned
 //! on has not been measured.
 
+pub mod checkerboards;
 mod city;
 mod generate;
 pub mod seed;

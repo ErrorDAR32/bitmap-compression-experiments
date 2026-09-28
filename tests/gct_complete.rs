@@ -1,10 +1,12 @@
 //! Complete tests: everything the measurements run on, plus a moderate
-//! sample from a second seed base the measurements never see.
+//! sample from a second seed base the measurements never see, plus the
+//! checkerboards.
 //!
 //! `cargo test --release --test gct_complete -- --ignored`
 
 mod common;
 
+use bitmap::samples::checkerboards::checkerboards;
 use bitmap::samples::{every_family, grown, one_laid_out, sample_seed, PLANS, SHAPES};
 use common::check;
 
@@ -38,5 +40,13 @@ fn a_second_seed_base_round_trips() {
         for case in 0..SECOND_SAMPLE_EACH {
             check(&one_laid_out(seed + case, plan), &format!("{}, second seed base, case {case}", plan.name));
         }
+    }
+}
+
+#[test]
+#[ignore]
+fn every_checkerboard_round_trips() {
+    for (square_side, bitmap) in checkerboards() {
+        check(&bitmap, &format!("checkerboard of {square_side}x{square_side} squares"));
     }
 }
