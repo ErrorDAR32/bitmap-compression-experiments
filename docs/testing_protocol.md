@@ -53,6 +53,17 @@ when beaten, each run starts from it, and it must always round trip:
 cargo test --release --test gct_adversarial_generator -- --ignored --nocapture
 ```
 
+Diagnostics, in `tests/gct_diagnostics/`, one tool a file, look inside
+gct's results rather than testing them: `census` (node kinds by level),
+`per_shape` (gct against dsrn on every shape, plan and line set),
+`noise` (bits on noise at several densities) and `render` (PNG images
+in `target/gct_diagnostics/`). They look at the adversarial records and
+any PBM image named in `GCT_DIAGNOSE`:
+
+```
+cargo test --release --test gct_diagnostics -- --ignored --nocapture <tool>
+```
+
 ## Phase one: fix, with the seed held still
 
 Pick a seed base and leave it alone. While it is held:

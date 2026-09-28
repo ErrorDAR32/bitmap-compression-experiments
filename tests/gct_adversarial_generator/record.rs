@@ -16,7 +16,12 @@ pub fn path(name: &str) -> PathBuf {
 }
 
 pub fn read(name: &str) -> Option<Bitmap> {
-    let text = fs::read_to_string(path(name)).ok()?;
+    read_from(&path(name))
+}
+
+/// A 256x256 plain PBM image, from anywhere.
+pub fn read_from(path: &std::path::Path) -> Option<Bitmap> {
+    let text = fs::read_to_string(path).ok()?;
     let mut words = text.lines().filter(|line| !line.starts_with('#')).flat_map(str::split_whitespace);
     if words.next()? != MAGIC || words.next()?.parse::<usize>().ok()? != WIDTH || words.next()?.parse::<usize>().ok()? != HEIGHT {
         return None;
