@@ -2,7 +2,7 @@
 //! says, walked down the tree, used by both directions, so writing and
 //! reading can never disagree. (The residual pass needs no walk: its
 //! 2x2s are read off the tree in Morton order,
-//! [`Tree::residual_squares`](crate::gct::pyramids::tree::Tree::residual_squares).)
+//! `Tree::residual_squares`.)
 
 use crate::gct::pyramids::pyramid::Pyramid;
 use crate::gct::pyramids::tree::{Node, Tree};
