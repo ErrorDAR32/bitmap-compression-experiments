@@ -1,6 +1,7 @@
-//! A fixed sample for counting gct's instructions: every shape, sparse
-//! shape, plan and line set at its `tested` count, a checkerboard and
-//! noise -- encoded, then decoded, all in one workspace. Run it under
+//! A fixed sample for counting gct's instructions: `BITMAPS_PER_GENERATOR`
+//! bitmaps of every generator -- grown shapes, sparse ones, city plans and
+//! line sets, weighted as the timed sample (`gct_timing`) is -- a
+//! checkerboard and noise, encoded, then decoded, all in one workspace. Run it under
 //! callgrind, which counts executed instructions exactly and says where
 //! they go:
 //!
@@ -19,6 +20,10 @@ use bitmap::samples::checkerboards::checkerboard;
 use bitmap::samples::{grown, LINE_SETS, PLANS, SHAPES, SPARSE};
 use bitmap::Bitmap;
 
+/// Bitmaps each generator makes: the first of those the timed sample
+/// takes, so the counts weigh each family as the times do.
+const BITMAPS_PER_GENERATOR: u64 = 5;
+
 /// The checkerboard in the sample: odd squares, so nothing lines up.
 const CHECKERBOARD_SQUARE: u8 = 7;
 /// Noise in the sample: half the cells, scattered...
@@ -32,13 +37,13 @@ const NOISE_BITMAPS: u64 = 1;
 fn main() {
     let mut sample: Vec<Bitmap> = Vec::new();
     for shape in SHAPES.iter().chain(&SPARSE) {
-        sample.extend(shape.tested());
+        sample.extend(shape.take(BITMAPS_PER_GENERATOR));
     }
     for plan in &PLANS {
-        sample.extend(plan.tested());
+        sample.extend(plan.take(BITMAPS_PER_GENERATOR));
     }
     for set in &LINE_SETS {
-        sample.extend(set.tested());
+        sample.extend(set.take(BITMAPS_PER_GENERATOR));
     }
     sample.push(checkerboard(CHECKERBOARD_SQUARE));
     sample.extend(grown(NOISE_SEED, NOISE_DENSITY, 0.0, NOISE_BITMAPS));

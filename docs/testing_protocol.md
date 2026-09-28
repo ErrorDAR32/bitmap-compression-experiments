@@ -69,8 +69,9 @@ cargo test --release --test gct_diagnostics -- --ignored --nocapture <tool>
 ```
 
 Speed is measured in instructions, not time, by callgrind on a fixed
-sample (`examples/gct_instruction_count.rs`: the fast tier's bitmaps, a
-checkerboard and noise, encoded and decoded). Callgrind counts every
+sample (`examples/gct_instruction_count.rs`: five bitmaps of every
+generator, weighted as the timed sample is, a checkerboard and noise,
+encoded and decoded). Callgrind counts every
 instruction executed, the same on every run, and says where they go:
 
 ```
