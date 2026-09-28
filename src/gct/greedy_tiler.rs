@@ -9,8 +9,10 @@
 //! bitmap.
 //!
 //! Else, down to 8x8, does a copy say at least
-//! [`MIN_UNMASKED_CHILDREN`] of its children? copy it, masking the
-//! others, which are left to the tiles placed inside them.
+//! [`MIN_UNMASKED_CHILDREN`] of its children, or at least
+//! [`MIN_UNMASKED_NON_HOMOGENEOUS_CHILDREN`] that are not homogeneous?
+//! copy it, masking the others, which are left to the tiles placed
+//! inside them.
 //!
 //! A 2x2 is only ever asked whether it is homogeneous: if not, its four
 //! cells are placed as 1x1 tiles, which the residual pass says.
@@ -22,13 +24,16 @@ use crate::gct::pyramids::pyramid::Pyramid;
 use crate::gct::tile::{directions, same_cells, Tile, CELL_LEVEL, CHILDREN_ACROSS};
 use crate::Bitmap;
 
-/// The fewest children a masking copy must say. A masking copy costs
-/// about 10 bits before its masked children: a copy, a mask-present bit,
-/// a 4-bit child mask. Subdividing instead costs 1 bit, plus about 5 a
-/// child the copy would have said -- each is a far copy on its own. At
-/// three children masking saves about 6 bits; at two, about 1, too
-/// little to be worth the risk of a worse tiling below it.
+/// A masking copy costs about 10 bits before its masked children: a
+/// copy, a mask-present bit, a 4-bit child mask. What it saves depends
+/// on what the children it says would cost without it. A homogeneous
+/// one is cheap anyway -- a tile, or 1 bit unmasked in a complex tile,
+/// which masking it away also takes from the complex tiler. Any other
+/// needs a copy or a subtree of its own, 5 bits or more. So a masking
+/// copy must say at least this many children...
 pub const MIN_UNMASKED_CHILDREN: u32 = 3;
+/// ...or at least this many that are not homogeneous.
+pub const MIN_UNMASKED_NON_HOMOGENEOUS_CHILDREN: u32 = 2;
 
 /// Places tiles over one bitmap, biggest first; what it placed is a
 /// [placements pyramid](crate::gct::pyramids::placements). Reads the
@@ -51,7 +56,7 @@ pub fn greedy_tiler(bitmap: &Bitmap, homogeneity: &Pyramid, copyable: &Pyramid) 
                 Placement::Bound(value)
             } else if let Some((far, direction)) = copyable.holds(tile).then(|| copy_direction(copyable, bitmap, tile)).flatten() {
                 Placement::Copied { far, direction, masked_children: 0 }
-            } else if let Some(placement) = (tile.level <= FINEST_MASKING_LEVEL).then(|| masking_copy(bitmap, tile)).flatten() {
+            } else if let Some(placement) = (tile.level <= FINEST_MASKING_LEVEL).then(|| masking_copy(bitmap, homogeneity, tile)).flatten() {
                 placement
             } else {
                 continue;
@@ -78,10 +83,10 @@ fn claim(tile: Tile, placement: Placement, claimed: &mut Bitmap) {
 }
 
 /// The copy of `tile` that says the most of its children, masking the
-/// rest, if it says at least [`MIN_UNMASKED_CHILDREN`]: near before far,
+/// rest, if it says enough of them to be worth it: near before far,
 /// then in direction order, on a tie. A child is said when it holds the
 /// same cells as the same child of the copy's source.
-fn masking_copy(bitmap: &Bitmap, tile: Tile) -> Option<Placement> {
+fn masking_copy(bitmap: &Bitmap, homogeneity: &Pyramid, tile: Tile) -> Option<Placement> {
     let mut best: Option<(u32, Placement)> = None;
     for (far, distance) in [(false, NEAR_DISTANCE), (true, FAR_DISTANCE)] {
         for direction in directions() {
@@ -98,8 +103,13 @@ fn masking_copy(bitmap: &Bitmap, tile: Tile) -> Option<Placement> {
                     masked_children |= 1 << child.child_index();
                 }
             }
-            let unmasked = tile.children().len() as u32 - masked_children.count_ones();
-            if unmasked >= MIN_UNMASKED_CHILDREN && best.is_none_or(|(most, _)| unmasked > most) {
+            let unmasked: Vec<Tile> =
+                tile.children().into_iter().filter(|&child| masked_children & (1 << child.child_index()) == 0).collect();
+            let non_homogeneous =
+                unmasked.iter().filter(|&&child| homogeneity.homogeneous_value(child).is_none()).count() as u32;
+            let unmasked = unmasked.len() as u32;
+            let worth_it = unmasked >= MIN_UNMASKED_CHILDREN || non_homogeneous >= MIN_UNMASKED_NON_HOMOGENEOUS_CHILDREN;
+            if worth_it && best.is_none_or(|(most, _)| unmasked > most) {
                 best = Some((unmasked, Placement::Copied { far, direction, masked_children }));
             }
         }

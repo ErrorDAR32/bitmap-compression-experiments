@@ -69,9 +69,12 @@ cells, coarsest first, skipping anything a coarser tile already claimed:
 3. Else, at 8x8 or coarser, **a masking copy?** For each near and far
    source, each child is compared with the same child of the source.
    The source matching the most children wins (near before far, then
-   direction order); at 3 of 4 or more it is placed as a copy that
-   masks the children that do not match. Those stay unclaimed and are
-   tiled like any other tile.
+   direction order). It is placed as a copy masking the children that
+   do not match when it says 3 of 4 children, or 2 that are not
+   homogeneous: a homogeneous child is cheap without the copy (a tile,
+   or 1 bit unmasked in a complex tile), any other is 5 bits or more.
+   The masked children stay unclaimed and are tiled like any other
+   tile.
 4. Else leave it for its four children.
 
 No comparison between sizes: a tile that qualifies is taken at once.
@@ -246,13 +249,18 @@ against dsrn at `Masking::Anywhere`, `FourByFour::ItsOwnGrammar`:
 
 | family | dsrn | gct |
 |---|---|---|
-| laid out like a city, 48 bitmaps | 3422 bits | 3419 bits, -0.1% |
-| grown like a blob, 84 bitmaps | 32518 bits | 31930 bits, -1.8% |
+| laid out like a city, 48 bitmaps | 3422 bits | 3277 bits, -4.2% |
+| grown like a blob, 84 bitmaps | 32518 bits | 31926 bits, -1.8% |
 
-Masking copies took city from 3643 and blob from 32573. Measured on
-the same seed, and not yet checked on a fresh one: allowing 2 of 4
-gave city 3300 and blob 32035; 3 of 4 or 2 non-homogeneous children
-gave city 3277 and blob 31926.
+Masking copies took city from 3643 and blob from 32573. Which copies
+may mask, on this seed and two fresh ones (`DSRN_SEED`
+9216954446512861479 and 3326496171169911647), gct against dsrn:
+
+| a masking copy says | city | blob |
+|---|---|---|
+| 3 of 4 children | -0.1%, +0.1%, -0.5% | -1.8%, -1.6%, -1.9% |
+| 2 of 4 children | -3.5%, -3.1%, -3.6% | -1.5%, -1.3%, -1.6% |
+| 3 of 4, or 2 not homogeneous (kept) | -4.2%, -4.0%, -4.4% | -1.8%, -1.7%, -1.9% |
 
 The start level header took city from 3671 and blob from 32856. Trunk
 depths per bitmap were 2-4 on city and 3-7 on blob; a trunk of depth
@@ -268,13 +276,13 @@ roughly neutral so far.
 
 | family | dsrn nodes masked | complex tiles a bitmap, by nesting | of them masking | tiles a bitmap | masking copies a bitmap |
 |---|---|---|---|---|---|
-| city | 34.7% of 378 | 51.4, 0.0 | 0.3% | 149.2 | 167.1 |
-| blob | 67.0% of 2332 | 17.8 | 29.0% | 4491.1 | 175.1 |
+| city | 34.7% of 378 | 50.6, 0.0 | 0.3% | 144.2 | 191.1 |
+| blob | 67.0% of 2332 | 17.8 | 28.9% | 4490.1 | 175.8 |
 
 | family | body nodes unmasked | masked: unmasked in an outer complex tile | copied | tile | nested complex tile | residual |
 |---|---|---|---|---|---|---|
 | city | 99.84% | 0.06% | 0.06% | 0.02% | 0.02% | 0.00% |
-| blob | 84.58% | 0.00% | 0.03% | 0.12% | 0.00% | 15.26% |
+| blob | 84.61% | 0.00% | 0.03% | 0.13% | 0.00% | 15.24% |
 
 A dsrn node is any code it wrote with a mask to decide on. A complex
 tile's body nodes are counted once each: every resolution tile unmasked
