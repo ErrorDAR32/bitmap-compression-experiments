@@ -27,8 +27,8 @@
 //!
 //! Two families live here. [`SHAPES`] are grown: cells scattered or
 //! clustered to a density, which is what an algorithm is stressed on.
-//! [`PLANS`] are laid out: streets, blocks and courtyards on a grid
-//! the quadtree can see, which is the shape the encoding is for. A
+//! [`PLANS`] are laid out: streets, blocks and courtyards on a grid,
+//! at an offset of its own in each bitmap, so never on the quadtree's. A
 //! result measured on one and not the other has been measured on
 //! half of what matters.
 //!
@@ -187,12 +187,11 @@ impl ExactSizeIterator for Samples {
 /// Every family of sample, named, with as many of each as a
 /// measurement should take.
 ///
-/// Two families, and they disagree about what the encoding is for.
-/// Grown bitmaps are cells scattered or clustered to a density, which
-/// is what an algorithm is stressed on. Laid out ones are streets,
-/// blocks and courtyards on a grid the quadtree can see, which is the
-/// shape the encoding was designed around. A result on one is half a
-/// result.
+/// Two families. Grown bitmaps are cells scattered or clustered to a
+/// density, which is what an algorithm is stressed on. Laid out ones
+/// are streets, blocks and courtyards on a grid at its own offset,
+/// which is structure the quadtree has to find rather than is handed.
+/// A result on one is half a result.
 pub fn every_family() -> Vec<(String, Vec<BitmapSample>)> {
     vec![
         (

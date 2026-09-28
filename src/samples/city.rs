@@ -1,12 +1,12 @@
 //! Bitmaps laid out the way the encoding is meant for.
 //!
-//! The grown samples are blobs and scattered cells, and nothing in a
-//! random blob is aligned to anything. A city is aligned to
-//! everything: streets run on a pitch, blocks fill what is between
-//! them, and courtyards are holes inside blocks. The encoding reads a
-//! bitmap as a quadtree of aligned squares, so the difference between
-//! the two is not a detail -- a result measured only on blobs has not
-//! been measured on the shape this is for.
+//! The grown samples are blobs and scattered cells, with no structure
+//! beyond their clustering. A city is structured throughout: streets
+//! run on a pitch, blocks fill what is between them, and courtyards are
+//! holes inside blocks. None of it is aligned to the quadtree: each
+//! city's grid starts at its own offset, and a courtyard sits anywhere
+//! in its block. A city aligned to the encoder's own tiles would
+//! measure the encoder on the one case it cannot find hard.
 //!
 //! These are not a claim about any real city. They are the shape the
 //! encoding was designed around, made the same way the grown samples
@@ -37,9 +37,8 @@ impl Rolls {
 /// How a city is laid out: how far apart the streets run, how wide
 /// they are, and how many courtyards a block is given.
 ///
-/// `pitch` and `street` are powers of two apart so that the blocks
-/// land on the quadtree's own grid, which is the whole point of
-/// measuring on these at all.
+/// The grid is shifted by a random offset in each city, so however the
+/// pitch divides the bitmap, the blocks do not land on tile corners.
 pub struct Plan {
     pub name: &'static str,
     /// How far apart the streets run, in cells.
@@ -105,16 +104,18 @@ impl Iterator for Cities {
 }
 
 /// One city: a grid of blocks with streets between them and
-/// courtyards inside them.
+/// courtyards inside them, the grid starting at a random offset, so the
+/// border cuts the blocks along it.
 pub fn one_laid_out(seed: u64, plan: &Plan) -> Bitmap {
     let mut bits = Bitmap::new();
     let mut rolls = Rolls(seed);
     let side = plan.block();
+    let (offset_x, offset_y) = (rolls.upto(plan.pitch as u64) as i64, rolls.upto(plan.pitch as u64) as i64);
 
-    let mut y = 0;
-    while y + side <= crate::HEIGHT as i64 {
-        let mut x = 0;
-        while x + side <= crate::WIDTH as i64 {
+    let mut y = offset_y - plan.pitch;
+    while y < crate::HEIGHT as i64 {
+        let mut x = offset_x - plan.pitch;
+        while x < crate::WIDTH as i64 {
             block(&mut bits, x, y, side, plan.courtyards, &mut rolls);
             x += plan.pitch;
         }
@@ -131,20 +132,14 @@ fn block(bits: &mut Bitmap, x: i64, y: i64, side: i64, courtyards: u64, rolls: &
     }
     bits.set_rect(x, y, x + side - 1, y + side - 1);
     for _ in 0..courtyards {
-        // A courtyard is aligned to its own size, the way a quadtree
-        // square is, so that it is a region the encoding can name.
+        // A courtyard of 2, 4 or 8 cells, anywhere in the block.
         let hole = 1 << (1 + rolls.upto(3));
         if hole >= side {
             continue;
         }
-        let across = (side / hole) as u64;
-        let (hx, hy) = (rolls.upto(across) as i64, rolls.upto(across) as i64);
-        bits.unset_rect(
-            x + hx * hole,
-            y + hy * hole,
-            x + hx * hole + hole - 1,
-            y + hy * hole + hole - 1,
-        );
+        let room = (side - hole + 1) as u64;
+        let (hx, hy) = (x + rolls.upto(room) as i64, y + rolls.upto(room) as i64);
+        bits.unset_rect(hx, hy, hx + hole - 1, hy + hole - 1);
     }
 }
 

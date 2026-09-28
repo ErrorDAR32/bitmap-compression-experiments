@@ -251,11 +251,19 @@ against dsrn at `Masking::Anywhere`, `FourByFour::ItsOwnGrammar`:
 
 | family | dsrn | gct |
 |---|---|---|
-| laid out like a city, 48 bitmaps | 3422 bits | 3270 bits, -4.4% |
+| laid out like a city, 48 bitmaps | 18300 bits | 12774 bits, -30.2% |
 | grown like a blob, 84 bitmaps | 32518 bits | 31885 bits, -1.9% |
 
 On two fresh seeds (`DSRN_SEED` 9216954446512861479 and
-3326496171169911647): city 3312 and 3320 bits, blob 31984 and 31932.
+3326496171169911647): city 13333 and 13323 bits (dsrn 20018 and
+19802), blob 31984 and 31932.
+
+Cities are laid out on a grid at a random offset of their own, with
+courtyards anywhere in their blocks. Until 2026-09-28 they were aligned
+to the quadtree -- pitches of 16, 32 and 64 from cell (0, 0), courtyards
+on their own size's grid -- and there city cost dsrn 3422 bits and gct
+3270. The city columns of the evidence below were measured on those
+aligned cities.
 
 Checkerboards of odd square side (`samples/checkerboards.rs`), bits:
 
@@ -305,12 +313,12 @@ blob). A bitmap that is one tile pays the 3 bits for nothing.
 
 | family | dsrn nodes masked | complex tiles a bitmap, by nesting | of them masking | tiles a bitmap | masking copies a bitmap |
 |---|---|---|---|---|---|
-| city | 34.7% of 378 | 49.8, 1.5 | 3.5% | 134.5 | 191.1 |
+| city | 45.6% of 1776 | 88.4, 2.2 | 10.0% | 1370.2 | 285.5 |
 | blob | 67.0% of 2332 | 20.1, 1.5, 0.0 | 36.5% | 4477.5 | 175.8 |
 
 | family | body nodes unmasked | masked: unmasked in an outer complex tile | copied | tile | nested complex tile | residual |
 |---|---|---|---|---|---|---|
-| city | 93.70% | 0.00% | 3.99% | 1.64% | 0.67% | 0.00% |
+| city | 75.37% | 0.02% | 3.94% | 12.72% | 0.40% | 7.55% |
 | blob | 20.99% | 0.01% | 5.11% | 48.86% | 0.25% | 24.78% |
 
 A dsrn node is any code it wrote with a mask to decide on. A complex
