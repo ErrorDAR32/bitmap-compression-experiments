@@ -13,7 +13,7 @@ use crate::gct::encoder::bit_stream::BitStream;
 use crate::gct::encoder::{read, ReadBack};
 use crate::gct::pyramids::pyramid::Pyramid;
 use crate::gct::tile::{tile_side, Tile, CELL_LEVEL, DIRECTIONS};
-use crate::gct::tree::node::{Node, Tree};
+use crate::gct::pyramids::tree::{Node, Tree};
 use crate::Bitmap;
 
 /// Decodes a stream written by [`crate::gct::encode`].

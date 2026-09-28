@@ -3,8 +3,9 @@
 //! fixing its shape and supplying its own queries and actions.
 
 pub mod bound_tile_counts;
-pub mod complex_tile_depths;
+pub mod complex_tile_size_offsets;
 pub mod copyable;
 pub mod homogeneity;
 pub mod placements;
 pub mod pyramid;
+pub mod tree;

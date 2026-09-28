@@ -17,8 +17,8 @@ output, and step 4 never decides anything.
 | step | code | output |
 |---|---|---|
 | 1. greedy tiling | `greedy_tiler.rs` | a placements pyramid: what tile was placed where |
-| 2. complex tiling | `complex_tiler/` | a complex tile depths pyramid: which tiles are complex tiles, at what depth |
-| 3. tree | `tree/` | the tree read off both: one node code per tile, held as a pyramid |
+| 2. complex tiling | `complex_tiler/` | a complex tile size offsets pyramid: which tiles are complex tiles, at what size offset |
+| 3. tree representation | `tree_representation.rs` | the tree read off both: one node code per tile, held as a pyramid (`pyramids/tree.rs`) |
 | 4. encoding | `encoder/` | the tree's grammar with its payloads, then the residual pass |
 
 `decode.rs` reads the bits back (through `encoder/`) and resolves
@@ -43,8 +43,8 @@ fixing the shape and supplying its queries and actions.
 | `copyable` | 2 | 0-7 | whether a same-size neighbour (near) or a neighbour of the parent (far) holds the same cells | none |
 | `placements` | 4 | 0-8 | the tile the greedy tiler placed here, if any | none |
 | `bound_tile_counts` | 16 | 0-t, one pyramid per size t | how many `Bound` tiles of size t lie under a tile | sum |
-| `complex_tile_depths` | 4 | 0-6 | a complex tile's depth, if a tile is one | none |
-| tree (`tree/node.rs`) | 8 | 0-7 | the tree's node at a tile | none |
+| `complex_tile_size_offsets` | 4 | 0-6 | a complex tile's size offset, if a tile is one | none |
+| `tree` | 8 | 0-7 | the tree's node at a tile | none |
 
 ## Step 1: the greedy tiler
 
@@ -65,8 +65,10 @@ Cells are always homogeneous, so the whole bitmap is always covered.
 
 ## Step 2: the complex tiler
 
-A **complex tile** is a tile said at one chosen **resolution**, `depth`
-levels finer. Every part of it is either **related** to it (unmasked: a
+A **complex tile** is a tile said at one chosen **resolution**: a tile
+size finer than its own by its **size offset**. Tile size 0 is the whole
+256x256 bitmap and 8 a single cell, so a resolution is the tile's own
+size plus its size offset. Every part of it is either **related** to it (unmasked: a
 placed `Bound` tile at exactly its resolution, its value in the complex
 tile's payload) or **not related** (masked). A masked part is related to
 a complex tile further out, a copy, a complex tile nested inside this
@@ -75,7 +77,7 @@ repeated to fit a resolution.
 
 **The whole plane is tiled with complex tiles.** A placed `Bound` tile
 related to no complex tile becomes a complex tile whose resolution is
-its own size: just a **tile** (depth 0). So there is no separate
+its own size: just a **tile** (size offset 0). So there is no separate
 simple bind.
 
 **1x1 tiles are never part of a complex tile.** They are the residual
@@ -85,7 +87,7 @@ finer than 4x4.
 **The complex tiler never looks at the bitmap.** Every decision comes
 from the placements and the bound tile counts.
 
-**One pass per nesting depth.** The first pass searches the whole
+**One pass per nesting level.** The first pass searches the whole
 bitmap for the outermost complex tiles, which capture the coarse
 structure. Each later pass searches only inside the complex tiles the
 previous pass committed, for complex tiles nested in them. Passes stop
@@ -93,7 +95,7 @@ when one commits nothing.
 
 **A candidate's best resolution** (`complex_tile_candidates.rs`). A
 candidate is a tile with nothing placed exactly at it, not already
-entirely related to an enclosing complex tile. For each depth from 1 to
+entirely related to an enclosing complex tile. For each size offset from 1 to
 the 2x2 floor, skipping any resolution an enclosing complex tile already
 has:
 
@@ -102,9 +104,9 @@ has:
 - `total_cells`: the tile's cells, minus what is already related to an
   enclosing complex tile. What an enclosing one says costs the candidate
   nothing.
-- Depth 1 requires all four children unmasked: masking never pays there.
+- Size offset 1 requires all four children unmasked: masking never pays there.
 - Floor: `4 * unmasked_cells >= 3 * total_cells`.
-- `total_cells` is the same at every depth, so the best depth has the
+- `total_cells` is the same at every size offset, so the best one has the
   most unmasked cells, ties toward the coarser.
 
 **Choosing between candidates: unmasked area first, not ratio.** Each
@@ -117,18 +119,18 @@ way never once won on the sample corpus.
 
 ## Step 3: the tree
 
-Read off the placements, bound tile counts and complex tile depths,
-top-down, one node per tile it reaches (`tree/from_complex_tiles.rs`):
+Read off the placements, bound tile counts and complex tile size
+offsets, top-down, one node per tile it reaches (`tree_representation.rs`):
 
 | node | when |
 |---|---|
 | `Related { nesting }` | the nearest enclosing complex tile whose resolution tiles under this tile are all `Bound` at exactly that size (`nesting` 0 is the outermost) |
-| `Complex { depth, masking }` | a placed `Bound` tile (a tile: depth 0), or a committed complex tile; `masking` when not every resolution tile is related to it |
+| `Complex { size_offset, masking }` | a placed `Bound` tile (a tile: size offset 0), or a committed complex tile; `masking` when not every resolution tile is related to it |
 | `Copied { far, direction }` | a placed copy |
 | `Split` | anything else coarser than 2x2 |
 | `Hole` | a 2x2 that is not one placed `Bound` tile |
 
-Node code: bits 0-2 the kind, bits 3-6 its parameter (`tree/node.rs`).
+Node code: bits 0-2 the kind, bits 3-6 its parameter (`pyramids/tree.rs`).
 Values are not held: a related tile's values are its resolution tiles'
 cells, read from the bitmap when encoding and written into it when
 decoding. `nested_resolutions.rs` holds the resolutions of the complex
@@ -152,12 +154,12 @@ One level above cells (2x2):
 Any coarser level:
 1: leaf
    0: copy  + 1 far/near bit + 2 direction bits
-   1: complex tile -- resolution_width(level) bits: depth, 0 meaning a
+   1: complex tile -- resolution_width(level) bits: size offset, 0 meaning a
       tile, then
-        depth 0 or 1: nothing (never masks)
-        depth > 1:    0: no masking | 1: masking -- four child nodes
-                      follow, this complex tile now the nearest
-                      enclosing one
+        size offset 0 or 1: nothing (never masks)
+        size offset > 1:    0: no masking | 1: masking -- four child
+                            nodes follow, this complex tile now the
+                            nearest one they are nested in
       then its payload: one value bit for every tile of its resolution
       related to it, in body order (including nodes inside complex
       tiles nested in it)
@@ -167,7 +169,7 @@ After the whole tree, the residual pass: one raw bit for every cell of
 every hole, in reading order.
 ```
 
-`resolution_width(level)` names depths 0 (a tile) to a 2x2 resolution:
+`resolution_width(level)` names size offsets 0 (a tile) to a 2x2 resolution:
 3 bits at levels 0-3, 2 at levels 4-5, 1 at level 6. A tile's own level
 is known from its place in the tree, so this costs nothing to use. The
 payload walk order is written once (`encoder/payload.rs`) and used in
@@ -177,10 +179,10 @@ both directions.
 |---|---|
 | related to an enclosing complex tile | none here; its values in that tile's payload |
 | copy | `1+1+1+2 = 5` |
-| tile (depth 0) | `1+1+r+1` |
-| complex tile, depth 1 | `1+1+r+4` |
-| complex tile, depth > 1, no masking | `1+1+r+1+N` |
-| complex tile, depth > 1, masking | `1+1+r+1`, four child nodes, then its payload |
+| tile (size offset 0) | `1+1+r+1` |
+| complex tile, size offset 1 | `1+1+r+4` |
+| complex tile, size offset > 1, no masking | `1+1+r+1+N` |
+| complex tile, size offset > 1, masking | `1+1+r+1`, four child nodes, then its payload |
 | subdivide | `1` |
 | 2x2 tile | `1+1 = 2` |
 | 2x2 hole | `1`, then 4 raw bits in the residual pass |
@@ -221,7 +223,7 @@ against dsrn at `Masking::Anywhere`, `FourByFour::ItsOwnGrammar`:
 Tiles pay the full resolution field where a simple bind used to pay one
 flag bit: 0 extra bits at level 6, +1 at levels 4-5, +2 at levels 0-3.
 That is almost the whole gap to the version before tiles were complex
-tiles (city 3489, blob 32647 on the same seed). A variant giving depth 0
+tiles (city 3489, blob 32647 on the same seed). A variant giving size offset 0
 a 1-bit prefix measured city 3486 and blob 32655: nesting itself is
 roughly neutral so far.
 

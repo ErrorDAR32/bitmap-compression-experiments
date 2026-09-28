@@ -2,9 +2,9 @@
 //! what that is worth, and how candidates rank against each other.
 //!
 //! A candidate is a tile nothing is placed at directly, not already
-//! entirely related to a complex tile enclosing it, tried at every depth
+//! entirely related to a complex tile enclosing it, tried at every size offset
 //! from `1` to the 2x2 floor (a 1x1 resolution is never tried: 1x1 tiles
-//! are always the residual pass's own). A depth whose resolution an
+//! are always the residual pass's own). A size offset whose resolution an
 //! enclosing complex tile already has is skipped: those tiles are
 //! already related to it.
 //!
@@ -16,7 +16,7 @@
 //!
 //! Depth `1` must have all four children unmasked (masking never pays
 //! there); deeper, `4 * unmasked_cells >= 3 * total_cells`.
-//! `total_cells` is the same at every depth, so the best depth is the
+//! `total_cells` is the same at every size offset, so the best one is the
 //! one with the most unmasked cells, ties toward the coarser.
 
 use crate::gct::pyramids::bound_tile_counts::BoundTileCounts;
@@ -27,7 +27,7 @@ use std::cmp::Ordering;
 
 pub struct Candidate {
     pub tile: Tile,
-    pub depth: usize,
+    pub size_offset: usize,
     unmasked_cells: u64,
     total_cells: u64,
     /// The complex tiles enclosing `tile`.
@@ -35,31 +35,31 @@ pub struct Candidate {
 }
 
 impl Candidate {
-    /// `tile`'s best depth to be a complex tile at, if any.
-    pub fn best_for(counts: &Vec<Pyramid>, tile: Tile, nested: &NestedResolutions) -> Option<Candidate> {
+    /// `tile`'s best size offset to be a complex tile at, if any.
+    pub fn best_for(bound_tile_counts: &Vec<Pyramid>, tile: Tile, nested: &NestedResolutions) -> Option<Candidate> {
         let related_further_out: u64 = nested
             .able_to_relate(tile)
             .map(|nesting| nested.resolution(nesting))
-            .map(|resolution| counts.under(tile, resolution) as u64 * cells_in_tile(resolution))
+            .map(|resolution| bound_tile_counts.under(tile, resolution) as u64 * cells_in_tile(resolution))
             .sum();
         let total_cells = cells_in_tile(tile.level) - related_further_out;
-        let max_depth = CELL_LEVEL - 1 - tile.level; // 1x1 is never a resolution
+        let max_size_offset = CELL_LEVEL - 1 - tile.level; // 1x1 is never a resolution
         let mut best: Option<Candidate> = None;
-        for depth in 1..=max_depth {
-            let resolution = tile.level + depth;
+        for size_offset in 1..=max_size_offset {
+            let resolution = tile.level + size_offset;
             if nested.has_resolution(resolution) {
                 continue; // those tiles are already related to that complex tile
             }
-            let unmasked = counts.under(tile, resolution);
-            if unmasked == 0 || (depth == 1 && unmasked != 4) {
-                continue; // nothing to gain, or masking at depth 1, which never pays
+            let unmasked = bound_tile_counts.under(tile, resolution);
+            if unmasked == 0 || (size_offset == 1 && unmasked != 4) {
+                continue; // nothing to gain, or masking at size_offset 1, which never pays
             }
             let unmasked_cells = unmasked as u64 * cells_in_tile(resolution);
             if 4 * unmasked_cells < 3 * total_cells {
                 continue; // below the floor
             }
             if best.as_ref().is_none_or(|current| unmasked_cells > current.unmasked_cells) {
-                best = Some(Candidate { tile, depth, unmasked_cells, total_cells, nested: nested.clone() });
+                best = Some(Candidate { tile, size_offset, unmasked_cells, total_cells, nested: nested.clone() });
             }
         }
         best

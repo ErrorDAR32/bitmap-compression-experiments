@@ -5,10 +5,10 @@
 //! counted once, whatever its size, and belongs to the complex tile
 //! whose body directly holds it.
 
-use crate::gct::pyramids::pyramid::Pyramid;
-use crate::gct::tile::Tile;
-use crate::gct::nested_resolutions::NestedResolutions;
-use crate::gct::tree::node::{Node, Tree};
+use bitmap::gct::pyramids::pyramid::Pyramid;
+use bitmap::gct::tile::Tile;
+use bitmap::gct::nested_resolutions::NestedResolutions;
+use bitmap::gct::pyramids::tree::{Node, Tree};
 
 #[derive(Default, Clone, Debug)]
 pub struct TreeStats {
@@ -65,13 +65,13 @@ impl TreeStats {
             Node::Related { .. } => self.masked_related_further_out += 1,
             Node::Copied { .. } if inside.is_some() => self.masked_copied += 1,
             Node::Hole if inside.is_some() => self.masked_hole += 1,
-            Node::Complex { depth: 0, .. } => {
+            Node::Complex { size_offset: 0, .. } => {
                 self.tiles += 1;
                 if inside.is_some() {
                     self.masked_tile += 1;
                 }
             }
-            Node::Complex { depth, masking } => {
+            Node::Complex { size_offset, masking } => {
                 if inside.is_some() {
                     self.masked_nested += 1;
                 }
@@ -81,11 +81,11 @@ impl TreeStats {
                 }
                 self.complex_tiles_at_nesting[nesting] += 1;
                 if !masking {
-                    self.unmasked += 1 << (2 * depth);
+                    self.unmasked += 1 << (2 * size_offset);
                     return;
                 }
                 self.complex_tiles_masking += 1;
-                nested.within(tile.level + depth, |inner| {
+                nested.within(tile.level + size_offset, |inner| {
                     for child in tile.children() {
                         self.count(tree, child, Some(nesting), inner);
                     }

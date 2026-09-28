@@ -8,7 +8,7 @@ use super::ReadBack;
 use crate::gct::pyramids::pyramid::Pyramid;
 use crate::gct::tile::{levels_to_cells, Tile, CELL_LEVEL};
 use crate::gct::nested_resolutions::NestedResolutions;
-use crate::gct::tree::node::{Node, Tree};
+use crate::gct::pyramids::tree::{Node, Tree};
 use crate::Bitmap;
 
 /// One bit per enclosing complex tile that could relate a node, nearest
@@ -30,16 +30,16 @@ const FAR_WIDTH: usize = 1;
 const DIRECTION_WIDTH: usize = 2;
 
 /// Whether a complex tile deeper than 1 masks anything at all. Skipped
-/// at depth 0 and 1, which never mask.
+/// at size offsets 0 and 1, which never mask.
 const NO_MASKING: u64 = 0;
 const MASKING: u64 = 1;
 const MASK_PRESENT_WIDTH: usize = 1;
 
-/// How many bits name a complex tile's depth at `level`: `0` (a tile)
+/// How many bits name a complex tile's size offset at `level`: `0` (a tile)
 /// up to a 2x2 resolution -- a 1x1 resolution never is one.
 fn resolution_width(level: usize) -> usize {
-    let depths = levels_to_cells(level);
-    (usize::BITS - (depths - 1).leading_zeros()) as usize
+    let size_offsets = levels_to_cells(level);
+    (usize::BITS - (size_offsets - 1).leading_zeros()) as usize
 }
 
 /// Writes `tile`'s node and everything under it.
@@ -55,7 +55,7 @@ pub fn write_node(tree: &Pyramid, bitmap: &Bitmap, tile: Tile, nested: &mut Nest
 
     if tile.level == CELL_LEVEL - 1 {
         match node {
-            Node::Complex { depth: 0, .. } => {
+            Node::Complex { size_offset: 0, .. } => {
                 out.push_value(LEAF, LEAF_WIDTH);
                 write_payload(tree, bitmap, tile, nested.next_nesting(), 0, out);
             }
@@ -72,22 +72,22 @@ pub fn write_node(tree: &Pyramid, bitmap: &Bitmap, tile: Tile, nested: &mut Nest
             out.push_value(far as u64, FAR_WIDTH);
             out.push_value(direction as u64, DIRECTION_WIDTH);
         }
-        Node::Complex { depth, masking } => {
+        Node::Complex { size_offset, masking } => {
             out.push_value(LEAF, LEAF_WIDTH);
             out.push_value(BIND, CODE_WIDTH);
-            out.push_value(depth as u64, resolution_width(tile.level));
-            if depth > 1 {
+            out.push_value(size_offset as u64, resolution_width(tile.level));
+            if size_offset > 1 {
                 out.push_value(if masking { MASKING } else { NO_MASKING }, MASK_PRESENT_WIDTH);
             }
             let nesting = nested.next_nesting();
             if masking {
-                nested.within(tile.level + depth, |inside| {
+                nested.within(tile.level + size_offset, |inside| {
                     for child in tile.children() {
                         write_node(tree, bitmap, child, inside, out);
                     }
                 });
             }
-            write_payload(tree, bitmap, tile, nesting, depth, out);
+            write_payload(tree, bitmap, tile, nesting, size_offset, out);
         }
         Node::Split => {
             out.push_value(SUBDIVIDE, LEAF_WIDTH);
@@ -116,7 +116,7 @@ pub fn read_node(reader: &mut BitReader, tile: Tile, nested: &mut NestedResoluti
             read.tree.set_node(tile, Node::Hole);
             return;
         }
-        read.tree.set_node(tile, Node::Complex { depth: 0, masking: false });
+        read.tree.set_node(tile, Node::Complex { size_offset: 0, masking: false });
         read_payload(reader, tile, nested.next_nesting(), 0, read);
         return;
     }
@@ -133,16 +133,16 @@ pub fn read_node(reader: &mut BitReader, tile: Tile, nested: &mut NestedResoluti
         read.tree.set_node(tile, Node::Copied { far, direction });
         return;
     }
-    let depth = reader.value(resolution_width(tile.level)) as usize;
-    let masking = depth > 1 && reader.value(MASK_PRESENT_WIDTH) == MASKING;
-    read.tree.set_node(tile, Node::Complex { depth, masking });
+    let size_offset = reader.value(resolution_width(tile.level)) as usize;
+    let masking = size_offset > 1 && reader.value(MASK_PRESENT_WIDTH) == MASKING;
+    read.tree.set_node(tile, Node::Complex { size_offset, masking });
     let nesting = nested.next_nesting();
     if masking {
-        nested.within(tile.level + depth, |inside| {
+        nested.within(tile.level + size_offset, |inside| {
             for child in tile.children() {
                 read_node(reader, child, inside, read);
             }
         });
     }
-    read_payload(reader, tile, nesting, depth, read);
+    read_payload(reader, tile, nesting, size_offset, read);
 }

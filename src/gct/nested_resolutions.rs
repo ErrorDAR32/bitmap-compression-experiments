@@ -44,8 +44,8 @@ impl NestedResolutions {
     /// The nearest enclosing complex tile `tile` is entirely related to:
     /// every tile of its resolution under `tile` is a `Bound` tile placed
     /// at exactly that size.
-    pub fn relating(&self, counts: &Vec<Pyramid>, tile: Tile) -> Option<usize> {
-        self.able_to_relate(tile).find(|&nesting| counts.entirely_bound_at(tile, self.resolutions[nesting]))
+    pub fn relating(&self, bound_tile_counts: &Vec<Pyramid>, tile: Tile) -> Option<usize> {
+        self.able_to_relate(tile).find(|&nesting| bound_tile_counts.entirely_bound_at(tile, self.resolutions[nesting]))
     }
 
     /// These, with one more complex tile of `resolution` inside them.

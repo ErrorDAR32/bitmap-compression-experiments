@@ -8,7 +8,7 @@
 //! The whole plane is tiled with complex tiles: every placed `Bound`
 //! tile is either related to a complex tile enclosing it or is a
 //! complex tile whose resolution is its own size -- just a *tile*
-//! (`Complex` at depth 0). A bind is always a complex tile.
+//! (`Complex` at size offset 0). A bind is always a complex tile.
 //!
 //! Values are not held here: a related tile's values are the cells of
 //! its resolution tiles, which are the bitmap's own.
@@ -28,10 +28,10 @@ pub enum Node {
     Related { nesting: usize },
     /// One placed tile, copying a same-size area.
     Copied { far: bool, direction: usize },
-    /// A complex tile whose resolution is `depth` levels finer. Without
+    /// A complex tile whose resolution is `size_offset` levels finer. Without
     /// `masking`, every tile of its resolution is related to it (always
-    /// so at depth 0 and 1); with it, its four children hold its body.
-    Complex { depth: usize, masking: bool },
+    /// so at size offsets 0 and 1); with it, its four children hold its body.
+    Complex { size_offset: usize, masking: bool },
     /// A 2x2 that is not one placed `Bound` tile: its four cells are
     /// left to the residual pass.
     Hole,
@@ -49,8 +49,8 @@ const HOLE: u64 = 5;
 const FAR: u64 = 0b1;
 const DIRECTION_SHIFT: u64 = 1;
 const DIRECTION_MASK: u64 = 0b11;
-/// Complex: depth in parameter bits 0-2, masking in bit 3.
-const DEPTH_MASK: u64 = 0b111;
+/// Complex: size offset in parameter bits 0-2, masking in bit 3.
+const SIZE_OFFSET_MASK: u64 = 0b111;
 const MASKING: u64 = 0b1000;
 const NESTING_MASK: u64 = 0b1111;
 
@@ -63,7 +63,7 @@ fn to_code(node: Node) -> u64 {
             (RELATED, nesting as u64)
         }
         Node::Copied { far, direction } => (COPIED, far as u64 | (direction as u64) << DIRECTION_SHIFT),
-        Node::Complex { depth, masking } => (COMPLEX, depth as u64 | if masking { MASKING } else { 0 }),
+        Node::Complex { size_offset, masking } => (COMPLEX, size_offset as u64 | if masking { MASKING } else { 0 }),
         Node::Hole => (HOLE, 0),
     };
     kind | parameter << PARAMETER_SHIFT
@@ -79,7 +79,7 @@ fn from_code(code: u64) -> Node {
             far: parameter & FAR != 0,
             direction: ((parameter >> DIRECTION_SHIFT) & DIRECTION_MASK) as usize,
         },
-        COMPLEX => Node::Complex { depth: (parameter & DEPTH_MASK) as usize, masking: parameter & MASKING != 0 },
+        COMPLEX => Node::Complex { size_offset: (parameter & SIZE_OFFSET_MASK) as usize, masking: parameter & MASKING != 0 },
         HOLE => Node::Hole,
         kind => unreachable!("no node kind {kind}"),
     }

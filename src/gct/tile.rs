@@ -91,11 +91,11 @@ impl Tile {
         (x >= 0 && y >= 0 && x < across && y < across).then_some(Tile { level: self.level, x: x as usize, y: y as usize })
     }
 
-    /// The tiles that fill this one `depth` levels finer, in reading
+    /// The tiles that fill this one `size_offset` levels finer, in reading
     /// order.
-    pub fn tiles_at_depth(self, depth: usize) -> Vec<Tile> {
-        let across = 1usize << depth;
-        let level = self.level + depth;
+    pub fn tiles_at_size_offset(self, size_offset: usize) -> Vec<Tile> {
+        let across = 1usize << size_offset;
+        let level = self.level + size_offset;
         let mut out = Vec::with_capacity(across * across);
         for row in 0..across {
             for col in 0..across {

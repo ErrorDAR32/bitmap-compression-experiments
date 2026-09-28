@@ -13,7 +13,7 @@ mod tree_grammar;
 use crate::gct::pyramids::pyramid::Pyramid;
 use crate::gct::tile::Tile;
 use crate::gct::nested_resolutions::NestedResolutions;
-use crate::gct::tree::node::Tree;
+use crate::gct::pyramids::tree::Tree;
 use crate::Bitmap;
 use bit_stream::BitStream;
 

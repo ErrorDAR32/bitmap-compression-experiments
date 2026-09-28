@@ -11,8 +11,8 @@ use bitmap::gct::pyramids::copyable::Copyable;
 use bitmap::gct::pyramids::homogeneity::Homogeneity;
 use bitmap::gct::pyramids::pyramid::{Pyramid, PyramidShape};
 use bitmap::gct::tile::Tile;
-use bitmap::gct::tree::node::{Node, Tree};
-use bitmap::gct::tree::stats::TreeStats;
+use bitmap::gct::pyramids::tree::{Node, Tree};
+use common::tree_stats::TreeStats;
 use bitmap::gct::{encode, greedy_tiler::greedy_tiler, tree};
 use bitmap::samples::{one_grown, one_laid_out, PLANS};
 use bitmap::Bitmap;
@@ -47,9 +47,9 @@ fn homogeneity_pyramid_sees_a_filled_quarter() {
 #[test]
 fn all_clear_is_one_tile_in_six_bits() {
     let bitmap = Bitmap::new();
-    // leaf + bind + 3 resolution bits (depth 0, a tile) + 1 value bit
+    // leaf + bind + 3 resolution bits (size offset 0, a tile) + 1 value bit
     assert_eq!(encode(&bitmap).len(), 6);
-    assert_eq!(tree(&bitmap).node(Tile::whole_bitmap()), Node::Complex { depth: 0, masking: false });
+    assert_eq!(tree(&bitmap).node(Tile::whole_bitmap()), Node::Complex { size_offset: 0, masking: false });
     let placements = greedy_tiler(&bitmap, &Pyramid::homogeneity(&bitmap), &Pyramid::copyable(&bitmap));
     assert_eq!(Vec::<Pyramid>::bound_tile_counts(&placements).under(Tile::whole_bitmap(), 0), 1);
     check(&bitmap, "all clear");

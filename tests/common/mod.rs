@@ -2,6 +2,8 @@
 
 #![allow(dead_code)] // each test file uses only some of these
 
+pub mod tree_stats;
+
 use bitmap::gct::encoder::{read, write};
 use bitmap::gct::greedy_tiler::greedy_tiler;
 use bitmap::gct::pyramids::copyable::Copyable;
