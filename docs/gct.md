@@ -178,32 +178,37 @@ without it, less its cost with it; the one thing not counted is the
 complex tiles later passes would nest inside it.
 
 **Every count a pass asks for is held before it is asked**
-(`complex_tiler/cost_pyramid.rs`): memory for counting. The cost
-pyramid holds, in each tile's one element, a count for each candidate
-resolution that can be above it: slot 0 its bits nested as the search
-area is, slot `r` its bits with a complex tile of resolution `r` above
-it -- nine 21-bit counts in three words, so all of a tile's counts, and
-its four children's, sit together in Morton order. For each search
-area, one walk down collects the tiles a count can reach and the
-resolutions some candidate above each will ask for; one walk up fills,
-a level at a time, each tile's counts from its children's, by the same
-per-node rule as the bit count. A tile's bits depend only on the
-complex tiles of resolution its level or finer, so for a coarser `r`
-slot 0 is read. Two kinds of slot are never counted, only worked out when
-read: at 1x1, a tile no raw complex tile masks is unmasked by the
-candidate at once -- a mask bit, then every cell; and at a coarser `r`,
-a tile with no whole bind of that size under it has nothing the
-candidate could unmask, so its bits are slot 0's plus one mask bit for
-every node its count visits at `r` or coarser -- counts each tile holds
-beside its slots, a level at a time, gathered as slot 0 is counted. The value bound above a tile is not carried down either
-walk: it is a field of the complex tiling, handed down once when the
-tiling is filled in, read in O(1). A candidate is then scored as the
+(`complex_tiler/cost_pyramid.rs`): memory for counting. For each search
+area, one walk down collects the tiles a count can reach; one walk up
+gives each tile, in the costs pyramid, its bits nested as the area is
+with no candidate above it, and for every resolution `r` its *change*:
+how much a complex tile of resolution `r` above it -- the candidate --
+takes off those bits. Its bits under the candidate are the first less
+the change, one subtraction.
+
+Every change follows from the tile's fields and its children's changes,
+all resolutions at once, a few steps each -- no count is made again for
+each candidate. Under a candidate of resolution `r`:
+
+- a tile finer than `r` is unchanged: `r` unmasks nothing in it and adds
+  no mask bit;
+- a tile entirely bound at `r` is unmasked by it: its bits become one
+  mask bit and its payload;
+- any other tile takes one mask bit more, the candidate being the complex
+  tile nearest it, and each child it counts changes as that child does --
+  and a divide one level coarser than `r` that leaves `k` children to the
+  binding above leaves none under the candidate (each is bound whole at
+  `r`, so unmasked): a mask bit and a payload bit on each, instead of its
+  flip bit and four-bit child mask, `5 - 2k` bits fewer.
+
+Nothing else changes, since no complex tile is under a search area's
+roots while its counts are filled. A candidate is then scored as the
 complex tile it would be -- its fields as they would be, its children's
-counts read from its resolution's slot -- and nothing in the tiling
-changes while a pass is scored: only the commits at its end do. Debug
-builds check every count at 16x16 and finer against the reference
-count, which carries the value bound above itself, so the field is
-checked too.
+bits read as bits less change -- and nothing in the tiling changes while
+a pass is scored: only the commits at its end do. Debug builds check
+every count at 16x16 and finer against the reference count, which counts
+every node under every candidate in full and carries the value bound
+above itself.
 
 **A candidate's best resolution** (`complex_tile_candidates.rs`). A
 candidate is a tile with nothing placed exactly at it, not already
