@@ -21,7 +21,6 @@
 use super::bit_cost::CountedBits;
 use super::complex_tile_candidates::Candidate;
 use super::raw_masking::decide_raw_masking;
-use crate::gct::pyramids::bound_tiles_per_level::BoundTilesPerLevel;
 use crate::gct::pyramids::complex_tiling::ComplexTiling;
 use crate::gct::pyramids::pyramid::Pyramid;
 use crate::gct::tile::{Tile, CELL_LEVEL};
@@ -39,7 +38,6 @@ struct SearchArea {
 /// placements pyramid), and returns the complex tiling: the placements,
 /// with every committed complex tile's size offset added.
 pub fn complex_tiler(placements: &Pyramid) -> Pyramid {
-    let bound_tiles_per_level = Vec::<Pyramid>::bound_tiles_per_level(placements);
     let raw_masked = decide_raw_masking(placements);
     let mut complex_tiling = Pyramid::complex_tiling(placements, &raw_masked);
 
@@ -49,7 +47,7 @@ pub fn complex_tiler(placements: &Pyramid) -> Pyramid {
         let mut counted = CountedBits::default();
         for search in &searched {
             for tile in search.area.tiles_at_size_offset(search.coarsest_level - search.area.level) {
-                best_at_or_under(&mut complex_tiling, &bound_tiles_per_level, tile, &search.nested, &mut counted, &mut chosen);
+                best_at_or_under(&mut complex_tiling, tile, &search.nested, &mut counted, &mut chosen);
             }
         }
         searched = commit(chosen, &mut complex_tiling);
@@ -67,7 +65,6 @@ const FINEST_CANDIDATE_LEVEL: u8 = CELL_LEVEL - 2;
 /// whichever saves more -- `tile`'s own on a tie.
 fn best_at_or_under(
     complex_tiling: &mut Pyramid,
-    bound_tiles_per_level: &Vec<Pyramid>,
     tile: Tile,
     nested: &NestedResolutions,
     counted: &mut CountedBits,
@@ -81,14 +78,14 @@ fn best_at_or_under(
     let placed = complex_tiling.placed_at(tile);
     let own = match placed {
         Some(_) => None,
-        None => Candidate::best_for(complex_tiling, bound_tiles_per_level, tile, nested, counted),
+        None => Candidate::best_for(complex_tiling, tile, nested, counted),
     };
     let mut under = Vec::new();
     let under_saving: u64 = tile
         .children()
         .into_iter()
         .filter(|&child| placed.is_none_or(|placement| placement.masks(child)))
-        .map(|child| best_at_or_under(complex_tiling, bound_tiles_per_level, child, nested, counted, &mut under))
+        .map(|child| best_at_or_under(complex_tiling, child, nested, counted, &mut under))
         .sum();
     match own {
         Some(candidate) if candidate.saving >= under_saving => {

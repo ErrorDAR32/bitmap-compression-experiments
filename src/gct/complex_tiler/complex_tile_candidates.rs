@@ -18,7 +18,6 @@
 use super::bit_cost::{bits_counted, CountedBits};
 use crate::gct::grammar::raw_resolution_fits;
 use crate::gct::nested_resolutions::NestedResolutions;
-use crate::gct::pyramids::bound_tiles_per_level::BoundTilesPerLevel;
 use crate::gct::pyramids::complex_tiling::ComplexTiling;
 use crate::gct::pyramids::placements::binding_above;
 use crate::gct::pyramids::pyramid::Pyramid;
@@ -38,7 +37,6 @@ impl Candidate {
     /// bits. Leaves `complex_tiling` as it found it.
     pub fn best_for(
         complex_tiling: &mut Pyramid,
-        bound_tiles_per_level: &Vec<Pyramid>,
         tile: Tile,
         nested: &NestedResolutions,
         counted: &mut CountedBits,
@@ -53,7 +51,7 @@ impl Candidate {
             if nested.has_resolution(resolution) {
                 continue; // those tiles are already unmasked in that complex tile
             }
-            let nothing_bound = resolution < CELL_LEVEL && bound_tiles_per_level.under(tile, resolution) == 0;
+            let nothing_bound = resolution < CELL_LEVEL && !complex_tiling.any_bound_under(tile, resolution);
             if nothing_bound || (size_offset == 1 && !complex_tiling.entirely_bound_at(tile, resolution)) {
                 continue; // nothing to unmask, or masking at size offset 1, which the grammar cannot say
             }
