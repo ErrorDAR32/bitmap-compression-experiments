@@ -10,7 +10,6 @@
 //! every bitmap tested.
 
 use crate::gct::grammar::*;
-use std::collections::HashMap;
 use crate::gct::nested_resolutions::NestedResolutions;
 use crate::gct::pyramids::complex_tiling::ComplexTiling;
 use crate::gct::pyramids::placements::Placement;
@@ -26,9 +25,39 @@ fn payload_bits(size_offset: u8) -> u64 {
 
 /// Bits already counted, by tile and by the complex tiles it is nested
 /// in: good for as long as nothing under a counted tile changes -- one
-/// pass of the complex tiler, whose commits come at its end.
+/// pass of the complex tiler, whose commits come at its end. One flat
+/// array a nesting, a slot a tile of every level: few nestings occur in
+/// a pass, so finding the array is a short search, and the slot is an
+/// index.
 #[derive(Default)]
-pub struct CountedBits(HashMap<(Tile, u64), u64>);
+pub struct CountedBits(Vec<(u64, Vec<u32>)>);
+
+/// A slot not counted yet.
+const NOT_COUNTED: u32 = u32::MAX;
+
+/// Where a tile's slot is: every coarser level's tiles first.
+fn slot(tile: Tile) -> usize {
+    let coarser: usize = (0..tile.level).map(|level| tiles_across(level) * tiles_across(level)).sum();
+    coarser + tile.y as usize * tiles_across(tile.level) + tile.x as usize
+}
+
+/// Slots for every tile of every level.
+fn all_slots() -> usize {
+    (0..=CELL_LEVEL).map(|level| tiles_across(level) * tiles_across(level)).sum()
+}
+
+impl CountedBits {
+    fn slots_for(&mut self, nesting_key: u64) -> &mut Vec<u32> {
+        let at = match self.0.iter().position(|(key, _)| *key == nesting_key) {
+            Some(at) => at,
+            None => {
+                self.0.push((nesting_key, vec![NOT_COUNTED; all_slots()]));
+                self.0.len() - 1
+            }
+        };
+        &mut self.0[at].1
+    }
+}
 
 /// The bits `tile` costs, nested in `nested`, `bound_above` the value
 /// bound above it, and everything under it.
@@ -151,11 +180,12 @@ fn remembered(
     bound_above: bool,
     counted: &mut CountedBits,
 ) -> u64 {
-    let key = (tile, nested.key());
-    if let Some(&bits) = counted.0.get(&key) {
-        return bits;
+    let (nesting_key, at) = (nested.key(), slot(tile));
+    let known = counted.slots_for(nesting_key)[at];
+    if known != NOT_COUNTED {
+        return known as u64;
     }
     let bits = bits_counted(complex_tiling, tile, nested, bound_above, counted);
-    counted.0.insert(key, bits);
+    counted.slots_for(nesting_key)[at] = bits as u32;
     bits
 }
