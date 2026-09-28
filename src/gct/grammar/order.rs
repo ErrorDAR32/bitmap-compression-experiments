@@ -4,8 +4,7 @@
 
 use crate::gct::pyramids::pyramid::Pyramid;
 use crate::gct::pyramids::tree::{Node, Tree};
-use crate::gct::tile::{Tile, CELL_LEVEL};
-use crate::Bitmap;
+use crate::gct::tile::{tiles_across, Tile, CELL_LEVEL, CHILDREN_ACROSS};
 
 /// The tiles of its resolution unmasked in the complex tile at `tile`
 /// (its own nesting `nesting`, size offset `size_offset`), in payload order: the
@@ -33,19 +32,36 @@ pub fn payload_tiles(tree: &Pyramid, tile: Tile, nesting: u8, size_offset: u8) -
     tiles
 }
 
-/// Every cell of every residual 2x2.
-fn residual_cell_bitmap(tree: &Pyramid) -> Bitmap {
-    let mut residual = Bitmap::new();
-    for tile in Tile::all_of_level(CELL_LEVEL - 1) {
-        if tree.node(tile) == Node::Residual {
-            tile.set_in(&mut residual);
+/// The residual cells, in reading order: every cell of every residual
+/// 2x2.
+///
+/// The residual 2x2s are found by walking down the tree, only into
+/// nodes that may hold nodes under them -- a divide, or anything that
+/// masks -- then put in rows; each row of them gives its top cells left
+/// to right, then its bottom ones.
+pub fn residual_cells(tree: &Pyramid) -> impl Iterator<Item = Tile> {
+    let floor = CELL_LEVEL - 1;
+    let mut rows: Vec<Vec<u8>> = vec![Vec::new(); tiles_across(floor)];
+    let mut pending = vec![Tile::whole_bitmap()];
+    while let Some(at) = pending.pop() {
+        match tree.node(at) {
+            Node::Residual => rows[at.y as usize].push(at.x),
+            Node::Subdivided | Node::ComplexTile { masks: true, .. } | Node::Copied { masks: true, .. } => {
+                pending.extend(at.children())
+            }
+            _ => {}
         }
     }
-    residual
-}
-
-/// The residual cells, in reading order.
-pub fn residual_cells(tree: &Pyramid) -> impl Iterator<Item = Tile> {
-    let residual = residual_cell_bitmap(tree);
-    Tile::all_cells().filter(move |cell| cell.top_left_value(&residual))
+    let mut cells = Vec::new();
+    for (y, mut xs) in rows.into_iter().enumerate() {
+        xs.sort_unstable();
+        for row in 0..CHILDREN_ACROSS {
+            for &x in &xs {
+                for col in 0..CHILDREN_ACROSS {
+                    cells.push(Tile { level: CELL_LEVEL, x: x * CHILDREN_ACROSS + col, y: y as u8 * CHILDREN_ACROSS + row });
+                }
+            }
+        }
+    }
+    cells.into_iter()
 }
