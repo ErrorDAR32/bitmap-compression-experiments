@@ -42,6 +42,17 @@ numbers:
 cargo test --release --test compare_with_dsrn -- --ignored --nocapture
 ```
 
+The adversarial search, `gct_adversarial_generator`, is ignored too. It
+looks for the bitmaps gct does worst on, against dsrn and against the
+raw cells, by simulated annealing -- first on one 64x64 window, then on
+the plane filled with that window's variants. The worst bitmap for each
+is kept in `testing/adversarial/` as a PBM image. It is replaced only
+when beaten, each run starts from it, and it must always round trip:
+
+```
+cargo test --release --test gct_adversarial_generator -- --ignored --nocapture
+```
+
 ## Phase one: fix, with the seed held still
 
 Pick a seed base and leave it alone. While it is held:
