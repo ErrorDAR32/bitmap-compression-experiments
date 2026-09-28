@@ -7,11 +7,13 @@
 //! `arity` tiles one level finer that fill it -- with `arity` 4, the
 //! 2x2 block at (2x..2x+1, 2y..2y+1).
 //!
-//! A specialized pyramid fixes the four parameters and supplies its
-//! own queries and actions (see the other files in this folder). An
-//! action is what [`Pyramid::propagate`] uses to work out a tile's
-//! element from its children's: set the finest level, then propagate
-//! once, and every coarser level follows.
+//! A specialized pyramid (the other files in this folder) fixes the
+//! four parameters, supplies its own queries, and may give the pyramid a
+//! [`Propagation`]: the rule for what a tile holds, given its children.
+//! Then every [`Pyramid::set`] keeps the coarser levels in step on its
+//! own: it recomputes the set tile's parent, then that one's parent, and
+//! stops at the first whose element does not change -- often right
+//! away, sometimes only at the whole bitmap.
 
 use crate::gct::tile::Tile;
 
@@ -44,16 +46,32 @@ impl PyramidShape {
     }
 }
 
+/// What `tile` should hold, worked out from its children's elements in
+/// `pyramid`.
+pub type Propagation = fn(pyramid: &Pyramid, tile: Tile) -> u64;
+
 /// One element per tile, per level -- see the module doc.
-#[derive(Clone, PartialEq, Eq, Debug)]
+#[derive(Clone, Debug)]
 pub struct Pyramid {
     shape: PyramidShape,
+    propagation: Option<Propagation>,
     /// One word-packed plane per level, coarsest first.
     levels: Vec<Vec<u64>>,
 }
 
+/// Two pyramids are equal when they hold the same elements in the same
+/// shape; how they propagate is behaviour, not content.
+impl PartialEq for Pyramid {
+    fn eq(&self, other: &Self) -> bool {
+        self.shape == other.shape && self.levels == other.levels
+    }
+}
+
+impl Eq for Pyramid {}
+
 impl Pyramid {
-    /// An all-zero pyramid of this shape.
+    /// An all-zero pyramid of this shape, whose levels are independent:
+    /// setting a tile changes nothing else.
     pub fn new(shape: PyramidShape) -> Self {
         assert!(
             shape.element_bits > 0 && u64::BITS as usize % shape.element_bits == 0,
@@ -67,7 +85,14 @@ impl Pyramid {
                 vec![0u64; (across * across).div_ceil(per_word)]
             })
             .collect();
-        Self { shape, levels }
+        Self { shape, propagation: None, levels }
+    }
+
+    /// An all-zero pyramid of this shape that keeps its coarser levels
+    /// in step with `propagation`. All zeros must already be in step:
+    /// `propagation` of all-zero children is zero.
+    pub fn with_propagation(shape: PyramidShape, propagation: Propagation) -> Self {
+        Self { propagation: Some(propagation), ..Self::new(shape) }
     }
 
     pub fn shape(&self) -> PyramidShape {
@@ -102,13 +127,36 @@ impl Pyramid {
         (self.levels[plane][word] >> shift) & self.element_mask()
     }
 
-    /// Replaces a tile's element.
+    /// Replaces a tile's element, then propagates: each coarser tile
+    /// holding it is recomputed, up to the first that does not change.
     pub fn set(&mut self, tile: Tile, value: u64) {
+        self.write(tile, value);
+        let Some(propagation) = self.propagation else { return };
+        let mut changed = tile;
+        while changed.level > self.shape.coarsest_level {
+            let parent = self.parent_of(changed);
+            let value = propagation(self, parent);
+            if value == self.get(parent) {
+                return;
+            }
+            self.write(parent, value);
+            changed = parent;
+        }
+    }
+
+    /// Replaces one tile's element, nothing else.
+    fn write(&mut self, tile: Tile, value: u64) {
         let mask = self.element_mask();
         debug_assert!(value & !mask == 0, "{value} does not fit in {} bits", self.shape.element_bits);
         let (plane, word, shift) = self.locate(tile);
         let slot = &mut self.levels[plane][word];
         *slot = (*slot & !(mask << shift)) | (value << shift);
+    }
+
+    /// The tile one level coarser that holds `tile`.
+    fn parent_of(&self, tile: Tile) -> Tile {
+        let across = self.shape.children_across();
+        Tile { level: tile.level - 1, x: tile.x / across, y: tile.y / across }
     }
 
     /// A tile's children, in reading order.
@@ -127,24 +175,5 @@ impl Pyramid {
     pub fn tiles_of_level(&self, level: usize) -> impl Iterator<Item = Tile> {
         let across = self.shape.tiles_across(level);
         (0..across).flat_map(move |y| (0..across).map(move |x| Tile { level, x, y }))
-    }
-
-    /// Recomputes every level coarser than the finest, finest first,
-    /// each tile's element being `action` of its children's elements in
-    /// reading order.
-    pub fn propagate(&mut self, action: impl Fn(&[u64]) -> u64) {
-        let mut children = Vec::with_capacity(self.shape.arity);
-        for level in (self.shape.coarsest_level..self.shape.finest_level).rev() {
-            let across = self.shape.tiles_across(level);
-            for y in 0..across {
-                for x in 0..across {
-                    let tile = Tile { level, x, y };
-                    children.clear();
-                    children.extend(self.children_of(tile).into_iter().map(|child| self.get(child)));
-                    let value = action(&children);
-                    self.set(tile, value);
-                }
-            }
-        }
     }
 }

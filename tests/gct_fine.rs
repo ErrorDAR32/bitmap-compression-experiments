@@ -23,13 +23,18 @@ use common::check;
 const FIXED_SEED: u64 = 7;
 
 #[test]
-fn generic_pyramid_propagates_its_action() {
+fn generic_pyramid_propagates_every_set() {
+    fn sum_of_children(pyramid: &Pyramid, tile: Tile) -> u64 {
+        pyramid.children_of(tile).into_iter().map(|child| pyramid.get(child)).sum()
+    }
     let shape = PyramidShape { arity: 4, coarsest_level: 0, finest_level: 2, element_bits: 8 };
-    let mut pyramid = Pyramid::new(shape);
+    let mut pyramid = Pyramid::with_propagation(shape, sum_of_children);
+    pyramid.set(Tile { level: 2, x: 3, y: 3 }, 1);
+    assert_eq!(pyramid.get(Tile { level: 1, x: 1, y: 1 }), 1);
+    assert_eq!(pyramid.get(Tile::whole_bitmap()), 1);
     for tile in pyramid.tiles_of_level(2).collect::<Vec<_>>() {
         pyramid.set(tile, 1);
     }
-    pyramid.propagate(|children| children.iter().sum());
     assert_eq!(pyramid.get(Tile { level: 1, x: 1, y: 1 }), 4);
     assert_eq!(pyramid.get(Tile::whole_bitmap()), 16);
 }

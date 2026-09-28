@@ -31,18 +31,24 @@ level between a coarsest and a finest, each element a fixed number of
 bits, word-packed. Four parameters: arity (children per tile, 4 here),
 coarsest level, finest level, bits per element. A tile is its level (0
 is the whole 256x256 bitmap, 8 a single cell) and its (x, y) in that
-level's plane. `propagate(action)` recomputes every coarser level from
-the finer one, each tile from its children's elements.
+level's plane.
+
+A pyramid may have a **propagation**: the rule for what a tile holds,
+given its children (`fn(&Pyramid, Tile) -> u64`), fixed when the
+pyramid is built. Then every `set` keeps the coarser levels in step on
+its own: it recomputes the set tile's parent, then that one's parent,
+and stops at the first whose element does not change -- often right
+away, sometimes only at the whole bitmap.
 
 Every per-tile structure is a specialization: a trait over `Pyramid`
-fixing the shape and supplying its queries and actions.
+fixing the shape, its propagation if any, and its queries.
 
-| pyramid | bits | levels | holds | action |
+| pyramid | bits | levels | holds | propagation |
 |---|---|---|---|---|
-| `homogeneity` | 2 | 0-8 | whether a tile's cells all agree, and on what | all four children homogeneous and agreeing |
+| `homogeneity` | 2 | 0-8 | whether a tile's cells all agree, and on what | homogeneous when all four children are homogeneous and agree |
 | `copyable` | 2 | 0-7 | whether a same-size neighbour (near) or a neighbour of the parent (far) holds the same cells | none |
 | `placements` | 4 | 0-8 | the tile the greedy tiler placed here, if any | none |
-| `bound_tile_counts` | 16 | 0-t, one pyramid per size t | how many `Bound` tiles of size t lie under a tile | sum |
+| `bound_tile_counts` | 16 | 0-t, one pyramid per size t | how many `Bound` tiles of size t lie under a tile | sum of the children |
 | `complex_tile_size_offsets` | 4 | 0-6 | a complex tile's size offset, if a tile is one | none |
 | `tree` | 8 | 0-7 | the tree's node at a tile | none |
 

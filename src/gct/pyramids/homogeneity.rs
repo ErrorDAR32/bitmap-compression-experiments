@@ -1,7 +1,7 @@
 //! The homogeneity pyramid: for every tile, down to single cells,
 //! whether all of its cells agree, and on what. Two bits a tile.
 //!
-//! Built by setting every cell, then propagating one action up: a tile
+//! Built by setting every cell; each set propagates upward, since a tile
 //! is homogeneous exactly when its four children are homogeneous and
 //! agree.
 
@@ -24,12 +24,11 @@ pub trait Homogeneity {
 
 impl Homogeneity for Pyramid {
     fn homogeneity(bitmap: &Bitmap) -> Self {
-        let mut pyramid = Pyramid::new(SHAPE);
+        let mut pyramid = Pyramid::with_propagation(SHAPE, all_children_homogeneous_and_agreeing);
         for cell in pyramid.tiles_of_level(CELL_LEVEL).collect::<Vec<_>>() {
             let value = if cell.top_left_value(bitmap) { VALUE } else { 0 };
             pyramid.set(cell, HOMOGENEOUS | value);
         }
-        pyramid.propagate(all_homogeneous_and_agreeing);
         pyramid
     }
 
@@ -39,10 +38,11 @@ impl Homogeneity for Pyramid {
     }
 }
 
-/// The action: a tile takes its children's shared element when all of
-/// them are homogeneous and hold the same value, and is not
-/// homogeneous otherwise.
-fn all_homogeneous_and_agreeing(children: &[u64]) -> u64 {
+/// The propagation: a tile is homogeneous, holding its children's
+/// shared value, exactly when all of its children are homogeneous and
+/// hold the same value.
+fn all_children_homogeneous_and_agreeing(pyramid: &Pyramid, tile: Tile) -> u64 {
+    let children: Vec<u64> = pyramid.children_of(tile).into_iter().map(|child| pyramid.get(child)).collect();
     let first = children[0];
     if children.iter().all(|&child| child & HOMOGENEOUS != 0 && child == first) {
         first

@@ -2,9 +2,9 @@
 //! exactly that size the greedy tiler placed under it.
 //!
 //! One pyramid per size, each running from the whole bitmap down to
-//! that size: the placed `Bound` tiles of that size set their own
-//! element to 1, and one "sum the children" propagation fills in every
-//! coarser tile. Placed tiles never overlap, so a sum counts each one
+//! that size: each placed `Bound` tile of that size sets its own element
+//! to 1, and the pyramid propagates each set upward by summing a tile's
+//! children. Placed tiles never overlap, so a sum counts each one
 //! once. It depends only on what the greedy tiler placed, so it is
 //! built once a bitmap.
 //!
@@ -41,14 +41,12 @@ pub trait BoundTileCounts {
 
 impl BoundTileCounts for Vec<Pyramid> {
     fn bound_tile_counts(placements: &Pyramid) -> Self {
-        let mut by_size: Vec<Pyramid> = (0..CELL_LEVEL).map(|size| Pyramid::new(shape(size))).collect();
+        let mut by_size: Vec<Pyramid> =
+            (0..CELL_LEVEL).map(|size| Pyramid::with_propagation(shape(size), sum_of_children)).collect();
         for (tile, placement) in placements.placed_tiles() {
             if tile.level < CELL_LEVEL && matches!(placement, Placement::Bound(_)) {
                 by_size[tile.level].set(tile, 1);
             }
-        }
-        for pyramid in &mut by_size {
-            pyramid.propagate(|children| children.iter().sum());
         }
         by_size
     }
@@ -59,4 +57,10 @@ impl BoundTileCounts for Vec<Pyramid> {
         }
         self[size].get(tile) as u32
     }
+}
+
+/// The propagation: how many `Bound` tiles of this size lie under a tile
+/// is the sum over its children.
+fn sum_of_children(pyramid: &Pyramid, tile: Tile) -> u64 {
+    pyramid.children_of(tile).into_iter().map(|child| pyramid.get(child)).sum()
 }
