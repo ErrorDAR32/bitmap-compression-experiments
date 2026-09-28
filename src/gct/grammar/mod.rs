@@ -1,5 +1,5 @@
 //! The grammar, shared by both directions: what every bit means, and
-//! the order the plain runs of value bits go in. [`crate::gct::encode`](mod@crate::gct::encode)
+//! the order a payload's value bits go in. [`crate::gct::encode`](mod@crate::gct::encode)
 //! writes it and [`crate::gct::decode`](mod@crate::gct::decode) reads it; neither holds a rule
 //! of its own. The full grammar, with its costs, is in `docs/gct.md`.
 //!

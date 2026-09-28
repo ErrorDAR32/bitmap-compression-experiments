@@ -1,7 +1,7 @@
 //! The workspace: every structure encoding or decoding needs, allocated
 //! once and reused for every bitmap after -- the pyramids and the
 //! patterns' tables, the complex
-//! tiler's scratch, the runs' tiles. Encoding takes the bitmap and where
+//! tiler's scratch, a payload's parts. Encoding takes the bitmap and where
 //! the stream goes; decoding takes the stream and where the bitmap goes.
 //! Every structure is sized at the most any bitmap needs -- the
 //! pyramids by their shape, every list at a bound named where it is
@@ -12,7 +12,7 @@ use crate::gct::complex_tiler::passes::{complex_tiler, Scratch};
 use crate::gct::decode::{decode, Copies, StreamContents};
 use crate::gct::encode::write;
 use crate::gct::grammar::bit_stream::BitStream;
-use crate::gct::grammar::order::Runs;
+use crate::gct::grammar::order::PayloadWalk;
 use crate::gct::greedy_tiler::greedy_tiler;
 use crate::gct::pyramids::homogeneity::Homogeneity;
 use crate::gct::pyramids::patterns::Patterns;
@@ -37,8 +37,8 @@ pub struct Workspace {
     tree: Pyramid,
     /// Room to resolve copies in, decoding.
     copies: Copies,
-    /// Room for the runs' tiles.
-    runs: Runs,
+    /// Room for a payload's parts.
+    payload_walk: PayloadWalk,
 }
 
 impl Workspace {
@@ -51,7 +51,7 @@ impl Workspace {
             scratch: Scratch::default(),
             tree: Pyramid::tree(),
             copies: Copies::default(),
-            runs: Runs::default(),
+            payload_walk: PayloadWalk::default(),
         }
     }
 
@@ -62,13 +62,13 @@ impl Workspace {
         greedy_tiler(&self.homogeneity, &self.patterns, &mut self.complex_tiling);
         complex_tiler(&mut self.complex_tiling, bitmap, &mut self.scratch);
         tree_representation(&self.complex_tiling, &mut self.tree);
-        write(&self.tree, bitmap, stream, &mut self.runs);
+        write(&self.tree, bitmap, stream, &mut self.payload_walk);
     }
 
     /// Decodes `stream` into `bitmap`, whatever it held before.
     pub fn decode(&mut self, stream: &BitStream, bitmap: &mut Bitmap) {
         let mut read = StreamContents { tree: &mut self.tree, cell_values: bitmap, copies: &mut self.copies };
-        decode(stream, &mut read, &mut self.runs);
+        decode(stream, &mut read, &mut self.payload_walk);
     }
 
     /// The tree of the bitmap last encoded, or of the stream last

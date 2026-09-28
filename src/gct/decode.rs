@@ -16,7 +16,7 @@
 //! so a chain always ends.
 
 use crate::gct::grammar::bit_stream::{BitReader, BitStream};
-use crate::gct::grammar::order::Runs;
+use crate::gct::grammar::order::PayloadWalk;
 use crate::gct::grammar::point_list;
 use crate::gct::grammar::*;
 use crate::gct::nested_resolutions::NestedResolutions;
@@ -51,8 +51,8 @@ impl StreamContents<'_> {
 }
 
 /// Reads back what [`crate::gct::encode::write`] wrote, into `read`,
-/// whatever it held before; `runs` is room for the runs' tiles.
-pub fn read(stream: &BitStream, read: &mut StreamContents, runs: &mut Runs) {
+/// whatever it held before; `payload_walk` is room for a payload's parts.
+pub fn read(stream: &BitStream, read: &mut StreamContents, payload_walk: &mut PayloadWalk) {
     read.tree.clear();
     read.cell_values.reset();
     let mut reader = stream.reader();
@@ -63,9 +63,9 @@ pub fn read(stream: &BitStream, read: &mut StreamContents, runs: &mut Runs) {
         }
     }
     for tile in Tile::all_of_level(start_level) {
-        read_node(&mut reader, tile, &mut NestedResolutions::none(), BOUND_AT_THE_TOP, read, runs);
+        read_node(&mut reader, tile, &mut NestedResolutions::none(), BOUND_AT_THE_TOP, read, payload_walk);
     }
-    for &square in runs.residual_squares(read.tree) {
+    for square in read.tree.residual_squares() {
         let cells = reader.value(RESIDUAL_SQUARE_BITS);
         read.cell_values.set_in_small_square(square.top_left_cell(), square.side_in_cells(), cells);
     }
@@ -79,7 +79,7 @@ fn read_node(
     nested: &mut NestedResolutions,
     bound_above: bool,
     read: &mut StreamContents,
-    runs: &mut Runs,
+    payload_walk: &mut PayloadWalk,
 ) {
     for nesting in nested.able_to_unmask(tile) {
         if reader.value(MASK_BIT_WIDTH) == UNMASKED {
@@ -95,14 +95,14 @@ fn read_node(
             return;
         }
         read.tree.set_node(tile, Node::ComplexTile { size_offset: 0, masks: false });
-        read_payload(reader, tile, nested.next_nesting(), 0, read, runs);
+        read_payload(reader, tile, nested.next_nesting(), 0, read, payload_walk);
         return;
     }
     if !leaf {
         if !divide_may_mask(tile.level) || reader.value(MASK_PRESENT_WIDTH) == NO_MASKING {
             read.tree.set_node(tile, Node::Subdivided);
             for child in tile.children() {
-                read_node(reader, child, nested, bound_above, read, runs);
+                read_node(reader, child, nested, bound_above, read, payload_walk);
             }
             return;
         }
@@ -114,7 +114,7 @@ fn read_node(
         let named = children.map(|_| reader.value(MASK_BIT_WIDTH) == MASKED);
         for (child, is_named) in children.into_iter().zip(named) {
             if is_named {
-                read_node(reader, child, nested, bound_above, read, runs);
+                read_node(reader, child, nested, bound_above, read, payload_walk);
             } else {
                 read.bind(child, bound_above);
             }
@@ -134,7 +134,7 @@ fn read_node(
         let masked = children.map(|_| reader.value(MASK_BIT_WIDTH) == MASKED);
         for (child, is_masked) in children.into_iter().zip(masked) {
             if is_masked {
-                read_node(reader, child, nested, bound_above, read, runs);
+                read_node(reader, child, nested, bound_above, read, payload_walk);
             } else {
                 read.copies.cover(tile, child, far, direction);
             }
@@ -154,18 +154,18 @@ fn read_node(
     if masks {
         nested.while_nested(tile.level + size_offset, |inside| {
             for child in tile.children() {
-                read_node(reader, child, inside, bound_above, read, runs);
+                read_node(reader, child, inside, bound_above, read, payload_walk);
             }
         });
     }
-    read_payload(reader, tile, nesting, size_offset, read, runs);
+    read_payload(reader, tile, nesting, size_offset, read, payload_walk);
 }
 
 /// A complex tile's payload, bound into the cells of the tiles it names,
 /// a part at a time.
-fn read_payload(reader: &mut BitReader, tile: Tile, nesting: u8, size_offset: u8, read: &mut StreamContents, runs: &mut Runs) {
+fn read_payload(reader: &mut BitReader, tile: Tile, nesting: u8, size_offset: u8, read: &mut StreamContents, payload_walk: &mut PayloadWalk) {
     let resolution = tile.level + size_offset;
-    for &part in runs.payload(read.tree, tile, nesting) {
+    for &part in payload_walk.parts(read.tree, tile, nesting) {
         read_part(reader, part, resolution, read.cell_values);
     }
 }
@@ -262,10 +262,10 @@ impl Copies {
 }
 
 /// Decodes a stream written by [`crate::gct::encode::write`] into
-/// `read`, whose cell values end as the bitmap; `runs` is room for the
-/// runs' tiles.
-pub fn decode(stream: &BitStream, read: &mut StreamContents, runs: &mut Runs) {
+/// `read`, whose cell values end as the bitmap; `payload_walk` is room for a
+/// payload's parts.
+pub fn decode(stream: &BitStream, read: &mut StreamContents, payload_walk: &mut PayloadWalk) {
     read.copies.clear();
-    self::read(stream, read, runs);
+    self::read(stream, read, payload_walk);
     read.copies.resolve(read.cell_values);
 }

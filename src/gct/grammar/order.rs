@@ -1,6 +1,8 @@
-//! The order of the two plain runs of value bits: a complex tile's
-//! payload, and the residual pass. One walk each, used by both
-//! directions, so writing and reading can never disagree.
+//! The order of a complex tile's payload: which parts of it the payload
+//! says, walked down the tree, used by both directions, so writing and
+//! reading can never disagree. (The residual pass needs no walk: its
+//! 2x2s are read off the tree in Morton order,
+//! [`Tree::residual_squares`](crate::gct::pyramids::tree::Tree::residual_squares).)
 
 use crate::gct::pyramids::pyramid::Pyramid;
 use crate::gct::pyramids::tree::{Node, Tree};
@@ -11,24 +13,25 @@ use crate::gct::tile::{Tile, CELLS, CELL_LEVEL};
 /// a level, and a last level's four.
 const MOST_WAITING: usize = 3 * CELL_LEVEL as usize + 4;
 
-/// Room for the runs' tiles, allocated once at the most any run takes.
+/// Room for a payload's parts, allocated once at the most a payload
+/// takes.
 #[derive(Default)]
-pub struct Runs {
-    /// The tiles of the last run walked: never more than there are
-    /// cells, each a run's tile covering at least one.
+pub struct PayloadWalk {
+    /// The parts of the last payload walked: never more than there are
+    /// cells, each part covering at least one.
     tiles: FixedList<Tile, CELLS>,
     /// Tiles still to visit while walking down the tree.
     waiting: FixedList<Tile, MOST_WAITING>,
 }
 
-impl Runs {
+impl PayloadWalk {
     /// The parts of the complex tile at `tile` (its own nesting
     /// `nesting`, size offset `size_offset`) its payload says, in payload
     /// order: the whole tile when it masks nothing, otherwise every node
     /// in its body unmasked in it, in body order -- including nodes inside
     /// complex tiles nested in it. The payload is one value for each tile
     /// of its resolution in each part, a part's in Morton order.
-    pub fn payload(&mut self, tree: &Pyramid, tile: Tile, nesting: u8) -> &[Tile] {
+    pub fn parts(&mut self, tree: &Pyramid, tile: Tile, nesting: u8) -> &[Tile] {
         self.tiles.clear();
         let Node::ComplexTile { masks: true, .. } = tree.node(tile) else {
             self.tiles.push(tile);
@@ -39,27 +42,6 @@ impl Runs {
         while let Some(at) = self.waiting.pop() {
             match tree.node(at) {
                 Node::Unmasked { nesting: unmasked_in } if unmasked_in == nesting => self.tiles.push(at),
-                Node::Subdivided | Node::ComplexTile { masks: true, .. } | Node::Copied { masks: true, .. } => {
-                    self.waiting.extend(at.children().into_iter().rev())
-                }
-                _ => {}
-            }
-        }
-        &self.tiles
-    }
-
-    /// The residual 2x2s, in Morton order, found by walking down the tree
-    /// in Morton order, only into nodes that may hold nodes under them --
-    /// a divide, or anything that masks. The residual pass says every
-    /// cell of each, its four cells in Morton order -- consecutive, in the
-    /// bitmap too.
-    pub fn residual_squares(&mut self, tree: &Pyramid) -> &[Tile] {
-        self.tiles.clear();
-        self.waiting.clear();
-        self.waiting.push(Tile::whole_bitmap());
-        while let Some(at) = self.waiting.pop() {
-            match tree.node(at) {
-                Node::Residual => self.tiles.push(at),
                 Node::Subdivided | Node::ComplexTile { masks: true, .. } | Node::Copied { masks: true, .. } => {
                     self.waiting.extend(at.children().into_iter().rev())
                 }

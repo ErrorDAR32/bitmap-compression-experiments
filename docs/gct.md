@@ -20,11 +20,13 @@ output, and step 4 never decides anything.
 
 `decode.rs` reads the bits back and resolves copies into cells. Both
 follow `grammar/`, the one place every rule of the bitstream lives:
-its constants and widths, the bit stream, and the order of the payload
-and residual runs (`grammar/order.rs`).
+its constants and widths, the bit stream, and the order of a complex
+tile's payload (`grammar/order.rs`). The residual pass is the 2x2s left
+residual, read off the tree's 2x2 level in Morton order, four raw bits
+each.
 
 Every structure the steps use -- the pyramids, the complex tiler's
-scratch, the runs' tiles -- lives in one `Workspace` (`workspace.rs`),
+scratch, a payload's parts -- lives in one `Workspace` (`workspace.rs`),
 allocated once. `workspace.encode(&bitmap, &mut stream)` and
 `workspace.decode(&stream, &mut bitmap)` write into what they are given,
 and each step clears or overwrites what the last bitmap left.

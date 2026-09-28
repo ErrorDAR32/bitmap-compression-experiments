@@ -16,6 +16,7 @@
 use crate::gct::pyramids::pyramid::{Pyramid, PyramidShape};
 use crate::gct::grammar::{DIRECTION_MASK, DIRECTION_WIDTH, FAR_WIDTH};
 use crate::gct::tile::{Tile, CELL_LEVEL, LEVEL_BITS};
+use crate::morton::morton_coordinates;
 
 /// What the tree holds at one tile.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -150,7 +151,16 @@ fn from_code(code: u64) -> Node {
 
 /// One node code a tile, 8 bits, down to the 2x2 floor: nothing finer
 /// is ever a node.
-const SHAPE: PyramidShape = PyramidShape { coarsest_level: 0, finest_level: CELL_LEVEL - 1, element_bits: 8 };
+const SHAPE: PyramidShape = PyramidShape { coarsest_level: 0, finest_level: CELL_LEVEL - 1, element_bits: NODE_BITS };
+
+/// Bits a node's code takes.
+const NODE_BITS: usize = 8;
+/// One node code, at the bottom of a word.
+const NODE_MASK: u64 = (1 << NODE_BITS) - 1;
+/// Node codes a word holds.
+const NODES_A_WORD: usize = u64::BITS as usize / NODE_BITS;
+/// A residual 2x2's code: its kind, with no parameter.
+const RESIDUAL_CODE: u64 = RESIDUAL;
 
 /// The tree's queries and updates, over the node codes.
 pub trait Tree {
@@ -171,6 +181,10 @@ pub trait Tree {
     /// not divide whole. Every tile coarser than it does -- the trunk,
     /// which the stream never spells out.
     fn start_level(&self) -> u8;
+
+    /// The residual 2x2s, in Morton order: the 2x2 level's node codes
+    /// read a word at a time, a word of no node skipped whole.
+    fn residual_squares(&self) -> impl Iterator<Item = Tile> + '_;
 }
 
 impl Tree for Pyramid {
@@ -188,6 +202,16 @@ impl Tree for Pyramid {
 
     fn divides_whole(&self, tile: Tile) -> bool {
         self.node(tile) == Node::Subdivided && tile.children().into_iter().all(|child| self.node(child) != Node::Absent)
+    }
+
+    fn residual_squares(&self) -> impl Iterator<Item = Tile> + '_ {
+        let level = CELL_LEVEL - 1;
+        self.level_words(level).iter().enumerate().filter(|&(_, &word)| word != 0).flat_map(move |(at, &word)| {
+            (0..NODES_A_WORD).filter(move |&slot| (word >> (slot * NODE_BITS)) & NODE_MASK == RESIDUAL_CODE).map(move |slot| {
+                let (x, y) = morton_coordinates(at * NODES_A_WORD + slot);
+                Tile { level, x, y }
+            })
+        })
     }
 
     fn start_level(&self) -> u8 {
