@@ -1,6 +1,7 @@
-//! What a search maximizes. Not gct's bits alone -- noise maximizes
-//! those for any encoder, and says nothing -- but a gap: how much worse
-//! gct does on a bitmap than something it should never lose to.
+//! What a search maximizes. Not an encoder's bits alone -- noise
+//! maximizes those for any encoder, and says nothing -- but a gap: how
+//! much worse the attacked encoder does on a bitmap than a reference it
+//! should not lose to, the other encoder or the raw cells.
 
 use bitmap::dsrn::{encode as dsrn_encode, Encoded, FourByFour, Knobs, Masking, Workspace};
 use bitmap::gct::encode;
@@ -8,23 +9,43 @@ use bitmap::gct::tile::{cells_in_tile, Tile};
 use bitmap::pyramid::Pyramid;
 use bitmap::Bitmap;
 
-#[derive(Clone, Copy, Debug)]
-pub enum Objective {
-    /// gct's bits less dsrn's, the baseline it has to beat.
-    AgainstDsrn,
-    /// gct's bits less the searched area's raw cells: what gct costs
-    /// beyond writing the cells out.
-    AgainstRaw,
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Encoder {
+    Gct,
+    Dsrn,
 }
 
-pub const OBJECTIVES: [Objective; 2] = [Objective::AgainstDsrn, Objective::AgainstRaw];
+#[derive(Clone, Copy, Debug)]
+pub enum Reference {
+    /// The other encoder's bits.
+    Other,
+    /// The searched area's raw cells.
+    Raw,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct Objective {
+    pub attacked: Encoder,
+    pub against: Reference,
+}
+
+/// gct against dsrn and the raw cells, and dsrn against gct and the raw
+/// cells.
+pub const OBJECTIVES: [Objective; 4] = [
+    Objective { attacked: Encoder::Gct, against: Reference::Other },
+    Objective { attacked: Encoder::Gct, against: Reference::Raw },
+    Objective { attacked: Encoder::Dsrn, against: Reference::Other },
+    Objective { attacked: Encoder::Dsrn, against: Reference::Raw },
+];
 
 impl Objective {
     /// Also the name its record is kept under.
     pub fn name(self) -> &'static str {
-        match self {
-            Objective::AgainstDsrn => "against_dsrn",
-            Objective::AgainstRaw => "against_raw",
+        match (self.attacked, self.against) {
+            (Encoder::Gct, Reference::Other) => "gct_against_dsrn",
+            (Encoder::Gct, Reference::Raw) => "gct_against_raw",
+            (Encoder::Dsrn, Reference::Other) => "dsrn_against_gct",
+            (Encoder::Dsrn, Reference::Raw) => "dsrn_against_raw",
         }
     }
 }
@@ -36,11 +57,12 @@ pub struct Scorer {
     out: Encoded,
 }
 
-/// What one bitmap scored, and what the score was made of.
+/// What one bitmap scored: the gap, and the bits of each encoder the
+/// objective ran.
 #[derive(Clone, Copy, Debug)]
 pub struct Score {
     pub gap: i64,
-    pub gct_bits: u64,
+    pub gct_bits: Option<u64>,
     pub dsrn_bits: Option<u64>,
 }
 
@@ -49,26 +71,40 @@ impl Scorer {
         Self { pyramid: Pyramid::new(), work: Workspace::new(), out: Encoded::default() }
     }
 
-    /// The bits dsrn spends, as `compare_with_dsrn` runs it.
-    pub fn dsrn_bits(&mut self, bitmap: &Bitmap) -> u64 {
-        let knobs = Knobs { masking: Masking::Anywhere, four_by_four: FourByFour::ItsOwnGrammar };
-        self.pyramid.clear();
-        self.pyramid.rebuild(bitmap);
-        dsrn_encode(&self.pyramid, bitmap, knobs, &mut self.work, &mut self.out);
-        self.out.bits() as u64
+    pub fn bits(&mut self, encoder: Encoder, bitmap: &Bitmap) -> u64 {
+        match encoder {
+            Encoder::Gct => encode(bitmap).len() as u64,
+            Encoder::Dsrn => {
+                // As `compare_with_dsrn` runs it.
+                let knobs = Knobs { masking: Masking::Anywhere, four_by_four: FourByFour::ItsOwnGrammar };
+                self.pyramid.clear();
+                self.pyramid.rebuild(bitmap);
+                dsrn_encode(&self.pyramid, bitmap, knobs, &mut self.work, &mut self.out);
+                self.out.bits() as u64
+            }
+        }
     }
 
-    /// `bitmap`'s score, for a search confined to `area`.
+    /// `bitmap`'s score, for a search confined to `area`: only the
+    /// encoders the objective needs are run.
     pub fn score(&mut self, objective: Objective, bitmap: &Bitmap, area: Tile) -> Score {
-        let gct_bits = encode(bitmap).len() as u64;
-        match objective {
-            Objective::AgainstDsrn => {
-                let dsrn_bits = self.dsrn_bits(bitmap);
-                Score { gap: gct_bits as i64 - dsrn_bits as i64, gct_bits, dsrn_bits: Some(dsrn_bits) }
+        let other = match objective.attacked {
+            Encoder::Gct => Encoder::Dsrn,
+            Encoder::Dsrn => Encoder::Gct,
+        };
+        let attacked_bits = self.bits(objective.attacked, bitmap);
+        let (reference_bits, other_bits) = match objective.against {
+            Reference::Other => {
+                let bits = self.bits(other, bitmap);
+                (bits, Some(bits))
             }
-            Objective::AgainstRaw => {
-                Score { gap: gct_bits as i64 - cells_in_tile(area.level) as i64, gct_bits, dsrn_bits: None }
-            }
+            Reference::Raw => (cells_in_tile(area.level), None),
+        };
+        let bits_of = |encoder: Encoder| if encoder == objective.attacked { Some(attacked_bits) } else { other_bits };
+        Score {
+            gap: attacked_bits as i64 - reference_bits as i64,
+            gct_bits: bits_of(Encoder::Gct),
+            dsrn_bits: bits_of(Encoder::Dsrn),
         }
     }
 }

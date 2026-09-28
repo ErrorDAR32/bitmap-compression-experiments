@@ -38,17 +38,11 @@ fn some_tile_inside(rng: &mut Rng, area: Tile, coarsest: u8, finest: u8) -> Tile
     Tile { level: CELL_LEVEL, x, y }.ancestor(level)
 }
 
-/// One random change to `bitmap` inside `area`.
-pub fn change(rng: &mut Rng, bitmap: &mut Bitmap, area: Tile) {
-    const KINDS: u64 = 5;
-    match rng.below(KINDS) {
-        0 => flip_a_cell(rng, bitmap, area),
-        1 => flip_a_tile(rng, bitmap, area),
-        2 => paint_a_rectangle(rng, bitmap, area),
-        3 => copy_almost(rng, bitmap, area),
-        _ => xor_a_checkerboard(rng, bitmap, area),
-    }
-}
+/// A kind of change.
+pub type Change = fn(&mut Rng, &mut Bitmap, Tile);
+
+/// Every kind of change, which a search picks among.
+pub const CHANGES: [Change; 5] = [flip_a_cell, flip_a_tile, paint_a_rectangle, copy_almost, xor_a_checkerboard];
 
 fn flip_a_cell(rng: &mut Rng, bitmap: &mut Bitmap, area: Tile) {
     let (x, y) = some_cell(rng, area);
