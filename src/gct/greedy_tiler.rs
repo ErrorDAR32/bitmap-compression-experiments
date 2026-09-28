@@ -32,8 +32,8 @@ use crate::gct::pyramids::copyable::{matches_at, matching_direction, FAR_DISTANC
 use crate::gct::pyramids::homogeneity::Homogeneity;
 use crate::gct::pyramids::placements::{Placement, Placements, BOUND_AT_THE_TOP, FINEST_MASKING_LEVEL};
 use crate::gct::pyramids::pyramid::Pyramid;
+use crate::gct::pyramids::patterns::Patterns;
 use crate::gct::tile::{directions, Tile, CELL_LEVEL, CHILDREN_ACROSS};
-use crate::Bitmap;
 
 /// A masking copy costs about 10 bits before its masked children: a
 /// copy, a mask-present bit, a 4-bit child mask. What it saves depends
@@ -58,20 +58,20 @@ pub const MIN_UNMASKED_CHILDREN_OF_A_MASKING_BIND: u32 = 2;
 /// [complex tiling pyramid](crate::gct::pyramids::complex_tiling) with
 /// only its [placement](crate::gct::pyramids::placements) bits set. Reads
 /// only the bitmap's content: which tiles are homogeneous, from its
-/// homogeneity pyramid, and which match which, asked of the bitmap only
-/// for tiles that are not.
-pub fn greedy_tiler(bitmap: &Bitmap, homogeneity: &Pyramid, placements: &mut Pyramid) {
+/// homogeneity pyramid, and which match which, from its patterns.
+pub fn greedy_tiler(homogeneity: &Pyramid, patterns: &Patterns, placements: &mut Pyramid) {
     placements.clear();
-    let content = Content { bitmap, homogeneity };
+    let content = Content { homogeneity, patterns };
     place_at_or_under(&content, Tile::whole_bitmap(), BOUND_AT_THE_TOP, placements);
 }
 
-/// What the greedy tiler reads: a bitmap, and its homogeneity pyramid.
+/// What the greedy tiler reads of a bitmap: its homogeneity pyramid and
+/// its patterns.
 struct Content<'a> {
-    /// The bitmap tiled.
-    bitmap: &'a Bitmap,
     /// Its homogeneity pyramid.
     homogeneity: &'a Pyramid,
+    /// Its patterns.
+    patterns: &'a Patterns,
 }
 
 impl Content<'_> {
@@ -87,13 +87,18 @@ impl Content<'_> {
     }
 
     /// See [`matches_at`].
-    fn matches_at(&self, tile: Tile, mine: Option<bool>, direction: u8, distance: usize) -> bool {
-        matches_at(self.homogeneity, self.bitmap, tile, mine, direction, distance)
+    fn matches_at(&self, tile: Tile, mine: u16, direction: u8, distance: usize) -> bool {
+        matches_at(self.patterns, tile, mine, direction, distance)
+    }
+
+    /// `tile`'s four children's pattern numbers, in reading order.
+    fn children_numbers(&self, tile: Tile) -> [u16; 4] {
+        self.patterns.children_numbers(tile)
     }
 
     /// See [`matching_direction`].
     fn matching_direction(&self, tile: Tile, distance: usize) -> Option<u8> {
-        matching_direction(self.homogeneity, self.bitmap, tile, distance)
+        matching_direction(self.patterns, tile, distance)
     }
 }
 
@@ -185,6 +190,7 @@ fn masking_copy(content: &Content, tile: Tile, children_values: [Option<bool>; 4
     if !could_be_worth_it(all_unmasked, all_non_homogeneous) {
         return None;
     }
+    let numbers = content.children_numbers(tile);
     let mut best: Option<(u32, Placement)> = None;
     for (far, distance) in [(false, NEAR_DISTANCE), (true, FAR_DISTANCE)] {
         // A child's source is its same child in the source tile: the
@@ -199,7 +205,7 @@ fn masking_copy(content: &Content, tile: Tile, children_values: [Option<bool>; 4
             for index in 0..children.len() {
                 unmasked_left -= adds_unmasked[index];
                 non_homogeneous_left -= adds_non_homogeneous[index];
-                if content.matches_at(children[index], children_values[index], direction, child_distance) {
+                if content.matches_at(children[index], numbers[index], direction, child_distance) {
                     unmasked += adds_unmasked[index];
                     non_homogeneous += adds_non_homogeneous[index];
                 } else {

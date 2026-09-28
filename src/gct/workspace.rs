@@ -1,5 +1,6 @@
 //! The workspace: every structure encoding or decoding needs, allocated
-//! once and reused for every bitmap after -- the pyramids, the complex
+//! once and reused for every bitmap after -- the pyramids and the
+//! patterns' tables, the complex
 //! tiler's scratch, the runs' tiles. Encoding takes the bitmap and where
 //! the stream goes; decoding takes the stream and where the bitmap goes.
 //! Every structure is sized at the most any bitmap needs -- the
@@ -14,6 +15,7 @@ use crate::gct::grammar::bit_stream::BitStream;
 use crate::gct::grammar::order::Runs;
 use crate::gct::greedy_tiler::greedy_tiler;
 use crate::gct::pyramids::homogeneity::Homogeneity;
+use crate::gct::pyramids::patterns::Patterns;
 use crate::gct::pyramids::placements::Placements;
 use crate::gct::pyramids::pyramid::Pyramid;
 use crate::gct::pyramids::tree::Tree;
@@ -24,6 +26,8 @@ use crate::Bitmap;
 pub struct Workspace {
     /// The homogeneity pyramid of the bitmap being encoded.
     homogeneity: Pyramid,
+    /// The patterns of the bitmap being encoded.
+    patterns: Patterns,
     /// The greedy tiler's placements, then the complex tiling made of
     /// them.
     complex_tiling: Pyramid,
@@ -42,6 +46,7 @@ impl Workspace {
     pub fn new() -> Self {
         Self {
             homogeneity: Pyramid::homogeneity(&Bitmap::new()),
+            patterns: Patterns::default(),
             complex_tiling: Pyramid::placements(),
             scratch: Scratch::default(),
             tree: Pyramid::tree(),
@@ -53,7 +58,8 @@ impl Workspace {
     /// Encodes `bitmap` into `stream`, whatever it held before.
     pub fn encode(&mut self, bitmap: &Bitmap, stream: &mut BitStream) {
         self.homogeneity.rebuild_homogeneity(bitmap);
-        greedy_tiler(bitmap, &self.homogeneity, &mut self.complex_tiling);
+        self.patterns.build(bitmap);
+        greedy_tiler(&self.homogeneity, &self.patterns, &mut self.complex_tiling);
         complex_tiler(&mut self.complex_tiling, bitmap, &mut self.scratch);
         tree_representation(&self.complex_tiling, &mut self.tree);
         write(&self.tree, bitmap, stream, &mut self.runs);

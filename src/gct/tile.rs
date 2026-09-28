@@ -170,8 +170,3 @@ impl Tile {
         })
     }
 }
-
-/// Whether two same-size tiles hold the same cells.
-pub fn same_cells(bitmap: &Bitmap, a: Tile, b: Tile) -> bool {
-    bitmap.same_squares(a.top_left_cell(), b.top_left_cell(), a.side_in_cells())
-}

@@ -4,8 +4,8 @@
 //! `i % 64` of word `i / 64`. Every aligned square
 //! of a power-of-two side -- every tile -- is then one contiguous run of
 //! bits: a 4x4 sixteen bits, an 8x8 exactly one word, anything bigger
-//! whole words. So whole-square questions, like [`Bitmap::same_squares`], are a few
-//! word operations, not one a row.
+//! whole words. So whole-square questions are a few word operations,
+//! not one a row.
 //!
 //! The drawing methods take `i64` and clamp, so a caller can ask for a
 //! circle hanging off the edge without doing the arithmetic first.
@@ -112,19 +112,6 @@ impl Bitmap {
         &mut self.words[at / BITS_PER_WORD..(at + cells) / BITS_PER_WORD]
     }
 
-    /// Whether two aligned squares of `side` cells, top left at `a` and
-    /// at `b`, hold the same cells. Aligned: `side` a power of two, each
-    /// corner's coordinates multiples of it.
-    pub(crate) fn same_squares(&self, a: (u8, u8), b: (u8, u8), side: usize) -> bool {
-        let (a, b) = (Self::bit_index(a.0, a.1), Self::bit_index(b.0, b.1));
-        let cells = side * side;
-        if cells >= BITS_PER_WORD {
-            let (a, b, words) = (a / BITS_PER_WORD, b / BITS_PER_WORD, cells / BITS_PER_WORD);
-            return self.words[a..a + words] == self.words[b..b + words];
-        }
-        self.run(a, cells) == self.run(b, cells)
-    }
-
     /// An aligned square's cells, a word at a time in Morton order: its
     /// words, or for a square of fewer than 64 cells, its one run.
     pub(crate) fn square_words(&self, (x, y): (u8, u8), side: usize) -> impl Iterator<Item = u64> + '_ {
@@ -202,17 +189,13 @@ mod tests {
     use super::*;
     use crate::{HEIGHT, WIDTH};
 
-    /// Square compares and square fills agree with the same squares drawn
-    /// cell by cell.
+    /// Square fills agree with the same squares drawn cell by cell.
     #[test]
     fn squares_agree_with_their_cells() {
         let mut m = Bitmap::new();
         m.set_rect(8, 8, 15, 15);
         m.set_rect(16, 0, 19, 3);
         m.set(24, 4);
-        assert!(m.same_squares((16, 0), (8, 8), 4));
-        assert!(!m.same_squares((16, 0), (24, 4), 4));
-        assert!(m.same_squares((0, 64), (64, 0), 64));
         let offsets: Vec<usize> = m.set_cells_in_square((16, 0), 8).collect();
         assert_eq!(offsets, (0..16).collect::<Vec<_>>(), "the 4x4 at (16, 0) is the first 16 of its 8x8");
         assert_eq!(m.set_cells_in_square((24, 4), 1).collect::<Vec<_>>(), vec![0]);

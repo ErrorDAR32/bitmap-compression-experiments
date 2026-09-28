@@ -85,16 +85,16 @@ its elements but through them -- and its sweep if any.
 | `complex_tiling` | 32 | 0-8 | the placement the greedy tiler made here, if any, and the children it masks -- the greedy tiler writes these bits, the complex tiler the rest; the one size every cell under the tile is bound at, if any; the complex tile's size offset, if it is one; whether a raw complex tile masks it; the sizes of the whole binds under it | its own, once the placements are complete, two words of children at a time: a tile's bound size is its children's when all four share one; the sizes under it are all of its children's |
 | `tree` | 8 | 0-7 | the tree's node at a tile | none |
 | `costs` | 192 | 0-6 | a tile's bits under each candidate resolution that can be above it, nine 21-bit counts (the complex tiler's, a search area at a time) | none; every count set by the complex tiler |
+| `patterns` | 16 | 0-6 | the tile's pattern number: equal for two tiles of one size exactly when they hold the same cells; handed out in order of first appearance, 0 all clear and 1 all set, beside two tables a level -- a reverse lookup from a pattern (a 4x4's 16 cells, or a tile's four children's numbers, one word) to its number, and each number's first tile | its own, once a bitmap: the 4x4s' numbers from the bitmap's words, each coarser level's from the level below, one lookup a tile |
 | `copy_sources` | 16 | 6 | for each 4x4 block a copy covers, the block it is copied from, until it is (decoding) | none |
 
 ## Step 1: the greedy tiler
 
 One rule, asked of the whole bitmap, then of every tile nothing coarser
-says, down to 2x2s. It reads the homogeneity pyramid, and asks
-the bitmap which tiles match which (`copyable.rs`) only of the tiles it
-reaches and cannot bind -- two homogeneous tiles match exactly when their
-values agree, so only two non-homogeneous ones are compared, one cell
-run against the other. What a tile gets depends only on its own cells and
+says, down to 2x2s. It reads the homogeneity pyramid, and which tiles
+match which from the patterns pyramid (`copyable.rs`): two tiles match
+exactly when their pattern numbers are equal, one comparison, whatever
+their size. What a tile gets depends only on its own cells and
 on what its ancestors got, so the pass walks down depth first, carrying
 the value bound above, into the children of a tile left unplaced and
 the children a placed tile masks:
