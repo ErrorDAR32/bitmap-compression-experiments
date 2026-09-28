@@ -38,8 +38,8 @@ impl Placement {
 
 /// The finest level a placed tile masks at: 8x8. Masking a 4x4 never
 /// pays -- its children, 2x2s, cost at most 2 bits each, less than the
-/// 4-bit child mask saves. Measured: allowing it costs about 6.6% on
-/// city and on blob, on three seeds.
+/// 4-bit child mask saves. Measured (`docs/gct.md`): allowing it costs
+/// every family bits on every seed, blob about 6.6%.
 pub const FINEST_MASKING_LEVEL: u8 = CELL_LEVEL - 3;
 
 /// `0`: nothing placed. `1`/`2`: bound to false/true. `8..=15`: copied,

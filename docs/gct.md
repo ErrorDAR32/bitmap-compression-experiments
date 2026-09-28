@@ -282,6 +282,15 @@ gct about 80000 bits, dsrn 65542 -- a bind of the whole bitmap at 1x1,
 its raw cells. gct has no such escape: a 4x4 of noise costs it a
 subdivide, and each of its 2x2s a residual bit and four raw cells.
 
+**Why the masking copy's rule and floor**, gct bits on the seed above
+and the two fresh ones:
+
+| masking copies | city | blob | lines | checkerboards |
+|---|---|---|---|---|
+| say 3 of 4 children or 2 not homogeneous, 8x8 and up (kept) | 12774, 13333, 13323 | 31885, 31984, 31932 | 11589, 10952, 11252 | 349961 |
+| say 2 not homogeneous only | 13056, 13607, 13635 | 32187, 32275, 32234 | 11889, 11241, 11555 | 349961 |
+| also at 4x4 | 13392, 13939, 13903 | 33992, 34055, 34046 | 11935, 11262, 11575 | 356241 |
+
 **Why the start level header**: a trunk of depth `d` -- every tile
 coarser than level `d` subdivides -- saves `(4^d - 1) / 3` subdivide
 bits for the header's 3. A bitmap that is one tile pays the 3 bits for

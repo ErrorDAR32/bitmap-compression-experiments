@@ -32,7 +32,8 @@ use crate::Bitmap;
 /// needs a copy or a subtree of its own, 5 bits or more. So a masking
 /// copy must say at least this many children...
 pub const MIN_UNMASKED_CHILDREN: u32 = 3;
-/// ...or at least this many that are not homogeneous.
+/// ...or at least this many that are not homogeneous. Either half alone
+/// measured worse (`docs/gct.md`).
 pub const MIN_UNMASKED_NON_HOMOGENEOUS_CHILDREN: u32 = 2;
 
 /// Places tiles over one bitmap, biggest first; what it placed is a
