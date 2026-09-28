@@ -226,13 +226,17 @@ mask-present bit is skipped: both sides know it means "flat".
 only ever looks for `Bound`, and anything else there is a hole.
 
 **The resolution field's own width depends on the region's level, not a
-flat constant.** `depth` can never exceed `deepest_depth(level)` (there
-is nothing finer than a cell to decompose into), so `depth - 1` only
-ever needs `resolution_width(level) = bits_to_name(deepest_depth(level))`
-bits. A region's own level is already known from its place in the tree,
-free context that costs nothing to use. Fixing this alone (from a flat
-3-bit field) once moved "laid out like a city" from +12.6% against dsrn
-to +8.0%.
+flat constant.** A resolution is never 1x1, so `depth` never exceeds
+`deepest_depth(level) - 1`, and `depth - 1` only ever needs
+`resolution_width(level) = bits_to_name(deepest_depth(level) - 1)`
+bits: 3 at levels 0-2, 2 at levels 3-4, 1 at level 5, 0 at level 6 (a
+4x4 region's only possible resolution is 2x2). A region's own level is
+already known from its place in the tree, free context that costs
+nothing to use. Fixing this from a flat 3-bit field once moved "laid out
+like a city" from +12.6% against dsrn to +8.0%. After 1x1 was excluded
+as a resolution, the field was still sized to name it, a value never
+used; removing it saved 1 bit on every complex tile at levels 3, 5 and 6
+(see Measured).
 
 **The trailing raw pass.** Whatever the tree never covers -- every hole
 a 2x2 leaves, and nothing else -- gets exactly one raw bit a cell, in
@@ -261,13 +265,15 @@ Same fresh seed for both (`1950720362523133367`), via
 `cargo run --release --bin dsrn_exp -- subdivide`, against dsrn's own
 encoder at `Masking::Anywhere`, `FourByFour::ItsOwnGrammar`:
 
-| family | before this rewrite (`a81016d`) | this rewrite |
-|---|---|---|
-| laid out like a city, 48 bitmaps | 3586 bits, +4.8% | 3584 bits, +4.7% |
-| grown like a blob, 84 bitmaps | 32630 bits, +0.3% | 32665 bits, +0.5% |
+| family | before this rewrite (`a81016d`) | this rewrite | + resolution field without 1x1 |
+|---|---|---|---|
+| laid out like a city, 48 bitmaps | 3586 bits, +4.8% | 3584 bits, +4.7% | 3489 bits, +2.0% |
+| grown like a blob, 84 bitmaps | 32630 bits, +0.3% | 32665 bits, +0.5% | 32647 bits, +0.4% |
 
-Roughly neutral: city 2 bits a bitmap better, blob 35 bits a bitmap
-worse. Not a win yet.
+The rewrite alone was roughly neutral (city 2 bits a bitmap better,
+blob 35 worse). Dropping the dead 1x1 value from the resolution field
+saved 95 bits a bitmap on city and 18 on blob, exactly the count of
+complex tiles at levels 3, 5 and 6.
 
 How much each side masks (the same run also prints this):
 

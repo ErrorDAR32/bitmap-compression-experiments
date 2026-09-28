@@ -127,13 +127,13 @@ const SINGLE: u64 = 0;
 /// How many bits it takes to name a `depth - 1` value at `region.level`
 /// -- a complex tile's own resolution field, sized to what a region at
 /// that level could actually need rather than a flat width everywhere.
-/// `depth` never exceeds [`deepest_depth`] (there is nothing finer than
-/// a cell to decompose into), so `depth - 1` never exceeds
-/// `deepest_depth - 1`, and a region's own level is already known from
-/// its place in the tree -- free context, not a bit anyone has to
-/// spend.
+/// A resolution is never 1x1 (1x1 tiles are always the trailing raw
+/// pass's own), so `depth` never exceeds `deepest_depth - 1` and
+/// `depth - 1` takes `deepest_depth - 1` values; a region's own level
+/// is already known from its place in the tree -- free context, not a
+/// bit anyone has to spend.
 fn resolution_width(level: usize) -> usize {
-    bits_to_name(deepest_depth(level))
+    bits_to_name(deepest_depth(level) - 1)
 }
 
 /// How many bits it takes to name one of `count` values, `0`-indexed --
