@@ -84,52 +84,86 @@ its elements but through them -- and its sweep if any.
 | `homogeneity` | 2 | 0-8 | whether a tile's cells all agree, and on what | its own, a word at a time: the cells off the bitmap's words, then each level folded from the one finer -- homogeneous when all four children are homogeneous and agree |
 | `complex_tiling` | 32 | 0-8 | the placement the greedy tiler made here, if any, and the children it masks -- the greedy tiler writes these bits, the complex tiler the rest; the one size every cell under the tile is bound at, if any; the complex tile's size offset, if it is one; whether a raw complex tile masks it; the sizes of the whole binds under it | its own, once the placements are complete, two words of children at a time: a tile's bound size is its children's when all four share one; the sizes under it are all of its children's |
 | `tree` | 8 | 0-7 | the tree's node at a tile | none |
-| `costs` | 192 | 0-6 | a tile's bits under each candidate resolution that can be above it, nine 21-bit counts (the complex tiler's, a search area at a time) | none; every count set by the complex tiler |
+| `costs` | 320 | 0-6 | a tile's bits with no candidate above it, then for each candidate resolution how much that candidate takes off them, eight 32-bit changes (the complex tiler's, a search area at a time) | none; every count set by the complex tiler's walk up |
 | `patterns` | 16 | 0-6 | the tile's pattern number: equal for two tiles of one size exactly when they hold the same cells; handed out in order of first appearance, 0 all clear and 1 all set, beside two tables a level -- a reverse lookup from a pattern (a 4x4's 16 cells, or a tile's four children's numbers, one word) to its number, and each number's first tile | its own, once a bitmap: the 4x4s' numbers from the bitmap's words, each coarser level's from the level below, one lookup a tile |
 | `copy_sources` | 16 | 6 | for each 4x4 block a copy covers, the block it is copied from, until it is (decoding) | none |
 
 ## Step 1: the greedy tiler
 
-One rule, asked of the whole bitmap, then of every tile nothing coarser
-says, down to 2x2s. It reads the homogeneity pyramid, and which tiles
-match which from the patterns pyramid (`copyable.rs`): two tiles match
-exactly when their pattern numbers are equal, one comparison, whatever
-their size. What a tile gets depends only on its own cells and
-on what its ancestors got, so the pass walks down depth first, carrying
-the value bound above, into the children of a tile left unplaced and
-the children a placed tile masks:
+**What it decides:** for every tile it reaches, what is placed exactly
+there: a bind of one value, a copy of a same-size neighbour, a copy that
+masks some children, a bind that masks some children, or nothing (the
+tile is left to its four children). The result is *domain perfect*:
+every cell is said by exactly one placed tile or lies in a 2x2 said raw.
+It is not yet the fewest bits: that is step 2's job.
 
-1. **Homogeneous?** Place it as a bind of its value.
-2. Else, down to 4x4, **copyable?** Near: a same-size neighbour of the tile itself.
-   Far: one level up, a same-size neighbour of the tile's parent, at the
-   tile's own child position. Place it as `Copied { far, direction }`.
-   `direction` indexes the four neighbours reading order puts first:
-   top-left, above, top-right, left. A far copy's source is one parent
-   width away, twice a near copy's.
-3. Else, at 8x8 or coarser, **a masking copy?** For each near and far
-   source, each child is compared with the same child of the source.
-   The source matching the most children wins (near before far, then
-   direction order). It is placed as a copy masking the children that
-   do not match when it says 3 of 4 children, or 2 that are not
-   homogeneous: a homogeneous child is cheap without the copy (a tile,
-   or 1 bit unmasked in a complex tile), any other is 5 bits or more. A
-   child homogeneous with the value bound above does not count: it costs
-   nothing without the copy. The masked children are tiled like any
-   other tile.
-4. Else, at 8x8 or coarser, **a masking bind?** When at least 2
-   children are homogeneous with the value *not* bound above, bind the
-   tile to it, masking the other children. Every child it leaves
-   unnamed, at any depth, is bound by it. Clear is bound at the top.
-5. Else leave it for its four children.
+**What it reads:** the homogeneity pyramid (is a tile's every cell the
+same, and which value) and the patterns pyramid (two same-size tiles
+hold the same cells exactly when their pattern numbers are equal --
+one number comparison, whatever their size; `copyable.rs`).
 
-No comparison between sizes: a tile that qualifies is taken at once.
-Cells are always homogeneous, so the whole bitmap is always covered.
+**The algorithm**, walking down depth first from the whole bitmap, with
+`bound` the value bound above the tile (clear at the top):
 
-A 2x2 is only asked whether it is homogeneous. If it is not, nothing is
-placed in it: its four cells are said raw, by the residual pass or a
-complex tile of 1x1 resolution, and nothing reads a placement finer than
-a 2x2. (A copy there could never reach the stream either, since the 2x2
-floor says only a tile or a residual.)
+```text
+place(tile, bound):
+  1. if tile is homogeneous with value v:
+         place Bind(v)                                    -- done
+  2. if tile is 4x4 or coarser:
+         for far in [near, far], for d in [top-left, above, top-right, left]:
+             source = the same-size tile 1 (near) or 2 (far) tiles away in d
+             if source exists and pattern(source) == pattern(tile):
+                 place Copy(far, d)                       -- done
+  3. if tile is 8x8 or coarser:
+         a. masking copy: for each source as in 2, near first, then
+            direction order, compare each child with the same child of
+            the source (the child's own pattern, 2 or 4 child sides away):
+                said        = children that match and are not homogeneous
+                              with `bound` (those cost nothing without it)
+                said_rough  = children that match and are not homogeneous
+                worth it    = said >= 3  or  said_rough >= 2
+            keep the worth-it source with the largest `said` (a later one
+            replaces it only with strictly more)
+            if one is kept: place Copy(far, d) masking the children that
+                            do not match; place(child, bound) for each
+                            masked child                  -- done
+         b. masking bind: v = not bound
+            said = children homogeneous with value v
+            if said >= 2: place Bind(v) masking the other children;
+                          place(child, v) for each masked child -- done
+  4. if tile is a 2x2: place nothing -- its four cells are said raw
+     else: place(child, bound) for each of the four children
+```
+
+**Why the thresholds.** A masking copy costs about 10 bits before its
+masked children (leaf, code, far, 2 direction bits, mask-present, a
+4-bit child mask). A child it says would otherwise cost: nothing, if
+homogeneous with the value bound above (left to the binding above);
+a few bits, if homogeneous with the other value (a tile, or 1 bit
+unmasked in a complex tile); 5 bits or more if not homogeneous (a copy
+or a subtree). So it must say 3 children, or 2 that are not homogeneous
+(`MIN_UNMASKED_CHILDREN`, `MIN_UNMASKED_NON_HOMOGENEOUS_CHILDREN`,
+measured: either half alone was worse). A masking bind is spelled as a
+divide that flips the value bound above, 7 bits before its masked
+children, and each child it says would otherwise be a tile of its own,
+4 bits or more, so it must say 2 (`MIN_UNMASKED_CHILDREN_OF_A_MASKING_BIND`).
+
+**No comparison between sizes:** a tile that qualifies at any rule is
+taken at once, coarsest first. What a tile gets depends only on its own
+cells and what its ancestors got. Cells are always homogeneous, so the
+whole bitmap is always covered. A 2x2 is only asked whether it is
+homogeneous: nothing finer than a 2x2 is ever placed, so single cells
+only ever appear four at a time, as the raw cells of a 2x2.
+
+**Example.** A 16x16 tile, the value bound above clear, whose top-left
+8x8 is all set, whose top-right 8x8 is all set, whose bottom-left 8x8
+equals the 8x8 two tiles to its left, and whose bottom-right is noise:
+not homogeneous (1); no whole same-size neighbour matches (2); masking
+copy (3a): suppose the tile to its left matches only the bottom-left
+child -- said = 1, not worth it; masking bind (3b): v = set, said = 2
+(the two all-set children) -- place Bind(set) masking the bottom two
+children, then place(bottom-left, set) finds its copy (2) and
+place(bottom-right, set) goes on down.
 
 ## Step 2: the complex tiler
 
@@ -137,93 +171,196 @@ A **complex tile** is a tile said at one chosen **resolution**: a tile
 size finer than its own by its **size offset**. Tile size 0 is the whole
 256x256 bitmap and 8 a single cell, so a resolution is the tile's own
 size plus its size offset. Every part of it is either **unmasked** in
-it (a placed `Bound` tile at exactly its resolution, its value bound in
-the complex tile's payload) or **masked**. A masked part is unmasked in
-a complex tile further out, a copy, a complex tile nested inside this
-one at another resolution, or further subdivided. Nothing is ever
-repeated to fit a resolution.
+it (a placed `Bound` tile at exactly its resolution, its value one bit
+of the complex tile's payload) or **masked**: said by a complex tile
+further out, a copy, a complex tile nested inside this one at another
+resolution, or further subdivided. A placed `Bound` tile unmasked in no
+complex tile becomes a complex tile of its own size (size offset 0): a
+**tile**. A **1x1 resolution** says cells raw -- every cell a tile of its
+own -- the raw escape, offered at 128x128, 64x64, 32x32 and 8x8, where
+the size offset field has a value to spare; a complex tile of 1x1
+resolution that masks nothing may say its cells as a **point list**
+instead.
 
-**The whole plane is tiled with complex tiles.** A placed `Bound` tile
-unmasked in no complex tile becomes a complex tile whose resolution is
-its own size: just a **tile** (size offset 0). So there is no separate
-simple bind.
+**What it decides:** which tiles become complex tiles, at which
+resolution, nested how, and which 1x1 ones are point lists -- the
+fewest bits the grammar can spend on the greedy tiler's tiling. It
+reads the placements and the bits the grammar would spend on each node;
+the one thing it reads off the bitmap is a point list's cost.
 
-**A 1x1 resolution is the raw escape.** A complex tile of 1x1
-resolution says cells raw -- every cell is a tile of its own, so
-nothing is repeated to fit it. It masks every part cheaper said by
-itself, as the nodes the greedy tiler's tiles make of it, than raw:
-decided once a bitmap, bottom-up, before any complex tile
-(`complex_tiler/raw_masking.rs`). It is offered
-only where the size offset field has a value to spare for it: 128x128,
-64x64, 32x32 and 8x8. Everywhere else a cell of a 2x2 that is not one
-tile is the residual pass's own. A candidate is never finer than 4x4.
+### 2a. What a raw complex tile would mask
 
-**The complex tiler decides from the placements** and the bits the
-grammar would spend -- all but what a point list costs, which it reads
-off the tile's cells.
+Decided once, before anything else (`complex_tiler/raw_masking.rs`): for
+every tile, is it cheaper *said by itself* (as the nodes the greedy
+tiler's tiles make of it) or *raw* (one bit a cell) inside a complex
+tile of 1x1 resolution? Bottom-up:
 
-**One pass per nesting level.** The first pass searches the whole
-bitmap for the outermost complex tiles, which capture the coarse
-structure. Each later pass searches only inside the complex tiles the
-previous pass committed, for complex tiles nested in them. Passes stop
-when one commits nothing.
+```text
+cost_in_raw(tile)  = 1 mask bit + min(raw, by_itself)
+raw                = the tile's cells
+by_itself(tile)    = its node's own bits, each part at cost_in_raw(part):
+    whole bind       leaf + code + resolution width + 1 value bit
+    masking bind     7 (divide, mask-present, flip, 4-bit mask) + masked parts
+    copy             leaf + code + far + direction (+ mask-present at 8x8+)
+                     (+ 4-bit mask + masked parts, if it masks)
+    nothing placed   1 (+ mask-present at 8x8+) + all four children
+    2x2              1 + (1 value bit if one tile, else its 4 raw cells)
+a tile is masked (said by itself) when by_itself < raw
+```
 
-**A candidate is scored in bits, counted, not estimated**
-(`complex_tiler/bit_cost.rs`). The bit cost of a tile is what the
-encoder would write for it as the complex tiling stands: mask bits,
-leaves, copies and their masked children, complex tiles with their
-bodies or payloads, the 2x2 floor and residual cells. Every check holds
-it to the encoder's own count. What a candidate saves is its tile's cost
-without it, less its cost with it; the one thing not counted is the
-complex tiles later passes would nest inside it.
+For example a 4x4 bound whole costs 1 + 1 + 1 + 1 = 4 by itself against
+16 raw: masked. A 2x2 that is not one tile costs 1 + 4 = 5 by itself
+against 4 raw: raw. This only settles what a raw complex tile would
+mask; whether one is worth placing is decided in 2c like any other.
 
-**Every count a pass asks for is held before it is asked**
-(`complex_tiler/cost_pyramid.rs`): memory for counting. For each search
-area, one walk down collects the tiles a count can reach; one walk up
-gives each tile, in the costs pyramid, its bits nested as the area is
-with no candidate above it, and for every resolution `r` its *change*:
-how much a complex tile of resolution `r` above it -- the candidate --
-takes off those bits. Its bits under the candidate are the first less
-the change, one subtraction.
+### 2b. Filling in the tiling
 
-Every change follows from the tile's fields and its children's changes,
-all resolutions at once, a few steps each -- no count is made again for
-each candidate. Under a candidate of resolution `r`:
+`ComplexTiling::fill_in` sets the raw-masking bits, then the tiling's
+own sweep carries two fields up, finest first, by one rule (`carried`):
 
-- a tile finer than `r` is unchanged: `r` unmasks nothing in it and adds
-  no mask bit;
-- a tile entirely bound at `r` is unmasked by it: its bits become one
-  mask bit and its payload;
-- any other tile takes one mask bit more, the candidate being the complex
-  tile nearest it, and each child it counts changes as that child does --
-  and a divide one level coarser than `r` that leaves `k` children to the
-  binding above leaves none under the candidate (each is bound whole at
-  `r`, so unmasked): a mask bit and a payload bit on each, instead of its
-  flip bit and four-bit child mask, `5 - 2k` bits fewer.
+- a tile's **bound size**: its own size if a whole bind is placed at
+  it; none if anything else is placed at it; otherwise its children's
+  bound size when all four share one, else none. A tile is *entirely
+  bound at* `r` when its bound size is `r` (at 1x1: when no raw complex
+  tile masks it);
+- the **sizes bound under** it: its own whole bind's size, or every
+  child's sizes together.
 
-Nothing else changes, since no complex tile is under a search area's
-roots while its counts are filled. A candidate is then scored as the
-complex tile it would be -- its fields as they would be, its children's
-bits read as bits less change -- and nothing in the tiling changes while
-a pass is scored: only the commits at its end do. Debug builds check
-every count at 16x16 and finer against the reference count, which counts
-every node under every candidate in full and carries the value bound
-above itself.
+Then the **value bound above** each tile is handed down once from the
+whole bitmap: a tile's children have its value if a masking bind is
+placed at it, else the value bound above it.
 
-**A candidate's best resolution** (`complex_tile_candidates.rs`). A
-candidate is a tile with nothing placed exactly at it, not already
-entirely unmasked in a complex tile it is nested in. Every size offset
-from 1 to the 2x2 floor is tried, skipping a resolution a complex tile
-it is nested in already has, one no `Bound` tile under it is placed at,
-and size offset 1 unless all four children are bound at it (the grammar
-gives size offset 1 no way to mask). The best size offset saves the
-most bits; a candidate that saves none is none.
+### 2c. The passes
 
-**Choosing between candidates: the most bits a pass can save.** Tiles
-that do not overlap cost bits independently, so each pass finds its
-best set exactly, bottom-up: a tile keeps its own candidate when that
-saves at least as much as the best its four children keep between them,
-and otherwise hands on theirs.
+```text
+areas = [whole bitmap, nested in nothing]
+repeat while areas is not empty:
+    chosen = []
+    for each area:
+        fill the costs for the area                           (2d)
+        for each root of the area:
+            best_at_or_under(root)                            (2e)
+    commit every chosen candidate; the next areas are the
+    committed complex tiles that are not point lists, each
+    searched below itself, nested in what it was plus its
+    own resolution
+```
+
+One pass per nesting level: the first finds the outermost complex tiles
+over the whole bitmap, each later pass looks only inside the complex
+tiles the pass before committed, for complex tiles nested in them. It
+stops when a pass commits nothing. Nothing in the tiling changes while
+a pass is scored; only its commits do.
+
+### 2d. The counts: bits without, and changes
+
+A candidate is scored in bits, counted exactly as the encoder would
+write them (`complex_tiler/bit_cost.rs`): mask bits, leaves, copies and
+their masked children, complex tiles with their bodies or payloads, the
+2x2 floor and residual cells. Every count is held before any is asked
+(`complex_tiler/cost_pyramid.rs`). For each search area, one walk down
+collects the tiles a count can reach -- all a tile placed nothing says,
+the children a masking tile masks, nothing under a tile placed whole or
+entirely unmasked in the area -- and one walk up gives each, in the
+costs pyramid:
+
+- `without(t)`: its bits nested as the area is, with no candidate above;
+- `change_r(t)`, for every resolution `r`: how much one more complex
+  tile of resolution `r` above it -- the candidate -- takes off those
+  bits. Its bits under the candidate are `without(t) - change_r(t)`.
+
+Every change follows from the tile's fields and its counted children's
+changes, all eight resolutions at once, a few steps each:
+
+```text
+change_r(t) =
+    0                                     if t is finer than r
+    without(t) - 1 - payload(r - level)   if t is entirely bound at r
+                                          (the candidate unmasks it: one
+                                          mask bit and its payload)
+    -1 + sum of change_r(child)           otherwise: one mask bit more, the
+         over the children t counts        candidate being the complex tile
+                                          nearest t
+       + 5 - 2k                           if t is a divide one level coarser
+                                          than r that leaves k > 0 children
+                                          to the binding above: each is bound
+                                          whole at r, so unmasked -- a mask
+                                          bit and a payload bit each, and no
+                                          flip bit or 4-bit child mask
+payload(n) = 4^n, one bit for each tile of the resolution
+```
+
+Nothing else changes: no complex tile is under a search area's roots
+while its counts are filled. A 2x2 is counted when asked for, by the
+same rules (its change at 2x2 resolution is `without - 2` if it is one
+tile, at 1x1 `without - 5` unless raw-masked, `-1` otherwise). Debug
+builds check every count at 16x16 and finer against a reference count
+that counts every node under every candidate in full.
+
+**Example.** Take an 8x8 divide (level 5), nested in nothing, the
+value bound above clear, whose 4x4 children are three all-clear tiles
+and one all-set tile -- what the greedy tiler leaves when only one child
+is the other value (a masking bind needs two). It leaves the three
+clear ones to the binding above, so `without` = 1 (subdivide) + 1
+(mask-present) + 1 (flip) + 4 (child mask) + 4 (the set child: leaf,
+code, 1-bit resolution width, value) = 11. Every cell under it is bound
+by a whole 4x4, so under a candidate of 4x4 resolution (`r` = 6) it is
+entirely bound at `r`: `change = 11 - 1 - 4^1 = 6`, its bits under the
+candidate 5 -- one mask bit and four payload bits.
+
+Now make two of its children copies (5 bits each at 4x4) and leave two
+clear ones to the binding above (`k` = 2): `without` = 7 + 10 = 17. It is
+not entirely bound at 4x4; each copy takes the candidate's mask bit
+(`change` -1 each), so `change = -1 + (-1 - 1) + 5 - 2*2 = -2`, and its
+bits under the candidate are 19: its own mask bit, subdivide and
+mask-present (3), no flip or child mask, 2 bits for each tile it used
+to leave (4), and 6 for each copy (12).
+
+### 2e. Choosing candidates
+
+A **candidate** is a tile, 4x4 or coarser, with nothing placed exactly
+at it, not entirely unmasked in a complex tile it is nested in.
+
+```text
+tried_resolutions(t): r from level+1 down to 2x2, and 1x1 where the
+    grammar offers it, skipping
+        r that a complex tile t is nested in already has
+        r coarser than 1x1 with no whole bind of size r under t
+        r = level+1 unless t is entirely bound at r
+            (size offset 1 has no way to mask)
+
+best_for(t):                                  (complex_tile_candidates.rs)
+    best = none
+    for r in tried_resolutions(t), coarsest first:
+        with = bits of t as a complex tile at r:
+               its header, then each child's without - change_r
+               (or, entirely bound at r, header + payload)
+        if r is 1x1 and it masks nothing:
+            listed = bits of t as a point list
+            with = listed if listed < with          (strictly cheaper)
+        saving = without(t) - with
+        if saving > 0 and saving > best's: best = (r, saving)
+    return best
+
+best_at_or_under(t):                          (complex_tiler.rs)
+    if t is finer than 4x4 or entirely unmasked in the area: return 0
+    own   = best_for(t) if nothing is placed at t
+    under = sum of best_at_or_under(child) over the children that can
+            hold candidates: all four, or the ones a placed tile masks
+    if own and own.saving >= under: choose own instead of the
+                                    children's; return own.saving
+    return under
+```
+
+Tiles that do not overlap cost bits independently, so this is the most
+a pass can save: at every tile, its own candidate against the best its
+children keep between them, the tile's own on a tie.
+
+**Example.** A 16x16 candidate whose best resolution saves 12 bits,
+while its four children's best choices save 5, 4, 0 and 2 between them
+(11): it keeps its own (12 >= 11), and the children's are dropped. Had
+they saved 13, the children's would stand and the 16x16 would not be a
+complex tile.
 
 ## Step 3: the tree
 
