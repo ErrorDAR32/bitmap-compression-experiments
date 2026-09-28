@@ -37,30 +37,46 @@ pub const FINEST_COPY_LEVEL: u8 = CELL_LEVEL - 2;
 /// The first match bit, after homogeneity's two.
 const FIRST_MATCH_BIT: usize = 2;
 
+/// Where the match bits for `distance` start: one bit a direction from
+/// there.
+fn first_bit_at(distance: usize) -> usize {
+    let at = MATCH_DISTANCES.iter().position(|&held| held == distance).expect("a distance matches are held at");
+    FIRST_MATCH_BIT + at * DIRECTIONS.len()
+}
+
 /// The bit holding whether the tile `distance` away in `direction`
 /// holds the same cells.
 fn match_bit(direction: u8, distance: usize) -> u64 {
-    let at = MATCH_DISTANCES.iter().position(|&held| held == distance).expect("a distance matches are held at");
-    1 << (FIRST_MATCH_BIT + at * DIRECTIONS.len() + direction as usize)
+    1 << (first_bit_at(distance) + direction as usize)
 }
+
+/// One bit a direction.
+const DIRECTION_BITS: u64 = (1 << DIRECTIONS.len()) - 1;
 
 /// The match queries, over the content pyramid.
 pub trait Copyable {
+    /// Every direction whose same-size tile `distance` away from `tile`
+    /// holds the same cells, bit `d` for direction `d`: none past the
+    /// edge, nor for anything finer than [`FINEST_COPY_LEVEL`].
+    fn matching_directions(&self, tile: Tile, distance: usize) -> u8;
+
     /// Whether the same-size tile `distance` away from `tile` in
-    /// `direction` holds the same cells: false past the edge, and for
-    /// anything finer than [`FINEST_COPY_LEVEL`].
-    fn matches(&self, tile: Tile, direction: u8, distance: usize) -> bool;
+    /// `direction` holds the same cells.
+    fn matches(&self, tile: Tile, direction: u8, distance: usize) -> bool {
+        self.matching_directions(tile, distance) & 1 << direction != 0
+    }
 
     /// The first direction whose tile `distance` away holds the same
     /// cells as `tile`, if any.
     fn matching_direction(&self, tile: Tile, distance: usize) -> Option<u8> {
-        directions().find(|&direction| self.matches(tile, direction, distance))
+        let matching = self.matching_directions(tile, distance);
+        (matching != 0).then(|| matching.trailing_zeros() as u8)
     }
 }
 
 impl Copyable for Pyramid {
-    fn matches(&self, tile: Tile, direction: u8, distance: usize) -> bool {
-        self.get(tile) & match_bit(direction, distance) != 0
+    fn matching_directions(&self, tile: Tile, distance: usize) -> u8 {
+        (self.get(tile) >> first_bit_at(distance) & DIRECTION_BITS) as u8
     }
 }
 

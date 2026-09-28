@@ -119,26 +119,31 @@ fn masking_bind(content: &Pyramid, tile: Tile, bound_above: bool) -> Option<Plac
 /// then in direction order, on a tie. A child is said when it holds the
 /// same cells as the same child of the copy's source.
 fn masking_copy(content: &Pyramid, tile: Tile, bound_above: bool) -> Option<Placement> {
+    let children = tile.children();
+    let homogeneous = children.map(|child| content.homogeneous_value(child));
     let mut best: Option<(u32, Placement)> = None;
     for (far, distance) in [(false, NEAR_DISTANCE), (true, FAR_DISTANCE)] {
+        // A child's source is its same child in the source tile: the
+        // tile's distance, counted in child sides.
+        let child_distance = distance * CHILDREN_ACROSS as usize;
+        let matching = children.map(|child| content.matching_directions(child, child_distance));
         for direction in directions() {
             if tile.neighbour_at(direction, distance).is_none() {
                 continue;
             }
-            // A child's source is its same child in the source tile: the
-            // tile's distance, counted in child sides.
-            let child_distance = distance * CHILDREN_ACROSS as usize;
-            let mut masked_children = 0u8;
-            for child in tile.children() {
-                if !content.matches(child, direction, child_distance) {
-                    masked_children |= 1 << child.child_index();
+            let (mut masked_children, mut unmasked, mut non_homogeneous) = (0u8, 0, 0);
+            for (index, (&matched, &value)) in matching.iter().zip(&homogeneous).enumerate() {
+                if matched & 1 << direction == 0 {
+                    masked_children |= 1 << index;
+                    continue;
+                }
+                if value.is_none() {
+                    non_homogeneous += 1;
+                }
+                if value != Some(bound_above) {
+                    unmasked += 1;
                 }
             }
-            let unmasked: Vec<Tile> =
-                tile.children().into_iter().filter(|&child| masked_children & (1 << child.child_index()) == 0).collect();
-            let non_homogeneous =
-                unmasked.iter().filter(|&&child| content.homogeneous_value(child).is_none()).count() as u32;
-            let unmasked = unmasked.iter().filter(|&&child| content.homogeneous_value(child) != Some(bound_above)).count() as u32;
             let worth_it = unmasked >= MIN_UNMASKED_CHILDREN || non_homogeneous >= MIN_UNMASKED_NON_HOMOGENEOUS_CHILDREN;
             if worth_it && best.is_none_or(|(most, _)| unmasked > most) {
                 best = Some((unmasked, Placement::Copied { far, direction, masked_children }));
