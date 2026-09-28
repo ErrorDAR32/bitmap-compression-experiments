@@ -6,8 +6,9 @@
 
 mod common;
 
-use bitmap::gct::encode::write;
-use bitmap::gct::{decode, tree};
+use bitmap::gct::grammar::bit_stream::BitStream;
+use bitmap::gct::Workspace;
+use bitmap::Bitmap;
 use bitmap::samples::checkerboards::checkerboards;
 use bitmap::samples::every_family;
 use bitmap::table::Table;
@@ -50,15 +51,16 @@ fn gct_measurement() {
         "masked:\nresidual",
     ]);
 
+    let (mut workspace, mut stream, mut back) = (Workspace::new(), BitStream::default(), Bitmap::new());
     for (family, maps) in every_family() {
         let mut gct_bits = 0;
         let mut stats = TreeStats::default();
         for (case, bitmap) in maps.iter().enumerate() {
-            let gct_tree = tree(bitmap);
-            let stream = write(&gct_tree, bitmap);
-            assert_eq!(first_difference(bitmap, &decode(&stream)), None, "{family}, case {case}: gct lost a cell");
+            workspace.encode(bitmap, &mut stream);
+            stats.add(&TreeStats::of(workspace.tree()));
+            workspace.decode(&stream, &mut back);
+            assert_eq!(first_difference(bitmap, &back), None, "{family}, case {case}: gct lost a cell");
             gct_bits += stream.len();
-            stats.add(&TreeStats::of(&gct_tree));
         }
 
         let n = maps.len();
@@ -89,8 +91,9 @@ fn gct_measurement() {
 
     let mut boards = Table::new(&["checkerboard", "gct\nbits", "of the\nraw cells"]);
     for (square_side, bitmap) in checkerboards() {
-        let stream = write(&tree(&bitmap), &bitmap);
-        assert_eq!(first_difference(&bitmap, &decode(&stream)), None, "checkerboard {square_side}: gct lost a cell");
+        workspace.encode(&bitmap, &mut stream);
+        workspace.decode(&stream, &mut back);
+        assert_eq!(first_difference(&bitmap, &back), None, "checkerboard {square_side}: gct lost a cell");
         boards.row(&[
             format!("{square_side}x{square_side} squares"),
             stream.len().to_string(),

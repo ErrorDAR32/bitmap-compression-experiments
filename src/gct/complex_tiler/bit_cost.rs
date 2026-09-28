@@ -28,12 +28,17 @@ fn payload_bits(size_offset: u8) -> u64 {
 /// pass of the complex tiler, whose commits come at its end. One
 /// pyramid a nesting -- few nestings occur in a pass, so finding its
 /// pyramid is a short search -- holding each tile's bits plus one, `0`
-/// not counted yet.
+/// not counted yet. The pyramids are kept from one pass, and one bitmap,
+/// to the next: a pass forgets which nesting each was for, and a
+/// pyramid is cleared only when handed to a nesting again.
 #[derive(Default)]
-pub struct CountedBits(
-    /// Each nesting's key, and its pyramid of counted bits.
-    Vec<(u64, Pyramid)>,
-);
+pub struct CountedBits {
+    /// Each nesting's key, and its pyramid of counted bits; only the
+    /// first `in_use` are this pass's.
+    pyramids: Vec<(u64, Pyramid)>,
+    /// How many of `pyramids` this pass uses.
+    in_use: usize,
+}
 
 /// Enough for any tile's bits, the whole bitmap's included, down to
 /// 4x4: a 2x2 is counted in a few steps, the 2x2 floor's, and nothing
@@ -44,17 +49,28 @@ const COUNTED_SHAPE: PyramidShape = PyramidShape { coarsest_level: 0, finest_lev
 const NOT_COUNTED: u64 = 0;
 
 impl CountedBits {
+    /// Forgets everything counted: a new pass starts.
+    pub fn forget(&mut self) {
+        self.in_use = 0;
+    }
+
     /// Where the pyramid of bits counted under `nesting_key`'s nesting
-    /// is, made empty the first time it is asked for. Pyramids are only
-    /// ever added, so the place stays good.
+    /// is, emptied the first time this pass asks for it. Pyramids in use
+    /// are only ever added to, so the place stays good for the pass.
     fn index_for(&mut self, nesting_key: u64) -> usize {
-        match self.0.iter().position(|(key, _)| *key == nesting_key) {
-            Some(at) => at,
-            None => {
-                self.0.push((nesting_key, Pyramid::new(COUNTED_SHAPE)));
-                self.0.len() - 1
-            }
+        if let Some(at) = self.pyramids[..self.in_use].iter().position(|(key, _)| *key == nesting_key) {
+            return at;
         }
+        let at = self.in_use;
+        match self.pyramids.get_mut(at) {
+            Some((key, pyramid)) => {
+                *key = nesting_key;
+                pyramid.clear();
+            }
+            None => self.pyramids.push((nesting_key, Pyramid::new(COUNTED_SHAPE))),
+        }
+        self.in_use += 1;
+        at
     }
 }
 
@@ -182,11 +198,11 @@ fn remembered(
         return bits_counted(complex_tiling, tile, nested, bound_above, counted);
     }
     let at = counted.index_for(nested.key());
-    let known = counted.0[at].1.get(tile);
+    let known = counted.pyramids[at].1.get(tile);
     if known != NOT_COUNTED {
         return known - 1;
     }
     let bits = bits_counted(complex_tiling, tile, nested, bound_above, counted);
-    counted.0[at].1.set(tile, bits + 1);
+    counted.pyramids[at].1.set(tile, bits + 1);
     bits
 }

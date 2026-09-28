@@ -12,11 +12,11 @@ use bitmap::gct::pyramids::pyramid::{Pyramid, PyramidShape};
 use bitmap::gct::tile::{directions, Tile, CELL_LEVEL};
 use bitmap::gct::pyramids::tree::{Node, Tree};
 use common::tree_stats::TreeStats;
-use bitmap::gct::{encode, tree};
+use bitmap::gct::encode;
 use bitmap::samples::checkerboards::checkerboard;
 use bitmap::samples::{one_grown, one_laid_out, PLANS};
 use bitmap::Bitmap;
-use common::check;
+use common::{check, tree_of};
 
 /// A seed for the grown and laid-out cases here, fixed so each fine
 /// test always runs on the same one bitmap.
@@ -78,7 +78,7 @@ fn all_clear_is_one_tile_in_nine_bits() {
     // 3 start level bits (0) + leaf + bind + 3 resolution bits (size
     // offset 0, a tile) + 1 value bit
     assert_eq!(encode(&bitmap).len(), 9);
-    assert_eq!(tree(&bitmap).node(Tile::whole_bitmap()), Node::ComplexTile { size_offset: 0, masks: false });
+    assert_eq!(tree_of(&bitmap).node(Tile::whole_bitmap()), Node::ComplexTile { size_offset: 0, masks: false });
     check(&bitmap, "all clear");
 }
 
@@ -128,7 +128,7 @@ fn a_repeated_quarter_is_a_near_copy() {
     let right_quarter = Tile { level: 1, x: 1, y: 0 };
     // DIRECTIONS[3] is the neighbour to the left.
     assert_eq!(matching_direction(&Pyramid::homogeneity(&bitmap), &bitmap, right_quarter, NEAR_DISTANCE), Some(3));
-    assert_eq!(tree(&bitmap).node(right_quarter), Node::Copied { far: false, direction: 3, masks: false });
+    assert_eq!(tree_of(&bitmap).node(right_quarter), Node::Copied { far: false, direction: 3, masks: false });
     check(&bitmap, "a repeated quarter");
 }
 
@@ -148,7 +148,7 @@ fn rectangles_and_circles_round_trip() {
 #[test]
 fn one_city_round_trips_with_complex_tiles() {
     let bitmap = one_laid_out(FIXED_SEED, &PLANS[0]);
-    assert!(TreeStats::of(&tree(&bitmap)).complex_tiles() > 0, "a city this regular forms complex tiles");
+    assert!(TreeStats::of(&tree_of(&bitmap)).complex_tiles() > 0, "a city this regular forms complex tiles");
     check(&bitmap, "one city");
 }
 
@@ -176,7 +176,7 @@ fn a_complex_tile_masks_a_residual_2x2() {
     let lone_cell = Tile { level: 8, x: 21, y: 5 };
     bitmap.set(lone_cell.x, lone_cell.y);
 
-    let written = tree(&bitmap);
+    let written = tree_of(&bitmap);
     assert_eq!(written.node(lone_cell.ancestor(2)), Node::ComplexTile { size_offset: 2, masks: true });
     assert_eq!(written.node(lone_cell.ancestor(7)), Node::Residual);
     check(&bitmap, "a complex tile masking a residual 2x2");

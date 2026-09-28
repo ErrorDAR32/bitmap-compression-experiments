@@ -7,18 +7,28 @@
 //!
 //! # Using it
 //!
+//! A [`gct::Workspace`] holds everything encoding and decoding need,
+//! allocated once; keep one, a stream and a bitmap, and every bitmap
+//! after the first is encoded and decoded without allocating.
+//!
 //! ```
-//! use bitmap::gct::{decode, encode};
+//! use bitmap::gct::grammar::bit_stream::BitStream;
+//! use bitmap::gct::Workspace;
 //! use bitmap::Bitmap;
 //!
 //! let mut bitmap = Bitmap::new();
 //! bitmap.set_rect(10, 10, 40, 30);
 //! bitmap.set_circle(180, 180, 25);
 //!
-//! let stream = encode(&bitmap);
-//! let back = decode(&stream);
+//! let (mut workspace, mut stream, mut back) = (Workspace::new(), BitStream::default(), Bitmap::new());
+//! workspace.encode(&bitmap, &mut stream);
+//! workspace.decode(&stream, &mut back);
 //! assert_eq!(back.count_set(), bitmap.count_set());
 //! ```
+//!
+//! For a single bitmap, [`gct::encode`](fn@gct::encode) and
+//! [`gct::decode`](fn@gct::decode) do the same
+//! in a workspace of their own.
 //!
 //! # How the crate is laid out
 //!

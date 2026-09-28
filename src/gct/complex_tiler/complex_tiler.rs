@@ -37,26 +37,45 @@ struct SearchArea {
     nested: NestedResolutions,
 }
 
-/// Creates complex tiles from the greedy tiler's output -- the complex
-/// tiling pyramid with only its placement bits set -- and returns it
-/// complete: the placements, with every committed complex tile's size
-/// offset added.
-pub fn complex_tiler(placements: Pyramid) -> Pyramid {
-    let raw_masked = decide_raw_masking(&placements);
-    let mut complex_tiling = Pyramid::complex_tiling(placements, &raw_masked);
+/// Room the complex tiler works in, kept from one bitmap to the next so
+/// it allocates nothing once warm.
+#[derive(Default)]
+pub struct Scratch {
+    /// The tiles a complex tile of 1x1 resolution masks.
+    raw_masked: Vec<Tile>,
+    /// Bits counted this pass.
+    counted: CountedBits,
+    /// Where this pass searches.
+    searched: Vec<SearchArea>,
+    /// Where the next pass searches.
+    next: Vec<SearchArea>,
+    /// The candidates this pass commits.
+    chosen: Vec<Candidate>,
+}
 
-    let mut searched = vec![SearchArea { area: Tile::whole_bitmap(), coarsest_level: 0, nested: NestedResolutions::none() }];
+/// Creates complex tiles from the greedy tiler's output -- the complex
+/// tiling pyramid with only its placement bits set -- and completes it
+/// in place: the placements, with every committed complex tile's size
+/// offset added.
+pub fn complex_tiler(complex_tiling: &mut Pyramid, scratch: &mut Scratch) {
+    let Scratch { raw_masked, counted, searched, next, chosen } = scratch;
+    decide_raw_masking(complex_tiling, raw_masked);
+    complex_tiling.fill_in(raw_masked);
+
+    searched.clear();
+    searched.push(SearchArea { area: Tile::whole_bitmap(), coarsest_level: 0, nested: NestedResolutions::none() });
     while !searched.is_empty() {
-        let mut chosen = Vec::new();
-        let mut counted = CountedBits::default();
-        for search in &searched {
+        chosen.clear();
+        counted.forget();
+        for search in searched.iter() {
             for tile in search.area.tiles_at_size_offset(search.coarsest_level - search.area.level) {
-                best_at_or_under(&mut complex_tiling, tile, &search.nested, &mut counted, &mut chosen);
+                best_at_or_under(complex_tiling, tile, &search.nested, counted, chosen);
             }
         }
-        searched = commit(chosen, &mut complex_tiling);
+        next.clear();
+        commit(chosen, complex_tiling, next);
+        std::mem::swap(searched, next);
     }
-    complex_tiling
 }
 
 /// The smallest tile a complex tile can be: 4x4, so its resolution is
@@ -84,30 +103,28 @@ fn best_at_or_under(
         Some(_) => None,
         None => Candidate::best_for(complex_tiling, tile, nested, counted),
     };
-    let mut under = Vec::new();
+    // The best under the children go on `chosen` first, to be taken off
+    // again if the tile's own does better.
+    let under_from = chosen.len();
     let under_saving: u64 = tile
         .children()
         .into_iter()
         .filter(|&child| placed.is_none_or(|placement| placement.masks(child)))
-        .map(|child| best_at_or_under(complex_tiling, child, nested, counted, &mut under))
+        .map(|child| best_at_or_under(complex_tiling, child, nested, counted, chosen))
         .sum();
     match own {
         Some(candidate) if candidate.saving >= under_saving => {
-            let saving = candidate.saving;
+            chosen.truncate(under_from);
             chosen.push(candidate);
-            saving
+            candidate.saving
         }
-        _ => {
-            chosen.extend(under);
-            under_saving
-        }
+        _ => under_saving,
     }
 }
 
-/// Commits `chosen`; returns where the next pass searches -- inside each
-/// one committed.
-fn commit(chosen: Vec<Candidate>, complex_tiling: &mut Pyramid) -> Vec<SearchArea> {
-    let mut next = Vec::new();
+/// Commits `chosen`, adding to `next` where the next pass searches --
+/// inside each one committed.
+fn commit(chosen: &[Candidate], complex_tiling: &mut Pyramid, next: &mut Vec<SearchArea>) {
     for candidate in chosen {
         complex_tiling.make_complex_tile(candidate.tile, candidate.size_offset);
         next.push(SearchArea {
@@ -116,5 +133,4 @@ fn commit(chosen: Vec<Candidate>, complex_tiling: &mut Pyramid) -> Vec<SearchAre
             nested: candidate.nested.with_nested(candidate.tile.level + candidate.size_offset),
         });
     }
-    next
 }

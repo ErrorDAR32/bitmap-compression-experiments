@@ -25,6 +25,7 @@ use crate::gct::tile::{Tile, CELL_LEVEL};
 
 /// A tile the complex tiler could make a complex tile, at its best
 /// size offset, and what that would save.
+#[derive(Clone, Copy)]
 pub struct Candidate {
     /// The tile.
     pub tile: Tile,

@@ -17,13 +17,12 @@ use crate::gct::pyramids::pyramid::Pyramid;
 use crate::gct::tile::{cells_in_tile, Tile, CELL_LEVEL};
 
 /// The tiles a complex tile of 1x1 resolution masks, read off what the
-/// greedy tiler placed. Decided top-down, from the whole bitmap, only
+/// greedy tiler placed, into `masked`, whatever it held before. Decided top-down, from the whole bitmap, only
 /// where a tile's cost depends on what is under it: under a tile placed
 /// whole nothing is ever asked.
-pub fn decide_raw_masking(placements: &Pyramid) -> Vec<Tile> {
-    let mut masked = Vec::new();
-    cost_in_raw(placements, Tile::whole_bitmap(), &mut masked);
-    masked
+pub fn decide_raw_masking(placements: &Pyramid, masked: &mut Vec<Tile>) {
+    masked.clear();
+    cost_in_raw(placements, Tile::whole_bitmap(), masked);
 }
 
 /// What `tile` costs in a raw complex tile, its mask bit included: the

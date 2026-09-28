@@ -23,6 +23,13 @@ follow `grammar/`, the one place every rule of the bitstream lives:
 its constants and widths, the bit stream, and the order of the payload
 and residual runs (`grammar/order.rs`).
 
+Every structure the steps use -- the pyramids, the complex tiler's
+scratch, the runs' tiles -- lives in one `Workspace` (`workspace.rs`),
+allocated once. `workspace.encode(&bitmap, &mut stream)` and
+`workspace.decode(&stream, &mut bitmap)` write into what they are given,
+so once warm, encoding and decoding a bitmap allocates nothing; each
+step clears or overwrites what the last bitmap left.
+
 ## Pyramids
 
 A pyramid (`pyramids/pyramid.rs`) holds one element per tile, at every

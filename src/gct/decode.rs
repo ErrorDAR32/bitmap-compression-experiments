@@ -11,7 +11,7 @@
 //! goal here; simplicity is.
 
 use crate::gct::grammar::bit_stream::{BitReader, BitStream};
-use crate::gct::grammar::order::{payload_tiles, residual_cells};
+use crate::gct::grammar::order::Runs;
 use crate::gct::grammar::*;
 use crate::gct::nested_resolutions::NestedResolutions;
 use crate::gct::pyramids::copyable::{FAR_DISTANCE, NEAR_DISTANCE};
@@ -20,31 +20,34 @@ use crate::gct::pyramids::tree::{Node, Tree};
 use crate::gct::tile::{tile_side, Tile, CELL_LEVEL};
 use crate::Bitmap;
 
-/// What reading a stream back gives: the tree, and every cell whose
+/// Where reading a stream back writes: the tree, and every cell whose
 /// value the stream binds outright -- all but the cells copies cover.
-pub struct StreamContents {
+pub struct StreamContents<'a> {
     /// The tree the stream spells out.
-    pub tree: Pyramid,
+    pub tree: &'a mut Pyramid,
     /// Every cell's value, where known; clear elsewhere.
-    pub cell_values: Bitmap,
+    pub cell_values: &'a mut Bitmap,
     /// Which cells' values the stream binds outright: all but those
     /// copies cover.
-    pub known_cells: Bitmap,
+    pub known_cells: &'a mut Bitmap,
 }
 
-impl StreamContents {
+impl StreamContents<'_> {
     /// Binds every cell of `tile` to `value`.
     fn bind(&mut self, tile: Tile, value: bool) {
         if value {
-            tile.set_in(&mut self.cell_values);
+            tile.set_in(self.cell_values);
         }
-        tile.set_in(&mut self.known_cells);
+        tile.set_in(self.known_cells);
     }
 }
 
-/// Reads back what [`crate::gct::encode::write`] wrote.
-pub fn read(stream: &BitStream) -> StreamContents {
-    let mut read = StreamContents { tree: Pyramid::tree(), cell_values: Bitmap::new(), known_cells: Bitmap::new() };
+/// Reads back what [`crate::gct::encode::write`] wrote, into `read`,
+/// whatever it held before; `runs` is room for the runs' tiles.
+pub fn read(stream: &BitStream, read: &mut StreamContents, runs: &mut Runs) {
+    read.tree.clear();
+    read.cell_values.reset();
+    read.known_cells.reset();
     let mut reader = stream.reader();
     let start_level = reader.value(START_LEVEL_WIDTH) as u8;
     for level in 0..start_level {
@@ -53,19 +56,24 @@ pub fn read(stream: &BitStream) -> StreamContents {
         }
     }
     for tile in Tile::all_of_level(start_level) {
-        read_node(&mut reader, tile, &mut NestedResolutions::none(), BOUND_AT_THE_TOP, &mut read);
+        read_node(&mut reader, tile, &mut NestedResolutions::none(), BOUND_AT_THE_TOP, read, runs);
     }
-    for cell in residual_cells(&read.tree).collect::<Vec<_>>() {
+    for &cell in runs.residual_cells(read.tree) {
         read.bind(cell, reader.bit());
     }
-    read
 }
 
 /// Reads `tile`'s node and everything under it, `bound_above` the value
 /// bound above it.
-fn read_node(reader: &mut BitReader, tile: Tile, nested: &mut NestedResolutions, bound_above: bool, read: &mut StreamContents) {
-    let able_to_unmask: Vec<u8> = nested.able_to_unmask(tile).collect();
-    for nesting in able_to_unmask {
+fn read_node(
+    reader: &mut BitReader,
+    tile: Tile,
+    nested: &mut NestedResolutions,
+    bound_above: bool,
+    read: &mut StreamContents,
+    runs: &mut Runs,
+) {
+    for nesting in nested.able_to_unmask(tile) {
         if reader.value(MASK_BIT_WIDTH) == UNMASKED {
             read.tree.set_node(tile, Node::Unmasked { nesting });
             return;
@@ -79,14 +87,14 @@ fn read_node(reader: &mut BitReader, tile: Tile, nested: &mut NestedResolutions,
             return;
         }
         read.tree.set_node(tile, Node::ComplexTile { size_offset: 0, masks: false });
-        read_payload(reader, tile, nested.next_nesting(), 0, read);
+        read_payload(reader, tile, nested.next_nesting(), 0, read, runs);
         return;
     }
     if !leaf {
         if !divide_may_mask(tile.level) || reader.value(MASK_PRESENT_WIDTH) == NO_MASKING {
             read.tree.set_node(tile, Node::Subdivided);
             for child in tile.children() {
-                read_node(reader, child, nested, bound_above, read);
+                read_node(reader, child, nested, bound_above, read, runs);
             }
             return;
         }
@@ -94,16 +102,14 @@ fn read_node(reader: &mut BitReader, tile: Tile, nested: &mut NestedResolutions,
         let bound_above = bound_above != flips;
         let node = if flips { Node::ComplexTile { size_offset: 0, masks: true } } else { Node::Subdivided };
         read.tree.set_node(tile, node);
-        let mut named = Vec::new();
-        for child in tile.children() {
-            if reader.value(MASK_BIT_WIDTH) == MASKED {
-                named.push(child);
+        let children = tile.children();
+        let named = children.map(|_| reader.value(MASK_BIT_WIDTH) == MASKED);
+        for (child, is_named) in children.into_iter().zip(named) {
+            if is_named {
+                read_node(reader, child, nested, bound_above, read, runs);
             } else {
                 read.bind(child, bound_above);
             }
-        }
-        for child in named {
-            read_node(reader, child, nested, bound_above, read);
         }
         return;
     }
@@ -113,14 +119,12 @@ fn read_node(reader: &mut BitReader, tile: Tile, nested: &mut NestedResolutions,
         let masks = copy_may_mask(tile.level) && reader.value(MASK_PRESENT_WIDTH) == MASKING;
         read.tree.set_node(tile, Node::Copied { far, direction, masks });
         if masks {
-            let mut masked = Vec::new();
-            for child in tile.children() {
-                if reader.value(MASK_BIT_WIDTH) == MASKED {
-                    masked.push(child);
+            let children = tile.children();
+            let masked = children.map(|_| reader.value(MASK_BIT_WIDTH) == MASKED);
+            for (child, is_masked) in children.into_iter().zip(masked) {
+                if is_masked {
+                    read_node(reader, child, nested, bound_above, read, runs);
                 }
-            }
-            for child in masked {
-                read_node(reader, child, nested, bound_above, read);
             }
         }
         return;
@@ -132,43 +136,45 @@ fn read_node(reader: &mut BitReader, tile: Tile, nested: &mut NestedResolutions,
     if masks {
         nested.while_nested(tile.level + size_offset, |inside| {
             for child in tile.children() {
-                read_node(reader, child, inside, bound_above, read);
+                read_node(reader, child, inside, bound_above, read, runs);
             }
         });
     }
-    read_payload(reader, tile, nesting, size_offset, read);
+    read_payload(reader, tile, nesting, size_offset, read, runs);
 }
 
 /// A complex tile's payload, bound into the cells of the tiles it names.
-fn read_payload(reader: &mut BitReader, tile: Tile, nesting: u8, size_offset: u8, read: &mut StreamContents) {
-    for part in payload_tiles(&read.tree, tile, nesting, size_offset) {
+fn read_payload(reader: &mut BitReader, tile: Tile, nesting: u8, size_offset: u8, read: &mut StreamContents, runs: &mut Runs) {
+    for &part in runs.payload(read.tree, tile, nesting, size_offset) {
         read.bind(part, reader.bit());
     }
 }
 
-/// Decodes a stream written by [`crate::gct::encode`](fn@crate::gct::encode).
-pub fn decode(stream: &BitStream) -> Bitmap {
-    let StreamContents { tree, mut cell_values, mut known_cells } = read(stream);
-    let mut left = Tile::all_cells().filter(|&cell| !cell.top_left_value(&known_cells)).count();
+/// Decodes a stream written by [`crate::gct::encode::write`] into
+/// `read`, whose cell values end as the bitmap; `runs` is room for the
+/// runs' tiles.
+pub fn decode(stream: &BitStream, read: &mut StreamContents, runs: &mut Runs) {
+    self::read(stream, read, runs);
+    let (tree, cell_values, known_cells) = (&*read.tree, &mut *read.cell_values, &mut *read.known_cells);
+    let mut left = Tile::all_cells().filter(|&cell| !cell.top_left_value(known_cells)).count();
     while left > 0 {
         let before = left;
         for cell in Tile::all_cells() {
-            if cell.top_left_value(&known_cells) {
+            if cell.top_left_value(known_cells) {
                 continue;
             }
-            let source = copy_source(&tree, cell);
-            if !source.top_left_value(&known_cells) {
+            let source = copy_source(tree, cell);
+            if !source.top_left_value(known_cells) {
                 continue;
             }
-            if source.top_left_value(&cell_values) {
-                cell.set_in(&mut cell_values);
+            if source.top_left_value(cell_values) {
+                cell.set_in(cell_values);
             }
-            cell.set_in(&mut known_cells);
+            cell.set_in(known_cells);
             left -= 1;
         }
         assert!(left < before, "nothing resolved in a whole sweep: a copy cycle, which should be impossible");
     }
-    cell_values
 }
 
 /// The cell a copied cell reads from: the same cell of its nearest

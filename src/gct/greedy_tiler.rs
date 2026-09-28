@@ -51,17 +51,17 @@ pub const MIN_UNMASKED_NON_HOMOGENEOUS_CHILDREN: u32 = 2;
 /// least this many children.
 pub const MIN_UNMASKED_CHILDREN_OF_A_MASKING_BIND: u32 = 2;
 
-/// Places tiles over one bitmap, biggest first; what it placed is a
+/// Places tiles over one bitmap, biggest first, into `placements`,
+/// whatever it held before; what it placed is a
 /// [complex tiling pyramid](crate::gct::pyramids::complex_tiling) with
 /// only its [placement](crate::gct::pyramids::placements) bits set. Reads
 /// only the bitmap's content: which tiles are homogeneous, from its
 /// homogeneity pyramid, and which match which, asked of the bitmap only
 /// for tiles that are not.
-pub fn greedy_tiler(bitmap: &Bitmap, homogeneity: &Pyramid) -> Pyramid {
-    let mut placements = Pyramid::placements();
+pub fn greedy_tiler(bitmap: &Bitmap, homogeneity: &Pyramid, placements: &mut Pyramid) {
+    placements.clear();
     let content = Content { bitmap, homogeneity };
-    place_at_or_under(&content, Tile::whole_bitmap(), BOUND_AT_THE_TOP, &mut placements);
-    placements
+    place_at_or_under(&content, Tile::whole_bitmap(), BOUND_AT_THE_TOP, placements);
 }
 
 /// What the greedy tiler reads: a bitmap, and its homogeneity pyramid.

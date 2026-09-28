@@ -15,11 +15,10 @@ use crate::gct::pyramids::pyramid::Pyramid;
 use crate::gct::pyramids::tree::{Node, Tree};
 use crate::gct::tile::{Tile, CELL_LEVEL};
 
-/// The whole bitmap's tree.
-pub fn tree_representation(complex_tiling: &Pyramid) -> Pyramid {
-    let mut tree = Pyramid::tree();
-    set_node(complex_tiling, Tile::whole_bitmap(), &mut NestedResolutions::none(), BOUND_AT_THE_TOP, &mut tree);
-    tree
+/// The whole bitmap's tree, into `tree`, whatever it held before.
+pub fn tree_representation(complex_tiling: &Pyramid, tree: &mut Pyramid) {
+    tree.clear();
+    set_node(complex_tiling, Tile::whole_bitmap(), &mut NestedResolutions::none(), BOUND_AT_THE_TOP, tree);
 }
 
 /// Sets the node for `tile`, nested in `nested`, `bound_above` the value

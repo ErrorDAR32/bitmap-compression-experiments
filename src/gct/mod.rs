@@ -13,8 +13,10 @@
 //!    [`grammar`]; [`decode`](mod@decode) reads it back by the same
 //!    grammar and resolves copies into cells.
 //!
-//! Everything per tile is held in [`pyramids`]. The grammar and what
-//! each bit costs are in `docs/gct.md`.
+//! Everything per tile is held in [`pyramids`], and every structure the
+//! steps use lives in a [`Workspace`], allocated once and reused for
+//! every bitmap. The grammar and what each bit costs are in
+//! `docs/gct.md`.
 
 pub mod complex_tiler;
 pub mod decode;
@@ -25,24 +27,25 @@ pub mod nested_resolutions;
 pub mod pyramids;
 pub mod tile;
 pub mod tree_representation;
+pub mod workspace;
 
 use crate::Bitmap;
 use grammar::bit_stream::BitStream;
-use pyramids::homogeneity::Homogeneity;
-use pyramids::pyramid::Pyramid;
 
-pub use decode::decode;
+pub use workspace::Workspace;
 
-/// The tree the greedy complex tiler makes of `bitmap`: the bitmap's
-/// homogeneity pyramid, built once; the greedy tiler's placements; the
-/// complex tiler's complex tiling; and the tree read off it.
-pub fn tree(bitmap: &Bitmap) -> Pyramid {
-    let placements = greedy_tiler::greedy_tiler(bitmap, &Pyramid::homogeneity(bitmap));
-    let complex_tiling = complex_tiler::complex_tiler::complex_tiler(placements);
-    tree_representation::tree_representation(&complex_tiling)
+/// Encodes `bitmap`, in a workspace of its own. To encode many, keep one
+/// [`Workspace`] and a stream, and encode each into them.
+pub fn encode(bitmap: &Bitmap) -> BitStream {
+    let mut stream = BitStream::default();
+    Workspace::new().encode(bitmap, &mut stream);
+    stream
 }
 
-/// Encodes `bitmap`.
-pub fn encode(bitmap: &Bitmap) -> BitStream {
-    encode::write(&tree(bitmap), bitmap)
+/// Decodes `stream`, in a workspace of its own. To decode many, keep one
+/// [`Workspace`] and a bitmap, and decode each into them.
+pub fn decode(stream: &BitStream) -> Bitmap {
+    let mut bitmap = Bitmap::new();
+    Workspace::new().decode(stream, &mut bitmap);
+    bitmap
 }

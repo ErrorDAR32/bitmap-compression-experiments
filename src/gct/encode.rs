@@ -4,7 +4,7 @@
 //! residual pass.
 
 use crate::gct::grammar::bit_stream::BitStream;
-use crate::gct::grammar::order::{payload_tiles, residual_cells};
+use crate::gct::grammar::order::Runs;
 use crate::gct::grammar::*;
 use crate::gct::nested_resolutions::NestedResolutions;
 use crate::gct::pyramids::pyramid::Pyramid;
@@ -12,22 +12,22 @@ use crate::gct::pyramids::tree::{Node, Tree};
 use crate::gct::tile::{Tile, CELL_LEVEL};
 use crate::Bitmap;
 
-/// Spells out `tree` for `bitmap`.
-pub fn write(tree: &Pyramid, bitmap: &Bitmap) -> BitStream {
-    let mut out = BitStream::default();
+/// Spells out `tree` for `bitmap` into `out`, whatever it held before;
+/// `runs` is room for the runs' tiles.
+pub fn write(tree: &Pyramid, bitmap: &Bitmap, out: &mut BitStream, runs: &mut Runs) {
+    out.clear();
     let start_level = tree.start_level();
     out.push_value(start_level as u64, START_LEVEL_WIDTH);
     for tile in Tile::all_of_level(start_level) {
-        write_node(tree, bitmap, tile, &mut NestedResolutions::none(), &mut out);
+        write_node(tree, bitmap, tile, &mut NestedResolutions::none(), out, runs);
     }
-    for cell in residual_cells(tree) {
+    for cell in runs.residual_cells(tree) {
         out.push(cell.top_left_value(bitmap));
     }
-    out
 }
 
 /// Writes `tile`'s node and everything under it.
-fn write_node(tree: &Pyramid, bitmap: &Bitmap, tile: Tile, nested: &mut NestedResolutions, out: &mut BitStream) {
+fn write_node(tree: &Pyramid, bitmap: &Bitmap, tile: Tile, nested: &mut NestedResolutions, out: &mut BitStream, runs: &mut Runs) {
     let node = tree.node(tile);
     for nesting in nested.able_to_unmask(tile) {
         if node == (Node::Unmasked { nesting }) {
@@ -41,7 +41,7 @@ fn write_node(tree: &Pyramid, bitmap: &Bitmap, tile: Tile, nested: &mut NestedRe
         match node {
             Node::ComplexTile { size_offset: 0, .. } => {
                 out.push_value(LEAF, LEAF_WIDTH);
-                write_payload(tree, bitmap, tile, nested.next_nesting(), 0, out);
+                write_payload(tree, bitmap, tile, nested.next_nesting(), 0, out, runs);
             }
             Node::Residual => out.push_value(RESIDUAL, LEAF_WIDTH),
             _ => unreachable!("the 2x2 floor is always a bound tile or residual"),
@@ -59,13 +59,7 @@ fn write_node(tree: &Pyramid, bitmap: &Bitmap, tile: Tile, nested: &mut NestedRe
                 out.push_value(if masks { MASKING } else { NO_MASKING }, MASK_PRESENT_WIDTH);
             }
             if masks {
-                let masked: Vec<Tile> = tile.children().into_iter().filter(|&child| tree.node(child) != Node::Absent).collect();
-                for child in tile.children() {
-                    out.push_value(if masked.contains(&child) { MASKED } else { UNMASKED }, MASK_BIT_WIDTH);
-                }
-                for child in masked {
-                    write_node(tree, bitmap, child, nested, out);
-                }
+                write_named_children(tree, bitmap, tile, nested, out, runs);
             }
         }
         Node::ComplexTile { size_offset: 0, masks: true } => {
@@ -74,7 +68,7 @@ fn write_node(tree: &Pyramid, bitmap: &Bitmap, tile: Tile, nested: &mut NestedRe
             out.push_value(SUBDIVIDE, LEAF_WIDTH);
             out.push_value(MASKING, MASK_PRESENT_WIDTH);
             out.push_value(BINDING_FLIPPED, FLIP_WIDTH);
-            write_named_children(tree, bitmap, tile, nested, out);
+            write_named_children(tree, bitmap, tile, nested, out, runs);
         }
         Node::ComplexTile { size_offset, masks } => {
             out.push_value(LEAF, LEAF_WIDTH);
@@ -87,11 +81,11 @@ fn write_node(tree: &Pyramid, bitmap: &Bitmap, tile: Tile, nested: &mut NestedRe
             if masks {
                 nested.while_nested(tile.level + size_offset, |inside| {
                     for child in tile.children() {
-                        write_node(tree, bitmap, child, inside, out);
+                        write_node(tree, bitmap, child, inside, out, runs);
                     }
                 });
             }
-            write_payload(tree, bitmap, tile, nesting, size_offset, out);
+            write_payload(tree, bitmap, tile, nesting, size_offset, out, runs);
         }
         Node::Subdivided => {
             out.push_value(SUBDIVIDE, LEAF_WIDTH);
@@ -100,34 +94,45 @@ fn write_node(tree: &Pyramid, bitmap: &Bitmap, tile: Tile, nested: &mut NestedRe
                     out.push_value(NO_MASKING, MASK_PRESENT_WIDTH);
                 }
                 for child in tile.children() {
-                    write_node(tree, bitmap, child, nested, out);
+                    write_node(tree, bitmap, child, nested, out, runs);
                 }
             } else {
                 out.push_value(MASKING, MASK_PRESENT_WIDTH);
                 out.push_value(BINDING_KEPT, FLIP_WIDTH);
-                write_named_children(tree, bitmap, tile, nested, out);
+                write_named_children(tree, bitmap, tile, nested, out, runs);
             }
         }
         Node::Unmasked { .. } | Node::Residual | Node::Absent => unreachable!("{node:?} is never written here"),
     }
 }
 
-/// A divide's child mask -- each child a node of its own, or left to the
-/// binding above -- then the children that are nodes.
-fn write_named_children(tree: &Pyramid, bitmap: &Bitmap, tile: Tile, nested: &mut NestedResolutions, out: &mut BitStream) {
-    let named: Vec<Tile> = tile.children().into_iter().filter(|&child| tree.node(child) != Node::Absent).collect();
-    for child in tile.children() {
-        out.push_value(if named.contains(&child) { MASKED } else { UNMASKED }, MASK_BIT_WIDTH);
+/// A masking node's child mask -- each child a node of its own, or said
+/// by the node: left to the binding above, or copied -- then the
+/// children that are nodes.
+fn write_named_children(
+    tree: &Pyramid,
+    bitmap: &Bitmap,
+    tile: Tile,
+    nested: &mut NestedResolutions,
+    out: &mut BitStream,
+    runs: &mut Runs,
+) {
+    let children = tile.children();
+    let named = children.map(|child| tree.node(child) != Node::Absent);
+    for is_named in named {
+        out.push_value(if is_named { MASKED } else { UNMASKED }, MASK_BIT_WIDTH);
     }
-    for child in named {
-        write_node(tree, bitmap, child, nested, out);
+    for (child, is_named) in children.into_iter().zip(named) {
+        if is_named {
+            write_node(tree, bitmap, child, nested, out, runs);
+        }
     }
 }
 
 /// A complex tile's payload: the value of every tile of its resolution
 /// unmasked in it.
-fn write_payload(tree: &Pyramid, bitmap: &Bitmap, tile: Tile, nesting: u8, size_offset: u8, out: &mut BitStream) {
-    for part in payload_tiles(tree, tile, nesting, size_offset) {
+fn write_payload(tree: &Pyramid, bitmap: &Bitmap, tile: Tile, nesting: u8, size_offset: u8, out: &mut BitStream, runs: &mut Runs) {
+    for part in runs.payload(tree, tile, nesting, size_offset) {
         out.push(part.top_left_value(bitmap));
     }
 }

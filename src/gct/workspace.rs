@@ -1,0 +1,84 @@
+//! The workspace: every structure encoding or decoding needs, allocated
+//! once and reused for every bitmap after -- the pyramids, the complex
+//! tiler's scratch, the runs' tiles. Encoding takes the bitmap and where
+//! the stream goes; decoding takes the stream and where the bitmap goes.
+//! Once warm, neither allocates, whatever the bitmap.
+
+use crate::gct::complex_tiler::complex_tiler::{complex_tiler, Scratch};
+use crate::gct::decode::{decode, StreamContents};
+use crate::gct::encode::write;
+use crate::gct::grammar::bit_stream::BitStream;
+use crate::gct::grammar::order::Runs;
+use crate::gct::greedy_tiler::greedy_tiler;
+use crate::gct::pyramids::homogeneity::Homogeneity;
+use crate::gct::pyramids::placements::Placements;
+use crate::gct::pyramids::pyramid::Pyramid;
+use crate::gct::pyramids::tree::Tree;
+use crate::gct::tree_representation::tree_representation;
+use crate::Bitmap;
+
+/// Room to encode and decode bitmaps in, one at a time.
+pub struct Workspace {
+    /// The homogeneity pyramid of the bitmap being encoded.
+    homogeneity: Pyramid,
+    /// The greedy tiler's placements, then the complex tiling made of
+    /// them.
+    complex_tiling: Pyramid,
+    /// The complex tiler's room.
+    scratch: Scratch,
+    /// The tree last written or read.
+    tree: Pyramid,
+    /// Which cells a stream being decoded binds outright.
+    known_cells: Bitmap,
+    /// Room for the runs' tiles.
+    runs: Runs,
+}
+
+impl Workspace {
+    /// Everything allocated, nothing encoded yet.
+    pub fn new() -> Self {
+        Self {
+            homogeneity: Pyramid::homogeneity(&Bitmap::new()),
+            complex_tiling: Pyramid::placements(),
+            scratch: Scratch::default(),
+            tree: Pyramid::tree(),
+            known_cells: Bitmap::new(),
+            runs: Runs::default(),
+        }
+    }
+
+    /// Encodes `bitmap` into `stream`, whatever it held before.
+    pub fn encode(&mut self, bitmap: &Bitmap, stream: &mut BitStream) {
+        self.homogeneity.rebuild_homogeneity(bitmap);
+        greedy_tiler(bitmap, &self.homogeneity, &mut self.complex_tiling);
+        complex_tiler(&mut self.complex_tiling, &mut self.scratch);
+        tree_representation(&self.complex_tiling, &mut self.tree);
+        write(&self.tree, bitmap, stream, &mut self.runs);
+    }
+
+    /// Decodes `stream` into `bitmap`, whatever it held before.
+    pub fn decode(&mut self, stream: &BitStream, bitmap: &mut Bitmap) {
+        let mut read = StreamContents { tree: &mut self.tree, cell_values: bitmap, known_cells: &mut self.known_cells };
+        decode(stream, &mut read, &mut self.runs);
+    }
+
+    /// The tree of the bitmap last encoded, or of the stream last
+    /// decoded.
+    pub fn tree(&self) -> &Pyramid {
+        &self.tree
+    }
+
+    /// The complex tiling of the bitmap last encoded: the greedy tiler's
+    /// placements in its placement bits, and the complex tiles made of
+    /// them.
+    pub fn complex_tiling(&self) -> &Pyramid {
+        &self.complex_tiling
+    }
+}
+
+impl Default for Workspace {
+    /// The same as [`Workspace::new`].
+    fn default() -> Self {
+        Self::new()
+    }
+}

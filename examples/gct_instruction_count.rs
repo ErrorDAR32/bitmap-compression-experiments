@@ -1,7 +1,8 @@
 //! A fixed sample for counting gct's instructions: every shape, sparse
 //! shape, plan and line set at its `tested` count, a checkerboard and
-//! noise -- encoded, then decoded. Run it under callgrind, which counts
-//! executed instructions exactly and says where they go:
+//! noise -- encoded, then decoded, all in one workspace. Run it under
+//! callgrind, which counts executed instructions exactly and says where
+//! they go:
 //!
 //! ```text
 //! cargo build --release --example gct_instruction_count
@@ -12,7 +13,8 @@
 //!
 //! Instructions a bitmap are the total over the bitmap count it prints.
 
-use bitmap::gct::{decode, encode};
+use bitmap::gct::grammar::bit_stream::BitStream;
+use bitmap::gct::Workspace;
 use bitmap::samples::checkerboards::checkerboard;
 use bitmap::samples::{grown, LINE_SETS, PLANS, SHAPES, SPARSE};
 use bitmap::Bitmap;
@@ -41,11 +43,15 @@ fn main() {
     sample.push(checkerboard(CHECKERBOARD_SQUARE));
     sample.extend(grown(NOISE_SEED, NOISE_DENSITY, 0.0, NOISE_BITMAPS));
 
+    // One workspace, stream and bitmap for the whole sample, as a caller
+    // encoding many would keep them.
+    let (mut workspace, mut stream, mut back) = (Workspace::new(), BitStream::default(), Bitmap::new());
     let mut bits = 0;
     for bitmap in &sample {
-        let stream = encode(bitmap);
+        workspace.encode(bitmap, &mut stream);
         bits += stream.len();
-        assert_eq!(decode(&stream).count_set(), bitmap.count_set());
+        workspace.decode(&stream, &mut back);
+        assert_eq!(back.count_set(), bitmap.count_set());
     }
     println!("{} bitmaps, {} bits", sample.len(), bits);
 }

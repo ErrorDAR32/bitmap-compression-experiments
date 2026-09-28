@@ -5,25 +5,28 @@
 pub mod tree_stats;
 
 use bitmap::gct::complex_tiler::bit_cost::bits;
-use bitmap::gct::complex_tiler::complex_tiler::complex_tiler;
-use bitmap::gct::decode::read;
+use bitmap::gct::grammar::bit_stream::BitStream;
 use bitmap::gct::grammar::{BOUND_AT_THE_TOP, START_LEVEL_WIDTH};
 use bitmap::gct::nested_resolutions::NestedResolutions;
-use bitmap::gct::encode::write;
-use bitmap::gct::greedy_tiler::greedy_tiler;
-use bitmap::gct::pyramids::homogeneity::Homogeneity;
 use bitmap::gct::pyramids::placements::{Placement, Placements};
-use bitmap::gct::pyramids::pyramid::Pyramid;
 use bitmap::gct::pyramids::tree::{Node, Tree};
 use bitmap::gct::tile::{Tile, CELL_LEVEL};
-use bitmap::gct::{decode, tree};
+use bitmap::gct::Workspace;
 use bitmap::Bitmap;
+use std::cell::RefCell;
 
 /// The raw cells: what a bitmap costs written out.
 const RAW_CELLS: usize = 256 * 256;
 
 /// The most gct may ever spend on a bitmap: the raw cells and 1%.
 pub const CAP_BITS: usize = RAW_CELLS + RAW_CELLS / 100;
+
+/// The tree gct makes of `bitmap`, from a workspace of its own.
+pub fn tree_of(bitmap: &Bitmap) -> bitmap::gct::pyramids::pyramid::Pyramid {
+    let mut workspace = Workspace::new();
+    workspace.encode(bitmap, &mut BitStream::default());
+    workspace.tree().clone()
+}
 
 /// The first cell, in reading order, where two bitmaps differ.
 pub fn first_difference(a: &Bitmap, b: &Bitmap) -> Option<(u8, u8)> {
@@ -42,7 +45,21 @@ pub fn first_difference(a: &Bitmap, b: &Bitmap) -> Option<(u8, u8)> {
 /// - the tree read back from the bits is the tree that was written;
 /// - decoding gives back every cell.
 pub fn check(bitmap: &Bitmap, label: &str) {
-    let placements = greedy_tiler(bitmap, &Pyramid::homogeneity(bitmap));
+    thread_local! {
+        /// One workspace for every check a thread makes, so every test
+        /// also checks that nothing one bitmap leaves in it leaks into
+        /// the next.
+        static WORKSPACE: RefCell<(Workspace, BitStream, Bitmap)> =
+            RefCell::new((Workspace::new(), BitStream::default(), Bitmap::new()));
+    }
+    WORKSPACE.with_borrow_mut(|(workspace, stream, back)| check_in(workspace, stream, back, bitmap, label));
+}
+
+/// [`check`], in `workspace`, encoding into `stream` and decoding into
+/// `back`.
+fn check_in(workspace: &mut Workspace, stream: &mut BitStream, back: &mut Bitmap, bitmap: &Bitmap, label: &str) {
+    workspace.encode(bitmap, stream);
+    let placements = workspace.complex_tiling();
     let cells = |tile: Tile| tile.side_in_cells() * tile.side_in_cells();
     let covered: usize = placements
         .placed_tiles()
@@ -57,9 +74,8 @@ pub fn check(bitmap: &Bitmap, label: &str) {
         .sum();
     assert_eq!(covered, 256 * 256, "{label}: placed tiles leave cells uncovered or cover some twice");
 
-    let written = tree(bitmap);
-    let stream = write(&written, bitmap);
-    let complex_tiling = complex_tiler(placements.clone());
+    let written = workspace.tree().clone();
+    let complex_tiling = workspace.complex_tiling();
     let start_level = written.start_level();
     let counted: u64 =
         Tile::all_of_level(start_level).map(|tile| bits(&complex_tiling, tile, &mut NestedResolutions::none(), BOUND_AT_THE_TOP)).sum();
@@ -82,10 +98,9 @@ pub fn check(bitmap: &Bitmap, label: &str) {
         }
     }
 
-    assert!(read(&stream).tree == written, "{label}: the tree read back is not the tree written");
-
-    let back = decode(&stream);
-    if let Some((x, y)) = first_difference(bitmap, &back) {
+    workspace.decode(stream, back);
+    assert!(*workspace.tree() == written, "{label}: the tree read back is not the tree written");
+    if let Some((x, y)) = first_difference(bitmap, back) {
         panic!("{label}: cell ({x}, {y}) comes back {} instead of {}", back.get(x, y), bitmap.get(x, y));
     }
 }

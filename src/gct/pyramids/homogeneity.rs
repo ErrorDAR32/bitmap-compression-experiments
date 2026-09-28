@@ -25,6 +25,10 @@ pub trait Homogeneity {
     /// The homogeneity pyramid of `bitmap`.
     fn homogeneity(bitmap: &Bitmap) -> Self;
 
+    /// Makes this homogeneity pyramid `bitmap`'s, in place: every
+    /// element is written, so nothing needs clearing first.
+    fn rebuild_homogeneity(&mut self, bitmap: &Bitmap);
+
     /// What `tile` holds, if every cell of it agrees.
     fn homogeneous_value(&self, tile: Tile) -> Option<bool>;
 }
@@ -32,15 +36,20 @@ pub trait Homogeneity {
 impl Homogeneity for Pyramid {
     fn homogeneity(bitmap: &Bitmap) -> Self {
         let mut pyramid = Pyramid::new(SHAPE);
+        pyramid.rebuild_homogeneity(bitmap);
+        pyramid
+    }
+
+    fn rebuild_homogeneity(&mut self, bitmap: &Bitmap) {
         // Every cell is homogeneous: two words of elements to a word of
         // cells, each cell's value its element's value bit.
-        let cells = pyramid.level_words_mut(CELL_LEVEL);
+        let cells = self.level_words_mut(CELL_LEVEL);
         for (at, &word) in bitmap.words().iter().enumerate() {
             cells[2 * at] = every_cell(word as u32);
             cells[2 * at + 1] = every_cell((word >> u32::BITS) as u32);
         }
         for level in (0..CELL_LEVEL).rev() {
-            let (coarser, finer) = pyramid.two_levels_mut(level);
+            let (coarser, finer) = self.two_levels_mut(level);
             for (at, children) in finer.chunks(FINER_WORDS_A_WORD).enumerate() {
                 coarser[at] = children
                     .iter()
@@ -49,7 +58,6 @@ impl Homogeneity for Pyramid {
                     .fold(0, |word, part| word | part);
             }
         }
-        pyramid
     }
 
     fn homogeneous_value(&self, tile: Tile) -> Option<bool> {

@@ -4,7 +4,8 @@
 use super::bitmaps::looked_at;
 use bitmap::gct::pyramids::tree::{Node, Tree};
 use bitmap::gct::tile::{Tile, CELL_LEVEL};
-use bitmap::gct::{encode, tree};
+use bitmap::gct::grammar::bit_stream::BitStream;
+use bitmap::gct::Workspace;
 use bitmap::table::Table;
 use std::collections::BTreeMap;
 
@@ -29,8 +30,10 @@ fn kind(tree: &bitmap::gct::pyramids::pyramid::Pyramid, tile: Tile, node: Node) 
 #[test]
 #[ignore]
 fn census() {
+    let (mut workspace, mut stream) = (Workspace::new(), BitStream::default());
     for (name, bitmap) in looked_at() {
-        let tree = tree(&bitmap);
+        workspace.encode(&bitmap, &mut stream);
+        let tree = workspace.tree();
         let mut counts: BTreeMap<&str, [usize; CELL_LEVEL as usize]> = BTreeMap::new();
         for level in 0..CELL_LEVEL {
             for tile in Tile::all_of_level(level) {
@@ -48,7 +51,7 @@ fn census() {
             let row: Vec<String> = std::iter::once(kind.to_string()).chain(by_level.iter().map(|count| count.to_string())).collect();
             table.row(&row);
         }
-        println!("\n  {name}: {} bits, start level {}", encode(&bitmap).len(), tree.start_level());
+        println!("\n  {name}: {} bits, start level {}", stream.len(), tree.start_level());
         table.print();
     }
 }

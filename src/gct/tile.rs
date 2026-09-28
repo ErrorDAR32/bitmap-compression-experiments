@@ -149,17 +149,13 @@ impl Tile {
 
     /// The tiles that fill this one `size_offset` levels finer, in reading
     /// order.
-    pub fn tiles_at_size_offset(self, size_offset: u8) -> Vec<Tile> {
+    pub fn tiles_at_size_offset(self, size_offset: u8) -> impl Iterator<Item = Tile> {
         let across = 1usize << size_offset;
         let level = self.level + size_offset;
         let (first_x, first_y) = (self.x as usize * across, self.y as usize * across);
-        let mut out = Vec::with_capacity(across * across);
-        for row in 0..across {
-            for col in 0..across {
-                out.push(Tile { level, x: (first_x + col) as u8, y: (first_y + row) as u8 });
-            }
-        }
-        out
+        (0..across).flat_map(move |row| {
+            (0..across).map(move |col| Tile { level, x: (first_x + col) as u8, y: (first_y + row) as u8 })
+        })
     }
 }
 

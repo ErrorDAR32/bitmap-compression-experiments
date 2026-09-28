@@ -119,10 +119,10 @@ impl Fields {
 
 /// The complex tiling's queries and updates, over its fields.
 pub trait ComplexTiling {
-    /// The greedy tiler's placements, with their bound sizes carried up,
-    /// no complex tiles yet, and `raw_masked` the tiles a complex tile of
-    /// 1x1 resolution masks.
-    fn complex_tiling(placements: Pyramid, raw_masked: &[Tile]) -> Self;
+    /// Fills in the rest of the greedy tiler's placements, in place: the
+    /// tiles in `raw_masked` masked by a complex tile of 1x1 resolution,
+    /// and the bound sizes carried up. No complex tiles yet.
+    fn fill_in(&mut self, raw_masked: &[Tile]);
 
     /// `tile`'s fields, for asking several things of it.
     fn fields(&self, tile: Tile) -> Fields;
@@ -169,12 +169,11 @@ pub trait ComplexTiling {
 }
 
 impl ComplexTiling for Pyramid {
-    fn complex_tiling(mut placements: Pyramid, raw_masked: &[Tile]) -> Self {
+    fn fill_in(&mut self, raw_masked: &[Tile]) {
         for &tile in raw_masked {
-            placements.set(tile, with_field(placements.get(tile), RAW_MASKS, YES));
+            self.set(tile, with_field(self.get(tile), RAW_MASKS, YES));
         }
-        carry_bound_sizes_up(&mut placements);
-        placements
+        carry_bound_sizes_up(self);
     }
 
     fn fields(&self, tile: Tile) -> Fields {

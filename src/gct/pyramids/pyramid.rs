@@ -108,6 +108,11 @@ impl Pyramid {
         Self { propagation: Some(propagation), ..Self::new(shape) }
     }
 
+    /// Sets every element back to zero, keeping the room they take.
+    pub fn clear(&mut self) {
+        self.words.fill(0);
+    }
+
     /// The three parameters it was built from.
     pub fn shape(&self) -> PyramidShape {
         self.shape
