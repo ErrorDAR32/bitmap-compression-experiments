@@ -4,7 +4,7 @@
 //! the stream goes; decoding takes the stream and where the bitmap goes.
 //! Every structure is sized at the most any bitmap needs -- the
 //! pyramids by their shape, every list at a bound named where it is
-//! made ([`FixedList`](crate::fixed_list)) -- so neither ever allocates or
+//! made (`FixedList`, `src/fixed_list.rs`) -- so neither ever allocates or
 //! grows, whatever the bitmap, the first included.
 
 use crate::gct::complex_tiler::complex_tiler::{complex_tiler, Scratch};
