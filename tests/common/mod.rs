@@ -7,7 +7,7 @@ pub mod tree_stats;
 use bitmap::gct::complex_tiler::bit_cost::bits;
 use bitmap::gct::complex_tiler::complex_tiler::complex_tiler;
 use bitmap::gct::decode::read;
-use bitmap::gct::grammar::START_LEVEL_WIDTH;
+use bitmap::gct::grammar::{BOUND_AT_THE_TOP, START_LEVEL_WIDTH};
 use bitmap::gct::nested_resolutions::NestedResolutions;
 use bitmap::gct::encode::write;
 use bitmap::gct::greedy_tiler::greedy_tiler;
@@ -56,7 +56,7 @@ pub fn check(bitmap: &Bitmap, label: &str) {
     let complex_tiling = complex_tiler(&placements);
     let start_level = written.start_level();
     let counted: u64 =
-        Tile::all_of_level(start_level).map(|tile| bits(&complex_tiling, tile, &mut NestedResolutions::none())).sum();
+        Tile::all_of_level(start_level).map(|tile| bits(&complex_tiling, tile, &mut NestedResolutions::none(), BOUND_AT_THE_TOP)).sum();
     assert_eq!(
         counted + START_LEVEL_WIDTH as u64,
         stream.len() as u64,

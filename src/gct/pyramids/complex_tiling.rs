@@ -9,11 +9,13 @@
 //!   when it is not one.
 //!
 //! The bound size propagates: a placed `Bound` tile is bound at its own
-//! size, a placed copy at none, and any other tile is bound at one size
-//! exactly when all four of its children are bound at that same size.
+//! size, a placed copy or a bind that masks at none, and any other tile
+//! is bound at one size exactly when all four of its children are bound
+//! at that same size.
 
-use super::placements::{placement_code, placement_from_code, Placement, Placements, PLACEMENT_CODE_BITS};
+use super::placements::{placement_code, placement_from_code, Placement, Placements, FINEST_MASKING_LEVEL, PLACEMENT_CODE_BITS};
 use super::pyramid::{Pyramid, PyramidShape};
+use crate::gct::nested_resolutions::NestedResolutions;
 use crate::gct::tile::{Tile, CELL_LEVEL};
 
 const NONE: u64 = 0;
@@ -30,6 +32,7 @@ const PLACEMENT: Field = Field { shift: 0, bits: PLACEMENT_CODE_BITS };
 const BOUND_SIZE: Field = Field { shift: PLACEMENT.shift + PLACEMENT.bits, bits: 4 };
 /// Enough for a size offset, up to `CELL_LEVEL`.
 const SIZE_OFFSET: Field = Field { shift: BOUND_SIZE.shift + BOUND_SIZE.bits, bits: 4 };
+
 
 const SHAPE: PyramidShape = PyramidShape { arity: 4, coarsest_level: 0, finest_level: CELL_LEVEL, element_bits: 16 };
 
@@ -60,6 +63,13 @@ pub trait ComplexTiling {
         size == CELL_LEVEL || self.bound_size(tile) == Some(size)
     }
 
+    /// Whether `tile`, a child of a divide nested in `nested`, is left to
+    /// the binding above it, of `bound_above`: the divide masks (8x8 or
+    /// coarser), `tile` is bound whole to that value, and unmasked in no
+    /// complex tile it is nested in -- which would say it for a bit, where
+    /// the binding above says it for none.
+    fn left_to_binding_above(&self, tile: Tile, bound_above: bool, nested: &NestedResolutions) -> bool;
+
     /// The size offset of the complex tile at exactly `tile`, if it is one.
     fn complex_tile_size_offset(&self, tile: Tile) -> Option<u8>;
 
@@ -74,10 +84,7 @@ impl ComplexTiling for Pyramid {
     fn complex_tiling(placements: &Pyramid) -> Self {
         let mut complex_tiling = Pyramid::with_propagation(SHAPE, bound_size_of_children);
         for (tile, placement) in placements.placed_tiles() {
-            let bound_size = match placement {
-                Placement::Bound(_) => tile.level as u64 + 1,
-                Placement::Copied { .. } => NONE,
-            };
+            let bound_size = if placement.is_whole_bind() { tile.level as u64 + 1 } else { NONE };
             let element = with_field(with_field(NONE, PLACEMENT, placement_code(placement)), BOUND_SIZE, bound_size);
             complex_tiling.set(tile, element);
         }
@@ -91,6 +98,12 @@ impl ComplexTiling for Pyramid {
     fn bound_size(&self, tile: Tile) -> Option<u8> {
         let bound_size = field(self.get(tile), BOUND_SIZE);
         (bound_size != NONE).then(|| (bound_size - 1) as u8)
+    }
+
+    fn left_to_binding_above(&self, tile: Tile, bound_above: bool, nested: &NestedResolutions) -> bool {
+        tile.level <= FINEST_MASKING_LEVEL + 1
+            && matches!(self.placed_at(tile), Some(Placement::Bound { value, masked_children: 0 }) if value == bound_above)
+            && nested.unmasking(self, tile).is_none()
     }
 
     fn complex_tile_size_offset(&self, tile: Tile) -> Option<u8> {
@@ -110,16 +123,18 @@ impl ComplexTiling for Pyramid {
     }
 }
 
-/// The propagation: a tile's bound size is its own when a `Bound` tile
-/// was placed at it, none when a copy was, else its children's when all
-/// four share one, else none. Its other fields stay as they are.
+/// The propagation: a tile's bound size is its own when a whole bind
+/// was placed at it, none when anything else was, else its children's
+/// when all four share one, else none. Its other fields stay as they
+/// are.
 fn bound_size_of_children(pyramid: &Pyramid, tile: Tile) -> u64 {
     let element = pyramid.get(tile);
+    let children: Vec<u64> = pyramid.children_of(tile).into_iter().map(|child| pyramid.get(child)).collect();
     match placement_from_code(field(element, PLACEMENT)) {
-        Some(Placement::Bound(_)) => element,
-        Some(Placement::Copied { .. }) => with_field(element, BOUND_SIZE, NONE),
+        Some(placement) if placement.is_whole_bind() => element,
+        Some(_) => with_field(element, BOUND_SIZE, NONE),
         None => {
-            let sizes: Vec<u64> = pyramid.children_of(tile).into_iter().map(|child| field(pyramid.get(child), BOUND_SIZE)).collect();
+            let sizes: Vec<u64> = children.iter().map(|&child| field(child, BOUND_SIZE)).collect();
             let shared = if sizes.iter().all(|&size| size == sizes[0]) { sizes[0] } else { NONE };
             with_field(element, BOUND_SIZE, shared)
         }

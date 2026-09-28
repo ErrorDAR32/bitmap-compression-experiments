@@ -10,6 +10,7 @@
 pub mod bit_stream;
 pub mod order;
 
+pub use crate::gct::pyramids::placements::BOUND_AT_THE_TOP;
 use crate::gct::pyramids::placements::FINEST_MASKING_LEVEL;
 use crate::gct::tile::{levels_to_cells, CELL_LEVEL};
 
@@ -27,6 +28,12 @@ pub const LEAF: u64 = 1;
 pub const SUBDIVIDE: u64 = 0;
 pub const RESIDUAL: u64 = 0;
 pub const LEAF_WIDTH: u8 = 1;
+
+/// Whether a divide that masks keeps the value bound above it for
+/// the children it leaves unnamed, or flips it -- a bind that masks.
+pub const BINDING_KEPT: u64 = 0;
+pub const BINDING_FLIPPED: u64 = 1;
+pub const FLIP_WIDTH: u8 = 1;
 
 pub const COPY: u64 = 0;
 pub const BIND: u64 = 1;
@@ -47,6 +54,12 @@ pub const MASK_PRESENT_WIDTH: u8 = 1;
 /// [`UNMASKED`] said by the copy, [`MASKED`] a node of its own, which
 /// follow in that order.
 pub fn copy_may_mask(level: u8) -> bool {
+    level <= FINEST_MASKING_LEVEL
+}
+
+/// Whether a divide at `level` has a mask-present bit -- down to 8x8,
+/// as for copies: a divide masking 2x2s saves less than its mask costs.
+pub fn divide_may_mask(level: u8) -> bool {
     level <= FINEST_MASKING_LEVEL
 }
 

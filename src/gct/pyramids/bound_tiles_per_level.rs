@@ -13,7 +13,7 @@
 //! whole bitmap -- though a 1x1 is never a complex tile's resolution:
 //! 1x1 tiles are the residual pass's own.
 
-use super::placements::{Placement, Placements};
+use super::placements::Placements;
 use super::pyramid::{Pyramid, PyramidShape};
 use crate::gct::tile::{Tile, CELL_LEVEL};
 
@@ -41,7 +41,7 @@ impl BoundTilesPerLevel for Vec<Pyramid> {
         let mut per_level: Vec<Pyramid> =
             (0..=CELL_LEVEL).map(|size| Pyramid::with_propagation(shape(size), sum_of_children)).collect();
         for (tile, placement) in placements.placed_tiles() {
-            if let Placement::Bound(_) = placement {
+            if placement.is_whole_bind() {
                 per_level[tile.level as usize].set(tile, 1);
             }
         }

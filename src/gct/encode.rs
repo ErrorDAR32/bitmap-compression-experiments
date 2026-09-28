@@ -68,6 +68,14 @@ fn write_node(tree: &Pyramid, bitmap: &Bitmap, tile: Tile, nested: &mut NestedRe
                 }
             }
         }
+        Node::ComplexTile { size_offset: 0, masks: true } => {
+            // A bind that masks: a divide that masks and flips the value
+            // bound above.
+            out.push_value(SUBDIVIDE, LEAF_WIDTH);
+            out.push_value(MASKING, MASK_PRESENT_WIDTH);
+            out.push_value(BINDING_FLIPPED, FLIP_WIDTH);
+            write_named_children(tree, bitmap, tile, nested, out);
+        }
         Node::ComplexTile { size_offset, masks } => {
             out.push_value(LEAF, LEAF_WIDTH);
             out.push_value(BIND, CODE_WIDTH);
@@ -87,11 +95,32 @@ fn write_node(tree: &Pyramid, bitmap: &Bitmap, tile: Tile, nested: &mut NestedRe
         }
         Node::Subdivided => {
             out.push_value(SUBDIVIDE, LEAF_WIDTH);
-            for child in tile.children() {
-                write_node(tree, bitmap, child, nested, out);
+            if tree.divides_whole(tile) {
+                if divide_may_mask(tile.level) {
+                    out.push_value(NO_MASKING, MASK_PRESENT_WIDTH);
+                }
+                for child in tile.children() {
+                    write_node(tree, bitmap, child, nested, out);
+                }
+            } else {
+                out.push_value(MASKING, MASK_PRESENT_WIDTH);
+                out.push_value(BINDING_KEPT, FLIP_WIDTH);
+                write_named_children(tree, bitmap, tile, nested, out);
             }
         }
         Node::Unmasked { .. } | Node::Residual | Node::Absent => unreachable!("{node:?} is never written here"),
+    }
+}
+
+/// A divide's child mask -- each child a node of its own, or left to the
+/// binding above -- then the children that are nodes.
+fn write_named_children(tree: &Pyramid, bitmap: &Bitmap, tile: Tile, nested: &mut NestedResolutions, out: &mut BitStream) {
+    let named: Vec<Tile> = tile.children().into_iter().filter(|&child| tree.node(child) != Node::Absent).collect();
+    for child in tile.children() {
+        out.push_value(if named.contains(&child) { MASKED } else { UNMASKED }, MASK_BIT_WIDTH);
+    }
+    for child in named {
+        write_node(tree, bitmap, child, nested, out);
     }
 }
 

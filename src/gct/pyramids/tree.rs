@@ -19,10 +19,11 @@ use crate::gct::tile::{Tile, CELL_LEVEL};
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Node {
     /// No node at this tile: it lies inside a coarser node's tile -- a
-    /// leaf's, or a child a masking copy says -- or is finer than the
-    /// 2x2 floor.
+    /// leaf's, or a child a masking copy says -- or the binding above
+    /// above it says it, or it is finer than the 2x2 floor.
     Absent,
-    /// The same question asked again of this tile's four children.
+    /// The same question asked again of this tile's four children -- of
+    /// those holding a node; the binding above says the others.
     Subdivided,
     /// Unmasked in one of the complex tiles this tile is nested in,
     /// `nesting` naming which (`0` the outermost): one value per tile of
@@ -33,7 +34,9 @@ pub enum Node {
     /// says only its children holding no node: each child with a node
     /// is masked in it, and said by that node.
     Copied { far: bool, direction: u8, masks: bool },
-    /// A complex tile whose resolution is `size_offset` levels finer.
+    /// A complex tile whose resolution is `size_offset` levels finer. At
+    /// size offset 0 masking, a bind that masks: it binds under
+    /// it, and its children holding a node are masked in it.
     /// When it `masks` nothing, every tile of its resolution is unmasked
     /// in it (always so at size offsets 0 and 1); when it does, its four
     /// children hold its body.
@@ -113,9 +116,13 @@ pub trait Tree {
 
     fn set_node(&mut self, tile: Tile, node: Node);
 
-    /// The level the tree starts at: that of its coarsest node that is
-    /// not `Subdivided`. Every tile coarser than it subdivides -- the
-    /// trunk, which the stream never spells out.
+    /// Whether `tile` is `Subdivided` with every child a node of its own:
+    /// a divide leaving nothing to the binding above.
+    fn divides_whole(&self, tile: Tile) -> bool;
+
+    /// The level the tree starts at: that of its coarsest node that does
+    /// not divide whole. Every tile coarser than it does -- the trunk,
+    /// which the stream never spells out.
     fn start_level(&self) -> u8;
 }
 
@@ -132,9 +139,13 @@ impl Tree for Pyramid {
         self.set(tile, to_code(node));
     }
 
+    fn divides_whole(&self, tile: Tile) -> bool {
+        self.node(tile) == Node::Subdivided && tile.children().into_iter().all(|child| self.node(child) != Node::Absent)
+    }
+
     fn start_level(&self) -> u8 {
         (0..=SHAPE.finest_level)
-            .find(|&level| Tile::all_of_level(level).any(|tile| self.node(tile) != Node::Subdivided))
+            .find(|&level| Tile::all_of_level(level).any(|tile| !self.divides_whole(tile)))
             .expect("the 2x2 floor never subdivides")
     }
 }

@@ -40,6 +40,7 @@ fn compare_with_dsrn() {
         "complex tiles\nmasking",
         "tiles\na bitmap",
         "masking copies\na bitmap",
+        "masking binds\na bitmap",
     ]);
     let mut bodies = Table::new(&[
         "family",
@@ -88,6 +89,7 @@ fn compare_with_dsrn() {
             format!("{:.1}%", percent(stats.complex_tiles_that_mask, stats.complex_tiles())),
             per_bitmap(stats.tiles),
             per_bitmap(stats.copies_that_mask),
+            per_bitmap(stats.binds_that_mask),
         ]);
         let body_nodes = stats.unmasked + stats.masked();
         bodies.row(&[

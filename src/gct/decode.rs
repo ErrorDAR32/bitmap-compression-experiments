@@ -49,7 +49,7 @@ pub fn read(stream: &BitStream) -> StreamContents {
         }
     }
     for tile in Tile::all_of_level(start_level) {
-        read_node(&mut reader, tile, &mut NestedResolutions::none(), &mut read);
+        read_node(&mut reader, tile, &mut NestedResolutions::none(), BOUND_AT_THE_TOP, &mut read);
     }
     for cell in residual_cells(&read.tree).collect::<Vec<_>>() {
         read.bind(cell, reader.bit());
@@ -57,8 +57,9 @@ pub fn read(stream: &BitStream) -> StreamContents {
     read
 }
 
-/// Reads `tile`'s node and everything under it.
-fn read_node(reader: &mut BitReader, tile: Tile, nested: &mut NestedResolutions, read: &mut StreamContents) {
+/// Reads `tile`'s node and everything under it, `bound_above` the value
+/// bound above it.
+fn read_node(reader: &mut BitReader, tile: Tile, nested: &mut NestedResolutions, bound_above: bool, read: &mut StreamContents) {
     let able_to_unmask: Vec<u8> = nested.able_to_unmask(tile).collect();
     for nesting in able_to_unmask {
         if reader.value(MASK_BIT_WIDTH) == UNMASKED {
@@ -78,9 +79,27 @@ fn read_node(reader: &mut BitReader, tile: Tile, nested: &mut NestedResolutions,
         return;
     }
     if !leaf {
-        read.tree.set_node(tile, Node::Subdivided);
+        if !divide_may_mask(tile.level) || reader.value(MASK_PRESENT_WIDTH) == NO_MASKING {
+            read.tree.set_node(tile, Node::Subdivided);
+            for child in tile.children() {
+                read_node(reader, child, nested, bound_above, read);
+            }
+            return;
+        }
+        let flips = reader.value(FLIP_WIDTH) == BINDING_FLIPPED;
+        let bound_above = bound_above != flips;
+        let node = if flips { Node::ComplexTile { size_offset: 0, masks: true } } else { Node::Subdivided };
+        read.tree.set_node(tile, node);
+        let mut named = Vec::new();
         for child in tile.children() {
-            read_node(reader, child, nested, read);
+            if reader.value(MASK_BIT_WIDTH) == MASKED {
+                named.push(child);
+            } else {
+                read.bind(child, bound_above);
+            }
+        }
+        for child in named {
+            read_node(reader, child, nested, bound_above, read);
         }
         return;
     }
@@ -97,7 +116,7 @@ fn read_node(reader: &mut BitReader, tile: Tile, nested: &mut NestedResolutions,
                 }
             }
             for child in masked {
-                read_node(reader, child, nested, read);
+                read_node(reader, child, nested, bound_above, read);
             }
         }
         return;
@@ -109,7 +128,7 @@ fn read_node(reader: &mut BitReader, tile: Tile, nested: &mut NestedResolutions,
     if masks {
         nested.while_nested(tile.level + size_offset, |inside| {
             for child in tile.children() {
-                read_node(reader, child, inside, read);
+                read_node(reader, child, inside, bound_above, read);
             }
         });
     }

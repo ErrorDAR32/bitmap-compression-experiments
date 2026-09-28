@@ -23,8 +23,9 @@ fn payload_bits(size_offset: u8) -> u64 {
     across * across
 }
 
-/// The bits `tile` costs, nested in `nested`, and everything under it.
-pub fn bits(complex_tiling: &Pyramid, tile: Tile, nested: &mut NestedResolutions) -> u64 {
+/// The bits `tile` costs, nested in `nested`, `bound_above` the value
+/// bound above it, and everything under it.
+pub fn bits(complex_tiling: &Pyramid, tile: Tile, nested: &mut NestedResolutions, bound_above: bool) -> u64 {
     // Its mask bits, nearest complex tile first, up to the first it is
     // unmasked in -- then its values are that one's payload.
     let mut mask_bits = 0;
@@ -44,12 +45,25 @@ pub fn bits(complex_tiling: &Pyramid, tile: Tile, nested: &mut NestedResolutions
         return mask_bits
             + LEAF_WIDTH as u64
             + match complex_tiling.placed_at(tile) {
-                Some(Placement::Bound(_)) => payload_bits(0),
+                Some(placement) if placement.is_whole_bind() => payload_bits(0),
                 _ => cells_in_tile(tile.level),
             };
     }
     mask_bits + match complex_tiling.placed_at(tile) {
-        Some(Placement::Bound(_)) => leaf_bind + resolution_width(tile.level) as u64 + payload_bits(0),
+        Some(Placement::Bound { masked_children: 0, .. }) => {
+            leaf_bind + resolution_width(tile.level) as u64 + payload_bits(0)
+        }
+        Some(bind @ Placement::Bound { value, .. }) => {
+            // Spelled as a divide that masks and flips the value bound above.
+            let mut bind_bits = (LEAF_WIDTH + MASK_PRESENT_WIDTH + FLIP_WIDTH) as u64;
+            for child in tile.children() {
+                bind_bits += MASK_BIT_WIDTH as u64;
+                if bind.masks(child) {
+                    bind_bits += bits(complex_tiling, child, nested, value);
+                }
+            }
+            bind_bits
+        }
         Some(copy @ Placement::Copied { .. }) => {
             let mut copy_bits = leaf_bind + (FAR_WIDTH + DIRECTION_WIDTH) as u64;
             if copy_may_mask(tile.level) {
@@ -59,7 +73,7 @@ pub fn bits(complex_tiling: &Pyramid, tile: Tile, nested: &mut NestedResolutions
                 for child in tile.children() {
                     copy_bits += MASK_BIT_WIDTH as u64;
                     if copy.masks(child) {
-                        copy_bits += bits(complex_tiling, child, nested);
+                        copy_bits += bits(complex_tiling, child, nested, bound_above);
                     }
                 }
             }
@@ -77,11 +91,31 @@ pub fn bits(complex_tiling: &Pyramid, tile: Tile, nested: &mut NestedResolutions
                 } else {
                     complex_bits
                         + nested.while_nested(resolution, |inside| {
-                            tile.children().into_iter().map(|child| bits(complex_tiling, child, inside)).sum::<u64>()
+                            tile.children().into_iter().map(|child| bits(complex_tiling, child, inside, bound_above)).sum::<u64>()
                         })
                 }
             }
-            None => LEAF_WIDTH as u64 + tile.children().into_iter().map(|child| bits(complex_tiling, child, nested)).sum::<u64>(),
+            None => {
+                let mut divide_bits = LEAF_WIDTH as u64;
+                if divide_may_mask(tile.level) {
+                    divide_bits += MASK_PRESENT_WIDTH as u64;
+                }
+                let left: Vec<bool> =
+                    tile.children().into_iter().map(|child| complex_tiling.left_to_binding_above(child, bound_above, nested)).collect();
+                let leaves_some = left.contains(&true);
+                if leaves_some {
+                    divide_bits += FLIP_WIDTH as u64;
+                }
+                for (child, is_left) in tile.children().into_iter().zip(left) {
+                    if leaves_some {
+                        divide_bits += MASK_BIT_WIDTH as u64;
+                    }
+                    if !is_left {
+                        divide_bits += bits(complex_tiling, child, nested, bound_above);
+                    }
+                }
+                divide_bits
+            }
         },
     }
 }

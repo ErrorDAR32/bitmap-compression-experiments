@@ -49,8 +49,8 @@ fixing the shape, its propagation if any, and its queries.
 |---|---|---|---|---|
 | `homogeneity` | 2 | 0-8 | whether a tile's cells all agree, and on what | homogeneous when all four children are homogeneous and agree |
 | `copyable` | 2 | 0-6 | whether a same-size neighbour (near) or a neighbour of the parent (far) holds the same cells | none |
-| `placements` | 4 | 0-8 | the tile the greedy tiler placed here, if any | none |
-| `bound_tiles_per_level` | 32 | 0-t, one pyramid per size t | how many `Bound` tiles of size t lie under a tile (the complex tiler's scoring) | sum of the children |
+| `placements` | 8 | 0-8 | the tile the greedy tiler placed here, if any, and the children it masks | none |
+| `bound_tiles_per_level` | 32 | 0-t, one pyramid per size t | how many whole binds of size t lie under a tile (the complex tiler's scoring) | sum of the children |
 | `complex_tiling` | 16 | 0-8 | the placement; the one size every cell under the tile is bound at, if any; the complex tile's size offset, if it is one | a tile's bound size is its children's when all four share one |
 | `tree` | 8 | 0-7 | the tree's node at a tile | none |
 
@@ -59,7 +59,7 @@ fixing the shape, its propagation if any, and its queries.
 One rule, asked of every tile size from the whole bitmap down to single
 cells, coarsest first, skipping anything a coarser tile already claimed:
 
-1. **Homogeneous?** Place it as `Bound(value)`.
+1. **Homogeneous?** Place it as a bind of its value.
 2. Else, down to 4x4, **copyable?** Near: a same-size neighbour of the tile itself.
    Far: one level up, a same-size neighbour of the tile's parent, at the
    tile's own child position. Place it as `Copied { far, direction }`.
@@ -72,10 +72,15 @@ cells, coarsest first, skipping anything a coarser tile already claimed:
    direction order). It is placed as a copy masking the children that
    do not match when it says 3 of 4 children, or 2 that are not
    homogeneous: a homogeneous child is cheap without the copy (a tile,
-   or 1 bit unmasked in a complex tile), any other is 5 bits or more.
-   The masked children stay unclaimed and are tiled like any other
-   tile.
-4. Else leave it for its four children.
+   or 1 bit unmasked in a complex tile), any other is 5 bits or more. A
+   child homogeneous with the value bound above does not count: it costs
+   nothing without the copy. The masked children stay unclaimed and are
+   tiled like any other tile.
+4. Else, at 8x8 or coarser, **a masking bind?** When at least 2
+   children are homogeneous with the value *not* bound above, bind the
+   tile to it, masking the other children. Every child it leaves
+   unnamed, at any depth, is bound by it. Clear is bound at the top.
+5. Else leave it for its four children.
 
 No comparison between sizes: a tile that qualifies is taken at once.
 Cells are always homogeneous, so the whole bitmap is always covered.
@@ -150,11 +155,19 @@ reaches (`tree_representation.rs`):
 | node | when |
 |---|---|
 | `Unmasked { nesting }` | unmasked in the nearest complex tile it is nested in whose resolution is the tile's single bound size (`nesting` 0 is the outermost) |
-| `ComplexTile { size_offset, masks }` | a placed `Bound` tile (a tile: size offset 0), or a committed complex tile; `masks` when not every resolution tile is unmasked in it |
-| `Copied { far, direction }` | a placed copy |
+| `ComplexTile { size_offset, masks }` | a placed whole bind (a tile: size offset 0), a masking bind (size offset 0, masking), or a committed complex tile; `masks` when not every resolution tile is unmasked in it |
+| `Copied { far, direction, masks }` | a placed copy |
 | `Subdivided` | anything else coarser than 2x2 |
-| `Residual` | a 2x2 that is not one placed `Bound` tile |
-| `Absent` | no node: inside a coarser node's tile |
+| `Residual` | a 2x2 that is not one whole bind |
+| `Absent` | no node: inside a coarser node's tile, or left to the binding above |
+
+**The binding above.** A divide at 8x8 or coarser leaves a child to the
+binding above -- no node at all -- when the child is bound whole to the
+value bound above it and unmasked in no complex tile. The value bound
+above is the nearest masking bind's, or clear at the top: the binding
+of dsrn's "left to the closest binding above". Only the tree decides
+this: the greedy tiler still places the bind, so the complex tiler can
+unmask it where that is cheaper.
 
 Node code: bits 0-2 the kind, bits 3-6 its parameter (`pyramids/tree.rs`).
 Values are not held: an unmasked tile's values are its resolution tiles'
@@ -167,8 +180,8 @@ unmask it: those whose resolution tiles the node covers whole.
 
 ```text
 3 bits: the start level, the level of the tree's coarsest node that does
-not subdivide. Every coarser tile subdivides -- the trunk -- so none of
-them is written; the tree is written from every tile of the start level,
+not subdivide into four nodes. Every coarser tile does -- the trunk --
+so none of them is written; the tree is written from every tile of the start level,
 in reading order.
 
 Every node starts with its mask bits: one for each complex tile it is
@@ -197,7 +210,11 @@ Any coarser level:
       then its payload: one value bit for every tile of its resolution
       unmasked in it, in body order (including nodes inside complex
       tiles nested in it)
-0: subdivide -- four child nodes
+0: subdivide, then at 8x8 or coarser
+     0: four child nodes
+     1: masking -- 1 flip bit (0: the binding above stays, 1: it flips,
+        a masking bind), 4 child mask bits in reading order (0 left to
+        the binding above, 1 a node), then each named child as a node
 
 After the whole tree, the residual pass: one raw bit for every cell of
 every residual 2x2, in reading order.
@@ -220,7 +237,8 @@ both directions.
 | complex tile, size offset 1 | `1+1+r+4` |
 | complex tile, size offset > 1, no masking | `1+1+r+1+N` |
 | complex tile, size offset > 1, masking | `1+1+r+1`, four child nodes, then its payload |
-| subdivide | `1` |
+| subdivide | `1`, `+1` at 8x8 or coarser |
+| masking subdivide, or masking bind | `1+1+1+4 = 7`, then its named children |
 | 2x2 tile | `1+1 = 2` |
 | 2x2 residual | `1`, then 4 raw bits in the residual pass |
 
@@ -256,23 +274,24 @@ against dsrn at `Masking::Anywhere`, `FourByFour::ItsOwnGrammar`:
 
 | family | dsrn | gct |
 |---|---|---|
-| laid out like a city, 48 bitmaps | 18300 bits | 12773 bits, -30.2% |
-| grown like a blob, 84 bitmaps | 32518 bits | 31524 bits, -3.1% |
-| drawn with lines, 36 bitmaps | 14034 bits | 11572 bits, -17.5% |
-| sparse, 48 bitmaps | 5130 bits | 5590 bits, +9.0% |
+| laid out like a city, 48 bitmaps | 18300 bits | 12623 bits, -31.0% |
+| grown like a blob, 84 bitmaps | 32518 bits | 30885 bits, -5.0% |
+| drawn with lines, 36 bitmaps | 14034 bits | 11623 bits, -17.2% |
+| sparse, 48 bitmaps | 5130 bits | 4790 bits, -6.6% |
 
 On two fresh seeds (`DSRN_SEED` 9216954446512861479 and
-3326496171169911647): city 13332 and 13320 bits (dsrn 20018 and
-19802), blob 31575 and 31567 (dsrn 32561 and 32564), lines 10940 and
-11234 (dsrn 13222 and 13546).
+3326496171169911647): city 13180 and 13183 bits (dsrn 20018 and
+19802), blob 30922 and 30925 (dsrn 32561 and 32564), sparse 4821 and
+4785 (dsrn 5159 and 5119), lines 10946 and 11255 (dsrn 13222 and
+13546).
 
 Checkerboards of odd square side (`samples/checkerboards.rs`), bits:
 
 | squares | 3 | 5 | 7 | 9 | 11 | 13 | 15 | 17 | 19 | 21 | 23 | 25 | 27 | 29 | 31 |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 | dsrn | 65542 | 58938 | 49582 | 38249 | 31486 | 26321 | 23131 | 20004 | 16752 | 14414 | 12982 | 11576 | 9760 | 8155 | 8486 |
-| gct | 64129 | 50744 | 42098 | 32051 | 26930 | 22857 | 20203 | 17643 | 14675 | 12690 | 11704 | 10239 | 9103 | 7779 | 7783 |
-| gct against dsrn | -2.2% | -13.9% | -15.1% | -16.2% | -14.5% | -13.2% | -12.7% | -11.8% | -12.4% | -12.0% | -9.8% | -11.5% | -6.7% | -4.6% | -8.3% |
+| gct | 65109 | 52225 | 44234 | 33203 | 27612 | 23168 | 20498 | 17883 | 14785 | 12766 | 11521 | 10064 | 8974 | 7670 | 7711 |
+| gct against dsrn | -0.7% | -11.4% | -10.8% | -13.2% | -12.3% | -12.0% | -11.4% | -10.6% | -11.7% | -11.4% | -11.3% | -13.1% | -8.1% | -5.9% | -9.1% |
 
 Worst cases found by the adversarial search (`testing/adversarial/`):
 
@@ -286,10 +305,18 @@ Worst cases found by the adversarial search (`testing/adversarial/`):
 Noise costs gct 65559 bits: four raw 128x128 complex tiles and the
 start level header, 23 over its raw cells (dsrn: 65542, 6 over).
 
-**Why the masking copy's rule and floor**, gct bits on the seed above
-and the two fresh ones:
+**Why masking binds need 2 children**, gct bits on the seed above and
+the two fresh ones, measured before masking copies stopped counting
+children bound above:
 
-Measured before the raw escape:
+| masking binds | city | blob | lines | checkerboards |
+|---|---|---|---|---|
+| say 2 children (kept) | 12570, 13136, 13118 | 31352, 31395, 31391 | 11643, 10976, 11279 | 357423 |
+| say 3 children | 12807, 13383, 13361 | 31370, 31413, 31408 | 11674, 11011, 11308 | 358519 |
+| none: clear only is bound above | 12918, 13490, 13476 | 31384, 31426, 31421 | 11687, 11026, 11318 | 358519 |
+
+**Why the masking copy's rule and floor**, measured before the raw
+escape and the bindings above:
 
 | masking copies | city | blob | lines | checkerboards |
 |---|---|---|---|---|
@@ -302,17 +329,19 @@ coarser than level `d` subdivides -- saves `(4^d - 1) / 3` subdivide
 bits for the header's 3. A bitmap that is one tile pays the 3 bits for
 nothing.
 
-| family | dsrn nodes masked | complex tiles a bitmap, by nesting | of them masking | tiles a bitmap | masking copies a bitmap |
-|---|---|---|---|---|---|
-| city | 45.6% of 1776 | 88.8, 2.2 | 10.0% | 1368.5 | 285.5 |
-| blob | 67.0% of 2332 | 38.8, 1.4, 0.0 | 19.6% | 4096.9 | 175.8 |
-| lines | 38.4% of 1401 | 24.2, 0.5 | 7.2% | 1113.4 | 159.0 |
+| family | dsrn nodes masked | complex tiles a bitmap, by nesting | of them masking | tiles a bitmap | masking copies a bitmap | masking binds a bitmap |
+|---|---|---|---|---|---|---|
+| city | 45.6% of 1776 | 84.2, 0.2 | 4.8% | 1083.3 | 228.1 | 88.2 |
+| blob | 67.0% of 2332 | 22.7 | 0.2% | 3231.7 | 1.9 | 7.3 |
+| sparse | 83.1% of 582 | 0.4 | 0.0% | 586.8 | 0.1 | 0.0 |
+| lines | 38.4% of 1401 | 22.8 | 1.8% | 867.4 | 94.3 | 15.9 |
 
 | family | body nodes unmasked | masked: unmasked in an outer complex tile | copied | tile | nested complex tile | residual |
 |---|---|---|---|---|---|---|
-| city | 76.41% | 0.02% | 3.77% | 12.18% | 0.39% | 7.23% |
-| blob | 92.46% | 0.00% | 0.49% | 4.67% | 0.02% | 2.36% |
-| lines | 81.84% | 0.01% | 5.42% | 8.19% | 0.13% | 4.41% |
+| city | 96.34% | 0.01% | 1.38% | 1.55% | 0.05% | 0.67% |
+| blob | 99.99% | 0.00% | 0.00% | 0.00% | 0.00% | 0.00% |
+| sparse | 100.00% | 0.00% | 0.00% | 0.00% | 0.00% | 0.00% |
+| lines | 99.42% | 0.00% | 0.22% | 0.27% | 0.00% | 0.09% |
 
 A dsrn node is any code it wrote with a mask to decide on. A complex
 tile's body nodes are counted once each: every resolution tile unmasked
