@@ -89,6 +89,19 @@ impl Bitmap {
         self.run(a, cells) == self.run(b, cells)
     }
 
+    /// An aligned square's cells, a word at a time in Morton order: its
+    /// words, or for a square of fewer than 64 cells, its one run.
+    pub(crate) fn square_words(&self, (x, y): (u8, u8), side: usize) -> impl Iterator<Item = u64> + '_ {
+        let at = Self::bit_index(x, y);
+        let cells = side * side;
+        let (whole, run) = if cells >= BITS_PER_WORD {
+            (&self.words[at / BITS_PER_WORD..(at + cells) / BITS_PER_WORD], None)
+        } else {
+            (&self.words[..0], Some(self.run(at, cells)))
+        };
+        whole.iter().copied().chain(run)
+    }
+
     /// The set cells of an aligned square, each as its place in the
     /// square's own Morton order, in that order -- a word at a time,
     /// since the square is one run.

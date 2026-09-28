@@ -29,14 +29,23 @@ fn gamma_bits(value: u64) -> u64 {
     2 * value.ilog2() as u64 + 1
 }
 
-/// The bits `tile`'s point list takes.
+/// The bits `tile`'s point list takes: counted a word of cells at a
+/// time, since it is asked of every tile that could be one.
 pub fn bits(bitmap: &Bitmap, tile: Tile) -> u64 {
     let cells = cells_in_tile(tile.level);
-    let set = set_cells(bitmap, tile).count() as u64;
+    let words = || bitmap.square_words(tile.top_left_cell(), tile.side_in_cells());
+    let set = words().map(|word| word.count_ones() as u64).sum::<u64>();
     let parameter = rice_parameter(cells, set);
-    let mut bits = gamma_bits(set + 1);
-    for gap in gaps(bitmap, tile) {
-        bits += (gap >> parameter) + 1 + parameter as u64;
+    // Every gap's unary end and low bits, then each gap's high part.
+    let mut bits = gamma_bits(set + 1) + set * (1 + parameter as u64);
+    let mut next = 0;
+    for (at, mut word) in words().enumerate() {
+        while word != 0 {
+            let offset = (at * u64::BITS as usize + word.trailing_zeros() as usize) as u64;
+            bits += (offset - next) >> parameter;
+            next = offset + 1;
+            word &= word - 1;
+        }
     }
     bits
 }
