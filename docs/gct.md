@@ -153,6 +153,11 @@ unmask it: those whose resolution tiles the node covers whole.
 ## Step 4: the grammar
 
 ```text
+3 bits: the start level, the level of the tree's coarsest node that does
+not subdivide. Every coarser tile subdivides -- the trunk -- so none of
+them is written; the tree is written from every tile of the start level,
+in reading order.
+
 Every node starts with its mask bits: one for each complex tile it is
 nested in that could unmask it, nearest first --
   0: unmasked in this one -- nothing more here; its values are bound in
@@ -219,7 +224,8 @@ assertion backs that. Decoder speed is not a goal; simplicity is.
 In `tests/`, per `docs/testing_protocol.md`: `gct_fine` (one bitmap per
 test), `gct_fast` (a small seeded sample), `gct_complete` (everything,
 plus a second seed base), and `compare_with_dsrn` (the measurement
-below). Every check: placed tiles cover every cell once, the tree read
+below). Every check: placed tiles cover every cell once, nothing finer
+than 4x4 copies, every 1x1 tile lies under a residual 2x2, the tree read
 back is the tree written, decoding gives back every cell.
 
 ## Measured
@@ -230,8 +236,13 @@ against dsrn at `Masking::Anywhere`, `FourByFour::ItsOwnGrammar`:
 
 | family | dsrn | gct |
 |---|---|---|
-| laid out like a city, 48 bitmaps | 3422 bits | 3671 bits, +7.3% |
-| grown like a blob, 84 bitmaps | 32518 bits | 32856 bits, +1.0% |
+| laid out like a city, 48 bitmaps | 3422 bits | 3643 bits, +6.5% |
+| grown like a blob, 84 bitmaps | 32518 bits | 32573 bits, +0.2% |
+
+The start level header took city from 3671 and blob from 32856. Trunk
+depths per bitmap were 2-4 on city and 3-7 on blob; a trunk of depth
+`d` saves `(4^d - 1) / 3` subdivide bits for the header's 3. A bitmap
+that is one tile pays the 3 bits for nothing.
 
 Tiles pay the full resolution field where a simple bind used to pay one
 flag bit: 0 extra bits at level 6, +1 at levels 4-5, +2 at levels 0-3.

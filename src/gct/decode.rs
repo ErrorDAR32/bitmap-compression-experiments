@@ -42,7 +42,15 @@ impl StreamContents {
 pub fn read(stream: &BitStream) -> StreamContents {
     let mut read = StreamContents { tree: Pyramid::tree(), cell_values: Bitmap::new(), known_cells: Bitmap::new() };
     let mut reader = stream.reader();
-    read_node(&mut reader, Tile::whole_bitmap(), &mut NestedResolutions::none(), &mut read);
+    let start_level = reader.value(START_LEVEL_WIDTH) as u8;
+    for level in 0..start_level {
+        for tile in Tile::all_of_level(level) {
+            read.tree.set_node(tile, Node::Subdivided);
+        }
+    }
+    for tile in Tile::all_of_level(start_level) {
+        read_node(&mut reader, tile, &mut NestedResolutions::none(), &mut read);
+    }
     for cell in residual_cells(&read.tree).collect::<Vec<_>>() {
         read.bind(cell, reader.bit());
     }

@@ -1,6 +1,7 @@
 //! Encoding: the tree spelled out in bits, by the grammar
-//! ([`crate::gct::grammar`]) -- the tree node by node, each complex
-//! tile's payload after its body, then the residual pass.
+//! ([`crate::gct::grammar`]) -- the start level, the tree node by node
+//! from there, each complex tile's payload after its body, then the
+//! residual pass.
 
 use crate::gct::grammar::bit_stream::BitStream;
 use crate::gct::grammar::order::{payload_tiles, residual_cells};
@@ -14,7 +15,11 @@ use crate::Bitmap;
 /// Spells out `tree` for `bitmap`.
 pub fn write(tree: &Pyramid, bitmap: &Bitmap) -> BitStream {
     let mut out = BitStream::default();
-    write_node(tree, bitmap, Tile::whole_bitmap(), &mut NestedResolutions::none(), &mut out);
+    let start_level = tree.start_level();
+    out.push_value(start_level as u64, START_LEVEL_WIDTH);
+    for tile in Tile::all_of_level(start_level) {
+        write_node(tree, bitmap, tile, &mut NestedResolutions::none(), &mut out);
+    }
     for cell in residual_cells(tree) {
         out.push(cell.top_left_value(bitmap));
     }

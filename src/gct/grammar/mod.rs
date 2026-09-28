@@ -3,13 +3,18 @@
 //! writes it and [`crate::gct::decode`](mod@crate::gct::decode) reads it; neither holds a rule
 //! of its own. The full grammar, with its costs, is in `docs/gct.md`.
 //!
-//! A stream is the tree, node by node (each complex tile's payload right
-//! after its body), then the residual pass.
+//! A stream is the start level, then the tree, node by node from every
+//! tile of that level in reading order (each complex tile's payload
+//! right after its body), then the residual pass.
 
 pub mod bit_stream;
 pub mod order;
 
-use crate::gct::tile::levels_to_cells;
+use crate::gct::tile::{levels_to_cells, CELL_LEVEL};
+
+/// The level the tree starts at, whole bitmap (0) to the 2x2 floor:
+/// every coarser tile subdivides, so none of them is written.
+pub const START_LEVEL_WIDTH: u8 = (u8::BITS - (CELL_LEVEL - 1).leading_zeros()) as u8;
 
 /// One mask bit per complex tile a node is nested in that could unmask
 /// it, nearest first: unmasked in it, or masked.

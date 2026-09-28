@@ -98,6 +98,11 @@ pub trait Tree {
     fn node(&self, tile: Tile) -> Node;
 
     fn set_node(&mut self, tile: Tile, node: Node);
+
+    /// The level the tree starts at: that of its coarsest node that is
+    /// not `Subdivided`. Every tile coarser than it subdivides -- the
+    /// trunk, which the stream never spells out.
+    fn start_level(&self) -> u8;
 }
 
 impl Tree for Pyramid {
@@ -111,5 +116,11 @@ impl Tree for Pyramid {
 
     fn set_node(&mut self, tile: Tile, node: Node) {
         self.set(tile, to_code(node));
+    }
+
+    fn start_level(&self) -> u8 {
+        (0..=SHAPE.finest_level)
+            .find(|&level| Tile::all_of_level(level).any(|tile| self.node(tile) != Node::Subdivided))
+            .expect("the 2x2 floor never subdivides")
     }
 }

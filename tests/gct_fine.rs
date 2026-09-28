@@ -50,10 +50,11 @@ fn homogeneity_pyramid_sees_a_filled_quarter() {
 }
 
 #[test]
-fn all_clear_is_one_tile_in_six_bits() {
+fn all_clear_is_one_tile_in_nine_bits() {
     let bitmap = Bitmap::new();
-    // leaf + bind + 3 resolution bits (size offset 0, a tile) + 1 value bit
-    assert_eq!(encode(&bitmap).len(), 6);
+    // 3 start level bits (0) + leaf + bind + 3 resolution bits (size
+    // offset 0, a tile) + 1 value bit
+    assert_eq!(encode(&bitmap).len(), 9);
     assert_eq!(tree(&bitmap).node(Tile::whole_bitmap()), Node::ComplexTile { size_offset: 0, masks: false });
     let placements = greedy_tiler(&bitmap, &Pyramid::homogeneity(&bitmap), &Pyramid::copyable(&bitmap));
     assert_eq!(Vec::<Pyramid>::bound_tiles_per_level(&placements).under(Tile::whole_bitmap(), 0), 1);
@@ -64,7 +65,7 @@ fn all_clear_is_one_tile_in_six_bits() {
 fn all_set_round_trips() {
     let mut bitmap = Bitmap::new();
     bitmap.set_rect(0, 0, 255, 255);
-    assert_eq!(encode(&bitmap).len(), 6);
+    assert_eq!(encode(&bitmap).len(), 9);
     check(&bitmap, "all set");
 }
 
