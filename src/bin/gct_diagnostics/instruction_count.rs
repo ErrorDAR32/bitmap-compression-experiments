@@ -73,7 +73,7 @@ fn sample() -> Vec<Bitmap> {
     let mut sample: Vec<Bitmap> = families(HowMany::Each(BITMAPS_PER_GENERATOR)).into_iter().flat_map(|(_, bitmaps)| bitmaps).collect();
     sample.push(checkerboard(CHECKERBOARD_SQUARE));
     sample.extend(record::saved().into_iter().map(|(_, bitmap)| bitmap));
-    sample.extend(grown(sample_seed("noise"), NOISE_DENSITY, 0.0, NOISE_BITMAPS));
+    sample.extend(grown(sample_seed(), NOISE_DENSITY, 0.0, NOISE_BITMAPS));
     sample
 }
 

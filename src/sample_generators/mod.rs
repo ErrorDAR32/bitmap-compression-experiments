@@ -30,18 +30,19 @@ pub mod seed;
 
 pub use city::{one_laid_out, Cities, Plan, PLANS};
 pub use lines::{one_drawn, Drawings, LineSet, LINE_SETS};
-pub use seed::{seed_for_group, seed_uncounted};
+pub use seed::seed_uncounted;
 
 use crate::Bitmap;
 
-/// Where a sample group's seeds start, read from
-/// [`seed::WHERE_THE_SEED_IS_KEPT`] rather than written here.
+/// Where every sample's seeds start, read from
+/// [`seed::WHERE_THE_SEED_IS_KEPT`] rather than written here, counted as
+/// a use of it ([`seed::seed_counted`]).
 ///
 /// Nothing a measurement runs on is a constant in the code. Move the
 /// seed to ask whether a result was about an algorithm or about those
-/// particular bitmaps, and the run says which seed each group used.
-pub fn sample_seed(group: &str) -> u64 {
-    seed::seed_for_group(group)
+/// particular bitmaps, and the run says which seed it used.
+pub fn sample_seed() -> u64 {
+    seed::seed_counted()
 }
 
 /// One shape worth measuring on: what it looks like, the two numbers
@@ -67,7 +68,7 @@ pub struct Shape {
 impl Shape {
     /// `count` bitmaps of this shape, built one at a time.
     pub fn take(&self, count: u64) -> Samples {
-        grown(sample_seed(self.name), self.density, self.cluster, count)
+        grown(sample_seed(), self.density, self.cluster, count)
     }
 
     /// As many as a timed run of this shape should take.

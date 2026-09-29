@@ -27,7 +27,7 @@ pub struct LineSet {
 impl LineSet {
     /// `count` bitmaps of this set, built one at a time.
     pub fn take(&'static self, count: u64) -> Drawings {
-        Drawings { seed: super::sample_seed(self.name), left: count, set: self }
+        Drawings { seed: super::sample_seed(), left: count, set: self }
     }
 
     /// As many as a timed run of this set should take.

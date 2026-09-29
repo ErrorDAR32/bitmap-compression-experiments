@@ -40,13 +40,13 @@ fn every_family_round_trips() {
 #[ignore]
 fn a_second_seed_base_round_trips() {
     for shape in &SHAPES {
-        let seed = sample_seed(shape.name).wrapping_add(SECOND_SEED_OFFSET);
+        let seed = sample_seed().wrapping_add(SECOND_SEED_OFFSET);
         for (case, bitmap) in grown(seed, shape.density, shape.cluster, SECOND_SAMPLE_EACH).enumerate() {
             check(&bitmap, &format!("{}, second seed base, case {case}", shape.name));
         }
     }
     for plan in &PLANS {
-        let seed = sample_seed(plan.name).wrapping_add(SECOND_SEED_OFFSET);
+        let seed = sample_seed().wrapping_add(SECOND_SEED_OFFSET);
         for case in 0..SECOND_SAMPLE_EACH {
             check(&one_laid_out(seed + case, plan), &format!("{}, second seed base, case {case}", plan.name));
         }

@@ -541,6 +541,8 @@ cargo run --release --bin gct_diagnostics -- show measurement
 | `instruction_count.csv` | `cargo run --release --bin gct_diagnostics -- instruction_count` | instructions to encode and to decode a sample, counted by callgrind |
 | `sparse.csv` | `cargo run --release --bin gct_diagnostics -- sparse` | the tree against the count split on sparse bitmaps, beside the least scattered cells can take |
 | `external_benchmarks.csv` | `cargo run --release --manifest-path external_benchmarks/Cargo.toml` | gct against G4, JBIG and zstd: bits and times, family by family |
+| `gct_adversarial.csv` | `cargo run --release --bin gct_adversarial` | the last search against the raw cells: what each of its searches found, and the record before and after |
+| `external_adversarial.csv` | `cargo run --release --manifest-path external_benchmarks/Cargo.toml --bin adversarial` | the last searches against the codecs: each record's gap before and after, both encoders' bits and times on it |
 
 On noise gct spends four raw 128x128 complex tiles, each with its
 payload mode bit, and the start level header: a few bits over the raw

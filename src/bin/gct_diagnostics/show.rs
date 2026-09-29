@@ -12,7 +12,6 @@ pub fn run() {
     };
     for name in names {
         let report = Report::read(&name).unwrap_or_else(|| panic!("no report kept as {name}: one of {}", kept().join(", ")));
-        println!("\n  == {name}");
         report.print();
     }
 }

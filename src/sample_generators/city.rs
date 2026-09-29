@@ -49,7 +49,7 @@ impl Plan {
 
     /// `count` bitmaps of this plan, built one at a time.
     pub fn take(&'static self, count: u64) -> Cities {
-        Cities { seed: super::sample_seed(self.name), left: count, plan: self }
+        Cities { seed: super::sample_seed(), left: count, plan: self }
     }
 
     /// As many as a timed run of this plan should take.

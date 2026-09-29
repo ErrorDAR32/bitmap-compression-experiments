@@ -6,7 +6,8 @@
 //! `external_benchmarks/adversarial/`, replaced only when beaten, and carried on
 //! from by the next run; every recorded bitmap is checked to round trip
 //! through both gct and the codec. Then, for each record, both
-//! encoders' times on it.
+//! encoders' times on it. The table -- a row a codec -- is printed and
+//! kept in `docs/measurements/external_adversarial.csv`.
 //!
 //! From the repository root, in release:
 //!
@@ -23,6 +24,7 @@
 
 use tilesim::adversarial::{record, search_at_once, Effort, Score, SEARCHES_AT_ONCE};
 use tilesim::sample_generators::sample_seed;
+use tilesim::table::report::Report;
 use tilesim::table::Table;
 use tilesim::Bitmap;
 use external_benchmarks::codecs::g4::G4;
@@ -80,15 +82,17 @@ fn median_micros(mut encode: impl FnMut()) -> f64 {
     times[TIMINGS / 2]
 }
 
-/// Searches against every codec, records any new worst, and prints the
+/// Searches against every codec, records any new worst, and reports the
 /// records with both encoders' bits and times.
 fn main() {
-    let seed = sample_seed("adversarial search against codecs");
+    let seed = sample_seed();
     let effort = Effort::from_arguments();
     let mut table = Table::new(&[
         "against",
         "worst gap\nthis run",
-        "record\ngap",
+        "record's gap\nbefore",
+        "record's gap\nnow",
+        "record\nreplaced",
         "gct\nbits",
         "codec\nbits",
         "gct\nencode us",
@@ -105,7 +109,8 @@ fn main() {
 
         let (mut gct, mut codec) = (Gct::new(), (opponent.make)());
         let record_gap = recorded.as_ref().map(|bitmap| score(&mut gct, codec.as_mut(), bitmap).gap);
-        if record_gap.is_none_or(|gap| worst.score.gap > gap) {
+        let beaten = record_gap.is_none_or(|gap| worst.score.gap > gap);
+        if beaten {
             record::write(opponent.record, &worst.bitmap, &format!("{}: gct {} bits over {}", opponent.record, worst.score.gap, codec.name()));
         }
 
@@ -124,13 +129,24 @@ fn main() {
         table.row(&[
             codec.name(),
             worst.score.gap.to_string(),
+            record_gap.map_or("none".to_string(), |gap| gap.to_string()),
             (gct_bits as i64 - codec_bits as i64).to_string(),
+            if beaten { "yes" } else { "no" }.to_string(),
             gct_bits.to_string(),
             codec_bits.to_string(),
             format!("{gct_micros:.0}"),
             format!("{codec_micros:.0}"),
         ]);
     }
-    println!();
-    table.print();
+    let mut report = Report::new(
+        "external_adversarial",
+        "cargo run --release --manifest-path external_benchmarks/Cargo.toml --bin adversarial",
+    );
+    report.note(format!(
+        "{SEARCHES_AT_ONCE} searches a codec, {} changes a window start, {} a plane start; gap: gct's bits less the codec's",
+        effort.window, effort.plane
+    ));
+    report.note(format!("times: the median of {TIMINGS} encodings of the record"));
+    report.add("the records, each round tripping through both", table);
+    report.publish();
 }

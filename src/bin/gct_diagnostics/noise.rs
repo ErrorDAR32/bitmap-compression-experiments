@@ -20,7 +20,7 @@ pub fn run(report: &mut Report) {
     let mut gct = Gct::new();
     let mut table = Table::new(&["density", "gct\nbits a bitmap", "gct\nover raw cells"]);
     for density in DENSITIES {
-        let measured = Measured::of(&mut gct, grown(sample_seed("noise"), density, 0.0, EACH));
+        let measured = Measured::of(&mut gct, grown(sample_seed(), density, 0.0, EACH));
         assert!(measured.lost.is_empty(), "noise at {density}: gct lost cells of cases {:?}", measured.lost);
         let gct_bits = measured.bits / measured.bitmaps;
         table.row(&[

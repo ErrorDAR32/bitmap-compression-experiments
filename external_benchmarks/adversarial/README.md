@@ -12,7 +12,11 @@ Two kinds, both plain PBM images (`P1`, `1` set), 256x256, with notes as
   `timing` and `measurement` encode them: fixed inputs for
   optimizing against.
 
-Searching and saving are described in `docs/testing_protocol.md`.
+Searching and saving are described in `docs/testing_protocol.md`. The
+last search's report -- what it found, and each record before and after
+-- is kept in `docs/measurements/gct_adversarial.csv` (against the raw
+cells) and `docs/measurements/external_adversarial.csv` (against the
+codecs).
 
 ## Saved bitmaps
 

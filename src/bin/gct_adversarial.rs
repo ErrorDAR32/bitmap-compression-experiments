@@ -5,7 +5,9 @@
 //! `docs/testing_protocol.md`.
 //!
 //! The worst plane of all four is recorded when it beats the record,
-//! and the recorded bitmap must still round trip.
+//! and the recorded bitmap must still round trip. What each search found,
+//! and the record, are printed and kept in
+//! `docs/measurements/gct_adversarial.csv`.
 //!
 //! ```text
 //! cargo run --release --bin gct_adversarial
@@ -27,13 +29,14 @@
 
 #![warn(missing_docs, clippy::missing_docs_in_private_items)]
 
-use tilesim::adversarial::{record, search_at_once, Effort, Score};
+use tilesim::adversarial::{record, search_at_once, Effort, Score, SEARCHES_AT_ONCE};
 use tilesim::diagnostics::examination::Examination;
 use tilesim::gct::encode;
 use tilesim::gct::grammar::bit_stream::BitStream;
 use tilesim::gct::tile::{cells_in_tile, Tile};
 use tilesim::gct::Gct;
 use tilesim::sample_generators::sample_seed;
+use tilesim::table::report::Report;
 use tilesim::table::Table;
 use tilesim::Bitmap;
 
@@ -50,7 +53,12 @@ fn save(arguments: &[String]) {
     let mut notes = vec![format!("{name}: {description}")];
     notes.extend(record::notes_from(&record::path(from)).into_iter().map(|note| format!("from record {note}")));
     record::save(name, &bitmap, &notes);
-    println!("saved {} from {from}", record::saved_path(name).display());
+    let mut table =
+        Table::new(&["saved", "from record", "cells\nset", "file", "description"]).left_aligned(&["from record", "file", "description"]);
+    let file = record::saved_path(name);
+    let file = file.strip_prefix(env!("CARGO_MANIFEST_DIR")).unwrap_or(&file);
+    table.row(&[name, from, &bitmap.count_set().to_string(), &file.display().to_string(), description]);
+    table.print();
 }
 
 /// What the record is kept under.
@@ -64,14 +72,15 @@ fn score(bitmap: &Bitmap, area: Tile) -> Score {
     Score { gap: gct_bits as i64 - cells_in_tile(area.level) as i64, gct_bits }
 }
 
-/// Runs the searches in parallel, prints what each found, and records
-/// the worst bitmap if it beats the one on record.
+/// Runs the searches in parallel, records the worst bitmap if it beats
+/// the one on record, and reports what each search found and what the
+/// record is now.
 fn main() {
     let arguments: Vec<String> = std::env::args().skip(1).collect();
     if arguments.first().is_some_and(|command| command == SAVE) {
         return save(&arguments[1..]);
     }
-    let seed = sample_seed("adversarial search");
+    let seed = sample_seed();
     let effort = Effort::from_arguments();
     let recorded = record::read(RECORD);
     let outcomes = search_at_once(seed, recorded.clone(), effort, &|| score);
@@ -83,7 +92,8 @@ fn main() {
         "worst plane\ngap, bits",
         "plane\nfrom",
         "gct\nbits",
-    ]);
+    ])
+    .left_aligned(&["window\nfrom", "plane\nfrom"]);
     for (index, outcome) in outcomes.iter().enumerate() {
         table.row(&[
             index.to_string(),
@@ -94,18 +104,32 @@ fn main() {
             outcome.worst.score.gct_bits.to_string(),
         ]);
     }
-    println!();
-    table.print();
+    let mut report = Report::new("gct_adversarial", "cargo run --release --bin gct_adversarial");
+    report.note(format!(
+        "{SEARCHES_AT_ONCE} searches, {} changes a window start, {} a plane start; gap: gct's bits less the raw cells searched",
+        effort.window, effort.plane
+    ));
+    report.add("the searches", table);
 
-    let worst = outcomes.iter().map(|outcome| &outcome.worst).max_by_key(|found| found.score.gap).unwrap();
+    let worst = outcomes.iter().map(|outcome| &outcome.worst).max_by_key(|found| found.score.gap).expect("a search");
     let record_gap = recorded.map(|bitmap| score(&bitmap, Tile::whole_bitmap()).gap);
-    if record_gap.is_none_or(|gap| worst.score.gap > gap) {
+    let beaten = record_gap.is_none_or(|gap| worst.score.gap > gap);
+    if beaten {
         record::write(RECORD, &worst.bitmap, &format!("{RECORD}: gap {} bits", worst.score.gap));
-        println!("  new record: {} bits over raw (was {record_gap:?})", worst.score.gap);
-    } else {
-        println!("  record kept: {} bits over raw", record_gap.unwrap());
     }
     let bitmap = record::read(RECORD).expect("recorded");
     let examined = Examination::of(&mut Gct::new(), &mut BitStream::default(), &mut Bitmap::new(), &bitmap);
     assert_eq!(examined.first_difference, None, "{RECORD} does not round trip");
+
+    let record_gap_now = if beaten { worst.score.gap } else { record_gap.expect("a record not beaten is there") };
+    let mut table = Table::new(&["record", "worst gap\nthis run", "record's gap\nbefore", "record's gap\nnow", "replaced"]);
+    table.row(&[
+        RECORD.to_string(),
+        worst.score.gap.to_string(),
+        record_gap.map_or("none".to_string(), |gap| gap.to_string()),
+        record_gap_now.to_string(),
+        if beaten { "yes" } else { "no" }.to_string(),
+    ]);
+    report.add("the record, which round trips", table);
+    report.publish();
 }

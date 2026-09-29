@@ -79,8 +79,10 @@ impl Report {
         self.tables.push((title.into(), table));
     }
 
-    /// Prints the notes, then every table under its title.
+    /// Prints the report's name, its notes, then every table under its
+    /// title.
     pub fn print(&self) {
+        println!("\n  == {}", self.name);
         for note in &self.notes {
             println!("  {note}");
         }
@@ -150,6 +152,6 @@ impl Report {
         let path = path(&self.name);
         fs::create_dir_all(path.parent().expect("a folder")).expect("the measurements folder");
         fs::write(&path, self.to_text()).expect("the report written");
-        println!("\n  kept in {}", path.display());
+        println!("\n  kept in {FOLDER}/{}.{EXTENSION}", self.name);
     }
 }

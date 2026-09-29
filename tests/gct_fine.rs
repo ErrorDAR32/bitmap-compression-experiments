@@ -25,7 +25,7 @@ use common::check;
 /// The seed for the grown and laid-out cases here: every other run's,
 /// not counted as a use.
 fn seed() -> u64 {
-    seed_uncounted("fine tests")
+    seed_uncounted()
 }
 
 /// A small shape to test the generic pyramid on: three levels, a byte

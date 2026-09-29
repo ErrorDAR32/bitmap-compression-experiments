@@ -27,14 +27,16 @@ remember to move it.
   they run far more often than anything measured, and would roll the
   seed by themselves.
 
-Every run says which seed each sample group used, and which use of it
-the run is, so a number can always be traced to its bitmaps. The file is
+Every run prints, on standard error -- so a test's output shows it
+too -- a one-row table of its seed, which use of it the run is, and
+where it came from, so a number can always be traced to its bitmaps. The file is
 kept out of git (`.gitignore`): a seed and its count belong to the
 working copy, and checking out or resetting files never moves them.
 With no file yet, the first run rolls one.
 
 Every bitmap a test or a tool runs on is grown from that seed -- a
-group's bitmaps from consecutive seeds starting at it -- but for the
+shape's, plan's or line set's bitmaps from consecutive seeds starting
+at it -- but for the
 fixed ones: the checkerboards, the saved adversarial bitmaps, and a fine
 test's bitmap drawn by hand to pin a known case, never to measure
 anything.
@@ -49,7 +51,10 @@ Three parts, kept apart:
   costs -- and never judge or print it.
 - **Tests** (`tests/`) judge what the diagnostics gather: pass or fail.
 - **Tools** (`src/bin/`, and the external benchmarks' crate) print what
-  the diagnostics gather, or search for bitmaps.
+  the diagnostics gather, or search for bitmaps. Every tool prints its
+  results as tables, through the one table printer (`src/table/`), and
+  a tool that measures or searches keeps them
+  (`docs/measurements/<tool>.csv`).
 
 ### Three tiers of test
 
@@ -102,10 +107,17 @@ cargo run --release --bin gct_diagnostics -- <tool> [<argument>]
 | `render` | PNG images of the bitmaps looked at, in `target/gct_diagnostics/`; keeps nothing | |
 | `show` | the kept measurements, read back from `docs/measurements/` without measuring | a tool's name, for its alone |
 
+Run with no tool, or one not there, it prints this list as a table --
+each tool, what it prints, its argument and the file it keeps -- from
+`TOOLS` in `src/bin/gct_diagnostics/main.rs`. `render` prints a table
+of the images it wrote; `show` prints each kept report as it was
+published.
+
 The bitmaps looked at are the adversarial records, the saved bitmaps and
 any PBM image named in `GCT_DIAGNOSE` (`GCT_DIAGNOSE=<path.pbm>`).
 
-Every tool that measures -- these and the external benchmarks -- keeps
+Every tool that measures -- these, the external benchmarks and the
+adversarial searches -- keeps
 its tables in `docs/measurements/<tool>.csv`, rewritten by every run,
 with the command, the seed and the commit it was measured on as the
 file's notes (`src/table/report.rs`). The latest numbers live there and
@@ -177,6 +189,14 @@ codec -- scored as gct's bits less the codec's -- keeping the worst for
 each beside it, and times both encoders on each record, 21 times, the
 median kept.
 
+Each search prints, and keeps, its report: `gct_adversarial` a table of
+what each of its searches found -- the worst window and plane, the
+start each came from -- and one of the record, before and after, and
+whether it was replaced (`docs/measurements/gct_adversarial.csv`); the
+codecs' search a row a codec, with its record's gap before and after,
+both encoders' bits and times on it
+(`docs/measurements/external_adversarial.csv`).
+
 A search cools over all the changes it tries, so one long search
 settles deeper than many short ones. It tries 400 changes on the window
 from each start, then 100 on the whole plane; the argument sets how
@@ -194,7 +214,8 @@ measured on. Once a search has settled, its record is saved as a
 bitmap in `external_benchmarks/adversarial/saved/`, named for what it
 is, with a line describing it and the record's scores as comment lines
 -- never replaced by a search, so the benchmarks' inputs stay fixed
-(`external_benchmarks/adversarial/README.md` lists them):
+(`external_benchmarks/adversarial/README.md` lists them). It prints a
+table of what it saved, from which record, and where:
 
 ```
 cargo run --release --bin gct_adversarial -- save <record> <name> "<description>"

@@ -4,19 +4,9 @@
 //! `docs/measurements/<tool>.csv`, replacing the last run's -- the latest
 //! numbers are always there, and nowhere copied by hand.
 //!
-//! | tool | prints |
-//! |---|---|
-//! | `measurement` | bits a bitmap from every sample generator, one table a generator and one row a parameter set, then what the trees hold, family by family |
-//! | `census` | what gct's tree is made of, node kind by level, for each bitmap looked at |
-//! | `per_shape` | gct's bits on every shape, plan and line set on its own |
-//! | `noise` | gct's bits on noise at several densities, against the raw cells |
-//! | `copy_offsets` | a search for better copy offsets, near and far, on the fast sample, the best then set against the current ones on the timed sample |
-//! | `sparse` | the tree against the count split on sparse bitmaps, density by density, scattered and clustered, beside the least scattered cells can take |
-//! | `timing` | wall-clock time to encode and decode, averaged over a large sample, a family at a time |
-//! | `instruction_count` | instructions to encode and to decode a fixed sample, counted by callgrind (valgrind must be installed) |
-//! | `instruction_sample` | encodes and decodes that sample alone, uncounted: what callgrind runs; nothing kept |
-//! | `render` | PNG images of the bitmaps looked at, in `target/gct_diagnostics/`; nothing kept |
-//! | `show` | the kept measurements, every one or the one named next, read back without measuring |
+//! Every tool, what it prints, and the argument it takes, are in
+//! [`TOOLS`]; run with no tool, or one not there, and they are printed
+//! as a table.
 //!
 //! The bitmaps looked at are the adversarial records and saved bitmaps
 //! (`external_benchmarks/adversarial/`), plus any PBM image named in `GCT_DIAGNOSE`.
@@ -41,40 +31,123 @@ mod sparse;
 mod timing;
 
 use tilesim::table::report::Report;
+use tilesim::table::Table;
 
-/// A tool that measures: it fills a report, which is printed and kept.
-type Measuring = fn(&mut Report);
+/// What a tool does when run.
+enum Run {
+    /// It measures: it fills a report, which is printed and kept.
+    Measuring(fn(&mut Report)),
+    /// It keeps nothing.
+    Other(fn()),
+}
 
-/// The tools that measure, by name.
-const MEASURING: [(&str, Measuring); 8] = [
-    ("measurement", measurement::run),
-    ("census", census::run),
-    ("per_shape", per_shape::run),
-    ("noise", noise::run),
-    ("copy_offsets", copy_offsets::run),
-    ("sparse", sparse::run),
-    ("timing", timing::run),
-    ("instruction_count", instruction_count::run),
+/// One tool: its name, what it prints, the argument it takes after its
+/// name, if any, and what it does when run.
+struct Tool {
+    /// What the first argument names it by.
+    name: &'static str,
+    /// What it prints.
+    prints: &'static str,
+    /// The argument after its name, and what it is if not given; blank
+    /// if it takes none.
+    argument: &'static str,
+    /// What it does.
+    run: Run,
+}
+
+/// Every tool.
+const TOOLS: [Tool; 11] = [
+    Tool {
+        name: "measurement",
+        prints: "bits a bitmap from every sample generator, a table a generator, a row a parameter set; then what the trees hold",
+        argument: "",
+        run: Run::Measuring(measurement::run),
+    },
+    Tool {
+        name: "census",
+        prints: "what gct's tree is made of, node kind by level, for each bitmap looked at",
+        argument: "",
+        run: Run::Measuring(census::run),
+    },
+    Tool {
+        name: "per_shape",
+        prints: "gct's bits on every shape, plan and line set on its own",
+        argument: "",
+        run: Run::Measuring(per_shape::run),
+    },
+    Tool {
+        name: "noise",
+        prints: "gct's bits on noise at several densities, against the raw cells",
+        argument: "",
+        run: Run::Measuring(noise::run),
+    },
+    Tool {
+        name: "copy_offsets",
+        prints: "a search for better copy offsets on the fast sample, the best set against the current ones on the timed sample",
+        argument: "",
+        run: Run::Measuring(copy_offsets::run),
+    },
+    Tool {
+        name: "sparse",
+        prints: "the tree against the count split on sparse bitmaps, beside the least scattered cells can take",
+        argument: "",
+        run: Run::Measuring(sparse::run),
+    },
+    Tool {
+        name: "timing",
+        prints: "time to encode and decode a large sample, family by family",
+        argument: "bitmaps a generator (100)",
+        run: Run::Measuring(timing::run),
+    },
+    Tool {
+        name: "instruction_count",
+        prints: "instructions to encode and to decode a fixed sample, counted by callgrind (needs valgrind)",
+        argument: "",
+        run: Run::Measuring(instruction_count::run),
+    },
+    Tool {
+        name: instruction_count::SAMPLE_TOOL,
+        prints: "nothing: encodes and decodes that sample alone, uncounted -- what callgrind runs",
+        argument: "",
+        run: Run::Other(instruction_count::run_sample),
+    },
+    Tool {
+        name: "render",
+        prints: "the bitmaps looked at, each written as a PNG image in target/gct_diagnostics/",
+        argument: "",
+        run: Run::Other(render::run),
+    },
+    Tool {
+        name: "show",
+        prints: "the kept measurements, read back without measuring",
+        argument: "a tool's name, for its alone",
+        run: Run::Other(show::run),
+    },
 ];
-
-/// The tools that keep nothing, by name.
-const OTHERS: [(&str, fn()); 3] = [("render", render::run), ("show", show::run), (instruction_count::SAMPLE_TOOL, instruction_count::run_sample)];
 
 /// The exit code for a tool not named, or named wrongly.
 const USAGE_EXIT_CODE: i32 = 2;
 
-/// Runs the tool named by the first argument, or says which there are.
+/// Runs the tool named by the first argument, or prints every tool.
 fn main() {
     let asked = std::env::args().nth(1).unwrap_or_default();
-    if let Some((name, run)) = MEASURING.iter().find(|(name, _)| *name == asked) {
-        let mut report = Report::new(name, &format!("cargo run --release --bin gct_diagnostics -- {name}"));
-        run(&mut report);
-        report.publish();
-    } else if let Some((_, run)) = OTHERS.iter().find(|(name, _)| *name == asked) {
-        run();
-    } else {
-        let names: Vec<&str> = MEASURING.iter().map(|(name, _)| *name).chain(OTHERS.iter().map(|(name, _)| *name)).collect();
-        eprintln!("usage: gct_diagnostics <tool>, one of: {}", names.join(", "));
-        std::process::exit(USAGE_EXIT_CODE);
+    match TOOLS.iter().find(|tool| tool.name == asked) {
+        Some(Tool { name, run: Run::Measuring(run), .. }) => {
+            let mut report = Report::new(name, &format!("cargo run --release --bin gct_diagnostics -- {name}"));
+            run(&mut report);
+            report.publish();
+        }
+        Some(Tool { run: Run::Other(run), .. }) => run(),
+        None => {
+            let kept_in = "kept in\ndocs/measurements/";
+            let mut table = Table::new(&["tool", "prints", "argument", kept_in]).left_aligned(&["prints", "argument", kept_in]);
+            for tool in &TOOLS {
+                let kept = if matches!(tool.run, Run::Measuring(_)) { format!("{}.csv", tool.name) } else { String::new() };
+                table.row(&[tool.name, tool.prints, tool.argument, &kept]);
+            }
+            println!("  cargo run --release --bin gct_diagnostics -- <tool> [<argument>]");
+            table.print();
+            std::process::exit(USAGE_EXIT_CODE);
+        }
     }
 }

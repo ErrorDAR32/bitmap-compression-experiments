@@ -19,10 +19,13 @@ pub mod csv;
 pub mod report;
 
 /// A table being built. The first column is left aligned and named
-/// rather than numbered; the rest are right aligned figures.
+/// rather than numbered; the rest are right aligned figures, but for
+/// any [`Table::left_aligned`] names as words.
 pub struct Table {
     /// Each column's heading, one entry a line of it.
     headings: Vec<Vec<String>>,
+    /// Whether each column is left aligned: words, rather than figures.
+    left: Vec<bool>,
     /// Each row's fields, in column order.
     rows: Vec<Vec<String>>,
     /// Where rules go: before the row at each of these indices.
@@ -35,9 +38,25 @@ impl Table {
     pub fn new(headings: &[&str]) -> Self {
         Self {
             headings: headings.iter().map(|heading| heading.split('\n').map(str::to_string).collect()).collect(),
+            left: (0..headings.len()).map(|column| column == 0).collect(),
             rows: Vec::new(),
             rules: Vec::new(),
         }
+    }
+
+    /// The columns headed `headings` hold words, not figures: left
+    /// aligned, as the first column is. Each must be one of the table's
+    /// headings, as given to [`Table::new`].
+    pub fn left_aligned(mut self, headings: &[&str]) -> Self {
+        for heading in headings {
+            let column = self
+                .headings
+                .iter()
+                .position(|lines| lines.join("\n") == *heading)
+                .unwrap_or_else(|| panic!("no column headed {heading:?}"));
+            self.left[column] = true;
+        }
+        self
     }
 
     /// One row. Must have as many fields as there are headings.
@@ -64,15 +83,18 @@ impl Table {
     }
 
     /// One printed line of `fields`, each column as wide as
-    /// `column_widths` says: the first left aligned, the rest right.
-    fn printed_line(column_widths: &[usize], fields: &[String]) -> String {
+    /// `column_widths` says, and aligned as [`Table::left`] says.
+    fn printed_line(&self, column_widths: &[usize], fields: &[String]) -> String {
         let mut line = String::from("  ");
         for (column, &width) in column_widths.iter().enumerate() {
             let field = fields.get(column).map_or("", String::as_str);
-            if column == 0 {
+            if column > 0 {
+                line.push_str(" | ");
+            }
+            if self.left[column] {
                 line.push_str(&format!("{field:<width$}"));
             } else {
-                line.push_str(&format!(" | {field:>width$}"));
+                line.push_str(&format!("{field:>width$}"));
             }
         }
         // Right hand padding goes, but never a column bar: a heading
@@ -89,17 +111,22 @@ impl Table {
         format!("  {}", dashes.join("-+-"))
     }
 
-    /// Prints the table: the headings in a ruled block, then the rows.
+    /// Prints the table, on standard output: [`Table::rendered`].
+    pub fn print(&self) {
+        print!("{}", self.rendered());
+    }
+
+    /// The table as printed: the headings in a ruled block, then the
+    /// rows, every line ended.
     ///
     /// A rule above the headings as well as below them, because a tall
     /// heading leaves blank cells over the short columns and without
     /// something to close the top they read as empty rows of the table
     /// rather than as part of its head.
-    pub fn print(&self) {
+    pub fn rendered(&self) -> String {
         let column_widths = self.column_widths();
         let heading_lines = self.headings.iter().map(Vec::len).max().unwrap_or(1);
-
-        println!("{}", Self::rule_line(&column_widths));
+        let mut lines = vec![Self::rule_line(&column_widths)];
         // Headings sit at the bottom of their stack, so a one line
         // heading lines up with the last line of a taller one.
         for heading_line in 0..heading_lines {
@@ -111,15 +138,16 @@ impl Table {
                     heading_line.checked_sub(blank_lines_above).map_or(String::new(), |line| heading[line].clone())
                 })
                 .collect();
-            println!("{}", Self::printed_line(&column_widths, &fields));
+            lines.push(self.printed_line(&column_widths, &fields));
         }
-        println!("{}", Self::rule_line(&column_widths));
+        lines.push(Self::rule_line(&column_widths));
 
         for (index, row) in self.rows.iter().enumerate() {
-            println!("{}", Self::printed_line(&column_widths, row));
+            lines.push(self.printed_line(&column_widths, row));
             if self.rules.contains(&(index + 1)) {
-                println!("{}", Self::rule_line(&column_widths));
+                lines.push(Self::rule_line(&column_widths));
             }
         }
+        lines.iter().map(|line| format!("{line}\n")).collect()
     }
 }
