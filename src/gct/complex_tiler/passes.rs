@@ -96,7 +96,7 @@ fn best_at_or_under(
     tile: Tile,
     nested: &NestedResolutions,
     chosen: &mut FixedList<Candidate, MOST_CANDIDATES>,
-) -> u32 {
+) -> u64 {
     if tile.level > FINEST_CANDIDATE_LEVEL || nested.unmasking(complex_tiling.fields(tile), tile).is_some() {
         return 0;
     }
@@ -110,17 +110,17 @@ fn best_at_or_under(
     // The best under the children go on `chosen` first, to be taken off
     // again if the tile's own does better.
     let under_from = chosen.len();
-    let under_saving: u32 = tile
+    let under_saving: u64 = tile
         .children()
         .into_iter()
         .filter(|&child| placed.is_none_or(|placement| placement.masks(child)))
         .map(|child| best_at_or_under(complex_tiling, bitmap, costs, child, nested, chosen))
         .sum();
     match own {
-        Some(candidate) if candidate.saving >= under_saving => {
+        Some((candidate, saving)) if saving >= under_saving => {
             chosen.truncate(under_from);
             chosen.push(candidate);
-            candidate.saving
+            saving
         }
         _ => under_saving,
     }

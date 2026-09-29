@@ -1,8 +1,7 @@
 //! A generic pyramid: one element per tile, at every level between a
 //! coarsest and a finest, each element a fixed power-of-two number of
-//! bits, packed into machine words -- several to a word, or, for an
-//! element wider than a word, several words to it. Every element is
-//! aligned naturally: it starts at a multiple of its own size.
+//! bits, packed into machine words with no gaps between them -- several
+//! to a word, or, for an element wider than a word, several words to it.
 //!
 //! A tile is its level and its (x, y) in that level's plane; a tile's
 //! children are the 2x2 block at (2x..2x+1, 2y..2y+1) one level finer.
@@ -83,11 +82,12 @@ pub struct Pyramid<S: PyramidShape, const WORDS: usize> {
 
 impl<S: PyramidShape, const WORDS: usize> Pyramid<S, WORDS> {
     /// The shape is sound: its words are `WORDS`, its levels in order,
-    /// and its element a power of two bits.
+    /// and its element a power of two bits, so elements pack words with
+    /// no gaps.
     const SOUND: () = {
         assert!(WORDS == S::WORDS, "a pyramid's words are its shape's");
         assert!(S::COARSEST_LEVEL <= S::FINEST_LEVEL && S::FINEST_LEVEL <= CELL_LEVEL);
-        assert!(S::ELEMENT_BITS.is_power_of_two(), "an element is aligned naturally");
+        assert!(S::ELEMENT_BITS.is_power_of_two(), "an element's bits are a power of two");
     };
     /// Where each level's words start, by level.
     const LEVEL_STARTS: [usize; LEVEL_STARTS] = level_starts(S::COARSEST_LEVEL, S::FINEST_LEVEL, S::ELEMENT_BITS);

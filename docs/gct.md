@@ -83,8 +83,8 @@ the pyramid of that shape, with its own access methods -- nothing
 outside its own file reads or writes its elements but through them --
 and its sweep if any. Every size follows from those constants when
 compiling: each pyramid is one array of words of a known length,
-allocated once. An element's bits are a power of two, so every element
-is aligned naturally, at a multiple of its own size.
+allocated once. An element's bits are a power of two, so elements pack
+their words with no gaps.
 
 | pyramid | bits | levels | holds | sweep |
 |---|---|---|---|---|

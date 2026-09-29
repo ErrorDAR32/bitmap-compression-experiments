@@ -18,7 +18,6 @@
 
 use super::bit_cost::{bits_with, node_bits};
 use super::cost_pyramid::CostPyramid;
-use crate::gct::grammar::bit_stream::MOST_BITS;
 use crate::gct::grammar::raw_resolution_fits;
 use crate::gct::nested_resolutions::NestedResolutions;
 use crate::gct::pyramids::complex_tiling::{ComplexTiling, Fields};
@@ -30,7 +29,7 @@ use crate::Bitmap;
 pub const FINEST_CANDIDATE_LEVEL: u8 = CELL_LEVEL - 2;
 
 /// A tile the complex tiler could make a complex tile, at its best
-/// size offset, and what that would save.
+/// size offset. Every field is bytes, so a list of them has no padding.
 #[derive(Clone, Copy, Default)]
 pub struct Candidate {
     /// The tile.
@@ -39,14 +38,14 @@ pub struct Candidate {
     pub size_offset: u8,
     /// Whether, of 1x1 resolution, it would say its cells as a cell list.
     pub cell_list: bool,
-    /// The bits it saves, as the tiling stood when it was counted.
-    pub saving: u32,
     /// The resolutions of the complex tiles `tile` is nested in.
     pub nested: NestedResolutions,
 }
 
-/// A saving is at most a stream's bits, which fit a candidate's 32.
-const _: () = assert!(MOST_BITS <= u32::MAX as usize);
+const _: () = assert!(
+    size_of::<Candidate>() == size_of::<Tile>() + size_of::<u8>() + size_of::<bool>() + size_of::<NestedResolutions>(),
+    "a candidate has no padding"
+);
 
 /// The finest candidates, 16x16 and finer, whose counts debug builds
 /// check against the reference count: coarser ones would count too much
@@ -94,16 +93,16 @@ pub fn tried_resolutions(here: Fields, level: u8, nested: &NestedResolutions) ->
 
 impl Candidate {
     /// `tile`'s best size offset to be a complex tile at, if any saves
-    /// bits, nested in `nested`, every count read from `costs`. Changes
-    /// nothing: each size offset is scored as the complex tile it would
-    /// be.
+    /// bits, and the bits it saves, nested in `nested`, every count read
+    /// from `costs`. Changes nothing: each size offset is scored as the
+    /// complex tile it would be.
     pub fn best_for(
         complex_tiling: &ComplexTiling,
         bitmap: &Bitmap,
         costs: &CostPyramid,
         tile: Tile,
         nested: &NestedResolutions,
-    ) -> Option<Candidate> {
+    ) -> Option<(Candidate, u64)> {
         let here = complex_tiling.fields(tile);
         let without = costs.without(tile);
         // A size offset's bits: the tile as that complex tile, its
@@ -116,7 +115,7 @@ impl Candidate {
             bits
         };
         debug_assert_matches_reference(complex_tiling, bitmap, tile, here, nested, without);
-        let mut best: Option<Candidate> = None;
+        let mut best: Option<(Candidate, u64)> = None;
         for resolution in tried_resolutions(here, tile.level, nested) {
             let size_offset = resolution - tile.level;
             let plain = with(here.as_complex_tile(size_offset), resolution);
@@ -128,8 +127,8 @@ impl Candidate {
                 _ => (plain, false),
             };
             let Some(saving) = without.checked_sub(with_bits).filter(|&saving| saving > 0) else { continue };
-            if best.as_ref().is_none_or(|current| saving > current.saving as u64) {
-                best = Some(Candidate { tile, size_offset, cell_list, saving: saving as u32, nested: *nested });
+            if best.is_none_or(|(_, best_saving)| saving > best_saving) {
+                best = Some((Candidate { tile, size_offset, cell_list, nested: *nested }, saving));
             }
         }
         best
