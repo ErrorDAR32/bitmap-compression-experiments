@@ -13,7 +13,7 @@
 //! are: settled entirely by a seed and a plan, regenerated every time
 //! they are asked for, never stored.
 
-use super::rolls::Rolls;
+use crate::rng::Rng;
 use crate::Bitmap;
 
 /// How a city is laid out: how far apart the streets run, how wide
@@ -95,15 +95,15 @@ impl Iterator for Cities {
 /// border cuts the blocks along it.
 pub fn one_laid_out(seed: u64, plan: &Plan) -> Bitmap {
     let mut bits = Bitmap::new();
-    let mut rolls = Rolls(seed);
+    let mut rng = Rng::new(seed);
     let side = plan.block();
-    let (offset_x, offset_y) = (rolls.upto(plan.pitch as u64) as i64, rolls.upto(plan.pitch as u64) as i64);
+    let (offset_x, offset_y) = (rng.below(plan.pitch as u64) as i64, rng.below(plan.pitch as u64) as i64);
 
     let mut y = offset_y - plan.pitch;
     while y < crate::HEIGHT as i64 {
         let mut x = offset_x - plan.pitch;
         while x < crate::WIDTH as i64 {
-            block(&mut bits, x, y, side, plan.courtyards, &mut rolls);
+            block(&mut bits, x, y, side, plan.courtyards, &mut rng);
             x += plan.pitch;
         }
         y += plan.pitch;
@@ -111,22 +111,27 @@ pub fn one_laid_out(seed: u64, plan: &Plan) -> Bitmap {
     bits
 }
 
+/// How often, in a hundred blocks, one is left clear: a park.
+const PARKS_IN_A_HUNDRED: u64 = 12;
+
+/// The sides a courtyard can have, in cells.
+const COURTYARD_SIDES: [i64; 3] = [2, 4, 8];
+
 /// One block, filled, with courtyards cut out of it -- or left clear
 /// altogether, which is a park.
-fn block(bits: &mut Bitmap, x: i64, y: i64, side: i64, courtyards: u64, rolls: &mut Rolls) {
-    if rolls.chance(12) {
+fn block(bits: &mut Bitmap, x: i64, y: i64, side: i64, courtyards: u64, rng: &mut Rng) {
+    if rng.percent_chance(PARKS_IN_A_HUNDRED) {
         return;
     }
     bits.set_rect(x, y, x + side - 1, y + side - 1);
     for _ in 0..courtyards {
-        // A courtyard of 2, 4 or 8 cells, anywhere in the block.
-        let hole = 1 << (1 + rolls.upto(3));
-        if hole >= side {
+        let courtyard_side = COURTYARD_SIDES[rng.below(COURTYARD_SIDES.len() as u64) as usize];
+        if courtyard_side >= side {
             continue;
         }
-        let room = (side - hole + 1) as u64;
-        let (hx, hy) = (x + rolls.upto(room) as i64, y + rolls.upto(room) as i64);
-        bits.unset_rect(hx, hy, hx + hole - 1, hy + hole - 1);
+        let room = (side - courtyard_side + 1) as u64;
+        let (courtyard_x, courtyard_y) = (x + rng.below(room) as i64, y + rng.below(room) as i64);
+        bits.unset_rect(courtyard_x, courtyard_y, courtyard_x + courtyard_side - 1, courtyard_y + courtyard_side - 1);
     }
 }
 

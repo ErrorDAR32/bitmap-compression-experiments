@@ -3,7 +3,7 @@
 //! -- a width of one most often, and each wider one half as likely as
 //! the one before. Like every sample, settled by a seed.
 
-use super::rolls::Rolls;
+use crate::rng::Rng;
 use crate::{Bitmap, WIDTH};
 
 /// A kind of drawing: how many lines a bitmap is given, and how many to
@@ -83,19 +83,19 @@ impl Iterator for Drawings {
 /// width. The border cuts what runs past it.
 pub fn one_drawn(seed: u64, set: &LineSet) -> Bitmap {
     let mut bits = Bitmap::new();
-    let mut rolls = Rolls(seed);
+    let mut rng = Rng::new(seed);
     let side = WIDTH as u64;
     for _ in 0..set.lines {
-        let (x, y) = (rolls.upto(side) as i64, rolls.upto(side) as i64);
-        let (dx, dy) = ORIENTATIONS[rolls.upto(ORIENTATIONS.len() as u64) as usize];
-        let length = 1 + rolls.upto(side) as i64;
+        let (x, y) = (rng.below(side) as i64, rng.below(side) as i64);
+        let (dx, dy) = ORIENTATIONS[rng.below(ORIENTATIONS.len() as u64) as usize];
+        let length = 1 + rng.below(side) as i64;
         let mut width = 1;
-        while width < WIDEST && rolls.chance(WIDER_IN_A_HUNDRED) {
+        while width < WIDEST && rng.percent_chance(WIDER_IN_A_HUNDRED) {
             width += 1;
         }
         for step in 0..length {
-            let (cx, cy) = (x + dx * step, y + dy * step);
-            bits.set_rect(cx, cy, cx + width - 1, cy + width - 1);
+            let (step_x, step_y) = (x + dx * step, y + dy * step);
+            bits.set_rect(step_x, step_y, step_x + width - 1, step_y + width - 1);
         }
     }
     bits

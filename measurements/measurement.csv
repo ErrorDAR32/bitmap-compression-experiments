@@ -1,6 +1,6 @@
 # written by `cargo run --release --bin gct_diagnostics -- measurement`
 # seed 1950720362523133367
-# commit f018350, with uncommitted changes
+# commit 358ef71, with uncommitted changes
 
 ## grown
 grown,"density, cluster",bitmaps,"cells set
@@ -8,21 +8,21 @@ a bitmap","gct bits
 a bitmap",fewest,most,"of the
 raw cells","encode us
 a bitmap"
-sparse scattered,"0.05 density, 0 cluster",20,3276,19063,19040,19092,29.1%,2276
-sparse ragged,"0.05 density, 0.7 cluster",20,3276,19015,18868,19234,29.0%,1490
-sparse blobs,"0.05 density, 0.95 cluster",20,3276,9794,9094,10406,14.9%,930
-middling scattered,"0.2 density, 0 cluster",6,13107,48837,48678,49026,74.5%,2424
-middling ragged,"0.2 density, 0.7 cluster",6,13107,48986,48850,49251,74.7%,2837
-middling blobs,"0.2 density, 0.95 cluster",6,13107,29098,28694,29727,44.4%,3172
-dense scattered,"0.5 density, 0 cluster",2,32768,65567,65567,65567,100.0%,2108
-dense ragged,"0.5 density, 0.7 cluster",2,32768,65512,65491,65534,100.0%,2339
-dense blobs,"0.5 density, 0.95 cluster",2,32768,45516,45265,45768,69.5%,4252
-a few cells,"0.0002 density, 0 cluster",12,13,219,216,225,0.3%,149
-a hundred cells,"0.0015 density, 0 cluster",12,98,1127,1120,1135,1.7%,321
-sparse clusters,"0.005 density, 0.7 cluster",12,327,2811,2688,2923,4.3%,405
-one percent,"0.01 density, 0 cluster",12,655,5395,5386,5413,8.2%,901
+sparse scattered,"0.05 density, 0 cluster",20,3276,19051,19022,19076,29.1%,2099
+sparse ragged,"0.05 density, 0.7 cluster",20,3276,19049,18479,19306,29.1%,1744
+sparse blobs,"0.05 density, 0.95 cluster",20,3276,9757,8725,10303,14.9%,1245
+middling scattered,"0.2 density, 0 cluster",6,13107,48838,48627,49007,74.5%,2908
+middling ragged,"0.2 density, 0.7 cluster",6,13107,48777,48297,49020,74.4%,3205
+middling blobs,"0.2 density, 0.95 cluster",6,13107,29204,27970,30542,44.6%,2406
+dense scattered,"0.5 density, 0 cluster",2,32768,65567,65567,65567,100.0%,2863
+dense ragged,"0.5 density, 0.7 cluster",2,32768,65456,65440,65473,99.9%,3351
+dense blobs,"0.5 density, 0.95 cluster",2,32768,45543,44721,46365,69.5%,3142
+a few cells,"0.0002 density, 0 cluster",12,13,219,214,224,0.3%,136
+a hundred cells,"0.0015 density, 0 cluster",12,98,1127,1122,1136,1.7%,317
+sparse clusters,"0.005 density, 0.7 cluster",12,327,2780,2561,2938,4.2%,629
+one percent,"0.01 density, 0 cluster",12,655,5395,5377,5413,8.2%,1025
 ---
-all,"",132,4865,16566,216,65567,25.3%,1388
+all,"",132,4865,16556,214,65567,25.3%,1492
 
 ## laid out like a city
 laid out like a city,"pitch, street, courtyards",bitmaps,"cells set
@@ -30,12 +30,12 @@ a bitmap","gct bits
 a bitmap",fewest,most,"of the
 raw cells","encode us
 a bitmap"
-"blocks of 28, streets of 4","pitch 32, street 4, 2 courtyards",12,41139,10076,9109,10856,15.4%,1062
-"blocks of 24, streets of 8","pitch 32, street 8, 3 courtyards",12,27671,11914,10543,13447,18.2%,1148
-"blocks of 60, streets of 4","pitch 64, street 4, 6 courtyards",12,49031,8025,7112,9553,12.2%,944
-"blocks of 12, streets of 4","pitch 16, street 4, 1 courtyards",12,25951,17363,15533,20154,26.5%,1529
+"blocks of 28, streets of 4","pitch 32, street 4, 2 courtyards",12,41071,10106,8922,11122,15.4%,1206
+"blocks of 24, streets of 8","pitch 32, street 8, 3 courtyards",12,28440,12316,11253,13744,18.8%,1415
+"blocks of 60, streets of 4","pitch 64, street 4, 6 courtyards",12,46149,7584,6208,8700,11.6%,990
+"blocks of 12, streets of 4","pitch 16, street 4, 1 courtyards",12,26428,17013,15631,19508,26.0%,1594
 ---
-all,"",48,35948,11845,7112,20154,18.1%,1171
+all,"",48,35522,11755,6208,19508,17.9%,1301
 
 ## drawn with lines
 drawn with lines,lines,bitmaps,"cells set
@@ -43,11 +43,11 @@ a bitmap","gct bits
 a bitmap",fewest,most,"of the
 raw cells","encode us
 a bitmap"
-a few lines,8 lines,12,1834,1615,990,2007,2.5%,255
-some lines,32 lines,12,6190,7058,6069,9569,10.8%,722
-many lines,128 lines,12,20761,25647,22990,28549,39.1%,2039
+a few lines,8 lines,12,1754,1665,1132,2162,2.5%,521
+some lines,32 lines,12,6216,6709,5493,8391,10.2%,976
+many lines,128 lines,12,19689,25719,23405,27279,39.2%,2987
 ---
-all,"",36,9595,11440,990,28549,17.5%,1005
+all,"",36,9220,11364,1132,27279,17.3%,1495
 
 ## checkerboard
 checkerboard,square side,bitmaps,"cells set
@@ -55,23 +55,23 @@ a bitmap","gct bits
 a bitmap",fewest,most,"of the
 raw cells","encode us
 a bitmap"
-3x3 squares,side 3,1,32766,65237,65237,65237,99.5%,2510
-5x5 squares,side 5,1,32760,52225,52225,52225,79.7%,3143
-7x7 squares,side 7,1,32760,37234,37234,37234,56.8%,2861
-9x9 squares,side 9,1,32760,25007,25007,25007,38.2%,2443
-11x11 squares,side 11,1,32736,23745,23745,23745,36.2%,2278
-13x13 squares,side 13,1,32760,23156,23156,23156,35.3%,1986
-15x15 squares,side 15,1,32670,15862,15862,15862,24.2%,1389
-17x17 squares,side 17,1,32640,12937,12937,12937,19.7%,1091
-19x19 squares,side 19,1,32718,11568,11568,11568,17.7%,1079
-21x21 squares,side 21,1,32760,10463,10463,10463,16.0%,1013
-23x23 squares,side 23,1,32568,10822,10822,10822,16.5%,1042
-25x25 squares,side 25,1,32750,10052,10052,10052,15.3%,1105
-27x27 squares,side 27,1,32670,8803,8803,8803,13.4%,971
-29x29 squares,side 29,1,32480,6701,6701,6701,10.2%,829
-31x31 squares,side 31,1,32736,5380,5380,5380,8.2%,640
+3x3 squares,side 3,1,32766,65237,65237,65237,99.5%,4140
+5x5 squares,side 5,1,32760,52225,52225,52225,79.7%,4985
+7x7 squares,side 7,1,32760,37234,37234,37234,56.8%,2899
+9x9 squares,side 9,1,32760,25007,25007,25007,38.2%,1893
+11x11 squares,side 11,1,32736,23745,23745,23745,36.2%,2010
+13x13 squares,side 13,1,32760,23156,23156,23156,35.3%,2027
+15x15 squares,side 15,1,32670,15862,15862,15862,24.2%,1351
+17x17 squares,side 17,1,32640,12937,12937,12937,19.7%,1084
+19x19 squares,side 19,1,32718,11568,11568,11568,17.7%,1085
+21x21 squares,side 21,1,32760,10463,10463,10463,16.0%,1061
+23x23 squares,side 23,1,32568,10822,10822,10822,16.5%,1117
+25x25 squares,side 25,1,32750,10052,10052,10052,15.3%,1118
+27x27 squares,side 27,1,32670,8803,8803,8803,13.4%,1125
+29x29 squares,side 29,1,32480,6701,6701,6701,10.2%,867
+31x31 squares,side 31,1,32736,5380,5380,5380,8.2%,666
 ---
-all,"",15,32702,21279,5380,65237,32.5%,1625
+all,"",15,32702,21279,5380,65237,32.5%,1828
 
 ## adversarial, saved
 "adversarial, saved","",bitmaps,"cells set
@@ -79,13 +79,13 @@ a bitmap","gct bits
 a bitmap",fewest,most,"of the
 raw cells","encode us
 a bitmap"
-horizontal_streaks_vs_g4,saved,1,31953,53364,53364,53364,81.4%,3150
-inverted_half_noise_vs_raw,saved,1,32768,65567,65567,65567,100.0%,2191
-near_repeated_half_vs_zstd19,saved,1,32779,42792,42792,42792,65.3%,2513
-near_repeated_half_vs_zstd3,saved,1,28312,43570,43570,43570,66.5%,2387
-split_2x2_grain_vs_jbig,saved,1,33163,62699,62699,62699,95.7%,2969
+horizontal_streaks_vs_g4,saved,1,31953,53364,53364,53364,81.4%,3343
+inverted_half_noise_vs_raw,saved,1,32768,65567,65567,65567,100.0%,2240
+near_repeated_half_vs_zstd19,saved,1,32779,42792,42792,42792,65.3%,2669
+near_repeated_half_vs_zstd3,saved,1,28312,43570,43570,43570,66.5%,2453
+split_2x2_grain_vs_jbig,saved,1,33163,62699,62699,62699,95.7%,2995
 ---
-all,"",5,31795,53598,42792,65567,81.8%,2642
+all,"",5,31795,53598,42792,65567,81.8%,2740
 
 ## what the trees hold
 family,"complex tiles a bitmap,
@@ -95,10 +95,10 @@ a bitmap","masking copies
 a bitmap","masking binds
 a bitmap","point lists
 a bitmap"
-"laid out like a city, 48 bitmaps","68.5, 0.3",6.3%,965.4,236.3,74.2,2.2
-"grown like a blob, 84 bitmaps",11.8,3.2%,772.9,1.0,7.4,68.7
-"sparse, 48 bitmaps",0.2,0.0%,16.0,0.0,0.0,10.4
-"drawn with lines, 36 bitmaps",23.0,14.4%,798.4,90.5,16.0,9.6
+"laid out like a city, 48 bitmaps","64.7, 0.1",5.5%,961.6,218.5,82.4,2.1
+"grown like a blob, 84 bitmaps","12.2, 0.0",3.3%,788.2,0.8,7.3,67.7
+"sparse, 48 bitmaps",0.2,0.0%,18.0,0.0,0.0,10.5
+"drawn with lines, 36 bitmaps",23.5,17.3%,778.0,85.9,14.3,8.4
 
 ## what complex tiles' bodies are made of
 family,"complex tile
@@ -111,7 +111,7 @@ tile","masked:
 nested
 complex tile","masked:
 residual"
-"laid out like a city, 48 bitmaps",94.70%,0.00%,2.06%,2.25%,0.07%,0.92%
-"grown like a blob, 84 bitmaps",99.95%,0.00%,0.00%,0.04%,0.00%,0.00%
+"laid out like a city, 48 bitmaps",96.57%,0.00%,1.27%,1.56%,0.03%,0.56%
+"grown like a blob, 84 bitmaps",99.93%,0.00%,0.00%,0.06%,0.00%,0.00%
 "sparse, 48 bitmaps",100.00%,0.00%,0.00%,0.00%,0.00%,0.00%
-"drawn with lines, 36 bitmaps",98.48%,0.00%,0.82%,0.64%,0.00%,0.06%
+"drawn with lines, 36 bitmaps",98.36%,0.00%,0.91%,0.71%,0.00%,0.01%

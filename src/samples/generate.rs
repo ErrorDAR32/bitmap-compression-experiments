@@ -7,6 +7,7 @@
 //! changed separately. What a corpus is made of is a decision; how a
 //! bitmap is filled is a mechanism.
 
+use crate::rng::Rng;
 use crate::{Bitmap, WIDTH};
 
 /// Cells in the bitmap.
@@ -33,27 +34,19 @@ const GUESSES_BEFORE_SCANNING: usize = 64;
 /// a blob fill in rather than sprawl.
 pub(super) fn one(seed: u64, density: f64, cluster: f64) -> Bitmap {
     let wanted = (density.clamp(0.0, 1.0) * CELLS as f64) as usize;
-    let cluster = (cluster.clamp(0.0, 1.0) * u32::MAX as f64) as u64;
+    let cluster = cluster.clamp(0.0, 1.0);
 
     let mut bits = Bitmap::new();
-    // Xorshift needs a state that is not zero, and it is the seed alone
-    // that has to reproduce the bitmap.
-    let mut state = seed ^ 0x9E37_79B9_7F4A_7C15;
-    let mut next = move || {
-        state ^= state << 13;
-        state ^= state >> 7;
-        state ^= state << 17;
-        state
-    };
+    let mut rng = Rng::new(seed);
 
     // Unset cells beside a set one, with repeats.
     let mut edge: Vec<(u8, u8)> = Vec::new();
     let mut standing = 0;
 
     while standing < wanted {
-        let beside = (!edge.is_empty() && next() % (1 << 32) < cluster)
+        let beside = (!edge.is_empty() && rng.unit() < cluster)
             .then(|| {
-                while let Some(at) = (!edge.is_empty()).then(|| next() as usize % edge.len()) {
+                while let Some(at) = (!edge.is_empty()).then(|| rng.below(edge.len() as u64) as usize) {
                     let cell = edge.swap_remove(at);
                     if !bits.get(cell.0, cell.1) {
                         return Some(cell);
@@ -65,7 +58,7 @@ pub(super) fn one(seed: u64, density: f64, cluster: f64) -> Bitmap {
 
         let (x, y) = match beside {
             Some(cell) => cell,
-            None => anywhere_clear(&bits, &mut next),
+            None => anywhere_clear(&bits, &mut rng),
         };
 
         bits.set(x, y);
@@ -90,10 +83,9 @@ pub(super) fn one(seed: u64, density: f64, cluster: f64) -> Bitmap {
 /// Guessing answers nearly every draw, because a bitmap is usually far
 /// from full. The scan is there so that a density close to 1 still
 /// finishes rather than rolling dice forever.
-fn anywhere_clear(bits: &Bitmap, next: &mut impl FnMut() -> u64) -> (u8, u8) {
+fn anywhere_clear(bits: &Bitmap, rng: &mut Rng) -> (u8, u8) {
     for _ in 0..GUESSES_BEFORE_SCANNING {
-        let roll = next();
-        let (x, y) = ((roll as usize % WIDTH) as u8, ((roll >> 32) as usize % WIDTH) as u8);
+        let (x, y) = (rng.below(WIDTH as u64) as u8, rng.below(WIDTH as u64) as u8);
         if !bits.get(x, y) {
             return (x, y);
         }

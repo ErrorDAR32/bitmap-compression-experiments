@@ -26,7 +26,6 @@ pub mod checkerboards;
 mod city;
 mod generate;
 mod lines;
-mod rolls;
 pub mod seed;
 
 pub use city::{one_laid_out, Cities, Plan, PLANS};

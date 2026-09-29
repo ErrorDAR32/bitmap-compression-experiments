@@ -1,5 +1,6 @@
-//! A small, seeded random source: SplitMix64, whose whole state is one
-//! word, so a search is settled by its seed alone.
+//! The crate's one random source: SplitMix64, seeded, whose whole state
+//! is one word, so whatever draws from it -- a sample bitmap, a search --
+//! is settled by its seed alone, on every run and every machine.
 
 /// SplitMix64's constants, as published with it: the step added to
 /// the state each draw...
@@ -38,6 +39,11 @@ impl Rng {
     /// A number in `low..=high`.
     pub fn between(&mut self, low: u64, high: u64) -> u64 {
         low + self.below(high - low + 1)
+    }
+
+    /// True `percent` times in a hundred.
+    pub fn percent_chance(&mut self, percent: u64) -> bool {
+        self.below(100) < percent
     }
 
     /// A number in `[0, 1)`.
