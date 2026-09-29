@@ -6,16 +6,8 @@ description = "A lossless encoding of a 256x256 bitmap"
 publish = false
 
 [dependencies]
-bitmap = { path = "bitmap" }
-utilities = { path = "utilities" }
-
-# Tessera and the two crates it is built on, built together from here:
-# one lockfile, one target folder, and `cargo test` tests all three.
-[workspace]
-members = [".", "bitmap", "utilities"]
-default-members = [".", "bitmap", "utilities"]
-# A workspace of its own, so the external codecs never enter Tessera's build.
-exclude = ["external_benchmarks"]
+bitmap = { path = "../bitmap" }
+utilities = { path = "../utilities" }
 
 [profile.release]
 debug = true

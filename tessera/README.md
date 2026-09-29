@@ -14,12 +14,11 @@ coded from the cells around them.
 
 This folder is a project of its own: a Rust crate with its own tests,
 tools, documentation and benchmarks. It depends only on the standard
-library and two crates of its own, in this folder:
-[`bitmap`](bitmap/), the bitmap it encodes, and
-[`utilities`](utilities/), the table printer, the random source and
-the fixed-capacity list. Nothing it needs is outside this folder. Every
-command below runs from here, `tessera/`, and `cargo test` here tests
-all three crates.
+library and two crates beside it in the repository:
+[`bitmap`](../bitmap/), the bitmap it encodes, and
+[`utilities`](../utilities/), the table printer, the random source and
+the fixed-capacity list, each a project of its own, tested from its own
+folder. Every command below runs from here, `tessera/`.
 
 ## What it holds to
 
@@ -142,8 +141,6 @@ tessera/
     tessera.md          every step and every bit
     testing_protocol.md how a change gets measured
     measurements/       every tool's latest tables, as CSV
-  bitmap/               the bitmap crate: the 256x256 bitmap, its Morton order
-  utilities/            the utilities crate: table printer, reports, rng, fixed list
   external_benchmarks/  against G4, JBIG and zstd; the adversarial bitmaps
 ```
 

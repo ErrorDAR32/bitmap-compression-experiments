@@ -56,7 +56,7 @@ allocated once. `tessera.encode(&bitmap, &mut stream)` and
 and each step clears or overwrites what the last bitmap left.
 
 Nothing grows. Every structure has an upper bound, and is allocated at
-it once: a pyramid at its shape, and every list (`FixedList`, `utilities/src/fixed_list.rs`: a
+it once: a pyramid at its shape, and every list (`FixedList`, `../utilities/src/fixed_list.rs`: a
 boxed array of fixed capacity and a length) at a bound named where it is
 made -- the last pass's waiting and pending copies at the 4x4 blocks.
 The stream is sized at the most bits any stream can take: its mode bit,
@@ -76,7 +76,7 @@ a single cell) and its (x, y) in that level's plane; its children are
 the 2x2 block one level finer.
 
 The bitmap and every pyramid level are laid out in Morton (Z) order
-(`bitmap/src/morton.rs`): a cell's index interleaves its coordinates' bits, so
+(`../bitmap/src/morton.rs`): a cell's index interleaves its coordinates' bits, so
 
 ```text
  0  1  4  5
