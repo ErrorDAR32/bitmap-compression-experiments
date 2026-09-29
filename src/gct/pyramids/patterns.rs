@@ -2,7 +2,8 @@
 //! holds its pattern number -- two tiles of the same size hold the same
 //! number exactly when they hold the same cells. Whether two tiles
 //! match, what a copy asks, is then one comparison of two numbers, at
-//! any size, whatever their cells.
+//! any size, whatever their cells -- and whether a tile is homogeneous,
+//! all clear or all set, is whether its number is one of theirs.
 //!
 //! Numbers are handed out in the order patterns first appear, a level at
 //! a time: 0 is every cell clear, 1 every cell set, then 2, 3, ... for
@@ -28,6 +29,17 @@ use super::pyramid::{Pyramid, PyramidShape};
 use crate::gct::tile::{tiles_in_level, tiles_down_to, Tile, CELL_LEVEL};
 use crate::morton::morton_coordinates;
 use crate::Bitmap;
+
+/// What a tile whose pattern number is `number` holds, if every cell of
+/// it agrees.
+#[inline]
+fn value_of(number: u16) -> Option<bool> {
+    match number {
+        ALL_CLEAR => Some(false),
+        ALL_SET => Some(true),
+        _ => None,
+    }
+}
 
 /// Every cell of the tile clear.
 pub const ALL_CLEAR: u16 = 0;
@@ -208,6 +220,20 @@ impl Patterns {
     #[inline]
     pub fn number(&self, tile: Tile) -> u16 {
         self.numbers.get(tile) as u16
+    }
+
+    /// What `tile` holds, if every cell of it agrees: the homogeneous
+    /// patterns have numbers of their own.
+    #[inline]
+    pub fn homogeneous_value(&self, tile: Tile) -> Option<bool> {
+        value_of(self.number(tile))
+    }
+
+    /// What each of `tile`'s four children holds, in reading order, if
+    /// every cell of it agrees.
+    #[inline]
+    pub fn children_values(&self, tile: Tile) -> [Option<bool>; 4] {
+        self.children_numbers(tile).map(value_of)
     }
 
     /// `tile`'s four children's pattern numbers, in reading order.

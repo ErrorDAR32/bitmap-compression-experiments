@@ -14,7 +14,6 @@ use crate::gct::encode::write;
 use crate::gct::grammar::bit_stream::BitStream;
 use crate::gct::grammar::order::PayloadWalk;
 use crate::gct::greedy_tiler::greedy_tiler;
-use crate::gct::pyramids::homogeneity::Homogeneity;
 use crate::gct::pyramids::patterns::Patterns;
 use crate::gct::pyramids::placements::Placements;
 use crate::gct::pyramids::copyable::CopyOffsets;
@@ -25,8 +24,6 @@ use crate::Bitmap;
 
 /// Room to encode and decode bitmaps in, one at a time.
 pub struct Workspace {
-    /// The homogeneity pyramid of the bitmap being encoded.
-    homogeneity: Pyramid,
     /// The patterns of the bitmap being encoded.
     patterns: Patterns,
     /// The greedy tiler's placements, then the complex tiling made of
@@ -48,7 +45,6 @@ impl Workspace {
     /// Everything allocated, nothing encoded yet.
     pub fn new() -> Self {
         Self {
-            homogeneity: Pyramid::homogeneity(&Bitmap::new()),
             patterns: Patterns::default(),
             complex_tiling: Pyramid::placements(),
             scratch: Scratch::default(),
@@ -68,9 +64,8 @@ impl Workspace {
 
     /// Encodes `bitmap` into `stream`, whatever it held before.
     pub fn encode(&mut self, bitmap: &Bitmap, stream: &mut BitStream) {
-        self.homogeneity.rebuild_homogeneity(bitmap);
         self.patterns.build(bitmap);
-        greedy_tiler(&self.homogeneity, &self.patterns, &self.copy_offsets, &mut self.complex_tiling);
+        greedy_tiler(bitmap, &self.patterns, &self.copy_offsets, &mut self.complex_tiling);
         complex_tiler(&mut self.complex_tiling, bitmap, &mut self.scratch);
         tree_representation(&self.complex_tiling, &mut self.tree);
         write(&self.tree, bitmap, stream, &mut self.payload_walk);

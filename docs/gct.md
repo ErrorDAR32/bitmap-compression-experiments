@@ -83,7 +83,6 @@ its elements but through them -- and its sweep if any.
 
 | pyramid | bits | levels | holds | sweep |
 |---|---|---|---|---|
-| `homogeneity` | 2 | 0-8 | whether a tile's cells all agree, and on what | its own, a word at a time: the cells off the bitmap's words, then each level folded from the one finer -- homogeneous when all four children are homogeneous and agree |
 | `complex_tiling` | 32 | 0-8 | the placement the greedy tiler made here, if any, and the children it masks -- the greedy tiler writes these bits, the complex tiler the rest; the one size every cell under the tile is bound at, if any; the complex tile's size offset, if it is one; whether a raw complex tile masks it; the sizes of the whole binds under it | its own, once the placements are complete, two words of children at a time: a tile's bound size is its children's when all four share one; the sizes under it are all of its children's |
 | `tree` | 8 | 0-7 | the tree's node at a tile | none |
 | `costs` | 320 | 0-6 | a tile's bits with no candidate above it, then for each candidate resolution how much that candidate takes off them, eight 32-bit changes (the complex tiler's, a search area at a time) | none; every count set by the complex tiler's walk up |
@@ -99,10 +98,11 @@ tile is left to its four children). The result is *domain perfect*:
 every cell is said by exactly one placed tile or lies in a 2x2 said raw.
 It is not yet the fewest bits: that is step 2's job.
 
-**What it reads:** the homogeneity pyramid (is a tile's every cell the
-same, and which value) and the patterns pyramid (two same-size tiles
-hold the same cells exactly when their pattern numbers are equal --
-one number comparison, whatever their size; `copyable.rs`).
+**What it reads:** the patterns pyramid: two same-size tiles hold the
+same cells exactly when their pattern numbers are equal -- one number
+comparison, whatever their size; `copyable.rs` -- and a tile is
+homogeneous exactly when its number is 0 (all clear) or 1 (all set).
+A 2x2, finer than patterns go, is read off its four cells.
 
 **The algorithm**, walking down depth first from the whole bitmap, with
 `bound` the value bound above the tile (clear at the top):

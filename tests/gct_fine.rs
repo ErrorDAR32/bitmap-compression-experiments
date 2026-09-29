@@ -8,9 +8,8 @@ mod common;
 
 use bitmap::gct::pyramids::copyable::{child_offset, matches_at, matching_direction, CopyOffsets, FAR_OFFSETS, FINEST_COPY_LEVEL, NEAR_OFFSETS};
 use bitmap::gct::pyramids::patterns::Patterns;
-use bitmap::gct::pyramids::homogeneity::Homogeneity;
 use bitmap::gct::pyramids::pyramid::{Pyramid, PyramidShape};
-use bitmap::gct::tile::{Tile, CELL_LEVEL};
+use bitmap::gct::tile::Tile;
 use bitmap::gct::pyramids::tree::{Node, Tree};
 use bitmap::diagnostics::tree_stats::TreeStats;
 use bitmap::gct::encode;
@@ -38,27 +37,30 @@ fn generic_pyramid_sets_one_element() {
 /// With the top-left quarter filled, that quarter is homogeneous and set,
 /// the next one homogeneous and clear, and the whole bitmap neither.
 #[test]
-fn homogeneity_pyramid_sees_a_filled_quarter() {
+fn patterns_see_a_filled_quarter() {
     let mut bitmap = Bitmap::new();
     bitmap.set_rect(0, 0, 127, 127);
-    let homogeneity = Pyramid::homogeneity(&bitmap);
-    assert_eq!(homogeneity.homogeneous_value(Tile { level: 1, x: 0, y: 0 }), Some(true));
-    assert_eq!(homogeneity.homogeneous_value(Tile { level: 1, x: 1, y: 0 }), Some(false));
-    assert_eq!(homogeneity.homogeneous_value(Tile::whole_bitmap()), None);
+    let mut patterns = Patterns::default();
+    patterns.build(&bitmap);
+    assert_eq!(patterns.homogeneous_value(Tile { level: 1, x: 0, y: 0 }), Some(true));
+    assert_eq!(patterns.homogeneous_value(Tile { level: 1, x: 1, y: 0 }), Some(false));
+    assert_eq!(patterns.homogeneous_value(Tile::whole_bitmap()), None);
 }
 
-/// Every tile of a ragged bitmap and of an odd checkerboard, at every
-/// level, against its own cells read one at a time.
+/// Every tile of a ragged bitmap and of an odd checkerboard the patterns
+/// number, at every level, homogeneous by its number exactly when its
+/// own cells, read one at a time, all agree.
 #[test]
-fn homogeneity_pyramid_matches_the_cells() {
+fn patterns_homogeneity_matches_the_cells() {
+    let mut patterns = Patterns::default();
     for bitmap in [one_grown(FIXED_SEED, 0.20, 0.70), checkerboard(3)] {
-        let homogeneity = Pyramid::homogeneity(&bitmap);
-        for level in 0..=CELL_LEVEL {
+        patterns.build(&bitmap);
+        for level in 0..=FINEST_COPY_LEVEL {
             for tile in Tile::all_of_level(level) {
                 let (left, top, right, bottom) = tile.cell_rect();
                 let first = bitmap.get(left, top);
                 let agree = (top..=bottom).all(|y| (left..=right).all(|x| bitmap.get(x, y) == first));
-                assert_eq!(homogeneity.homogeneous_value(tile), agree.then_some(first), "{tile:?}");
+                assert_eq!(patterns.homogeneous_value(tile), agree.then_some(first), "{tile:?}");
             }
         }
     }

@@ -64,7 +64,10 @@ impl CopyOffsets {
     /// Copies reading from `near` and `far`, by direction, if every one
     /// [`precedes`] the copy and no two are the same tile.
     pub fn new(near: [(isize, isize); 4], far: [(isize, isize); 4]) -> Option<Self> {
-        let all: Vec<(isize, isize)> = near.into_iter().chain(far).collect();
+        let mut all = [(0, 0); 2 * DIRECTIONS.len()];
+        let (all_near, all_far) = all.split_at_mut(near.len());
+        all_near.copy_from_slice(&near);
+        all_far.copy_from_slice(&far);
         let distinct = all.iter().enumerate().all(|(position, offset)| !all[..position].contains(offset));
         (distinct && all.iter().all(|&offset| precedes(offset))).then_some(Self { near, far })
     }

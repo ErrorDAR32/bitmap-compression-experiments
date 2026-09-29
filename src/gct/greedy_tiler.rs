@@ -30,11 +30,11 @@
 //! ever placed.
 
 use crate::gct::pyramids::copyable::{child_offset, matches_at, matching_direction, CopyOffsets, FINEST_COPY_LEVEL};
-use crate::gct::pyramids::homogeneity::Homogeneity;
 use crate::gct::pyramids::placements::{Placement, Placements, BOUND_AT_THE_TOP, FINEST_MASKING_LEVEL};
 use crate::gct::pyramids::pyramid::Pyramid;
 use crate::gct::pyramids::patterns::Patterns;
 use crate::gct::tile::{directions, Tile, CELL_LEVEL};
+use crate::Bitmap;
 
 /// A masking copy costs about 10 bits before its masked children: a
 /// copy, a mask-present bit, a 4-bit child mask. What it saves depends
@@ -58,20 +58,20 @@ pub const MIN_UNMASKED_CHILDREN_OF_A_MASKING_BIND: u32 = 2;
 /// whatever it held before; what it placed is a
 /// [complex tiling pyramid](crate::gct::pyramids::complex_tiling) with
 /// only its [placement](crate::gct::pyramids::placements) bits set. Reads
-/// only the bitmap's content: which tiles are homogeneous, from its
-/// homogeneity pyramid, and which match which, from its patterns --
-/// copies reading from `offsets`.
-pub fn greedy_tiler(homogeneity: &Pyramid, patterns: &Patterns, offsets: &CopyOffsets, placements: &mut Pyramid) {
+/// only the bitmap's content: which tiles are homogeneous and which
+/// match which, from its patterns -- copies reading from `offsets` -- and
+/// a 2x2's cells, finer than patterns go.
+pub fn greedy_tiler(bitmap: &Bitmap, patterns: &Patterns, offsets: &CopyOffsets, placements: &mut Pyramid) {
     placements.clear();
-    let content = Content { homogeneity, patterns, offsets };
+    let content = Content { bitmap, patterns, offsets };
     place_at_or_under(&content, Tile::whole_bitmap(), BOUND_AT_THE_TOP, placements);
 }
 
-/// What the greedy tiler reads of a bitmap: its homogeneity pyramid and
-/// its patterns -- and where copies read from.
+/// What the greedy tiler reads of a bitmap: its cells and its patterns
+/// -- and where copies read from.
 struct Content<'a> {
-    /// Its homogeneity pyramid.
-    homogeneity: &'a Pyramid,
+    /// Its cells.
+    bitmap: &'a Bitmap,
     /// Its patterns.
     patterns: &'a Patterns,
     /// Where copies read from.
@@ -104,7 +104,7 @@ fn place_at_or_under(content: &Content, tile: Tile, bound_above: bool, placement
 
 /// What the rule places at `tile`, if anything.
 fn placement(content: &Content, tile: Tile, bound_above: bool) -> Option<Placement> {
-    if let Some(value) = content.homogeneity.homogeneous_value(tile) {
+    if let Some(value) = homogeneous_value(content, tile) {
         return Some(Placement::bound(value));
     }
     if tile.level <= FINEST_COPY_LEVEL {
@@ -115,8 +115,23 @@ fn placement(content: &Content, tile: Tile, bound_above: bool) -> Option<Placeme
     if tile.level > FINEST_MASKING_LEVEL {
         return None;
     }
-    let children_values = content.homogeneity.children_values(tile);
+    let children_values = content.patterns.children_values(tile);
     masking_copy(content, tile, children_values, bound_above).or_else(|| masking_bind(children_values, bound_above))
+}
+
+/// What `tile` holds, if every cell of it agrees: its pattern number
+/// says, down to 4x4; a 2x2, finer than patterns go, is read off its
+/// four cells.
+fn homogeneous_value(content: &Content, tile: Tile) -> Option<bool> {
+    if tile.level <= FINEST_COPY_LEVEL {
+        return content.patterns.homogeneous_value(tile);
+    }
+    let side = tile.side_in_cells();
+    match content.bitmap.small_square(tile.top_left_cell(), side) {
+        0 => Some(false),
+        cells if cells.count_ones() as usize == side * side => Some(true),
+        _ => None,
+    }
 }
 
 /// A bind of a tile to the value not bound above, masking the children
