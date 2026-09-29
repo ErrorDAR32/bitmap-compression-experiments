@@ -349,43 +349,48 @@ impl Blocks {
     }
 }
 
-/// Prices the residual blocks in `residual`, of a tree for `bitmap`,
-/// into `prices`: what the pass takes for each, without coding it --
-/// its cells' `log2` of their odds' totals over their values' weights,
-/// a row's multiplied first (each under 2^18, so a row's four under
-/// 2^72: a `u128` holds them), every
-/// context learning as the pass's do, the blocks in the pass's order.
-/// Contexts are read off `bitmap` itself: in the pass each context cell
-/// is final when its cell is coded, but for one of a copy still waiting
-/// on its source, which reads as clear there -- rare, and a price is
-/// what a block takes about.
-pub(crate) fn price_residual_blocks(bitmap: &Bitmap, residual: &BlockSet, prices: &mut ResidualPrices) {
-    let mut all_odds = [Odds { clear: FIRST_WEIGHT, set: FIRST_WEIGHT }; CONTEXTS];
-    for (word_index, &word) in residual.iter().enumerate() {
-        let mut remaining = word;
-        while remaining != 0 {
-            let index = word_index * u64::BITS as usize + remaining.trailing_zeros() as usize;
-            remaining &= remaining - 1;
-            let window = Window::around(bitmap, index);
-            let mut bits = 0;
-            for dy in 0..BLOCK_SIDE as u32 {
-                let columns = window.columns(dy);
-                let row = window.block_row(dy);
-                // The row's cells' odds multiplied -- totals over the
-                // weights of the values they hold -- and one `log2` each.
-                let (mut totals, mut weights) = (1u128, 1u128);
-                for dx in 0..BLOCK_SIDE as u32 {
-                    let odds = &mut all_odds[columns.context(dx)];
-                    let set = row >> dx & 1 == 1;
-                    totals *= (odds.clear + odds.set) as u128;
-                    let weight = if set { &mut odds.set } else { &mut odds.clear };
-                    weights *= *weight as u128;
-                    *weight += CELL_WEIGHT;
-                }
-                bits += fixed_point_log2(totals) - fixed_point_log2(weights);
+/// The pricing pass: what the last pass takes for each residual block
+/// of a tree, without coding it -- each block's cells' `log2` of their
+/// odds' totals over their values' weights, a row's multiplied first
+/// (each under 2^18, so a row's four under 2^72: a `u128` holds them),
+/// every context learning as the pass's do. Blocks are to be priced in
+/// the pass's order, Morton order. Contexts are read off the bitmap
+/// itself: in the pass each context cell is final when its cell is
+/// coded, but for one of a copy still waiting on its source, which reads
+/// as clear there -- rare, and a price is what a block takes about.
+pub(crate) struct Pricing {
+    /// Each context's odds, as learned so far.
+    odds: [Odds; CONTEXTS],
+}
+
+impl Pricing {
+    /// No block priced yet.
+    pub(crate) fn new() -> Self {
+        Self { odds: [Odds { clear: FIRST_WEIGHT, set: FIRST_WEIGHT }; CONTEXTS] }
+    }
+
+    /// Prices the residual block at `index` of a tree for `bitmap` into
+    /// `prices`, every residual block before it in Morton order priced.
+    pub(crate) fn price(&mut self, bitmap: &Bitmap, index: usize, prices: &mut ResidualPrices) {
+        let window = Window::around(bitmap, index);
+        let mut bits = 0;
+        for dy in 0..BLOCK_SIDE as u32 {
+            let columns = window.columns(dy);
+            let row = window.block_row(dy);
+            // The row's cells' odds multiplied -- totals over the weights
+            // of the values they hold -- and one `log2` each.
+            let (mut totals, mut weights) = (1u128, 1u128);
+            for dx in 0..BLOCK_SIDE as u32 {
+                let odds = &mut self.odds[columns.context(dx)];
+                let set = row >> dx & 1 == 1;
+                totals *= (odds.clear + odds.set) as u128;
+                let weight = if set { &mut odds.set } else { &mut odds.clear };
+                weights *= *weight as u128;
+                *weight += CELL_WEIGHT;
             }
-            prices.set(index, bits);
+            bits += fixed_point_log2(totals) - fixed_point_log2(weights);
         }
+        prices.set(index, bits);
     }
 }
 

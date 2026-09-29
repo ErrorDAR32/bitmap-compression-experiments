@@ -30,8 +30,12 @@
 //! placed. The tree goes no finer than 4x4: a 2x2 placed is read only
 //! by a complex tile of 2x2 resolution that unmasks it.
 
-use crate::gct::last_pass::{insert, BlockSet, BLOCK_WORDS};
+use crate::gct::complex_tiler::bit_cost::own_bits;
+use crate::gct::grammar::START_LEVEL_WIDTH;
+use crate::gct::last_pass::Pricing;
+use crate::gct::nested_resolutions::NestedResolutions;
 use crate::gct::pyramids::complex_tiling::ComplexTiling;
+use crate::gct::residual_prices::ResidualPrices;
 use crate::gct::pyramids::copyable::{matches_at, CopyOffsets, FINEST_COPY_LEVEL};
 use crate::gct::pyramids::placements::{Placement, BOUND_AT_THE_TOP, FINEST_MASKING_LEVEL};
 use crate::gct::pyramids::patterns::{value_of, Patterns};
@@ -64,21 +68,53 @@ pub struct GreedyTiling<'a> {
     /// with only its [placement](crate::gct::pyramids::placements) bits
     /// set.
     pub placements: &'a mut ComplexTiling,
-    /// The residual blocks it leaves: every 4x4 it reaches and places
-    /// nothing at -- its tree's residual blocks.
-    pub residual_blocks: &'a mut BlockSet,
+    /// What the last pass takes for each residual block it leaves --
+    /// every 4x4 it reaches and places nothing at -- priced as the walk
+    /// reaches it, in Morton order, the last pass's.
+    pub residual_prices: &'a mut ResidualPrices,
 }
 
-/// Places tiles over one bitmap, biggest first, into `tiling`. Reads
-/// only the bitmap's content: which tiles are homogeneous and which
-/// match which, from its patterns -- copies reading from `offsets` -- and
-/// a 2x2's cells, finer than patterns go.
-pub fn greedy_tiler(bitmap: &Bitmap, patterns: &Patterns, offsets: &CopyOffsets, tiling: &mut GreedyTiling) {
+/// Places tiles over one bitmap, biggest first, into `tiling`, and
+/// counts the tree they make on its way back up. Reads only the
+/// bitmap's content: which tiles are homogeneous and which match which,
+/// from its patterns -- copies reading from `offsets` -- and a 2x2's
+/// cells, finer than patterns go.
+pub fn greedy_tiler(bitmap: &Bitmap, patterns: &Patterns, offsets: &CopyOffsets, tiling: &mut GreedyTiling) -> GreedyTreeBits {
     tiling.placements.clear();
-    *tiling.residual_blocks = [0; BLOCK_WORDS];
-    let content = Content { bitmap, patterns, offsets };
+    let mut walk = Walk { content: Content { bitmap, patterns, offsets }, tiling, pricing: Pricing::new(), tree_bits: GreedyTreeBits::new() };
     let whole_bitmap = Tile::whole_bitmap();
-    place_at_or_under(&content, Visit { tile: whole_bitmap, number: patterns.number(whole_bitmap), bound_above: BOUND_AT_THE_TOP }, tiling);
+    place_at_or_under(&mut walk, Visit { tile: whole_bitmap, number: patterns.number(whole_bitmap), bound_above: BOUND_AT_THE_TOP, in_divide: false });
+    walk.tree_bits
+}
+
+/// The bits the greedy tiler's own tree takes, its residual blocks at
+/// their prices, counted node by node on the walk back up: what the
+/// complex tiler's reference count ([`crate::gct::complex_tiler::bit_cost`])
+/// gives it, which debug builds hold it to.
+pub struct GreedyTreeBits {
+    /// Every node's own bits, by its level.
+    by_level: [u64; FLOOR_LEVEL as usize + 1],
+    /// The coarsest level a node that does not divide whole is at: the
+    /// tree's start level. Above it, every tile divides whole.
+    start_level: u8,
+}
+
+impl GreedyTreeBits {
+    /// No node counted.
+    fn new() -> Self {
+        Self { by_level: [0; FLOOR_LEVEL as usize + 1], start_level: FLOOR_LEVEL }
+    }
+
+    /// The tree's start level.
+    pub fn start_level(&self) -> u8 {
+        self.start_level
+    }
+
+    /// The bits of the whole tree: the start level, then every node from
+    /// it down.
+    pub fn bits(&self) -> u64 {
+        START_LEVEL_WIDTH as u64 + self.by_level[self.start_level as usize..].iter().sum::<u64>()
+    }
 }
 
 /// What the greedy tiler reads of a bitmap: its cells and its patterns
@@ -90,6 +126,18 @@ struct Content<'a> {
     patterns: &'a Patterns,
     /// Where copies read from.
     offsets: &'a CopyOffsets,
+}
+
+/// One walk's reading, writing and counting.
+struct Walk<'a, 'b> {
+    /// What it reads.
+    content: Content<'a>,
+    /// What it writes.
+    tiling: &'a mut GreedyTiling<'b>,
+    /// The residual blocks' pricing, block after block.
+    pricing: Pricing,
+    /// The tree's bits, so far.
+    tree_bits: GreedyTreeBits,
 }
 
 /// The walk visits the 4x4 floor apart: copies reach down to it, and
@@ -108,31 +156,62 @@ struct Visit {
     number: u16,
     /// The value bound above it.
     bound_above: bool,
+    /// Whether it is a child of a divide -- a tile nothing is placed at
+    /// -- and so, bound whole to the value bound above it, left to that
+    /// binding: no node.
+    in_divide: bool,
 }
 
 /// Places at the visited tile, or leaves it to its children, then does
-/// the same for every child nothing placed here says.
-fn place_at_or_under(content: &Content, visit: Visit, tiling: &mut GreedyTiling) {
+/// the same for every child nothing placed here says; on the way back
+/// up, prices it if it is a residual block and counts its node. Whether
+/// it is left to the binding above.
+fn place_at_or_under(walk: &mut Walk, visit: Visit) -> bool {
     let tile = visit.tile;
     if tile.level == FLOOR_LEVEL {
-        let placed = floor_placement(content, visit);
+        let placed = floor_placement(&walk.content, visit);
         if placed.is_none() {
-            place_2x2s(content.bitmap, tile, tiling.placements);
-            insert(tiling.residual_blocks, morton_index(tile.x, tile.y));
+            place_2x2s(walk.content.bitmap, tile, walk.tiling.placements);
+            walk.pricing.price(walk.content.bitmap, morton_index(tile.x, tile.y), walk.tiling.residual_prices);
         }
-        tiling.placements.record_placed(tile, placed, visit.bound_above);
-        return;
+        walk.tiling.placements.record_placed(tile, placed, visit.bound_above);
+        return count_node(walk, visit, NO_CHILD_LEFT);
     }
     // Every child's number, one lookup: four consecutive elements.
-    let children_numbers = content.patterns.children_numbers(tile);
-    let placed = placement(content, visit, children_numbers);
+    let children_numbers = walk.content.patterns.children_numbers(tile);
+    let placed = placement(&walk.content, visit, children_numbers);
     let bound_inside = placed.map_or(visit.bound_above, |placement| placement.bound_inside(visit.bound_above));
+    let mut children_left = NO_CHILD_LEFT;
     for (index, child) in tile.children().into_iter().enumerate() {
         if placed.is_none_or(|placement| placement.masks(child)) {
-            place_at_or_under(content, Visit { tile: child, number: children_numbers[index], bound_above: bound_inside }, tiling);
+            let child_visit = Visit { tile: child, number: children_numbers[index], bound_above: bound_inside, in_divide: placed.is_none() };
+            if place_at_or_under(walk, child_visit) {
+                children_left |= 1 << index;
+            }
         }
     }
-    tiling.placements.record_placed(tile, placed, visit.bound_above);
+    walk.tiling.placements.record_placed(tile, placed, visit.bound_above);
+    count_node(walk, visit, children_left)
+}
+
+/// No child left to the binding above.
+const NO_CHILD_LEFT: u8 = 0;
+
+/// Counts the visited tile's node, placed as it is and `children_left`
+/// the children it leaves to the binding above -- nothing, if it is
+/// itself left to the binding above -- and says whether it is.
+fn count_node(walk: &mut Walk, visit: Visit, children_left: u8) -> bool {
+    let tile = visit.tile;
+    let here = walk.tiling.placements.fields(tile);
+    let left = visit.in_divide && here.left_to_binding_above(tile, visit.bound_above, &NestedResolutions::none());
+    if !left {
+        walk.tree_bits.by_level[tile.level as usize] += own_bits(tile, here, children_left, walk.tiling.residual_prices);
+    }
+    let divides_whole = here.placed().is_none() && tile.level < FLOOR_LEVEL && children_left == NO_CHILD_LEFT;
+    if !divides_whole {
+        walk.tree_bits.start_level = walk.tree_bits.start_level.min(tile.level);
+    }
+    left
 }
 
 /// Binds each of the 4x4 `tile`'s 2x2s that is homogeneous, read off

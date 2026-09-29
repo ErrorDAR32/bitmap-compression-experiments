@@ -19,9 +19,9 @@ output, and steps 4 and 5 never decide anything.
 | 4. encoding | `encode.rs` | the tree's grammar with its payloads |
 | 5. last pass | `last_pass.rs` | the copies resolved, and the residual blocks' cells arithmetic-coded, each from the cells before it |
 
-Between steps 1 and 2 the encoder prices every residual block the
-greedy tiler leaves -- what the last pass would take for it -- and picks
-the stream's mode: the tree, or the bitmap's count split, when that takes
+The greedy tiler's walk also prices every residual block it leaves --
+what the last pass would take for it -- and counts its own tree; from
+that, between steps 1 and 2, the encoder picks the stream's mode: the tree, or the bitmap's count split, when that takes
 fewer bits (see "Why the count split"). For a count split, steps 2 and
 3 never run.
 
@@ -268,6 +268,18 @@ Each visited tile's element is written once, all its fields at once. A
 tile the walk never visits -- under a tile placed whole, or a child a
 masking tile says itself -- holds nothing, and nothing reads it.
 
+On the same way back up, the walk does the two things choosing the
+stream's mode needs, so no other walk goes over the greedy tiler's
+tiles before it: it **prices** each residual block it leaves -- a 4x4
+it placed nothing at -- as it reaches it (see 2d; a depth-first walk
+reaches the 4x4s in Morton order, the last pass's), and it **counts
+its own tree**, node by node, each node's own bits by its level, a
+child bound whole to the value bound above a divide counted as no node.
+The start level is the coarsest level a node that does not divide whole
+is at, and the tree's bits are the start level's and every node's from
+it down -- what the reference count gives the greedy tiler's tree,
+which debug builds hold it to.
+
 ### 2c. The search: one pass, counting and choosing
 
 The complex tiler searches once, bottom-up (`complex_tiler/search.rs`):
@@ -294,20 +306,20 @@ greedy tiler's own tree, measured before the complex tiler runs
 cells around them, so what they take depends on the whole pass; a price
 is what its cells take there, each at its context's odds as they have
 learned by then -- `log2` of the odds' total over the value's weight, a
-block row's multiplied first -- rounded to the nearest bit. The blocks
-are the ones the greedy tiler leaves as it walks, and the pricing pass
-codes nothing: it reads each context off the bitmap itself, where the
-last pass reads the cells as decoding has them -- the same values, but
-for a cell of a copy still waiting on its source, which reads as clear
-there. It stands for what the block takes in the
-final tree: a cell's context is the cells above and left of it, which
-hold the same values whichever node says them -- only the odds each
-context has learned by then differ -- and every residual block the
-complex tiler can leave is one in the greedy tiler's tree, as it only
-adds complex tiles. Before prices, residual blocks were counted at a
-bit a cell, and the complex tiler traded blocks the last pass codes for
-a third of that for raw complex tiles and cell lists: on every city and
-lines map its tree came out longer than the greedy tiler's alone. The search reaches every tile a tile placed
+block row's multiplied first -- rounded to the nearest bit. The greedy
+tiler prices each block as its walk reaches it, and pricing codes
+nothing: it reads each context off the bitmap itself, where the last
+pass reads the cells as decoding has them -- the same values, but for
+a cell of a copy still waiting on its source, which reads as clear
+there. A price stands for what the block takes in the final tree: a
+cell's context is the cells above and left of it, which hold the same
+values whichever node says them -- only the odds each context has
+learned by then differ -- and every residual block the complex tiler
+can leave is one in the greedy tiler's tree, as it only adds complex
+tiles. Before prices, residual blocks were counted at a bit a cell,
+and the complex tiler traded blocks the last pass codes for a third of
+that for raw complex tiles and cell lists: on every city and lines map
+its tree came out longer than the greedy tiler's alone. The search reaches every tile a tile placed
 nothing says, and the children a masking tile masks -- nothing under a
 tile placed whole, nor under the 4x4 floor -- and counts each, from its
 fields and its children's counts:

@@ -206,3 +206,29 @@ fn masked_children_bits(
     }
     bits
 }
+
+/// What a divide that leaves children to the binding above spends on
+/// that and a divide that leaves none does not: its flip bit and child
+/// mask.
+pub const LEAVING_BITS: u64 = (FLIP_WIDTH + CHILD_MASK_WIDTH) as u64;
+
+/// The bits `tile`, whose fields are `here`, takes itself as the tiling
+/// stands, its counted children's bits aside; `left` the children a
+/// divide leaves to the binding above; a residual block at its price in
+/// `residual_prices`.
+pub fn own_bits(tile: Tile, here: Fields, left: u8, residual_prices: &ResidualPrices) -> u64 {
+    let leaf_and_code = (LEAF_WIDTH + CODE_WIDTH) as u64;
+    let mask_present = if copy_or_divide_may_mask(tile.level) { MASK_PRESENT_WIDTH as u64 } else { 0 };
+    match here.placed() {
+        Some(Placement::Bound { masked_children: 0, .. }) => leaf_and_code + resolution_width(tile.level) as u64 + payload_bits(0),
+        // Spelled as a divide that masks and flips the value bound above.
+        Some(Placement::Bound { .. }) => (MASKING_DIVIDE_HEADER_WIDTH + CHILD_MASK_WIDTH) as u64,
+        Some(copy @ Placement::Copied { .. }) => {
+            let child_mask = if copy.masks_any() { CHILD_MASK_WIDTH as u64 } else { 0 };
+            leaf_and_code + (FAR_WIDTH + DIRECTION_WIDTH) as u64 + mask_present + child_mask
+        }
+        // A residual block, and its cells in the last pass, at its price.
+        None if tile.level == FLOOR_LEVEL => LEAF_WIDTH as u64 + residual_prices.of(tile),
+        None => LEAF_WIDTH as u64 + mask_present + if left != 0 { LEAVING_BITS } else { 0 },
+    }
+}

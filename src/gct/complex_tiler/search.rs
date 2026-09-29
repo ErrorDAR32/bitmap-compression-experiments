@@ -21,7 +21,7 @@
 //! no way to say it: a bind in a complex tile's body is always a tile,
 //! and says no size offset (`docs/gct.md`).
 
-use super::bit_cost::{bits_with, cell_list_header_bits, node_bits, payload_bits, Counting};
+use super::bit_cost::{bits_with, cell_list_header_bits, node_bits, own_bits, payload_bits, Counting, LEAVING_BITS};
 use super::raw_masking::decide_raw_masking;
 use crate::gct::fixed_list::FixedList;
 use crate::gct::grammar::*;
@@ -162,7 +162,7 @@ impl Search<'_> {
             }
         }
 
-        let own = own_bits(tile, here, children.left, self.counting.residual_prices);
+        let own = own_bits(tile, here, children.left, self.counting.residual_prices) as Bits;
         let own_in_body = own - bind_size_offset_bits(tile, here);
         let without = own + counted_without;
         let without_in_body = own_in_body + counted_without_in_body;
@@ -182,7 +182,7 @@ impl Search<'_> {
                 // mask.
                 let mut bits = own_in_body + MASK_BIT_WIDTH as Bits + counted_under[resolution as usize];
                 if resolution == tile.level + 1 && left > 0 {
-                    bits = bits + left * unmasked_bits(0) - LEAVING_BITS;
+                    bits = bits + left * unmasked_bits(0) - LEAVING_BITS as Bits;
                 }
                 bits
             };
@@ -271,11 +271,6 @@ fn unmasked_bits(levels_finer: u8) -> Bits {
     MASK_BIT_WIDTH as Bits + payload_bits(levels_finer) as Bits
 }
 
-/// What a divide that leaves children to the binding above spends on
-/// that and a divide that leaves none does not: its flip bit and child
-/// mask.
-const LEAVING_BITS: Bits = (FLIP_WIDTH + CHILD_MASK_WIDTH) as Bits;
-
 /// A complex tile's bits at a tile of `level`, of `size_offset`, before
 /// its payload or children: its leaf and code bits, its size offset and,
 /// where it may mask, its mask-present bit.
@@ -285,27 +280,6 @@ fn complex_tile_header_bits(level: u8, size_offset: u8) -> Bits {
         bits += MASK_PRESENT_WIDTH as Bits;
     }
     bits
-}
-
-/// The bits `tile`, whose fields are `here`, takes itself as the tiling
-/// stands, its counted children's bits aside; `left` the children a
-/// divide leaves to the binding above; a residual block at its price in
-/// `residual_prices`.
-fn own_bits(tile: Tile, here: Fields, left: u8, residual_prices: &ResidualPrices) -> Bits {
-    let leaf_and_code = (LEAF_WIDTH + CODE_WIDTH) as Bits;
-    let mask_present = if copy_or_divide_may_mask(tile.level) { MASK_PRESENT_WIDTH as Bits } else { 0 };
-    match here.placed() {
-        Some(Placement::Bound { masked_children: 0, .. }) => leaf_and_code + resolution_width(tile.level) as Bits + payload_bits(0) as Bits,
-        // Spelled as a divide that masks and flips the value bound above.
-        Some(Placement::Bound { .. }) => (MASKING_DIVIDE_HEADER_WIDTH + CHILD_MASK_WIDTH) as Bits,
-        Some(copy @ Placement::Copied { .. }) => {
-            let child_mask = if copy.masks_any() { CHILD_MASK_WIDTH as Bits } else { 0 };
-            leaf_and_code + (FAR_WIDTH + DIRECTION_WIDTH) as Bits + mask_present + child_mask
-        }
-        // A residual block, and its cells in the last pass, at its price.
-        None if tile.level == FLOOR_LEVEL => LEAF_WIDTH as Bits + residual_prices.of(tile) as Bits,
-        None => LEAF_WIDTH as Bits + mask_present + if left != 0 { LEAVING_BITS } else { 0 },
-    }
 }
 
 /// What `tile`, whose fields are `here`, spends of its own bits on a

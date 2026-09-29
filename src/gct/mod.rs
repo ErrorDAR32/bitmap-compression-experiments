@@ -36,11 +36,11 @@ use crate::Bitmap;
 use crate::gct::complex_tiler::bit_cost::{cell_lists_tree_bits, tree_bits, Counting};
 use crate::gct::complex_tiler::search::{complex_tiler, Scratch};
 use crate::gct::decode::StreamContents;
-use crate::gct::last_pass::{BlockSet, LastPass, BLOCK_WORDS};
+use crate::gct::last_pass::LastPass;
 use crate::gct::encode::{write, write_count_split};
 use crate::gct::grammar::bit_stream::BitStream;
 use crate::gct::grammar::count_split;
-use crate::gct::greedy_tiler::{greedy_tiler, GreedyTiling};
+use crate::gct::greedy_tiler::{greedy_tiler, GreedyTiling, GreedyTreeBits};
 use crate::gct::pyramids::complex_tiling::ComplexTiling;
 use crate::gct::pyramids::copyable::CopyOffsets;
 use crate::gct::pyramids::patterns::Patterns;
@@ -95,8 +95,6 @@ pub struct Gct {
     complex_tiling: ComplexTiling,
     /// The complex tiler's room.
     scratch: Scratch,
-    /// The residual blocks of the greedy tiler's tree.
-    residual_blocks: BlockSet,
     /// What the last pass takes for each residual block of the greedy
     /// tiler's tree: what the complex tiler counts them at.
     residual_prices: ResidualPrices,
@@ -116,7 +114,6 @@ impl Gct {
             patterns: Patterns::default(),
             complex_tiling: ComplexTiling::new(),
             scratch: Scratch::default(),
-            residual_blocks: [0; BLOCK_WORDS],
             residual_prices: ResidualPrices::new(),
             tree: Tree::new(),
             last_pass: LastPass::new(CopyOffsets::default()),
@@ -137,8 +134,8 @@ impl Gct {
     /// split, for sparse clustered cells, or the tree, which the complex
     /// tiler finishes.
     pub fn encode(&mut self, bitmap: &Bitmap, stream: &mut BitStream) {
-        self.greedy_tiling(bitmap);
-        if self.count_split_beats_tree(bitmap) {
+        let greedy_tree_bits = self.greedy_tiling(bitmap);
+        if self.count_split_beats_tree(bitmap, greedy_tree_bits) {
             write_count_split(bitmap, stream);
         } else {
             self.complex_tree(bitmap);
@@ -162,21 +159,25 @@ impl Gct {
     /// what it comes to on scattered cells, which it says in cell lists.
     /// The count split, far the faster to make, is taken unless one of
     /// them is shorter by more than [`COUNT_SPLIT_TOLERANCE_PERCENT`]. The
-    /// second is counted only if the count split gets past the first.
-    fn count_split_beats_tree(&self, bitmap: &Bitmap) -> bool {
+    /// first is counted on the greedy tiler's walk, `greedy_tree`; the
+    /// second only if the count split gets past the first.
+    fn count_split_beats_tree(&self, bitmap: &Bitmap, greedy_tree: GreedyTreeBits) -> bool {
+        debug_assert_eq!(
+            greedy_tree.bits(),
+            tree_bits(self.counting(bitmap), start_level(&self.complex_tiling)),
+            "the greedy tiler's count of its tree is not the reference count"
+        );
         let split_bits = count_split::bits(bitmap);
-        within_tolerance(split_bits, tree_bits(self.counting(bitmap), start_level(&self.complex_tiling)))
-            && within_tolerance(split_bits, cell_lists_tree_bits(self.counting(bitmap)))
+        within_tolerance(split_bits, greedy_tree.bits()) && within_tolerance(split_bits, cell_lists_tree_bits(self.counting(bitmap)))
     }
 
     /// The greedy tiler's tiles for `bitmap`, filled in -- its patterns
-    /// pyramid, then the greedy tiler on it -- and their residual blocks
-    /// priced.
-    fn greedy_tiling(&mut self, bitmap: &Bitmap) {
+    /// pyramid, then the greedy tiler on it, pricing their residual blocks
+    /// -- and the bits of the tree they make.
+    fn greedy_tiling(&mut self, bitmap: &Bitmap) -> GreedyTreeBits {
         self.patterns.build(bitmap);
-        let mut tiling = GreedyTiling { placements: &mut self.complex_tiling, residual_blocks: &mut self.residual_blocks };
-        greedy_tiler(bitmap, &self.patterns, self.last_pass.offsets(), &mut tiling);
-        self.residual_prices.measure(bitmap, &self.residual_blocks);
+        let mut tiling = GreedyTiling { placements: &mut self.complex_tiling, residual_prices: &mut self.residual_prices };
+        greedy_tiler(bitmap, &self.patterns, self.last_pass.offsets(), &mut tiling)
     }
 
     /// Finishes `bitmap`'s tree from the greedy tiler's tiles: the complex

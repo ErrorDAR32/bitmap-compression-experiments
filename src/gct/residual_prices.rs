@@ -3,18 +3,17 @@
 //! for leaving a 4x4 to the last pass, in place of a bit a cell.
 //!
 //! Measured on the greedy tiler's own tree, before the complex tiler
-//! runs, by a pass that prices without coding (`price_residual_blocks`,
-//! in the last pass). A residual block costs about the same whatever
-//! else the complex tiler changes: a cell's context is the cells above
-//! and left of it, which hold the same values whichever node says them
-//! -- only the odds each context has learned by then differ. And every residual
-//! block the complex tiler can leave is one in the greedy tiler's tree:
-//! it only ever adds complex tiles.
+//! runs, by a pass that prices without coding (`Pricing`, in the last
+//! pass), as the greedy tiler reaches each block. A residual block costs
+//! about the same whatever else the complex tiler changes: a cell's
+//! context is the cells above and left of it, which hold the same values
+//! whichever node says them -- only the odds each context has learned by
+//! then differ. And every residual block the complex tiler can leave is
+//! one in the greedy tiler's tree: it only ever adds complex tiles.
 
-use crate::gct::last_pass::{price_residual_blocks, BlockSet, BLOCKS};
+use crate::gct::last_pass::BLOCKS;
 use crate::gct::tile::{Tile, FLOOR_LEVEL};
 use crate::morton::morton_index;
-use crate::Bitmap;
 
 /// Each residual block's bits in the last pass, by its Morton index
 /// among the 4x4 blocks: rounded to the nearest bit, as the counts the
@@ -41,12 +40,6 @@ impl ResidualPrices {
     /// `index` among the 4x4 blocks.
     pub fn of_index(&self, index: usize) -> u64 {
         self.bits[index] as u64
-    }
-
-    /// Prices `residual_blocks`, those of the greedy tiler's own tree
-    /// for `bitmap`, before the complex tiler adds to it.
-    pub fn measure(&mut self, bitmap: &Bitmap, residual_blocks: &BlockSet) {
-        price_residual_blocks(bitmap, residual_blocks, self);
     }
 
     /// Notes that the residual block at `index` took `bits`, in
