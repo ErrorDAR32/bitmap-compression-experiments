@@ -13,6 +13,7 @@
 
 use crate::gct::pyramids::complex_tiling::ComplexTiling;
 use crate::gct::bit_cost::{tree_bits, Counting};
+use crate::gct::set_counts::SetCounts;
 use crate::gct::grammar::bit_stream::BitStream;
 use crate::gct::grammar::{count_split, COUNT_SPLIT_STREAM, STREAM_MODE_WIDTH};
 use crate::gct::pyramids::placements::Placement;
@@ -153,7 +154,7 @@ impl Examination {
 
         gct.encode(bitmap, stream);
         let count_split_stream = stream.reader().value(STREAM_MODE_WIDTH) == COUNT_SPLIT_STREAM;
-        let counted_bits = STREAM_MODE_WIDTH as u64 + if count_split_stream { count_split::bits(bitmap) } else { tree_bits };
+        let counted_bits = STREAM_MODE_WIDTH as u64 + if count_split_stream { count_split::bits(bitmap, &SetCounts::of(bitmap)) } else { tree_bits };
         gct.decode(stream, back);
         Self {
             written_bits: stream.len(),

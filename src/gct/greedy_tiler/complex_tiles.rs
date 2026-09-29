@@ -9,6 +9,7 @@
 use crate::gct::bit_cost::{complex_tile_header_bits, payload_bits};
 use crate::gct::grammar::{cell_list, raw_resolution_fits};
 use crate::gct::pyramids::complex_tiling::Fields;
+use crate::gct::set_counts::SetCounts;
 use crate::gct::tile::{Tile, CELL_LEVEL};
 use crate::Bitmap;
 
@@ -25,8 +26,9 @@ pub struct ComplexTile {
 
 /// `tile`'s cheapest complex tile, whose fields are `here`, if one takes
 /// fewer than `to_beat` bits: tried coarsest first, the first of the
-/// fewest bits kept. `tile`'s cells are `bitmap`'s.
-pub(crate) fn best_complex_tile(bitmap: &Bitmap, tile: Tile, here: Fields, to_beat: u32) -> Option<ComplexTile> {
+/// fewest bits kept. `tile`'s cells are `bitmap`'s, counted in
+/// `set_counts`.
+pub(crate) fn best_complex_tile(bitmap: &Bitmap, set_counts: &SetCounts, tile: Tile, here: Fields, to_beat: u32) -> Option<ComplexTile> {
     let said_in_payload = |size_offset| (complex_tile_header_bits(tile.level, size_offset) + payload_bits(size_offset)) as u32;
     let mut best: Option<ComplexTile> = None;
     let consider = |best: &mut Option<ComplexTile>, candidate: ComplexTile| {
@@ -44,9 +46,9 @@ pub(crate) fn best_complex_tile(bitmap: &Bitmap, tile: Tile, here: Fields, to_be
         // The cells as a cell list: its bits counted only when the fewest
         // it could take beat everything so far -- else it changes nothing.
         let header = complex_tile_header_bits(tile.level, size_offset) as u32;
-        let to_beat_now = best.map_or(to_beat, |best| best.bits);
-        if header + (cell_list::least_bits(bitmap, tile) as u32) < to_beat_now {
-            consider(&mut best, ComplexTile { size_offset, cell_list: true, bits: header + cell_list::bits(bitmap, tile) as u32 });
+        let (to_beat_now, set) = (best.map_or(to_beat, |best| best.bits), set_counts.in_tile(tile));
+        if header + (cell_list::least_bits(tile.level, set) as u32) < to_beat_now {
+            consider(&mut best, ComplexTile { size_offset, cell_list: true, bits: header + cell_list::bits(bitmap, tile, set) as u32 });
         }
     }
     best

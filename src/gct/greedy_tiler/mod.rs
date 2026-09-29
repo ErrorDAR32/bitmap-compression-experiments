@@ -57,6 +57,7 @@ use crate::gct::pyramids::copyable::{CopyOffsets, FINEST_COPY_LEVEL};
 use crate::gct::pyramids::patterns::Patterns;
 use crate::gct::pyramids::placements::{BOUND_AT_THE_TOP, FINEST_MASKING_LEVEL};
 use crate::gct::residual_prices::ResidualPrices;
+use crate::gct::set_counts::SetCounts;
 use crate::gct::tile::{tiles_in_level, Tile, CELL_LEVEL, FINEST_PLACED_LEVEL, FLOOR_LEVEL};
 use crate::morton::morton_index;
 use crate::Bitmap;
@@ -78,11 +79,12 @@ pub struct GreedyTiling<'a> {
 
 /// Tiles one bitmap into `tiling`, and counts the tree it makes. Reads
 /// only the bitmap's content: which tiles are homogeneous and which
-/// match which, from its patterns -- copies reading from `offsets` --
-/// and a 2x2's cells, finer than patterns go.
-pub fn greedy_tiler(bitmap: &Bitmap, patterns: &Patterns, offsets: &CopyOffsets, tiling: &mut GreedyTiling) -> TreeBits {
+/// match which, from its patterns, a 2x2's cells, finer than patterns
+/// go, and a cell list's set cells.
+pub fn greedy_tiler(content: Content, tiling: &mut GreedyTiling) -> TreeBits {
     tiling.complex_tiling.clear();
-    let mut walk = Walk { content: Content { bitmap, patterns, offsets }, tiling, pricing: Pricing::new() };
+    let patterns = content.patterns;
+    let mut walk = Walk { content, tiling, pricing: Pricing::new() };
     let whole_bitmap = Tile::whole_bitmap();
     let whole = place_at_or_under(&mut walk, Visit { tile: whole_bitmap, number: patterns.number(whole_bitmap), bound_above: BOUND_AT_THE_TOP, in_divide: false });
     TreeBits::of_whole_bitmap(whole)
@@ -120,15 +122,18 @@ impl TreeBits {
     }
 }
 
-/// What the greedy tiler reads of a bitmap: its cells and its patterns
-/// -- and where copies read from.
-struct Content<'a> {
+/// What the greedy tiler reads of a bitmap: its cells, how many are set
+/// before each word of them, and its patterns -- and where copies read
+/// from.
+pub struct Content<'a> {
     /// Its cells.
-    bitmap: &'a Bitmap,
+    pub bitmap: &'a Bitmap,
+    /// How many of its cells are set before each word of them.
+    pub set_counts: &'a SetCounts,
     /// Its patterns.
-    patterns: &'a Patterns,
+    pub patterns: &'a Patterns,
     /// Where copies read from.
-    offsets: &'a CopyOffsets,
+    pub offsets: &'a CopyOffsets,
 }
 
 /// One walk's reading, writing and pricing.
@@ -245,7 +250,7 @@ fn count(walk: &mut Walk, visit: Visit, children: Children) -> Visited {
         start_level: if divides_whole { children.start_level } else { tile.level },
     };
     if here.placed().is_none() {
-        if let Some(complex) = best_complex_tile(walk.content.bitmap, tile, here, visited.fewest_bits) {
+        if let Some(complex) = best_complex_tile(walk.content.bitmap, walk.content.set_counts, tile, here, visited.fewest_bits) {
             walk.tiling.complex_tiling.make_complex_tile(tile, complex.size_offset, complex.cell_list);
             (visited.fewest_bits, visited.start_level) = (complex.bits, tile.level);
         }

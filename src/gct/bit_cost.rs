@@ -100,7 +100,7 @@ pub fn node_bits(
             copy_bits
         }
         None => match here.complex_tile_size_offset() {
-            Some(size_offset) if here.is_cell_list() => complex_tile_header_bits(tile.level, size_offset) + cell_list::bits(counting.bitmap, tile),
+            Some(size_offset) if here.is_cell_list() => complex_tile_header_bits(tile.level, size_offset) + cell_list::bits(counting.bitmap, tile, cell_list::set_count(counting.bitmap, tile)),
             Some(size_offset) => {
                 debug_assert!(here.entirely_bound_at(tile.level + size_offset), "{tile:?}: a complex tile not entirely bound at its resolution");
                 complex_tile_header_bits(tile.level, size_offset) + payload_bits(size_offset)

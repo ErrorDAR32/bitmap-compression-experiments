@@ -16,6 +16,7 @@
 //! the runs are the regions of a binary partition of the plane.
 
 use super::bit_stream::{gamma_bits, truncated_binary_bits, truncated_binary_shape, BitReader, BitStream};
+use crate::gct::set_counts::SetCounts;
 use crate::WORDS;
 use crate::Bitmap;
 
@@ -178,47 +179,31 @@ const WORD_CELLS: usize = u64::BITS as usize;
 struct Words<'a> {
     /// The bitmap's words, in Morton order.
     words: &'a [u64; WORDS],
-    /// Cells set before each word, and in all.
-    set_before: [u32; WORDS + 1],
+    /// Cells set before each word.
+    set_counts: &'a SetCounts,
 }
 
-impl<'a> Words<'a> {
-    /// `bitmap`'s words, counted.
-    fn of(bitmap: &'a Bitmap) -> Self {
-        let words = bitmap.words();
-        let mut set_before = [0u32; WORDS + 1];
-        for (index, word) in words.iter().enumerate() {
-            set_before[index + 1] = set_before[index] + word.count_ones();
-        }
-        Self { words, set_before }
-    }
-
-    /// Cells set in all.
-    fn set(&self) -> u64 {
-        self.set_before[WORDS] as u64
-    }
-
+impl Words<'_> {
     /// Cells set in the first half of the run of `count` words from
     /// `first`.
     fn first_half_set(&self, first: usize, count: usize) -> u64 {
-        (self.set_before[first + count / 2] - self.set_before[first]) as u64
+        self.set_counts.in_words(first, count / 2)
     }
 
     /// The bits the run of `count` words from `first`, `set` of its
-    /// cells set, takes inside it, counted into `bits` a word at a time
-    /// until they pass `most_bits`: whether they are still within it.
-    fn bits(&self, first: usize, count: usize, set: u64, bits: &mut u64, most_bits: u64) -> bool {
+    /// cells set, takes inside it.
+    fn bits(&self, first: usize, count: usize, set: u64) -> u64 {
         if set == 0 || set == (count * WORD_CELLS) as u64 {
-            return true;
+            return 0;
         }
         if count == 1 {
-            *bits += word_bits(self.words[first], WORD_CELLS, set);
-            return *bits <= most_bits;
+            return word_bits(self.words[first], WORD_CELLS, set);
         }
         let (half, first_half_set) = (count / 2, self.first_half_set(first, count));
         let (fewest, counts) = first_half_counts(count * WORD_CELLS, set);
-        *bits += truncated_binary_bits(first_half_set - fewest, counts);
-        self.bits(first, half, first_half_set, bits, most_bits) && self.bits(first + half, half, set - first_half_set, bits, most_bits)
+        truncated_binary_bits(first_half_set - fewest, counts)
+            + self.bits(first, half, first_half_set)
+            + self.bits(first + half, half, set - first_half_set)
     }
 
     /// Writes the run of `count` words from `first`, `set` of its cells
@@ -257,24 +242,17 @@ fn write_word(stream: &mut BitStream, run: u64, cells: usize, set: u64) {
 
 /// The bits `bitmap`'s count split takes: a step a word, whatever the
 /// bitmap -- a run inside one word counted off that word alone.
-pub fn bits(bitmap: &Bitmap) -> u64 {
-    bits_within(bitmap, u64::MAX).expect("every count split is within the most bits a count can hold")
+/// `set_counts` are `bitmap`'s.
+pub fn bits(bitmap: &Bitmap, set_counts: &SetCounts) -> u64 {
+    let words = Words { words: bitmap.words(), set_counts };
+    gamma_bits(set_counts.total() + 1) + words.bits(0, WORDS, set_counts.total())
 }
 
-/// The bits `bitmap`'s count split takes, as [`bits`] counts them, if at
-/// most `most_bits`: counting stops, a word at a time, as soon as they
-/// pass it.
-pub fn bits_within(bitmap: &Bitmap, most_bits: u64) -> Option<u64> {
-    let words = Words::of(bitmap);
-    let mut bits = gamma_bits(words.set() + 1);
-    (bits <= most_bits && words.bits(0, WORDS, words.set(), &mut bits, most_bits)).then_some(bits)
-}
-
-/// Writes `bitmap`'s count split.
-pub fn write(bitmap: &Bitmap, stream: &mut BitStream) {
-    let words = Words::of(bitmap);
-    stream.push_gamma(words.set() + 1);
-    words.write(stream, 0, WORDS, words.set());
+/// Writes `bitmap`'s count split; `set_counts` are `bitmap`'s.
+pub fn write(bitmap: &Bitmap, set_counts: &SetCounts, stream: &mut BitStream) {
+    let words = Words { words: bitmap.words(), set_counts };
+    stream.push_gamma(set_counts.total() + 1);
+    words.write(stream, 0, WORDS, set_counts.total());
 }
 
 /// Reads a count split into `cell_values`, which start clear.

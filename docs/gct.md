@@ -544,9 +544,12 @@ the tree is kept. Grown blobs up to half set go to the count split too
 Only one of the two is ever made. The greedy tiler's walk counts the
 tree it makes, complex tiles and all, with its residual blocks at their
 prices; the count split is made unless that tree is more than 1% shorter
-(`COUNT_SPLIT_TOLERANCE_PERCENT`). The count split's bits are counted
-only as far as that: counting stops, a word at a time, once they pass
-it. The count split encodes and decodes
+(`COUNT_SPLIT_TOLERANCE_PERCENT`). Counting the count split's bits
+costs a few instructions a word: how many cells are set before each
+word of the bitmap (`set_counts.rs`), counted once a bitmap, gives
+every run's halves' counts by one subtraction -- and the same counts
+give the count split's writing, and every cell list's set count, 8x8
+and coarser being whole words. The count split encodes and decodes
 several times faster than a tree, and a bitmap may take up to 1% more
 bits for that. On the tested sample families, a sweep of grown bitmaps
 from none set to half, and the saved bitmaps -- 173 in all -- the

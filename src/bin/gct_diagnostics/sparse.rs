@@ -9,6 +9,7 @@
 use tilesim::diagnostics::examination::Examination;
 use tilesim::gct::grammar::bit_stream::BitStream;
 use tilesim::gct::grammar::count_split;
+use tilesim::gct::set_counts::SetCounts;
 use tilesim::gct::Gct;
 use tilesim::sample_generators::grown;
 use tilesim::table::report::Report;
@@ -66,7 +67,7 @@ pub fn run(report: &mut Report) {
                 let set_cells = bitmap.count_set() as u64;
                 set += set_cells;
                 tree += examined.tree_bits;
-                split += count_split::bits(&bitmap);
+                split += count_split::bits(&bitmap, &SetCounts::of(&bitmap));
                 written += examined.written_bits as u64;
                 splits += examined.count_split_stream as u64;
                 bound += placements_bits(set_cells);

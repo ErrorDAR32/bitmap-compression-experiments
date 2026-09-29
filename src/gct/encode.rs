@@ -5,6 +5,7 @@
 
 use crate::gct::grammar::bit_stream::BitStream;
 use crate::gct::last_pass::LastPass;
+use crate::gct::set_counts::SetCounts;
 use crate::gct::grammar::cell_list;
 use crate::gct::grammar::*;
 use crate::gct::pyramids::tree::{Node, Tree};
@@ -24,11 +25,11 @@ pub fn write(tree: &Tree, bitmap: &Bitmap, stream: &mut BitStream, last_pass: &m
 }
 
 /// Spells out `bitmap`'s count split into `stream`, whatever it held
-/// before.
-pub fn write_count_split(bitmap: &Bitmap, stream: &mut BitStream) {
+/// before; `set_counts` are `bitmap`'s.
+pub fn write_count_split(bitmap: &Bitmap, set_counts: &SetCounts, stream: &mut BitStream) {
     stream.clear();
     stream.push_value(COUNT_SPLIT_STREAM, STREAM_MODE_WIDTH);
-    count_split::write(bitmap, stream);
+    count_split::write(bitmap, set_counts, stream);
 }
 
 /// Spells out `tree` for `bitmap` at the end of `stream`: the start
