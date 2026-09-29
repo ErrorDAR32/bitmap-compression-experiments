@@ -42,6 +42,7 @@
 //! | [`gct`] | the greedy complex tiler, the encoding (`docs/gct.md`) |
 //! | `fixed_list` | the one list gct keeps: a fixed capacity, allocated once, never growing |
 //! | `morton` | the Morton order the bitmap and every pyramid level are laid out in |
+//! | [`rng`] | a small seeded random source, for the searches |
 //! | [`samples`] | the bitmaps everything is measured on, and where the seed comes from |
 //! | [`table`] | printing any of it, which every measurement does the same way |
 //!
@@ -64,6 +65,7 @@ pub mod diagnostics;
 mod fixed_list;
 mod morton;
 pub mod gct;
+pub mod rng;
 pub mod samples;
 pub mod table;
 

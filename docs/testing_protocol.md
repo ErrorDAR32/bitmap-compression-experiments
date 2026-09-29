@@ -75,7 +75,7 @@ diagnostics gather, and each stopping if gct loses a cell:
 | `measurement` | one table a sample generator (grown, city, lines, checkerboard, and the saved adversarial bitmaps), a row a parameter set with its parameters, bitmaps, cells set, gct's mean, fewest and most bits, share of the raw cells and encode time; then what the trees hold, family by family |
 | `census` | node kinds by level, for each bitmap looked at |
 | `above` | what the tree above the top tiles spends placing them, family by family, against a plain Morton-ordered list of the same tiles, and the tree ideally coded |
-| `far_offsets` | a hill climb for better far copy offsets on the fast sample, the best set against the default on the timed sample |
+| `copy_offsets` | a search for better copy offsets, near and far, on the fast sample -- climbs from several starts, single changes then pairs -- the best set against the current offsets on the timed sample |
 | `show` | the kept measurements, read back from `measurements/` |
 | `per_shape` | gct's bits on every shape, plan and line set |
 | `noise` | gct's bits on noise at several densities |

@@ -11,7 +11,7 @@
 //! | `above` | the divides above the top tiles, family by family, against listing those tiles in Morton order |
 //! | `per_shape` | gct's bits on every shape, plan and line set on its own |
 //! | `noise` | gct's bits on noise at several densities, against the raw cells |
-//! | `far_offsets` | a hill climb for better far copy offsets on the fast sample, the best then set against the default on the timed sample |
+//! | `copy_offsets` | a search for better copy offsets, near and far, on the fast sample, the best then set against the current ones on the timed sample |
 //! | `render` | PNG images of the bitmaps looked at, in `target/gct_diagnostics/`; nothing kept |
 //! | `show` | the kept measurements, every one or the one named next, read back without measuring |
 //!
@@ -28,7 +28,7 @@
 
 mod above;
 mod census;
-mod far_offsets;
+mod copy_offsets;
 mod measurement;
 mod noise;
 mod per_shape;
@@ -47,7 +47,7 @@ const MEASURING: [(&str, Measuring); 6] = [
     ("above", above::run),
     ("per_shape", per_shape::run),
     ("noise", noise::run),
-    ("far_offsets", far_offsets::run),
+    ("copy_offsets", copy_offsets::run),
 ];
 
 /// The tools that keep nothing, by name.

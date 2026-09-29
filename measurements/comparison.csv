@@ -1,7 +1,7 @@
 # written by `cargo run --release --manifest-path comparison/Cargo.toml`
 # 100 bitmaps a generator
 # seed 1950720362523133367
-# commit 9d82ee8, with uncommitted changes
+# commit f018350, with uncommitted changes
 
 ## laid out like a city, 400 bitmaps
 codec,"bits
@@ -9,11 +9,11 @@ a bitmap","of the
 raw cells","encode us
 a bitmap","decode us
 a bitmap"
-gct,12103,18.5%,1169.6,198.3
-CCITT G4 (fax crate),9105,13.9%,209.7,146.4
-JBIG (jbigkit),5317,8.1%,460.0,432.0
-zstd level 3,6783,10.4%,28.8,13.0
-zstd level 19,5234,8.0%,4273.3,16.8
+gct,12049,18.4%,1243.3,204.2
+CCITT G4 (fax crate),9105,13.9%,200.1,140.0
+JBIG (jbigkit),5317,8.1%,424.0,400.7
+zstd level 3,6783,10.4%,27.5,11.4
+zstd level 19,5234,8.0%,4368.5,16.8
 
 ## grown like a blob, 900 bitmaps
 codec,"bits
@@ -21,11 +21,11 @@ a bitmap","of the
 raw cells","encode us
 a bitmap","decode us
 a bitmap"
-gct,39067,59.6%,2267.8,176.4
-CCITT G4 (fax crate),59974,91.5%,543.3,451.6
-JBIG (jbigkit),34606,52.8%,1080.3,1035.4
-zstd level 3,39953,61.0%,49.6,13.8
-zstd level 19,37798,57.7%,2037.8,14.7
+gct,39067,59.6%,2391.5,181.4
+CCITT G4 (fax crate),59974,91.5%,558.9,461.3
+JBIG (jbigkit),34606,52.8%,1024.4,1029.1
+zstd level 3,39953,61.0%,50.1,14.0
+zstd level 19,37798,57.7%,1963.2,13.8
 
 ## sparse, 400 bitmaps
 codec,"bits
@@ -33,11 +33,11 @@ a bitmap","of the
 raw cells","encode us
 a bitmap","decode us
 a bitmap"
-gct,2388,3.6%,423.7,8.2
-CCITT G4 (fax crate),4210,6.4%,107.3,22.7
-JBIG (jbigkit),2489,3.8%,325.6,298.0
-zstd level 3,4228,6.5%,18.6,8.2
-zstd level 19,3444,5.3%,5030.4,10.2
+gct,2388,3.6%,454.7,8.8
+CCITT G4 (fax crate),4210,6.4%,109.3,22.1
+JBIG (jbigkit),2489,3.8%,326.9,301.5
+zstd level 3,4228,6.5%,19.0,8.5
+zstd level 19,3444,5.3%,5114.0,12.1
 
 ## drawn with lines, 300 bitmaps
 codec,"bits
@@ -45,11 +45,11 @@ a bitmap","of the
 raw cells","encode us
 a bitmap","decode us
 a bitmap"
-gct,11139,17.0%,1010.8,162.7
-CCITT G4 (fax crate),13316,20.3%,211.1,117.2
-JBIG (jbigkit),4221,6.4%,507.6,489.1
-zstd level 3,17351,26.5%,41.5,13.9
-zstd level 19,14610,22.3%,2809.2,20.7
+gct,11142,17.0%,1079.2,168.6
+CCITT G4 (fax crate),13316,20.3%,271.5,132.0
+JBIG (jbigkit),4221,6.4%,517.8,496.1
+zstd level 3,17351,26.5%,41.9,14.1
+zstd level 19,14610,22.3%,2716.2,18.0
 
 ## all, 2000 bitmaps
 codec,"bits
@@ -57,8 +57,8 @@ a bitmap","of the
 raw cells","encode us
 a bitmap","decode us
 a bitmap"
-gct,22149,33.8%,1490.8,145.1
-CCITT G4 (fax crate),31649,48.3%,339.5,254.6
-JBIG (jbigkit),17767,27.1%,719.4,685.3
-zstd level 3,22784,34.8%,38.0,12.5
-zstd level 19,20936,31.9%,3199.1,15.1
+gct,22139,33.8%,1577.7,149.5
+CCITT G4 (fax crate),31649,48.3%,354.1,259.8
+JBIG (jbigkit),17767,27.1%,688.8,678.0
+zstd level 3,22784,34.8%,38.1,12.4
+zstd level 19,20936,31.9%,3187.4,14.7

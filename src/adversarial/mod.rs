@@ -21,11 +21,10 @@ mod anneal;
 mod moves;
 mod plane;
 pub mod record;
-mod rng;
 
 pub use anneal::Found;
 use anneal::anneal;
-use rng::Rng;
+use crate::rng::Rng;
 
 use crate::gct::tile::Tile;
 use crate::Bitmap;

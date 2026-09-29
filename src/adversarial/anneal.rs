@@ -10,7 +10,7 @@
 //! What is maximized is the caller's: any score of a bitmap.
 
 use super::moves::CHANGES;
-use super::rng::Rng;
+use crate::rng::Rng;
 use super::Score;
 use crate::gct::tile::Tile;
 use crate::Bitmap;

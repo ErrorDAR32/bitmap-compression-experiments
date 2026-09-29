@@ -19,11 +19,13 @@ use crate::gct::tile::{directions, Tile, CELL_LEVEL, CHILDREN_ACROSS, DIRECTIONS
 pub const NEAR_OFFSETS: [(isize, isize); 4] = DIRECTIONS;
 
 /// Where a far copy reads from, by direction, in tiles of its own size:
-/// top left and top right two tiles away, above and left four -- found
-/// by the diagnostics tool's `far_offsets` search, where the near
-/// offsets doubled lost several percent on cities and more on
-/// checkerboards and the saved adversarial bitmaps.
-pub const FAR_OFFSETS: [(isize, isize); 4] = [(-2, -2), (0, -4), (2, -2), (-4, 0)];
+/// top left two tiles away, above and left four, top right four across
+/// and four up -- found by the diagnostics tool's copy offset search,
+/// where the near offsets doubled lost several percent on cities and
+/// more on checkerboards and the saved adversarial bitmaps. Every climb
+/// of that search, from the offsets before and from random ones, near
+/// and far together, reached these eight positions.
+pub const FAR_OFFSETS: [(isize, isize); 4] = [(-2, -2), (0, -4), (4, -4), (-4, 0)];
 
 /// Whether an offset reads a tile before the copy in reading order --
 /// above, or left in the same row -- as every offset must, so decoding
@@ -59,10 +61,17 @@ impl Default for CopyOffsets {
 }
 
 impl CopyOffsets {
-    /// The default near offsets and `far`, if every one of them
-    /// [`precedes`] the copy.
-    pub fn with_far(far: [(isize, isize); 4]) -> Option<Self> {
-        far.iter().all(|&offset| precedes(offset)).then_some(Self { near: NEAR_OFFSETS, far })
+    /// Copies reading from `near` and `far`, by direction, if every one
+    /// [`precedes`] the copy and no two are the same tile.
+    pub fn new(near: [(isize, isize); 4], far: [(isize, isize); 4]) -> Option<Self> {
+        let all: Vec<(isize, isize)> = near.into_iter().chain(far).collect();
+        let distinct = all.iter().enumerate().all(|(at, offset)| !all[..at].contains(offset));
+        (distinct && all.iter().all(|&offset| precedes(offset))).then_some(Self { near, far })
+    }
+
+    /// The near offsets.
+    pub fn near(&self) -> [(isize, isize); 4] {
+        self.near
     }
 
     /// The far offsets.

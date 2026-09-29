@@ -22,7 +22,7 @@ impl Rng {
     }
 
     /// The next draw: any 64-bit value.
-    pub fn next(&mut self) -> u64 {
+    pub fn draw(&mut self) -> u64 {
         self.0 = self.0.wrapping_add(GOLDEN_GAMMA);
         let mut z = self.0;
         z = (z ^ (z >> 30)).wrapping_mul(MIX_1);
@@ -32,7 +32,7 @@ impl Rng {
 
     /// A number in `0..bound`.
     pub fn below(&mut self, bound: u64) -> u64 {
-        self.next() % bound
+        self.draw() % bound
     }
 
     /// A number in `low..=high`.
@@ -42,6 +42,6 @@ impl Rng {
 
     /// A number in `[0, 1)`.
     pub fn unit(&mut self) -> f64 {
-        (self.next() >> (u64::BITS - f64::MANTISSA_DIGITS)) as f64 / (1u64 << f64::MANTISSA_DIGITS) as f64
+        (self.draw() >> (u64::BITS - f64::MANTISSA_DIGITS)) as f64 / (1u64 << f64::MANTISSA_DIGITS) as f64
     }
 }

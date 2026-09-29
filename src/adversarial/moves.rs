@@ -3,7 +3,7 @@
 //! encoders are built on -- tile boundaries, homogeneity, copies that
 //! almost match, and structure no power-of-two tile lines up with.
 
-use super::rng::Rng;
+use crate::rng::Rng;
 use crate::gct::tile::{tile_side, Tile, CELL_LEVEL, DIRECTIONS};
 use crate::Bitmap;
 

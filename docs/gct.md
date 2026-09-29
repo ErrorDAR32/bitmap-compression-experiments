@@ -154,10 +154,12 @@ children, and each child it says would otherwise be a tile of its own,
 **Copy offsets** (`pyramids/copyable.rs`). A near copy reads a
 neighbour before the tile in reading order: (-1,-1), (0,-1), (1,-1),
 (-1,0), in tiles of its own size. A far copy reads (-2,-2), (0,-4),
-(2,-2) or (-4,0): above and left four tiles away, the diagonals two. Any
-offsets before the tile in reading order decode; a workspace can be
-made with others (`Workspace::with_copy_offsets`), and the diagnostics
-tool's `far_offsets` searches for better far ones (`far_offsets.csv`).
+(4,-4) or (-4,0): above and left four tiles away, top left two
+diagonally, top right four.
+Any eight distinct offsets before the tile in reading order decode; a
+workspace can be made with others (`Workspace::with_copy_offsets`,
+`CopyOffsets::new`), and the diagnostics tool's `copy_offsets`
+searches for better ones, near and far together (`copy_offsets.csv`).
 
 **No comparison between sizes:** a tile that qualifies at any rule is
 taken at once, coarsest first. What a tile gets depends only on its own
@@ -540,7 +542,7 @@ cargo run --release --bin gct_diagnostics -- show measurement
 | `above.csv` | `gct_diagnostics -- above` | the tree above the top tiles against a Morton list of them, below |
 | `per_shape.csv` | `gct_diagnostics -- per_shape` | bits a bitmap and a cell set, shape by shape |
 | `noise.csv` | `gct_diagnostics -- noise` | bits on noise at several densities, against the raw cells |
-| `far_offsets.csv` | `gct_diagnostics -- far_offsets` | the search for far copy offsets, and its best against the default |
+| `copy_offsets.csv` | `gct_diagnostics -- copy_offsets` | the search for copy offsets, near and far: each climb, its best against the current offsets, and the best drawn |
 | `timing.csv` | `cargo run --release --example gct_timing` | encode and decode times, family by family |
 | `comparison.csv` | `cargo run --release --manifest-path comparison/Cargo.toml` | gct against G4, JBIG and zstd: bits and times, family by family |
 
