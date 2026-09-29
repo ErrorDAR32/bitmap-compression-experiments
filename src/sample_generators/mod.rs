@@ -191,8 +191,7 @@ impl HowMany {
 }
 
 /// Bitmaps each generator makes for a timing, unless told otherwise:
-/// 20 generators, so 2000 bitmaps -- enough for a steady mean and a
-/// tail.
+/// enough, over every generator, for a steady mean and a tail.
 pub const TIMING_PER_GENERATOR: u64 = 100;
 
 /// Every family of sample, named, with `how_many` of each generator's.

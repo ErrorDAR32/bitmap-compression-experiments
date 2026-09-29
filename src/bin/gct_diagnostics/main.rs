@@ -13,7 +13,8 @@
 //! | `copy_offsets` | a search for better copy offsets, near and far, on the fast sample, the best then set against the current ones on the timed sample |
 //! | `sparse` | the tree against the count split on sparse bitmaps, density by density, scattered and clustered, beside the least scattered cells can take |
 //! | `timing` | wall-clock time to encode and decode, averaged over a large sample, a family at a time |
-//! | `instruction_count` | encodes and decodes a fixed sample, for callgrind to count; nothing kept |
+//! | `instruction_count` | instructions to encode and to decode a fixed sample, counted by callgrind (valgrind must be installed) |
+//! | `instruction_sample` | encodes and decodes that sample alone, uncounted: what callgrind runs; nothing kept |
 //! | `render` | PNG images of the bitmaps looked at, in `target/gct_diagnostics/`; nothing kept |
 //! | `show` | the kept measurements, every one or the one named next, read back without measuring |
 //!
@@ -45,7 +46,7 @@ use tilesim::table::report::Report;
 type Measuring = fn(&mut Report);
 
 /// The tools that measure, by name.
-const MEASURING: [(&str, Measuring); 7] = [
+const MEASURING: [(&str, Measuring); 8] = [
     ("measurement", measurement::run),
     ("census", census::run),
     ("per_shape", per_shape::run),
@@ -53,10 +54,11 @@ const MEASURING: [(&str, Measuring); 7] = [
     ("copy_offsets", copy_offsets::run),
     ("sparse", sparse::run),
     ("timing", timing::run),
+    ("instruction_count", instruction_count::run),
 ];
 
 /// The tools that keep nothing, by name.
-const OTHERS: [(&str, fn()); 3] = [("render", render::run), ("show", show::run), ("instruction_count", instruction_count::run)];
+const OTHERS: [(&str, fn()); 3] = [("render", render::run), ("show", show::run), (instruction_count::SAMPLE_TOOL, instruction_count::run_sample)];
 
 /// The exit code for a tool not named, or named wrongly.
 const USAGE_EXIT_CODE: i32 = 2;

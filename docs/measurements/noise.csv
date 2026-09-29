@@ -1,12 +1,13 @@
 # written by `cargo run --release --bin gct_diagnostics -- noise`
-# noise grown from the fixed seed 1, 3 bitmaps a density
-# commit 4780328, with uncommitted changes
+# 3 bitmaps of noise a density
+# seed 17400261585918632413
+# commit 98096ce, with uncommitted changes
 
 ## noise
 density,"gct
 bits a bitmap","gct
 over raw cells"
-50%,65568,+32
-35%,65203,-333
-20%,48824,-16712
-10%,31282,-34254
+50%,65564,+28
+35%,65178,-358
+20%,48850,-16686
+10%,31262,-34274

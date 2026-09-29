@@ -532,12 +532,13 @@ cargo run --release --bin gct_diagnostics -- show measurement
 
 | file | written by | holds |
 |---|---|---|
-| `measurement.csv` | `gct_diagnostics -- measurement` | bits a bitmap by generator and parameter set, the checkerboards and the saved adversarial bitmaps; what the trees hold, family by family |
-| `census.csv` | `gct_diagnostics -- census` | node kinds by level, for each adversarial record and saved bitmap |
-| `per_shape.csv` | `gct_diagnostics -- per_shape` | bits a bitmap and a cell set, shape by shape |
-| `noise.csv` | `gct_diagnostics -- noise` | bits on noise at several densities, against the raw cells |
-| `copy_offsets.csv` | `gct_diagnostics -- copy_offsets` | the search for copy offsets, near and far: each climb, its best against the current offsets, and the best drawn |
+| `measurement.csv` | `cargo run --release --bin gct_diagnostics -- measurement` | bits a bitmap by generator and parameter set, the checkerboards and the saved adversarial bitmaps; what the trees hold, family by family |
+| `census.csv` | `cargo run --release --bin gct_diagnostics -- census` | node kinds by level, for each adversarial record and saved bitmap |
+| `per_shape.csv` | `cargo run --release --bin gct_diagnostics -- per_shape` | bits a bitmap and a cell set, shape by shape |
+| `noise.csv` | `cargo run --release --bin gct_diagnostics -- noise` | bits on noise at several densities, against the raw cells |
+| `copy_offsets.csv` | `cargo run --release --bin gct_diagnostics -- copy_offsets` | the search for copy offsets, near and far: each climb, its best against the current offsets, and the best drawn |
 | `timing.csv` | `cargo run --release --bin gct_diagnostics -- timing` | encode and decode times, family by family |
+| `instruction_count.csv` | `cargo run --release --bin gct_diagnostics -- instruction_count` | instructions to encode and to decode a sample, counted by callgrind |
 | `sparse.csv` | `cargo run --release --bin gct_diagnostics -- sparse` | the tree against the count split on sparse bitmaps, beside the least scattered cells can take |
 | `external_benchmarks.csv` | `cargo run --release --manifest-path external_benchmarks/Cargo.toml` | gct against G4, JBIG and zstd: bits and times, family by family |
 
