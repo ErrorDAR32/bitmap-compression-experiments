@@ -1,8 +1,10 @@
 //! A run of bits: written in order, read back in the same order.
 //! Multi-bit values go least significant bit first. Packed 64 to a
-//! word, bit `i` of the run bit `i % 64` of word `i / 64`.
+//! word, bit `i` of the run bit `i % 64` of word `i / 64`. Besides plain
+//! values, the variable-length codes the grammar uses: unary, Elias
+//! gamma and truncated binary.
 
-use super::{CHILD_MASK_WIDTH, CODE_WIDTH, DIRECTION_WIDTH, FAR_WIDTH, LEAF_WIDTH, MASK_PRESENT_WIDTH, START_LEVEL_WIDTH};
+use super::{CHILD_MASK_WIDTH, CODE_WIDTH, DIRECTION_WIDTH, FAR_WIDTH, LEAF_WIDTH, MASK_PRESENT_WIDTH, START_LEVEL_WIDTH, STREAM_MODE_WIDTH};
 use crate::gct::tile::{tiles_down_to, CELLS, CELL_LEVEL, FLOOR_LEVEL};
 
 /// Bits a word holds.
@@ -16,11 +18,13 @@ const MOST_NODE_BITS: usize = CELL_LEVEL as usize
     + (LEAF_WIDTH + CODE_WIDTH + FAR_WIDTH + DIRECTION_WIDTH + MASK_PRESENT_WIDTH) as usize
     + CHILD_MASK_WIDTH as usize;
 
-/// The most bits a stream takes: the start level, a node at every tile
-/// down to the 2x2 floor, and each cell's value said at most once -- in
-/// a payload, a cell list (only ever chosen when cheaper than a bit a
-/// cell) or the residual pass.
-pub const MOST_BITS: usize = START_LEVEL_WIDTH as usize + tiles_down_to(FLOOR_LEVEL) * MOST_NODE_BITS + CELLS;
+/// The most bits a stream takes: its mode, the start level, a node at
+/// every tile down to the 2x2 floor, and each cell's value said at most
+/// once -- in a payload, a cell list (only ever chosen when cheaper than
+/// a bit a cell) or the residual pass. A stream that is a count split
+/// is only ever shorter than the tree.
+pub const MOST_BITS: usize =
+    STREAM_MODE_WIDTH as usize + START_LEVEL_WIDTH as usize + tiles_down_to(FLOOR_LEVEL) * MOST_NODE_BITS + CELLS;
 
 /// Words the most bits a stream takes fill.
 const MOST_WORDS: usize = MOST_BITS.div_ceil(WORD_BITS);
@@ -83,10 +87,65 @@ impl BitStream {
         self.len += width;
     }
 
+    /// Writes `count` in unary: that many ones, then a zero.
+    pub fn push_unary(&mut self, count: u64) {
+        for _ in 0..count {
+            self.push(true);
+        }
+        self.push(false);
+    }
+
+    /// Writes `value`, at least 1, in Elias gamma code: its length less
+    /// one in unary, then all but its top bit.
+    pub fn push_gamma(&mut self, value: u64) {
+        let length = value.ilog2() as u8;
+        self.push_unary(length as u64);
+        self.push_value(value, length);
+    }
+
+    /// Writes `value`, one of `range` values each as likely, in truncated
+    /// binary: the first values one bit shorter than the rest, so the
+    /// code wastes less than a bit. Nothing at all when `range` is one.
+    pub fn push_truncated_binary(&mut self, value: u64, range: u64) {
+        let Some((short_width, short_codes)) = truncated_binary_shape(range) else { return };
+        if value < short_codes {
+            self.push_value(value, short_width);
+        } else {
+            // A long code: its first `short_width` bits are past every
+            // short code, then one bit more.
+            let long = value + short_codes;
+            self.push_value(long >> 1, short_width);
+            self.push_value(long & 1, 1);
+        }
+    }
+
     /// Reads from the start.
     pub fn reader(&self) -> BitReader<'_> {
         BitReader { stream: self, position: 0 }
     }
+}
+
+/// The bits of `value` in Elias gamma code, `value` at least 1.
+pub fn gamma_bits(value: u64) -> u64 {
+    2 * value.ilog2() as u64 + 1
+}
+
+/// The bits of `value`, one of `range`, in truncated binary.
+pub fn truncated_binary_bits(value: u64, range: u64) -> u64 {
+    match truncated_binary_shape(range) {
+        None => 0,
+        Some((short_width, short_codes)) => short_width as u64 + (value >= short_codes) as u64,
+    }
+}
+
+/// A truncated binary code of `range` values: the short codes' width,
+/// and how many values take a short code; `None` for one value, which
+/// needs no bits.
+fn truncated_binary_shape(range: u64) -> Option<(u8, u64)> {
+    (range > 1).then(|| {
+        let short_width = range.ilog2() as u8;
+        (short_width, (1 << (short_width + 1)) - range)
+    })
 }
 
 /// Reads a [`BitStream`] back, in order. Past the end, bits read as 0.
@@ -102,6 +161,31 @@ impl BitReader<'_> {
     #[inline]
     pub fn bit(&mut self) -> bool {
         self.value(1) == 1
+    }
+
+    /// Reads what [`BitStream::push_unary`] wrote.
+    pub fn unary(&mut self) -> u64 {
+        let mut count = 0;
+        while self.bit() {
+            count += 1;
+        }
+        count
+    }
+
+    /// Reads what [`BitStream::push_gamma`] wrote.
+    pub fn gamma(&mut self) -> u64 {
+        let length = self.unary() as u8;
+        1 << length | self.value(length)
+    }
+
+    /// Reads what [`BitStream::push_truncated_binary`] wrote, of `range`.
+    pub fn truncated_binary(&mut self, range: u64) -> u64 {
+        let Some((short_width, short_codes)) = truncated_binary_shape(range) else { return 0 };
+        let first = self.value(short_width);
+        if first < short_codes {
+            return first;
+        }
+        (first << 1 | self.value(1)) - short_codes
     }
 
     /// Reads `width` bits, at most a word, as written by

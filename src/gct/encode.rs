@@ -12,9 +12,23 @@ use crate::gct::pyramids::tree::{Node, Tree};
 use crate::gct::tile::{cells_in_tile, Tile, CELL_LEVEL, FLOOR_LEVEL};
 use crate::Bitmap;
 
-/// Spells out `tree` for `bitmap` into `stream`, whatever it held before.
+/// Spells out `tree` for `bitmap` into `stream`, whatever it held before
+/// -- or `bitmap`'s count split instead, when that takes fewer bits.
 pub fn write(tree: &Tree, bitmap: &Bitmap, stream: &mut BitStream) {
     stream.clear();
+    stream.push_value(TREE_STREAM, STREAM_MODE_WIDTH);
+    write_tree(tree, bitmap, stream);
+    let tree_bits = (stream.len() - STREAM_MODE_WIDTH as usize) as u64;
+    if count_split::bits_below(bitmap, tree_bits).is_some() {
+        stream.clear();
+        stream.push_value(COUNT_SPLIT_STREAM, STREAM_MODE_WIDTH);
+        count_split::write(bitmap, stream);
+    }
+}
+
+/// Spells out `tree` for `bitmap` at the end of `stream`: the start
+/// level, every node from there, then the residual pass.
+fn write_tree(tree: &Tree, bitmap: &Bitmap, stream: &mut BitStream) {
     let start_level = tree.start_level();
     stream.push_value(start_level as u64, START_LEVEL_WIDTH);
     let mut writer = Writer { tree, bitmap, stream };

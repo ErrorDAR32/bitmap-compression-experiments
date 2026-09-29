@@ -11,6 +11,7 @@
 //! | `per_shape` | gct's bits on every shape, plan and line set on its own |
 //! | `noise` | gct's bits on noise at several densities, against the raw cells |
 //! | `copy_offsets` | a search for better copy offsets, near and far, on the fast sample, the best then set against the current ones on the timed sample |
+//! | `sparse` | the tree against the count split on sparse bitmaps, density by density, scattered and clustered, beside the least scattered cells can take |
 //! | `timing` | wall-clock time to encode and decode, averaged over a large sample, a family at a time |
 //! | `instruction_count` | encodes and decodes a fixed sample, for callgrind to count; nothing kept |
 //! | `render` | PNG images of the bitmaps looked at, in `target/gct_diagnostics/`; nothing kept |
@@ -35,6 +36,7 @@ mod noise;
 mod per_shape;
 mod render;
 mod show;
+mod sparse;
 mod timing;
 
 use tilesim::table::report::Report;
@@ -43,12 +45,13 @@ use tilesim::table::report::Report;
 type Measuring = fn(&mut Report);
 
 /// The tools that measure, by name.
-const MEASURING: [(&str, Measuring); 6] = [
+const MEASURING: [(&str, Measuring); 7] = [
     ("measurement", measurement::run),
     ("census", census::run),
     ("per_shape", per_shape::run),
     ("noise", noise::run),
     ("copy_offsets", copy_offsets::run),
+    ("sparse", sparse::run),
     ("timing", timing::run),
 ];
 
