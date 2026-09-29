@@ -1,9 +1,0 @@
-# TileSim's crates, built together: one lockfile, one target folder.
-[workspace]
-members = ["bitmap", "tessera", "utilities"]
-# A workspace of its own, so the external codecs never enter the others' builds.
-exclude = ["tessera/external_benchmarks"]
-resolver = "2"
-
-[profile.release]
-debug = true

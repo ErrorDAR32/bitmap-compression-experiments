@@ -52,7 +52,7 @@ Three parts, kept apart:
 - **Tests** (`tests/`) judge what the diagnostics gather: pass or fail.
 - **Tools** (`src/bin/`, and the external benchmarks' crate) print what
   the diagnostics gather, or search for bitmaps. Every tool prints its
-  results as tables, through the one table printer (`../utilities/src/table/`), and
+  results as tables, through the one table printer (`utilities/src/table/`), and
   a tool that measures or searches keeps them
   (`docs/measurements/<tool>.csv`).
 
@@ -120,7 +120,7 @@ Every tool that measures -- these, the external benchmarks and the
 adversarial searches -- keeps
 its tables in `docs/measurements/<tool>.csv`, rewritten by every run,
 with the command, the seed and the commit it was measured on as the
-file's notes (`../utilities/src/table/report.rs`, published by
+file's notes (`utilities/src/table/report.rs`, published by
 `src/measurements.rs`). The latest numbers live there and
 nowhere else. A run on a fresh seed rewrites the file too, and its notes
 say so; commit the files measured on the file's seed.

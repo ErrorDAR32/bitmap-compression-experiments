@@ -11,8 +11,8 @@ default-run = "external_benchmarks"
 
 [dependencies]
 tessera = { path = ".." }
-bitmap = { path = "../../bitmap" }
-utilities = { path = "../../utilities" }
+bitmap = { path = "../bitmap" }
+utilities = { path = "../utilities" }
 fax = "0.3.0"
 zstd = "0.13"
 
