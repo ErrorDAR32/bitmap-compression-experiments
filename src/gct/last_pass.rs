@@ -24,7 +24,7 @@ use crate::gct::grammar::arithmetic::{BitSink, Decoder, Encoder, Odds, FINISHING
 use crate::gct::grammar::bit_stream::BitReader;
 use crate::gct::pyramids::copyable::{CopyOffsets, FINEST_COPY_LEVEL};
 use crate::gct::pyramids::tree::Tree;
-use crate::gct::residual_prices::{fixed_point_log2, ResidualPrices};
+use crate::gct::residual_prices::{fixed_point_log2, ResidualPrices, FRACTION_BITS};
 use crate::gct::tile::{cells_in_tile, tiles_across, tiles_in_level, Tile, CELLS};
 use crate::morton::{morton_coordinates, morton_index};
 use crate::Bitmap;
@@ -48,10 +48,10 @@ const CONTEXTS: usize = 1 << CONTEXT_CELLS.len();
 const FIRST_WEIGHT: u32 = 1;
 /// ...and what each cell coded in it adds to its value's: one cell.
 const CELL_WEIGHT: u32 = 2;
-/// The most a context's two weights add up to fits the coder, and a
-/// block row's worth multiplied fits the `u128` pricing takes them in.
-const _: () = assert!(2 * FIRST_WEIGHT as u64 + CELL_WEIGHT as u64 * CELLS as u64 <= MOST_WEIGHT);
-const _: () = assert!(((2 * FIRST_WEIGHT as u64 + CELL_WEIGHT as u64 * CELLS as u64) as u128).checked_pow(BLOCK_SIDE as u32).is_some());
+/// The most a context's two weights add up to: every cell coded in it.
+const MOST_TOTAL: u64 = 2 * FIRST_WEIGHT as u64 + CELL_WEIGHT as u64 * CELLS as u64;
+/// It fits the coder.
+const _: () = assert!(MOST_TOTAL <= MOST_WEIGHT);
 
 /// The most bits the pass takes over one a residual cell: for each
 /// context, what learning its odds costs over the fewest bits its cells
@@ -358,46 +358,92 @@ impl Blocks {
 
 /// The pricing pass: what the last pass takes for each residual block
 /// of a tree, without coding it -- each block's cells' `log2` of their
-/// odds' totals over their values' weights, a row's multiplied first
-/// (each under 2^18, so a row's four under 2^72: a `u128` holds them),
-/// every context learning as the pass's do. Blocks are to be priced in
-/// the pass's order, Morton order. Contexts are read off the bitmap
-/// itself: in the pass each context cell is final when its cell is
-/// coded, but for one of a copy still waiting on its source, which reads
-/// as clear there -- rare, and a price is what a block takes about.
+/// odds' totals over their values' weights: the totals multiplied, the
+/// weights multiplied, and one `log2` of each, every context learning
+/// as the pass's do. Blocks are to be priced in the pass's order, Morton
+/// order. Contexts are read off the bitmap itself: in the pass each
+/// context cell is final when its cell is coded, but for one of a copy
+/// still waiting on its source, which reads as clear there -- rare, and
+/// a price is what a block takes about.
 pub(crate) struct Pricing {
-    /// Each context's odds, as learned so far.
-    odds: [Odds; CONTEXTS],
+    /// Each context's weights so far, clear and set, by the value.
+    weights: [[u32; 2]; CONTEXTS],
 }
 
 impl Pricing {
     /// No block priced yet.
     pub(crate) fn new() -> Self {
-        Self { odds: [Odds { clear: FIRST_WEIGHT, set: FIRST_WEIGHT }; CONTEXTS] }
+        Self { weights: [[FIRST_WEIGHT; 2]; CONTEXTS] }
     }
 
     /// Prices the residual block at `index` of a tree for `bitmap` into
     /// `prices`, every residual block before it in Morton order priced.
     pub(crate) fn price(&mut self, bitmap: &Bitmap, index: usize, prices: &mut ResidualPrices) {
         let window = Window::around(bitmap, index);
-        let mut bits = 0;
+        let (mut totals, mut weights) = (Product::ONE, Product::ONE);
         for dy in 0..BLOCK_SIDE as u32 {
-            let columns = window.columns(dy);
-            let row = window.block_row(dy);
-            // The row's cells' odds multiplied -- totals over the weights
-            // of the values they hold -- and one `log2` each.
-            let (mut totals, mut weights) = (1u128, 1u128);
-            for dx in 0..BLOCK_SIDE as u32 {
-                let odds = &mut self.odds[columns.context(dx)];
-                let set = row >> dx & 1 == 1;
-                totals *= (odds.clear + odds.set) as u128;
-                let weight = if set { &mut odds.set } else { &mut odds.clear };
-                weights *= *weight as u128;
-                *weight += CELL_WEIGHT;
+            let (columns, row) = (window.columns(dy), window.block_row(dy));
+            // A pair of cells at a time: two factors, then one
+            // renormalizing.
+            for first in (0..BLOCK_SIDE as u32).step_by(PAIR) {
+                let (first_total, first_weight) = self.learn(columns.context(first), row >> first & 1);
+                let (second_total, second_weight) = self.learn(columns.context(first + 1), row >> (first + 1) & 1);
+                totals = totals.times(first_total, second_total);
+                weights = weights.times(first_weight, second_weight);
             }
-            bits += fixed_point_log2(totals) - fixed_point_log2(weights);
         }
-        prices.set(index, bits);
+        prices.set(index, totals.log2() - weights.log2());
+    }
+
+    /// A cell holding `value` in `context`: its context's total and its
+    /// value's weight before it, then the cell learned.
+    #[inline]
+    fn learn(&mut self, context: usize, value: usize) -> (u32, u32) {
+        let weights = &mut self.weights[context];
+        let before = (weights[0] + weights[1], weights[value]);
+        weights[value] += CELL_WEIGHT;
+        before
+    }
+}
+
+/// Cells priced between renormalizings.
+const PAIR: usize = 2;
+const _: () = assert!((BLOCK_SIDE as usize).is_multiple_of(PAIR));
+
+/// A product of weights, as a mantissa and a power of two: the mantissa
+/// kept to [`MANTISSA_BITS`] bits, so a pair of factors -- each under
+/// `2^FACTOR_BITS` -- always fits a word. What is shifted out is under a
+/// `2^-(MANTISSA_BITS - 1)` part of it each time: far under the whole bit
+/// a price is rounded to.
+#[derive(Clone, Copy)]
+struct Product {
+    /// The product's top bits.
+    mantissa: u64,
+    /// The power of two the mantissa is multiplied by.
+    exponent: u32,
+}
+
+/// Bits a factor takes at most: a context's total.
+const FACTOR_BITS: u32 = u64::BITS - MOST_TOTAL.leading_zeros();
+/// Bits a product's mantissa is kept to: what two factors leave of a
+/// word.
+const MANTISSA_BITS: u32 = u64::BITS - PAIR as u32 * FACTOR_BITS;
+
+impl Product {
+    /// The empty product.
+    const ONE: Self = Self { mantissa: 1, exponent: 0 };
+
+    /// This times `first` and `second`.
+    #[inline]
+    fn times(self, first: u32, second: u32) -> Self {
+        let exact = self.mantissa * first as u64 * second as u64;
+        let excess = (u64::BITS - exact.leading_zeros()).saturating_sub(MANTISSA_BITS);
+        Self { mantissa: exact >> excess, exponent: self.exponent + excess }
+    }
+
+    /// Its `log2`, in fixed point.
+    fn log2(self) -> u32 {
+        (self.exponent << FRACTION_BITS) + fixed_point_log2(self.mantissa)
     }
 }
 

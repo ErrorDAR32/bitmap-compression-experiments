@@ -205,19 +205,20 @@ impl<'a> Words<'a> {
     }
 
     /// The bits the run of `count` words from `first`, `set` of its
-    /// cells set, takes inside it.
-    fn bits(&self, first: usize, count: usize, set: u64) -> u64 {
+    /// cells set, takes inside it, counted into `bits` a word at a time
+    /// until they pass `most_bits`: whether they are still within it.
+    fn bits(&self, first: usize, count: usize, set: u64, bits: &mut u64, most_bits: u64) -> bool {
         if set == 0 || set == (count * WORD_CELLS) as u64 {
-            return 0;
+            return true;
         }
         if count == 1 {
-            return word_bits(self.words[first], WORD_CELLS, set);
+            *bits += word_bits(self.words[first], WORD_CELLS, set);
+            return *bits <= most_bits;
         }
         let (half, first_half_set) = (count / 2, self.first_half_set(first, count));
         let (fewest, counts) = first_half_counts(count * WORD_CELLS, set);
-        truncated_binary_bits(first_half_set - fewest, counts)
-            + self.bits(first, half, first_half_set)
-            + self.bits(first + half, half, set - first_half_set)
+        *bits += truncated_binary_bits(first_half_set - fewest, counts);
+        self.bits(first, half, first_half_set, bits, most_bits) && self.bits(first + half, half, set - first_half_set, bits, most_bits)
     }
 
     /// Writes the run of `count` words from `first`, `set` of its cells
@@ -257,8 +258,16 @@ fn write_word(stream: &mut BitStream, run: u64, cells: usize, set: u64) {
 /// The bits `bitmap`'s count split takes: a step a word, whatever the
 /// bitmap -- a run inside one word counted off that word alone.
 pub fn bits(bitmap: &Bitmap) -> u64 {
+    bits_within(bitmap, u64::MAX).expect("every count split is within the most bits a count can hold")
+}
+
+/// The bits `bitmap`'s count split takes, as [`bits`] counts them, if at
+/// most `most_bits`: counting stops, a word at a time, as soon as they
+/// pass it.
+pub fn bits_within(bitmap: &Bitmap, most_bits: u64) -> Option<u64> {
     let words = Words::of(bitmap);
-    gamma_bits(words.set() + 1) + words.bits(0, WORDS, words.set())
+    let mut bits = gamma_bits(words.set() + 1);
+    (bits <= most_bits && words.bits(0, WORDS, words.set(), &mut bits, most_bits)).then_some(bits)
 }
 
 /// Writes `bitmap`'s count split.

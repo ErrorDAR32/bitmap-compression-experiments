@@ -84,12 +84,12 @@ const FRACTIONS: [u32; 1 << FRACTION_BITS] = {
 /// `log2(value)` in [`FRACTION_BITS`] fixed point, `value` at least 1:
 /// its whole part, and its fraction from the mantissa's top bits -- the
 /// value moved up until its leading one is the top bit, then the bits
-/// under it. Wide enough for the product of a block row's odds.
+/// under it.
 #[inline]
-pub(crate) fn fixed_point_log2(value: u128) -> u32 {
+pub(crate) fn fixed_point_log2(value: u64) -> u32 {
     let whole = value.ilog2();
-    let normalized = value << (u128::BITS - 1 - whole);
-    let mantissa_top = (normalized >> (u128::BITS - 1 - FRACTION_BITS)) as usize & ((1 << FRACTION_BITS) - 1);
+    let normalized = value << (u64::BITS - 1 - whole);
+    let mantissa_top = (normalized >> (u64::BITS - 1 - FRACTION_BITS)) as usize & ((1 << FRACTION_BITS) - 1);
     whole << FRACTION_BITS | FRACTIONS[mantissa_top]
 }
 
@@ -114,7 +114,7 @@ mod tests {
         let hundredth_of_a_bit = (1 << FRACTION_BITS) as f64 / 100.0;
         for value in (1..1u64 << 18).step_by(7).chain((1..1u64 << 60).step_by(1 << 44)) {
             let exact = (value as f64).log2() * (1 << FRACTION_BITS) as f64;
-            let fixed = fixed_point_log2(value as u128) as f64;
+            let fixed = fixed_point_log2(value) as f64;
             assert!(fixed <= exact && exact - fixed < hundredth_of_a_bit, "log2({value}): {fixed} against {exact}");
         }
     }

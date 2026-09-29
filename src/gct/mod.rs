@@ -51,11 +51,12 @@ use crate::gct::tree_representation::{start_level, tree_representation};
 /// tree, and a bitmap may take up to 1% more bits for that speed.
 pub const COUNT_SPLIT_TOLERANCE_PERCENT: u64 = 1;
 
-/// Whether `split_bits`, a count split's, are within
-/// [`COUNT_SPLIT_TOLERANCE_PERCENT`] of `tree_bits`.
-fn within_tolerance(split_bits: u64, tree_bits: u64) -> bool {
+/// The most bits a count split may take, its mode aside, and still be
+/// made over a tree of `tree_bits`: under [`COUNT_SPLIT_TOLERANCE_PERCENT`]
+/// more.
+fn most_count_split_bits(tree_bits: u64) -> u64 {
     const PERCENT: u64 = 100;
-    split_bits * PERCENT < tree_bits * (PERCENT + COUNT_SPLIT_TOLERANCE_PERCENT)
+    (tree_bits * (PERCENT + COUNT_SPLIT_TOLERANCE_PERCENT) - 1) / PERCENT
 }
 
 /// Encodes `bitmap` with a [`Gct`] of its own. To encode many, keep one
@@ -122,12 +123,15 @@ impl Gct {
     }
 
     /// Encodes `bitmap` into `stream`, whatever it held before: its
-    /// tiling first, and the bits its tree takes; then the one encoding
-    /// that takes fewer bits -- the count split, for sparse clustered
-    /// cells, or the tree.
+    /// tiling first, and the bits its tree takes; then its count split,
+    /// for sparse clustered cells, if it takes no more than
+    /// `most_count_split_bits` -- the count split, far the faster to
+    /// make and read, is made unless the tree is shorter by more than
+    /// [`COUNT_SPLIT_TOLERANCE_PERCENT`] -- counted only as far as that;
+    /// else the tree.
     pub fn encode(&mut self, bitmap: &Bitmap, stream: &mut BitStream) {
-        let tree_bits = self.tiling(bitmap);
-        if count_split_beats_tree(bitmap, tree_bits) {
+        let tree = self.tiling(bitmap);
+        if count_split::bits_within(bitmap, most_count_split_bits(tree.bits())).is_some() {
             write_count_split(bitmap, stream);
         } else {
             self.write_tree(bitmap, stream);
@@ -196,14 +200,6 @@ impl Gct {
     pub fn complex_tiling(&self) -> &ComplexTiling {
         &self.complex_tiling
     }
-}
-
-/// Whether `bitmap` is to be a count split rather than its tree, which
-/// takes `tree` bits: the count split, far the faster to make and read,
-/// is taken unless the tree is shorter by more than
-/// [`COUNT_SPLIT_TOLERANCE_PERCENT`].
-fn count_split_beats_tree(bitmap: &Bitmap, tree: TreeBits) -> bool {
-    within_tolerance(count_split::bits(bitmap), tree.bits())
 }
 
 impl Default for Gct {
