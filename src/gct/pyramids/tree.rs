@@ -22,8 +22,8 @@ use crate::morton::morton_coordinates;
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Node {
     /// No node at this tile: it lies inside a coarser node's tile -- a
-    /// leaf's, or a child a masking copy says -- or the binding above
-    /// above it says it, or it is finer than the 2x2 floor.
+    /// leaf's, or a child a masking copy says -- or the binding above it
+    /// says it, or it is finer than the 2x2 floor.
     Absent,
     /// The same question asked again of this tile's four children -- of
     /// those holding a node; the binding above says the others.
@@ -50,11 +50,11 @@ pub enum Node {
         masks: bool,
     },
     /// A complex tile whose resolution is `size_offset` levels finer. At
-    /// size offset 0 masking, a bind that masks: it binds under
-    /// it, and its children holding a node are masked in it.
-    /// When it `masks` nothing, every tile of its resolution is unmasked
-    /// in it (always so at size offsets 0 and 1); when it does, its four
-    /// children hold its body.
+    /// size offset 0 masking, a bind that masks: it binds under it, and
+    /// its children holding a node are masked in it. When it `masks`
+    /// nothing, every tile of its resolution is unmasked in it (always so
+    /// at size offsets 0 and 1); when it does, its four children hold its
+    /// body.
     ComplexTile {
         /// How many levels finer than the tile its resolution is.
         size_offset: u8,

@@ -13,10 +13,10 @@
 //! What a size offset is worth is counted, not guessed: the tile's
 //! [bits](super::bit_cost) as the tiling stands, less its bits as that
 //! complex tile -- its children's read from the [cost
-//! pyramid](super::cost_pyramid). The best size offset saves the most, and a candidate
-//! that saves nothing is none.
+//! pyramid](super::cost_pyramid). The best size offset saves the most,
+//! and a candidate that saves nothing is none.
 
-use super::bit_cost::node_bits;
+use super::bit_cost::{bits_with, node_bits};
 use super::cost_pyramid::CostPyramid;
 use crate::gct::grammar::raw_resolution_fits;
 use crate::gct::nested_resolutions::NestedResolutions;
@@ -24,6 +24,10 @@ use crate::gct::pyramids::complex_tiling::{ComplexTiling, Fields};
 use crate::gct::pyramids::pyramid::Pyramid;
 use crate::gct::tile::{Tile, CELL_LEVEL};
 use crate::Bitmap;
+
+/// The smallest tile a complex tile can be: 4x4, so its resolution is
+/// at least 2x2.
+pub const FINEST_CANDIDATE_LEVEL: u8 = CELL_LEVEL - 2;
 
 /// A tile the complex tiler could make a complex tile, at its best
 /// size offset, and what that would save.
@@ -47,8 +51,9 @@ pub struct Candidate {
 const FINEST_CHECKED_LEVEL: u8 = CELL_LEVEL - 4;
 
 /// In debug builds, for a candidate of 16x16 or finer, that `bits` read
-/// off the cost pyramid is what the reference count ([`bits`](super::bit_cost::bits)) gives
-/// `tile` with `fields` as its fields -- the reference carrying the
+/// off the cost pyramid is what the reference count
+/// ([`bits`](super::bit_cost::bits)) gives `tile` with `fields` as its
+/// fields -- the reference carrying the
 /// value bound above down itself, where the cost pyramid reads each
 /// tile's own field.
 fn debug_assert_matches_reference(
@@ -61,7 +66,7 @@ fn debug_assert_matches_reference(
 ) {
     if cfg!(debug_assertions) && tile.level >= FINEST_CHECKED_LEVEL {
         let reference = node_bits(complex_tiling, bitmap, tile, fields, &mut nested.clone(), fields.bound_above(), &mut |child, fields, inside, bound_above| {
-            super::bit_cost::bits_with(complex_tiling, bitmap, child, fields, inside, bound_above)
+            bits_with(complex_tiling, bitmap, child, fields, inside, bound_above)
         });
         assert_eq!(bits, reference, "{tile:?}: the cost pyramid's count is not the reference count");
     }
@@ -86,8 +91,9 @@ pub fn tried_resolutions(here: Fields, level: u8, nested: &NestedResolutions) ->
 
 impl Candidate {
     /// `tile`'s best size offset to be a complex tile at, if any saves
-    /// bits, nested in `nested`, every count read from `costs`. Changes nothing: each size offset
-    /// is scored as the complex tile it would be.
+    /// bits, nested in `nested`, every count read from `costs`. Changes
+    /// nothing: each size offset is scored as the complex tile it would
+    /// be.
     pub fn best_for(
         complex_tiling: &Pyramid,
         bitmap: &Bitmap,
@@ -113,14 +119,11 @@ impl Candidate {
             let plain = with(here.as_complex_tile(size_offset), resolution);
             // At 1x1, the cells may go as a point list instead, when
             // strictly cheaper.
-            let mut with_bits = (plain, false);
-            if resolution == CELL_LEVEL {
-                let listed = with(here.as_point_list(tile.level), resolution);
-                if listed < plain {
-                    with_bits = (listed, true);
-                }
-            }
-            let (with_bits, point_list) = with_bits;
+            let listed = (resolution == CELL_LEVEL).then(|| with(here.as_point_list(tile.level), resolution));
+            let (with_bits, point_list) = match listed {
+                Some(listed) if listed < plain => (listed, true),
+                _ => (plain, false),
+            };
             let Some(saving) = without.checked_sub(with_bits).filter(|&saving| saving > 0) else { continue };
             if best.as_ref().is_none_or(|current| saving > current.saving) {
                 best = Some(Candidate { tile, size_offset, point_list, saving, nested: *nested });

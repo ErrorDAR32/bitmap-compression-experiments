@@ -35,7 +35,7 @@
 use super::placements::{placement_code, placement_from_code, Placement, Placements, BOUND_AT_THE_TOP, FINEST_MASKING_LEVEL, PLACEMENT_CODE_BITS};
 use super::pyramid::{Pyramid, PyramidShape};
 use crate::gct::nested_resolutions::NestedResolutions;
-use crate::gct::tile::{tiles_across, Tile, CELL_LEVEL, LEVEL_BITS};
+use crate::gct::tile::{tiles_in_level, Tile, CELL_LEVEL, CHILDREN, LEVEL_BITS};
 
 /// A field's value for nothing: no bound size, no size offset.
 const EMPTY_FIELD: u64 = 0;
@@ -67,7 +67,7 @@ const BOUND_ABOVE: Field = Field { shift: POINT_LIST.shift + POINT_LIST.width, w
 const YES: u64 = 1;
 
 /// 32 bits an element: the fields above take 28.
-const SHAPE: PyramidShape = PyramidShape { coarsest_level: 0, finest_level: CELL_LEVEL, element_bits: 32 };
+const SHAPE: PyramidShape = PyramidShape { coarsest_level: 0, finest_level: CELL_LEVEL, element_bits: u32::BITS as usize };
 const _: () = assert!(BOUND_ABOVE.shift + BOUND_ABOVE.width <= SHAPE.element_bits as u64);
 
 /// One element's bits.
@@ -75,6 +75,10 @@ const ELEMENT_MASK: u64 = (1 << SHAPE.element_bits) - 1;
 /// Elements a word: two, so a tile's four children are two whole words.
 const ELEMENTS_A_WORD: usize = u64::BITS as usize / SHAPE.element_bits;
 const _: () = assert!(ELEMENTS_A_WORD == 2);
+/// Words a tile's four children take: two whole words.
+const CHILDREN_WORDS: usize = CHILDREN as usize / ELEMENTS_A_WORD;
+/// The bound-above bit of both elements of a word.
+const BOUND_ABOVE_OF_BOTH: u64 = 1 << BOUND_ABOVE.shift | 1 << (BOUND_ABOVE.shift + SHAPE.element_bits as u64);
 
 /// `field`'s value in `element`.
 fn field(element: u64, field: Field) -> u64 {
@@ -87,11 +91,20 @@ fn with_field(element: u64, field: Field, value: u64) -> u64 {
     (element & !mask) | (value << field.shift)
 }
 
-/// The four elements of two words: a tile's four children, in reading
-/// order.
-fn four_elements(first_word: u64, second_word: u64) -> [u64; 4] {
-    let second_element_shift = SHAPE.element_bits as u32;
-    [first_word & ELEMENT_MASK, first_word >> second_element_shift, second_word & ELEMENT_MASK, second_word >> second_element_shift]
+/// The four elements of a tile's children's two words, in reading order.
+fn four_elements(children_words: &[u64]) -> [u64; 4] {
+    std::array::from_fn(|child| element_at(children_words, child))
+}
+
+/// The element at `index` of a level's `words`.
+fn element_at(words: &[u64], index: usize) -> u64 {
+    words[index / ELEMENTS_A_WORD] >> (index % ELEMENTS_A_WORD * SHAPE.element_bits) & ELEMENT_MASK
+}
+
+/// Replaces the element at `index` of a level's `words` with `element`.
+fn set_element_at(words: &mut [u64], index: usize, element: u64) {
+    let (word, shift) = (index / ELEMENTS_A_WORD, index % ELEMENTS_A_WORD * SHAPE.element_bits);
+    words[word] = words[word] & !(ELEMENT_MASK << shift) | element << shift;
 }
 
 /// One tile's fields in the complex tiling, read once: every query about
@@ -242,8 +255,7 @@ impl ComplexTiling for Pyramid {
 
     #[inline]
     fn children_fields(&self, tile: Tile) -> [Fields; 4] {
-        let &[first_word, second_word] = self.children_words(tile) else { unreachable!("four 32-bit elements are two words") };
-        four_elements(first_word, second_word).map(Fields)
+        four_elements(self.children_words(tile)).map(Fields)
     }
 
     fn make_complex_tile(&mut self, tile: Tile, size_offset: u8) {
@@ -294,20 +306,18 @@ impl Placements for Pyramid {
 /// afterwards changes either field.
 fn carry_bound_sizes_up(pyramid: &mut Pyramid) {
     for level in (0..CELL_LEVEL).rev() {
-        let (coarser, finer) = pyramid.two_levels_mut(level);
-        for tile_index in 0..tiles_across(level).pow(2) {
-            let (first_word, second_word) = (finer[2 * tile_index], finer[2 * tile_index + 1]);
-            if first_word | second_word == 0 {
+        let (coarser, finer) = pyramid.level_and_finer_mut(level);
+        for tile_index in 0..tiles_in_level(level) {
+            let children_words = &finer[CHILDREN_WORDS * tile_index..][..CHILDREN_WORDS];
+            if children_words.iter().all(|&word| word == 0) {
                 // Nothing placed or carried under it, as under a tile
                 // placed whole: carrying would leave its element as it
                 // is, since only a whole bind sets its own bound fields --
                 // most tiles, passed over on one look.
                 continue;
             }
-            let children = four_elements(first_word, second_word);
-            let (word, shift) = (tile_index / ELEMENTS_A_WORD, tile_index % ELEMENTS_A_WORD * SHAPE.element_bits);
-            let element = coarser[word] >> shift & ELEMENT_MASK;
-            coarser[word] = coarser[word] & !(ELEMENT_MASK << shift) | carried(element, children) << shift;
+            let element = carried(element_at(coarser, tile_index), four_elements(children_words));
+            set_element_at(coarser, tile_index, element);
         }
     }
 }
@@ -320,18 +330,17 @@ fn carry_bound_sizes_up(pyramid: &mut Pyramid) {
 fn hand_bound_above_down(pyramid: &mut Pyramid) {
     let whole_bitmap_element = pyramid.fields(Tile::whole_bitmap()).0;
     pyramid.set(Tile::whole_bitmap(), with_field(whole_bitmap_element, BOUND_ABOVE, BOUND_AT_THE_TOP as u64));
-    // The bound-above bit of both elements of a word, set to `value`.
-    let both_bound_above_bits = |value: bool| (value as u64) << BOUND_ABOVE.shift | (value as u64) << (BOUND_ABOVE.shift + SHAPE.element_bits as u64);
     for level in 0..CELL_LEVEL - 1 {
-        let (coarser, finer) = pyramid.finer_level_mut(level);
-        for tile_index in 0..tiles_across(level).pow(2) {
-            let element = coarser[tile_index / ELEMENTS_A_WORD] >> (tile_index % ELEMENTS_A_WORD * SHAPE.element_bits) & ELEMENT_MASK;
+        let (coarser, finer) = pyramid.level_and_finer_mut(level);
+        for tile_index in 0..tiles_in_level(level) {
+            let element = element_at(coarser, tile_index);
             let bound_above_children = match placement_from_code(field(element, PLACEMENT)) {
                 Some(Placement::Bound { value, masked_children }) if masked_children != 0 => value,
                 _ => field(element, BOUND_ABOVE) == YES,
             };
-            for word in &mut finer[2 * tile_index..2 * tile_index + 2] {
-                *word = *word & !both_bound_above_bits(true) | both_bound_above_bits(bound_above_children);
+            let bound_above_bits = if bound_above_children { BOUND_ABOVE_OF_BOTH } else { 0 };
+            for word in &mut finer[CHILDREN_WORDS * tile_index..][..CHILDREN_WORDS] {
+                *word = *word & !BOUND_ABOVE_OF_BOTH | bound_above_bits;
             }
         }
     }

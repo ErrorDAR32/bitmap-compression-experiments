@@ -16,14 +16,13 @@ use crate::gct::nested_resolutions::NestedResolutions;
 use crate::gct::pyramids::complex_tiling::{ComplexTiling, Fields};
 use crate::gct::pyramids::placements::Placement;
 use crate::gct::pyramids::pyramid::Pyramid;
-use crate::gct::tile::{cells_in_tile, tiles_across, Tile, CELL_LEVEL, CHILDREN};
+use crate::gct::tile::{cells_in_tile, tiles_in_level, Tile, CELL_LEVEL, CHILDREN};
 use crate::Bitmap;
 
 /// How many resolution tiles a tile holds `size_offset` levels finer:
 /// one payload bit each.
 pub fn payload_bits(size_offset: u8) -> u64 {
-    let across = tiles_across(size_offset) as u64;
-    across * across
+    tiles_in_level(size_offset) as u64
 }
 
 /// The bits `tile` costs, nested in `nested`, `bound_above` the value
@@ -89,36 +88,24 @@ pub fn node_bits(
         Some(Placement::Bound { masked_children: 0, .. }) => {
             leaf_bind + resolution_width(tile.level) as u64 + payload_bits(0)
         }
-        Some(bind @ Placement::Bound { value, .. }) => {
+        Some(bind @ Placement::Bound { .. }) => {
             // Spelled as a divide that masks and flips the value bound above.
-            let mut bind_bits = MASKING_DIVIDE_HEADER_WIDTH as u64;
-            for (child, fields) in tile.children().into_iter().zip(complex_tiling.children_fields(tile)) {
-                bind_bits += MASK_BIT_WIDTH as u64;
-                if bind.masks(child) {
-                    bind_bits += child_bits(child, fields, nested, value);
-                }
-            }
-            bind_bits
+            MASKING_DIVIDE_HEADER_WIDTH as u64 + masked_children_bits(complex_tiling, tile, bind, nested, bound_above, child_bits)
         }
         Some(copy @ Placement::Copied { .. }) => {
             let mut copy_bits = leaf_bind + (FAR_WIDTH + DIRECTION_WIDTH) as u64;
-            if copy_may_mask(tile.level) {
+            if copy_or_divide_may_mask(tile.level) {
                 copy_bits += MASK_PRESENT_WIDTH as u64;
             }
             if copy.masks_any() {
-                for (child, fields) in tile.children().into_iter().zip(complex_tiling.children_fields(tile)) {
-                    copy_bits += MASK_BIT_WIDTH as u64;
-                    if copy.masks(child) {
-                        copy_bits += child_bits(child, fields, nested, bound_above);
-                    }
-                }
+                copy_bits += masked_children_bits(complex_tiling, tile, copy, nested, bound_above, child_bits);
             }
             copy_bits
         }
         None => match here.complex_tile_size_offset() {
             Some(size_offset) => {
                 let mut complex_bits = leaf_bind + resolution_width(tile.level) as u64;
-                if complex_tile_may_mask(tile.level, size_offset) {
+                if complex_tile_may_mask(size_offset) {
                     complex_bits += MASK_PRESENT_WIDTH as u64;
                 }
                 let resolution = tile.level + size_offset;
@@ -142,22 +129,17 @@ pub fn node_bits(
             }
             None => {
                 let mut divide_bits = LEAF_WIDTH as u64;
-                if divide_may_mask(tile.level) {
+                if copy_or_divide_may_mask(tile.level) {
                     divide_bits += MASK_PRESENT_WIDTH as u64;
                 }
                 let (children, fields) = (tile.children(), complex_tiling.children_fields(tile));
-                let mut left = [false; CHILDREN as usize];
-                for child_index in 0..children.len() {
-                    left[child_index] = fields[child_index].left_to_binding_above(children[child_index], bound_above, nested);
-                }
-                let leaves_some = left.contains(&true);
-                if leaves_some {
-                    divide_bits += FLIP_WIDTH as u64;
+                let left: [bool; CHILDREN as usize] =
+                    std::array::from_fn(|child_index| fields[child_index].left_to_binding_above(children[child_index], bound_above, nested));
+                if left.contains(&true) {
+                    // A divide that masks, keeping the value bound above.
+                    divide_bits += (FLIP_WIDTH + CHILD_MASK_WIDTH) as u64;
                 }
                 for child_index in 0..children.len() {
-                    if leaves_some {
-                        divide_bits += MASK_BIT_WIDTH as u64;
-                    }
                     if !left[child_index] {
                         divide_bits += child_bits(children[child_index], fields[child_index], nested, bound_above);
                     }
@@ -166,4 +148,25 @@ pub fn node_bits(
             }
         },
     }
+}
+
+/// A masking placement's child mask, and each child it masks as
+/// `child_bits` gives it, `bound_above` the value bound above the
+/// placement.
+fn masked_children_bits(
+    complex_tiling: &Pyramid,
+    tile: Tile,
+    placed: Placement,
+    nested: &mut NestedResolutions,
+    bound_above: bool,
+    child_bits: &mut impl FnMut(Tile, Fields, &mut NestedResolutions, bool) -> u64,
+) -> u64 {
+    let bound_inside = placed.bound_inside(bound_above);
+    let mut bits = CHILD_MASK_WIDTH as u64;
+    for (child, fields) in tile.children().into_iter().zip(complex_tiling.children_fields(tile)) {
+        if placed.masks(child) {
+            bits += child_bits(child, fields, nested, bound_inside);
+        }
+    }
+    bits
 }

@@ -107,23 +107,18 @@ pub fn has_payload_mode(level: u8, size_offset: u8, masks: bool) -> bool {
     level + size_offset == CELL_LEVEL && !masks
 }
 
-/// Whether a copy at `level` has a mask-present bit. A masking copy's
+/// Whether a copy or a divide at `level` has a mask-present bit: down to
+/// 8x8, as masking 2x2s saves less than its mask costs. A masking copy's
 /// child mask follows it: one mask bit per child, in reading order --
 /// [`UNMASKED`] said by the copy, [`MASKED`] a node of its own, which
 /// follow in that order.
-pub fn copy_may_mask(level: u8) -> bool {
+pub fn copy_or_divide_may_mask(level: u8) -> bool {
     level <= FINEST_MASKING_LEVEL
 }
 
-/// Whether a divide at `level` has a mask-present bit -- down to 8x8,
-/// as for copies: a divide masking 2x2s saves less than its mask costs.
-pub fn divide_may_mask(level: u8) -> bool {
-    level <= FINEST_MASKING_LEVEL
-}
-
-/// Whether a complex tile at `level` of `size_offset` has a
-/// mask-present bit: not at size offsets 0 and 1.
-pub fn complex_tile_may_mask(_level: u8, size_offset: u8) -> bool {
+/// Whether a complex tile of `size_offset` has a mask-present bit: not
+/// at size offsets 0 and 1.
+pub fn complex_tile_may_mask(size_offset: u8) -> bool {
     size_offset > 1
 }
 

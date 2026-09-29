@@ -1,6 +1,6 @@
 //! What the greedy tiler placed: one 8-bit code per tile, over every
-//! level down to single cells, held in the complex tiling pyramid -- nothing placed exactly here, or what
-//! the tile placed here is.
+//! level down to single cells, held in the complex tiling pyramid --
+//! nothing placed exactly here, or what the tile placed here is.
 //!
 //! A copy or a bind may mask some of its children: it says only the
 //! others, and each child it masks is left to tiles placed inside that
@@ -18,8 +18,7 @@ use crate::gct::tile::{Tile, ALL_CHILDREN, CELL_LEVEL, CHILDREN};
 /// set for each child, `i` in reading order, it leaves to the tiles
 /// placed inside that child; `0` when it says the whole tile. A bind
 /// that masks binds every child it leaves unnamed, at any depth:
-/// whatever inside it
-/// nothing is placed at says its value.
+/// whatever inside it nothing is placed at says its value.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Placement {
     /// Bound to one value.
@@ -64,6 +63,15 @@ impl Placement {
     /// it to the tiles placed inside it.
     pub fn masks(self, child: Tile) -> bool {
         self.masked_children() & (1 << child.child_index()) != 0
+    }
+
+    /// The value bound inside this tile, for the children it masks: its
+    /// own if it is a bind, else `bound_above`, the value bound above it.
+    pub fn bound_inside(self, bound_above: bool) -> bool {
+        match self {
+            Placement::Bound { value, .. } => value,
+            Placement::Copied { .. } => bound_above,
+        }
     }
 
     /// Whether this is a bind of the whole tile: what a complex tile can

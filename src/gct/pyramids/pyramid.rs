@@ -18,7 +18,7 @@
 //! level in step at once, each tile once. The generic pyramid has no
 //! sweep of its own: setting an element never changes any other.
 
-use crate::gct::tile::{tiles_across, Tile, CELL_LEVEL};
+use crate::gct::tile::{tiles_in_level, Tile, CELL_LEVEL};
 use crate::morton::morton_index;
 
 /// The three parameters every pyramid is built from.
@@ -85,7 +85,7 @@ impl Pyramid {
         let words_per_element = shape.element_bits.div_ceil(word_bits);
         let mut level_starts = [0; LEVEL_STARTS];
         for level in shape.coarsest_level..=shape.finest_level {
-            let elements = tiles_across(level).pow(2);
+            let elements = tiles_in_level(level);
             level_starts[level as usize + 1] = level_starts[level as usize] + elements.div_ceil(elements_a_word) * words_per_element;
         }
         let element_mask = if shape.element_bits >= word_bits { u64::MAX } else { (1 << shape.element_bits) - 1 };
@@ -105,7 +105,7 @@ impl Pyramid {
     }
 
     /// Whether this pyramid holds `tile`'s level at all.
-    pub fn holds(&self, tile: Tile) -> bool {
+    fn holds(&self, tile: Tile) -> bool {
         (self.shape.coarsest_level..=self.shape.finest_level).contains(&tile.level)
     }
 
@@ -194,24 +194,12 @@ impl Pyramid {
         &self.words[self.level_starts[level as usize]..self.level_starts[level as usize + 1]]
     }
 
-    /// `level`'s words and the next finer level's, both writable.
-    fn level_and_finer_mut(&mut self, level: u8) -> (&mut LevelWords, &mut LevelWords) {
+    /// `level`'s words and the next finer level's, both writable: for
+    /// building a level from the one below it, or handing something down
+    /// from a level to the one below it.
+    pub fn level_and_finer_mut(&mut self, level: u8) -> (&mut LevelWords, &mut LevelWords) {
         let [start, finer_start, end] = [0, 1, 2].map(|past| self.level_starts[level as usize + past]);
         self.words[start..end].split_at_mut(finer_start - start)
-    }
-
-    /// `level`'s words to write, and the next finer level's to read --
-    /// for building a level from the one below it.
-    pub fn two_levels_mut(&mut self, level: u8) -> (&mut LevelWords, &LevelWords) {
-        let (coarser, finer) = self.level_and_finer_mut(level);
-        (coarser, finer)
-    }
-
-    /// `level`'s words to read, and the next finer level's to write --
-    /// for handing something down from a level to the one below it.
-    pub fn finer_level_mut(&mut self, level: u8) -> (&LevelWords, &mut LevelWords) {
-        let (coarser, finer) = self.level_and_finer_mut(level);
-        (coarser, finer)
     }
 
     /// A level's words, to write directly. Past the level's last

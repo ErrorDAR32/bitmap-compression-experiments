@@ -1,7 +1,6 @@
 //! The complex tiler, the second pass: groups the greedy tiler's placed
 //! tiles into complex tiles, nested as deep as they keep paying. Its
-//! output is one pyramid, the
-//! [`complex_tiling`](crate::gct::pyramids::complex_tiling): the
+//! output is one pyramid, the [`complex_tiling`](crate::gct::pyramids::complex_tiling): the
 //! placements, each tile's single bound size, and which tiles are
 //! complex tiles at what size offset -- all the tree is read from.
 //! Every decision is made from the tiles the greedy tiler placed, but
@@ -19,12 +18,12 @@
 //! independently, so that is the best a pass can do.
 
 use super::cost_pyramid::CostPyramid;
-use super::complex_tile_candidates::Candidate;
+use super::complex_tile_candidates::{Candidate, FINEST_CANDIDATE_LEVEL};
 use super::raw_masking::{decide_raw_masking, MOST_RAW_MASKED};
 use crate::fixed_list::FixedList;
 use crate::gct::pyramids::complex_tiling::ComplexTiling;
 use crate::gct::pyramids::pyramid::Pyramid;
-use crate::gct::tile::{tiles_down_to, Tile, CELL_LEVEL, CHILDREN};
+use crate::gct::tile::{tiles_down_to, Tile, CHILDREN};
 use crate::gct::nested_resolutions::NestedResolutions;
 use crate::Bitmap;
 
@@ -92,10 +91,6 @@ pub fn complex_tiler(complex_tiling: &mut Pyramid, bitmap: &Bitmap, scratch: &mu
         std::mem::swap(searched, next);
     }
 }
-
-/// The smallest tile a complex tile can be: 4x4, so its resolution is
-/// at least 2x2.
-const FINEST_CANDIDATE_LEVEL: u8 = CELL_LEVEL - 2;
 
 /// Adds to `chosen` the candidates at or under `tile` that save the most
 /// bits between them, none overlapping, and returns what they save:

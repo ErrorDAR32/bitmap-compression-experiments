@@ -18,10 +18,11 @@
 //! taken immediately. What a tile gets depends only on its own cells
 //! and on what its ancestors got, so the pass walks down depth first,
 //! carrying the value bound above, into the children of a tile left
-//! unplaced and the children a placed tile masks. Cells are always homogeneous, so the pass always
-//! covers the whole bitmap. Which binds are left to the binding above
-//! is the tree's to say, not this pass's: a bind stays a bind here, for
-//! the complex tiler to unmask if that is cheaper.
+//! unplaced and the children a placed tile masks. Cells are always
+//! homogeneous, so the pass always covers the whole bitmap. Which binds
+//! are left to the binding above is the tree's to say, not this pass's:
+//! a bind stays a bind here, for the complex tiler to unmask if that is
+//! cheaper.
 //!
 //! A 2x2 is only ever asked whether it is homogeneous: if not, nothing
 //! is placed in it -- its four cells are said raw, by the residual pass
@@ -77,34 +78,6 @@ struct Content<'a> {
     offsets: &'a CopyOffsets,
 }
 
-impl Content<'_> {
-    /// What `tile` holds, if every cell of it agrees.
-    fn homogeneous_value(&self, tile: Tile) -> Option<bool> {
-        self.homogeneity.homogeneous_value(tile)
-    }
-
-    /// What each of `tile`'s children holds, in reading order, if every
-    /// cell of it agrees.
-    fn children_values(&self, tile: Tile) -> [Option<bool>; 4] {
-        self.homogeneity.children_values(tile)
-    }
-
-    /// See [`matches_at`].
-    fn matches_at(&self, tile: Tile, mine: u16, offset: (isize, isize)) -> bool {
-        matches_at(self.patterns, tile, mine, offset)
-    }
-
-    /// `tile`'s four children's pattern numbers, in reading order.
-    fn children_numbers(&self, tile: Tile) -> [u16; 4] {
-        self.patterns.children_numbers(tile)
-    }
-
-    /// See [`matching_direction`].
-    fn matching_direction(&self, tile: Tile, far: bool) -> Option<u8> {
-        matching_direction(self.patterns, self.offsets, tile, far)
-    }
-}
-
 /// Places `tile`, or leaves it to its children, then does the same for
 /// every child nothing placed here says; `bound_above` the value bound
 /// above `tile`.
@@ -121,10 +94,7 @@ fn place_at_or_under(content: &Content, tile: Tile, bound_above: bool, placement
         return;
     };
     placements.place(tile, placement);
-    let bound_inside = match placement {
-        Placement::Bound { value, .. } => value,
-        Placement::Copied { .. } => bound_above,
-    };
+    let bound_inside = placement.bound_inside(bound_above);
     for child in tile.children() {
         if placement.masks(child) {
             place_at_or_under(content, child, bound_inside, placements);
@@ -134,7 +104,7 @@ fn place_at_or_under(content: &Content, tile: Tile, bound_above: bool, placement
 
 /// What the rule places at `tile`, if anything.
 fn placement(content: &Content, tile: Tile, bound_above: bool) -> Option<Placement> {
-    if let Some(value) = content.homogeneous_value(tile) {
+    if let Some(value) = content.homogeneity.homogeneous_value(tile) {
         return Some(Placement::bound(value));
     }
     if tile.level <= FINEST_COPY_LEVEL {
@@ -145,7 +115,7 @@ fn placement(content: &Content, tile: Tile, bound_above: bool) -> Option<Placeme
     if tile.level > FINEST_MASKING_LEVEL {
         return None;
     }
-    let children_values = content.children_values(tile);
+    let children_values = content.homogeneity.children_values(tile);
     masking_copy(content, tile, children_values, bound_above).or_else(|| masking_bind(children_values, bound_above))
 }
 
@@ -181,11 +151,8 @@ fn masking_copy(content: &Content, tile: Tile, children_values: [Option<bool>; 4
     let children = tile.children();
     // What each child would add, said: to the children said that are not
     // the value bound above, and to those not homogeneous.
-    let (mut adds_unmasked, mut adds_non_homogeneous) = ([0; 4], [0; 4]);
-    for (index, &value) in children_values.iter().enumerate() {
-        adds_unmasked[index] = (value != Some(bound_above)) as u32;
-        adds_non_homogeneous[index] = value.is_none() as u32;
-    }
+    let adds_unmasked = children_values.map(|value| (value != Some(bound_above)) as u32);
+    let adds_non_homogeneous = children_values.map(|value| value.is_none() as u32);
     let could_be_worth_it = |unmasked: u32, non_homogeneous: u32| {
         unmasked >= MIN_UNMASKED_CHILDREN || non_homogeneous >= MIN_UNMASKED_NON_HOMOGENEOUS_CHILDREN
     };
@@ -193,7 +160,7 @@ fn masking_copy(content: &Content, tile: Tile, children_values: [Option<bool>; 4
     if !could_be_worth_it(all_unmasked, all_non_homogeneous) {
         return None;
     }
-    let numbers = content.children_numbers(tile);
+    let numbers = content.patterns.children_numbers(tile);
     let mut best: Option<(u32, Placement)> = None;
     for far in [false, true] {
         'direction: for direction in directions() {
@@ -208,7 +175,7 @@ fn masking_copy(content: &Content, tile: Tile, children_values: [Option<bool>; 4
             for index in 0..children.len() {
                 unmasked_left -= adds_unmasked[index];
                 non_homogeneous_left -= adds_non_homogeneous[index];
-                if content.matches_at(children[index], numbers[index], child_offset) {
+                if matches_at(content.patterns, children[index], numbers[index], child_offset) {
                     unmasked += adds_unmasked[index];
                     non_homogeneous += adds_non_homogeneous[index];
                 } else {
@@ -228,10 +195,8 @@ fn masking_copy(content: &Content, tile: Tile, children_values: [Option<bool>; 4
     best.map(|(_, placement)| placement)
 }
 
-/// Which direction a tile copies from, if any, and whether that is a
-/// far copy rather than a near one (a same-size neighbour of the tile
-/// itself), each reading from its own offsets: near first.
+/// Which direction a tile copies from, if any, and whether it reads
+/// from the far offsets rather than the near ones: near first.
 fn copy_direction(content: &Content, tile: Tile) -> Option<(bool, u8)> {
-    let near = content.matching_direction(tile, false).map(|direction| (false, direction));
-    near.or_else(|| content.matching_direction(tile, true).map(|direction| (true, direction)))
+    [false, true].into_iter().find_map(|far| matching_direction(content.patterns, content.offsets, tile, far).map(|direction| (far, direction)))
 }

@@ -11,11 +11,12 @@
 //! children's together in Morton order.
 
 use super::pyramid::{Pyramid, PyramidShape};
+use crate::gct::complex_tiler::complex_tile_candidates::FINEST_CANDIDATE_LEVEL;
 use crate::gct::tile::{Tile, CELL_LEVEL};
 
-/// The finest level held: 4x4, the finest candidate. A 2x2 is counted
-/// when asked for.
-pub const FINEST_HELD: u8 = CELL_LEVEL - 2;
+/// The finest level held: the finest candidate's. A 2x2 is counted when
+/// asked for.
+pub const FINEST_HELD: u8 = FINEST_CANDIDATE_LEVEL;
 
 /// The resolution meaning no candidate above.
 pub const NO_CANDIDATE: u8 = 0;

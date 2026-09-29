@@ -5,8 +5,7 @@
 //! A divide's child bound whole to the value bound above it, and
 //! unmasked in no complex tile, holds no node: the binding above says
 //! it. A bind that masks is a complex tile of size offset 0 that masks:
-//! it binds under it, its masked children are nodes of their
-//! own.
+//! it binds under it, its masked children are nodes of their own.
 
 use crate::gct::nested_resolutions::NestedResolutions;
 use crate::gct::pyramids::complex_tiling::ComplexTiling;
@@ -36,13 +35,9 @@ fn set_node(complex_tiling: &Pyramid, tile: Tile, nested: &mut NestedResolutions
         }
         Node::Copied { masks: true, .. } | Node::ComplexTile { size_offset: 0, masks: true } => {
             let placed = complex_tiling.placed_at(tile).expect("a masking tile is placed");
-            let bound_above = match placed {
-                Placement::Bound { value, .. } => value,
-                Placement::Copied { .. } => bound_above,
-            };
             for child in tile.children() {
                 if placed.masks(child) {
-                    set_node(complex_tiling, child, nested, bound_above, tree);
+                    set_node(complex_tiling, child, nested, placed.bound_inside(bound_above), tree);
                 }
             }
         }

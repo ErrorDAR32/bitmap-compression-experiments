@@ -54,7 +54,7 @@ impl Homogeneity for Pyramid {
             cells[2 * cell_word_index + 1] = every_cell((cell_word >> u32::BITS) as u32);
         }
         for level in (0..CELL_LEVEL).rev() {
-            let (coarser, finer) = self.two_levels_mut(level);
+            let (coarser, finer) = self.level_and_finer_mut(level);
             for (coarser_word_index, finer_words) in finer.chunks(FINER_WORDS_A_WORD).enumerate() {
                 coarser[coarser_word_index] = finer_words
                     .iter()

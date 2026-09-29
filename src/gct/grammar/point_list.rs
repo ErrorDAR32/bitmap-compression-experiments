@@ -29,38 +29,27 @@ fn gamma_bits(value: u64) -> u64 {
     2 * value.ilog2() as u64 + 1
 }
 
-/// The bits `tile`'s point list takes: counted a word of cells at a
-/// time, since it is asked of every tile that could be one.
+/// How many of `tile`'s cells are set, counted a word of cells at a time.
+fn set_count(bitmap: &Bitmap, tile: Tile) -> u64 {
+    bitmap.square_words(tile.top_left_cell(), tile.side_in_cells()).map(|word| word.count_ones() as u64).sum()
+}
+
+/// The bits `tile`'s point list takes, without writing it.
 pub fn bits(bitmap: &Bitmap, tile: Tile) -> u64 {
-    let cells = cells_in_tile(tile.level);
-    let words = || bitmap.square_words(tile.top_left_cell(), tile.side_in_cells());
-    let set = words().map(|word| word.count_ones() as u64).sum::<u64>();
-    let parameter = rice_parameter(cells, set);
+    let set = set_count(bitmap, tile);
+    let parameter = rice_parameter(cells_in_tile(tile.level), set);
     // Every gap's unary end and low bits, then each gap's high part.
-    let mut bits = gamma_bits(set + 1) + set * (1 + parameter as u64);
-    let mut next = 0;
-    for (word_index, mut word) in words().enumerate() {
-        while word != 0 {
-            let offset = (word_index * u64::BITS as usize + word.trailing_zeros() as usize) as u64;
-            bits += (offset - next) >> parameter;
-            next = offset + 1;
-            word &= word - 1;
-        }
-    }
-    bits
+    let high_parts: u64 = gaps(bitmap, tile).map(|gap| gap >> parameter).sum();
+    gamma_bits(set + 1) + set * (1 + parameter as u64) + high_parts
 }
 
 /// Writes `tile`'s point list.
 pub fn write(bitmap: &Bitmap, tile: Tile, stream: &mut BitStream) {
-    let cells = cells_in_tile(tile.level);
-    let set = set_cells(bitmap, tile).count() as u64;
+    let set = set_count(bitmap, tile);
     write_gamma(set + 1, stream);
-    let parameter = rice_parameter(cells, set);
+    let parameter = rice_parameter(cells_in_tile(tile.level), set);
     for gap in gaps(bitmap, tile) {
-        for _ in 0..gap >> parameter {
-            stream.push(true);
-        }
-        stream.push(false);
+        write_unary(gap >> parameter, stream);
         stream.push_value(gap, parameter);
     }
 }
@@ -68,53 +57,54 @@ pub fn write(bitmap: &Bitmap, tile: Tile, stream: &mut BitStream) {
 /// Reads a point list for `tile`, setting its cells in `cell_values`;
 /// every other cell of the tile stays as it is.
 pub fn read(reader: &mut BitReader, tile: Tile, cell_values: &mut Bitmap) {
-    let cells = cells_in_tile(tile.level);
     let set = read_gamma(reader) - 1;
-    let parameter = rice_parameter(cells, set);
-    let mut next = 0;
+    let parameter = rice_parameter(cells_in_tile(tile.level), set);
+    let mut place = 0;
     for _ in 0..set {
-        let mut high = 0;
-        while reader.bit() {
-            high += 1;
-        }
-        let gap = high << parameter | reader.value(parameter);
-        let offset = next + gap as usize;
-        cell_values.set_in_square(tile.top_left_cell(), offset);
-        next = offset + 1;
+        let gap = read_unary(reader) << parameter | reader.value(parameter);
+        place += gap as usize;
+        cell_values.set_in_square(tile.top_left_cell(), place);
+        place += 1;
     }
-}
-
-/// `tile`'s set cells, as places in its own Morton order.
-fn set_cells(bitmap: &Bitmap, tile: Tile) -> impl Iterator<Item = usize> + '_ {
-    bitmap.set_cells_in_square(tile.top_left_cell(), tile.side_in_cells())
 }
 
 /// The gaps between `tile`'s set cells: the cells skipped before each.
 fn gaps(bitmap: &Bitmap, tile: Tile) -> impl Iterator<Item = u64> + '_ {
     let mut next = 0;
-    set_cells(bitmap, tile).map(move |offset| {
-        let gap = (offset - next) as u64;
-        next = offset + 1;
+    bitmap.set_cells_in_square(tile.top_left_cell(), tile.side_in_cells()).map(move |place| {
+        let gap = (place - next) as u64;
+        next = place + 1;
         gap
     })
+}
+
+/// Writes `count` in unary: that many ones, then a zero.
+fn write_unary(count: u64, stream: &mut BitStream) {
+    for _ in 0..count {
+        stream.push(true);
+    }
+    stream.push(false);
+}
+
+/// Reads what [`write_unary`] wrote.
+fn read_unary(reader: &mut BitReader) -> u64 {
+    let mut count = 0;
+    while reader.bit() {
+        count += 1;
+    }
+    count
 }
 
 /// Writes `value`, at least 1, in Elias gamma code: its length less one
 /// in unary, then all but its top bit.
 fn write_gamma(value: u64, stream: &mut BitStream) {
     let length = value.ilog2() as u8;
-    for _ in 0..length {
-        stream.push(true);
-    }
-    stream.push(false);
+    write_unary(length as u64, stream);
     stream.push_value(value, length);
 }
 
 /// Reads what [`write_gamma`] wrote.
 fn read_gamma(reader: &mut BitReader) -> u64 {
-    let mut length = 0;
-    while reader.bit() {
-        length += 1;
-    }
+    let length = read_unary(reader) as u8;
     1 << length | reader.value(length)
 }

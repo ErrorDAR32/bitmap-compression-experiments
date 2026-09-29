@@ -6,7 +6,7 @@
 
 use super::copyable::FINEST_COPY_LEVEL;
 use super::pyramid::{Pyramid, PyramidShape};
-use crate::gct::tile::{tiles_across, Tile};
+use crate::gct::tile::{tiles_in_level, Tile};
 use crate::morton::{morton_coordinates, morton_index};
 
 /// The level copies are resolved at: 4x4 blocks. A copy is 4x4 or
@@ -14,7 +14,7 @@ use crate::morton::{morton_coordinates, morton_index};
 /// copy's own cells are always whole blocks.
 pub const BLOCK_LEVEL: u8 = FINEST_COPY_LEVEL;
 /// Blocks in the bitmap.
-pub const BLOCKS: usize = tiles_across(BLOCK_LEVEL) * tiles_across(BLOCK_LEVEL);
+pub const BLOCKS: usize = tiles_in_level(BLOCK_LEVEL);
 
 /// One level, the blocks', 16 bits a block.
 const SHAPE: PyramidShape = PyramidShape { coarsest_level: BLOCK_LEVEL, finest_level: BLOCK_LEVEL, element_bits: 16 };

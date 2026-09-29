@@ -66,7 +66,7 @@ and every tile is one contiguous run of bits -- a 4x4 sixteen bits, an
 8x8 one word. Comparing two tiles' cells is comparing two runs, and a
 tile's four children are four consecutive pyramid elements, so a whole
 level can be built from the one finer a word at a time
-(`Pyramid::level_words`, `two_levels_mut`).
+(`Pyramid::level_words`, `level_and_finer_mut`).
 
 Setting an element never changes any other. A pyramid whose coarser
 levels follow from its finer ones has its own **sweep**, written in its

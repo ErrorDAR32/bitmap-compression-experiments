@@ -78,9 +78,14 @@ impl Workspace {
 
     /// Decodes `stream` into `bitmap`, whatever it held before.
     pub fn decode(&mut self, stream: &BitStream, bitmap: &mut Bitmap) {
-        let mut read =
-            StreamContents { tree: &mut self.tree, cell_values: bitmap, copies: &mut self.copies, offsets: &self.copy_offsets };
-        decode(stream, &mut read, &mut self.payload_walk);
+        let mut read = StreamContents {
+            tree: &mut self.tree,
+            cell_values: bitmap,
+            copies: &mut self.copies,
+            offsets: &self.copy_offsets,
+            payload_walk: &mut self.payload_walk,
+        };
+        decode(stream, &mut read);
     }
 
     /// The tree of the bitmap last encoded, or of the stream last

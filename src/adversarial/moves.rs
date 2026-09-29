@@ -4,6 +4,7 @@
 //! almost match, and structure no power-of-two tile lines up with.
 
 use crate::rng::Rng;
+use crate::gct::pyramids::copyable::FINEST_COPY_LEVEL;
 use crate::gct::tile::{tile_side, Tile, CELL_LEVEL, DIRECTIONS};
 use crate::Bitmap;
 
@@ -82,12 +83,10 @@ fn paint_a_rectangle(rng: &mut Rng, bitmap: &mut Bitmap, area: Tile) {
 /// of it changed: a copy that almost fits, for the copies, the masking
 /// copies and the complex tiles to argue over.
 fn copy_almost(rng: &mut Rng, bitmap: &mut Bitmap, area: Tile) {
-    // Nothing finer than 4x4 copies.
-    let finest_copy = CELL_LEVEL - 2;
-    if area.level + 1 > finest_copy {
+    if area.level + 1 > FINEST_COPY_LEVEL {
         return flip_a_cell(rng, bitmap, area);
     }
-    let tile = some_tile_inside(rng, area, area.level + 1, finest_copy);
+    let tile = some_tile_inside(rng, area, area.level + 1, FINEST_COPY_LEVEL);
     let direction = rng.below(DIRECTIONS.len() as u64) as u8;
     let Some(source) = tile.neighbour(direction) else { return };
     let side = tile_side(tile.level);

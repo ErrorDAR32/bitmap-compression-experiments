@@ -31,7 +31,7 @@ pub const ALL_CHILDREN: u8 = (1 << CHILDREN) - 1;
 pub const LEVEL_BITS: u8 = (u8::BITS - CELL_LEVEL.leading_zeros()) as u8;
 
 /// Cells in the bitmap.
-pub const CELLS: usize = tiles_across(CELL_LEVEL) * tiles_across(CELL_LEVEL);
+pub const CELLS: usize = tiles_in_level(CELL_LEVEL);
 
 /// How many tiles there are from the whole bitmap down to `level`, both
 /// included: `1 + 4 + ... + 4^level`.
@@ -42,6 +42,12 @@ pub const fn tiles_down_to(level: u8) -> usize {
 /// Tiles across one row of a level's plane.
 pub const fn tiles_across(level: u8) -> usize {
     1 << level
+}
+
+/// Tiles in a level's plane -- and so, too, the tiles filling one tile
+/// that many levels finer.
+pub const fn tiles_in_level(level: u8) -> usize {
+    tiles_across(level) * tiles_across(level)
 }
 
 /// A tile's side at a level, in cells.
@@ -107,14 +113,14 @@ impl Tile {
     pub fn children(self) -> [Tile; 4] {
         [(0, 0), (1, 0), (0, 1), (1, 1)].map(|(dx, dy)| Tile {
             level: self.level + 1,
-            x: self.x * 2 + dx,
-            y: self.y * 2 + dy,
+            x: self.x * CHILDREN_ACROSS + dx,
+            y: self.y * CHILDREN_ACROSS + dy,
         })
     }
 
     /// The tile one level coarser that holds this one.
     pub const fn parent(self) -> Tile {
-        Tile { level: self.level - 1, x: self.x / 2, y: self.y / 2 }
+        Tile { level: self.level - 1, x: self.x / CHILDREN_ACROSS, y: self.y / CHILDREN_ACROSS }
     }
 
     /// The same-size neighbour in a direction, if it is on the bitmap.
@@ -164,9 +170,9 @@ impl Tile {
     /// tiles a tile holds.
     pub fn tiles_at_size_offset(self, size_offset: u8) -> impl Iterator<Item = Tile> {
         let level = self.level + size_offset;
-        let tiles = 1usize << (2 * size_offset);
-        let first = morton_index(self.x, self.y) * tiles;
-        (first..first + tiles).map(move |index| {
+        let tile_count = tiles_in_level(size_offset);
+        let first_index = morton_index(self.x, self.y) * tile_count;
+        (first_index..first_index + tile_count).map(move |index| {
             let (x, y) = morton_coordinates(index);
             Tile { level, x, y }
         })

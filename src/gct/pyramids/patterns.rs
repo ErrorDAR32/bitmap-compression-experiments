@@ -25,7 +25,7 @@
 
 use super::copyable::FINEST_COPY_LEVEL;
 use super::pyramid::{Pyramid, PyramidShape};
-use crate::gct::tile::{tiles_across, tiles_down_to, Tile, CELL_LEVEL};
+use crate::gct::tile::{tiles_in_level, tiles_down_to, Tile, CELL_LEVEL};
 use crate::morton::morton_coordinates;
 use crate::Bitmap;
 
@@ -41,7 +41,7 @@ const FINEST: u8 = FINEST_COPY_LEVEL;
 /// Bits a number takes: enough for every 4x4 its own pattern, and the
 /// two homogeneous ones.
 const NUMBER_BITS: usize = 16;
-const _: () = assert!(tiles_across(FINEST) * tiles_across(FINEST) + FIRST_PATTERN as usize <= 1 << NUMBER_BITS);
+const _: () = assert!(tiles_in_level(FINEST) + FIRST_PATTERN as usize <= 1 << NUMBER_BITS);
 /// One number, at the bottom of a word.
 const NUMBER_MASK: u64 = (1 << NUMBER_BITS) - 1;
 /// Numbers a word: a tile's four children's, exactly.
@@ -52,10 +52,16 @@ const _: () = assert!(NUMBERS_A_WORD == 4);
 const FINEST_CELLS: usize = 1 << (2 * (CELL_LEVEL - FINEST));
 const _: () = assert!(FINEST_CELLS == NUMBER_BITS);
 
+/// A 4x4's key when every cell is clear.
+const CELLS_ALL_CLEAR: u64 = 0;
+/// A 4x4's key when every cell is set.
+const CELLS_ALL_SET: u64 = (1 << FINEST_CELLS) - 1;
+/// A one at the bottom of every number in a word.
+const ONE_IN_EVERY_NUMBER: u64 = u64::MAX / NUMBER_MASK;
 /// A tile's four children all clear, as one word of numbers.
-const CHILDREN_ALL_CLEAR: u64 = 0;
+const CHILDREN_ALL_CLEAR: u64 = ALL_CLEAR as u64 * ONE_IN_EVERY_NUMBER;
 /// A tile's four children all set, as one word of numbers.
-const CHILDREN_ALL_SET: u64 = 0x0001_0001_0001_0001;
+const CHILDREN_ALL_SET: u64 = ALL_SET as u64 * ONE_IN_EVERY_NUMBER;
 
 /// Every tile's number, 16 bits a tile, whole bitmap to 4x4.
 const SHAPE: PyramidShape = PyramidShape { coarsest_level: 0, finest_level: FINEST, element_bits: NUMBER_BITS };
@@ -109,7 +115,7 @@ impl Default for Patterns {
         let (mut slot_ranges, mut first_starts) = ([(0, 0); LEVELS], [0; LEVELS]);
         let (mut slot_start, mut first_start) = (0, 0);
         for level in 0..=FINEST {
-            let tiles = tiles_across(level) * tiles_across(level);
+            let tiles = tiles_in_level(level);
             let count = (SLOTS_A_TILE * tiles).next_power_of_two();
             slot_ranges[level as usize] = (slot_start, count);
             slot_start += count;
@@ -141,33 +147,29 @@ impl Patterns {
         }
         self.handed_out = [FIRST_PATTERN; LEVELS];
 
-        // The 4x4s: each one's key its 16 cells, four to a word of the
-        // bitmap -- four numbers to a word of the level.
-        for (cell_word_index, &cell_word) in bitmap.words().iter().enumerate() {
-            let mut numbers = 0;
-            for quarter in 0..NUMBERS_A_WORD {
-                let key = cell_word >> (quarter * NUMBER_BITS) & NUMBER_MASK;
-                let tile_index = cell_word_index * NUMBERS_A_WORD + quarter;
-                numbers |= (self.intern(FINEST, key, tile_index) as u64) << (quarter * NUMBER_BITS);
-            }
-            self.numbers.level_words_mut(FINEST)[cell_word_index] = numbers;
-        }
-
-        // Every coarser level: each tile's key its children's word.
-        for level in (0..FINEST).rev() {
-            let tiles = tiles_across(level) * tiles_across(level);
+        for level in (0..=FINEST).rev() {
+            let tiles = tiles_in_level(level);
             for word_index in 0..tiles.div_ceil(NUMBERS_A_WORD) {
                 let mut numbers = 0;
-                for quarter in 0..NUMBERS_A_WORD {
+                for quarter in 0..NUMBERS_A_WORD.min(tiles) {
                     let tile_index = word_index * NUMBERS_A_WORD + quarter;
-                    if tile_index >= tiles {
-                        break;
-                    }
-                    let children_numbers = self.numbers.level_words(level + 1)[tile_index];
-                    numbers |= (self.intern(level, children_numbers, tile_index) as u64) << (quarter * NUMBER_BITS);
+                    let key = self.key(bitmap, level, tile_index);
+                    numbers |= (self.intern(level, key, tile_index) as u64) << (quarter * NUMBER_BITS);
                 }
                 self.numbers.level_words_mut(level)[word_index] = numbers;
             }
+        }
+    }
+
+    /// The key of the tile at `level` whose Morton index is `tile_index`:
+    /// a 4x4's 16 cells, one run of the bitmap, or a coarser tile's four
+    /// children's numbers, one word of the level below.
+    #[inline]
+    fn key(&self, bitmap: &Bitmap, level: u8, tile_index: usize) -> u64 {
+        if level == FINEST {
+            bitmap.morton_run(tile_index * FINEST_CELLS, FINEST_CELLS)
+        } else {
+            self.numbers.level_words(level + 1)[tile_index]
         }
     }
 
@@ -176,7 +178,7 @@ impl Patterns {
     /// already handed out, or the next.
     #[inline]
     fn intern(&mut self, level: u8, key: u64, tile_index: usize) -> u16 {
-        let (all_clear, all_set) = if level == FINEST { (0, NUMBER_MASK) } else { (CHILDREN_ALL_CLEAR, CHILDREN_ALL_SET) };
+        let (all_clear, all_set) = if level == FINEST { (CELLS_ALL_CLEAR, CELLS_ALL_SET) } else { (CHILDREN_ALL_CLEAR, CHILDREN_ALL_SET) };
         if key == all_clear {
             return ALL_CLEAR;
         }

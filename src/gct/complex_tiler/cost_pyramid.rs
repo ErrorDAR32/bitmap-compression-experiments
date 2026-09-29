@@ -34,8 +34,8 @@
 //! bits depend only on whether it is one tile, whether a raw complex
 //! tile masks it, and whether the candidate reaches inside it -- at 2x2
 //! or 1x1 -- so an area's twelve 2x2 counts are made once and read off.
-//! Nothing is changed while the pyramid
-//! is read: it is a snapshot of the tiling as the pass found it.
+//! Nothing is changed while the pyramid is read: it is a snapshot of the
+//! tiling as the pass found it.
 
 use super::bit_cost::{node_bits, payload_bits};
 use crate::fixed_list::FixedList;
@@ -45,12 +45,12 @@ use crate::gct::pyramids::complex_tiling::{ComplexTiling, Fields};
 use crate::gct::pyramids::costs::{Changes, Costs, FINEST_HELD, NO_CANDIDATE, RESOLUTIONS};
 use crate::gct::pyramids::placements::Placement;
 use crate::gct::pyramids::pyramid::Pyramid;
-use crate::gct::tile::{cells_in_tile, tiles_across, Tile, ALL_CHILDREN, CELL_LEVEL};
+use crate::gct::tile::{cells_in_tile, tiles_in_level, Tile, ALL_CHILDREN, CELL_LEVEL};
 use crate::Bitmap;
 
 /// The most tiles of one level a count can reach: every tile of the
 /// finest level held.
-const MOST_REACHED: usize = tiles_across(FINEST_HELD) * tiles_across(FINEST_HELD);
+const MOST_REACHED: usize = tiles_in_level(FINEST_HELD);
 
 /// The mask bits a divide spends on a child mask, and the flip bit:
 /// what one that leaves children to the binding above spends, and one
@@ -60,26 +60,43 @@ const LEAVING_BITS: i32 = (FLIP_WIDTH + CHILD_MASK_WIDTH) as i32;
 /// The 2x2 floor's level.
 const FLOOR: u8 = CELL_LEVEL - 1;
 
+/// Set in a 2x2's kind when it is one tile, not four raw cells.
+const WHOLE_KIND: usize = 1;
+/// Set in a 2x2's kind when a complex tile of 1x1 resolution masks it.
+const RAW_MASKED_KIND: usize = 2;
+/// 2x2 kinds.
+const FLOOR_KINDS: usize = WHOLE_KIND + RAW_MASKED_KIND + 1;
+
 /// What a 2x2 is, as far as its bits go: one tile or four raw cells,
 /// and whether a complex tile of 1x1 resolution masks it -- its value,
 /// and anything else, change nothing.
 fn floor_kind(here: Fields) -> usize {
-    here.placed().is_some_and(Placement::is_whole_bind) as usize | (here.raw_masks() as usize) << 1
+    let whole = if here.placed().is_some_and(Placement::is_whole_bind) { WHOLE_KIND } else { 0 };
+    whole | if here.raw_masks() { RAW_MASKED_KIND } else { 0 }
 }
-/// 2x2 kinds.
-const FLOOR_KINDS: usize = 4;
 
 /// Candidates a 2x2's bits can differ under: none, and the two
 /// resolutions that reach inside a 2x2 -- itself, and 1x1.
 const FLOOR_CANDIDATES: [u8; 3] = [NO_CANDIDATE, FLOOR, CELL_LEVEL];
+/// Where no candidate is in [`FLOOR_CANDIDATES`]...
+const UNDER_NO_CANDIDATE: usize = 0;
+/// ...one of 2x2 resolution...
+const UNDER_FLOOR_CANDIDATE: usize = 1;
+/// ...and one of 1x1 resolution.
+const UNDER_CELL_CANDIDATE: usize = 2;
+const _: () = assert!(
+    FLOOR_CANDIDATES[UNDER_NO_CANDIDATE] == NO_CANDIDATE
+        && FLOOR_CANDIDATES[UNDER_FLOOR_CANDIDATE] == FLOOR
+        && FLOOR_CANDIDATES[UNDER_CELL_CANDIDATE] == CELL_LEVEL
+);
 
 /// Which of [`FLOOR_CANDIDATES`] a candidate of `resolution` counts as,
 /// for a 2x2: none, if it is coarser.
 fn floor_candidate(resolution: u8) -> usize {
     match resolution {
-        FLOOR => 1,
-        CELL_LEVEL => 2,
-        _ => 0,
+        FLOOR => UNDER_FLOOR_CANDIDATE,
+        CELL_LEVEL => UNDER_CELL_CANDIDATE,
+        _ => UNDER_NO_CANDIDATE,
     }
 }
 
@@ -92,7 +109,7 @@ fn floor_candidate(resolution: u8) -> usize {
 fn floor_bits(base: &NestedResolutions) -> [[u64; FLOOR_CANDIDATES.len()]; FLOOR_KINDS] {
     let floor = Tile { level: FLOOR, x: 0, y: 0 };
     std::array::from_fn(|kind| {
-        let (whole, raw_masked) = (kind & 1 != 0, kind & 2 != 0);
+        let (whole, raw_masked) = (kind & WHOLE_KIND != 0, kind & RAW_MASKED_KIND != 0);
         FLOOR_CANDIDATES.map(|candidate| {
             let nested = if candidate == NO_CANDIDATE { *base } else { base.with_nested(candidate) };
             let mut mask_bits = 0;
@@ -223,10 +240,11 @@ impl CostPyramid {
     fn without_and_changes(&self, tile: Tile, here: Fields) -> (u64, Changes) {
         if tile.level > FINEST_HELD {
             let bits = &self.floor[floor_kind(here)];
+            let without = bits[UNDER_NO_CANDIDATE];
             let mut changes = [0; RESOLUTIONS];
-            changes[FLOOR as usize - 1] = bits[0] as i32 - bits[1] as i32;
-            changes[CELL_LEVEL as usize - 1] = bits[0] as i32 - bits[2] as i32;
-            return (bits[0], changes);
+            changes[FLOOR as usize - 1] = without as i32 - bits[UNDER_FLOOR_CANDIDATE] as i32;
+            changes[CELL_LEVEL as usize - 1] = without as i32 - bits[UNDER_CELL_CANDIDATE] as i32;
+            return (without, changes);
         }
         (self.counts.without(tile), self.counts.changes(tile))
     }
