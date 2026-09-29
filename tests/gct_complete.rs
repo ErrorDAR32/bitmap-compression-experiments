@@ -7,13 +7,13 @@
 
 mod common;
 
+mod turning;
+
 use tilesim::adversarial::record;
-use tilesim::gct::grammar::bit_stream::BitStream;
-use tilesim::gct::Gct;
 use tilesim::sample_generators::checkerboards::checkerboards;
 use tilesim::sample_generators::{families, grown, one_laid_out, sample_seed, HowMany, PLANS, SHAPES};
-use tilesim::Bitmap;
 use common::check;
+use turning::check_turned_bits;
 
 /// How far from the measured seeds the second sample starts.
 const SECOND_SEED_OFFSET: u64 = 1_000_000;
@@ -63,33 +63,14 @@ fn every_checkerboard_round_trips() {
     }
 }
 
-/// Quarter turns in a whole turn.
-const QUARTER_TURNS: usize = 4;
-
-/// How far, in percent, a family's bits may move when every bitmap in it
-/// is turned a quarter, a half or three quarters. gct is not the same
-/// every way round -- Morton order halves top and bottom first, copies
-/// read up and to the left, the last pass codes rows top down -- so a
-/// turned bitmap's tiles, copies and contexts differ. At the timed
-/// counts, over four seeds, no family moved more than 0.84%, nor the
-/// saved bitmaps more than 0.42%; this keeps more than twice that as
-/// margin for any seed, and still catches a bias for one orientation,
-/// like the 10% the saved horizontal-streaks bitmap once gained turned,
-/// when residual blocks were counted at a bit a cell.
+/// How far, in percent, a family's bits may move turned a quarter, a
+/// half or three quarters, at the timed counts: over four seeds no
+/// family moved more than 0.84%, nor the saved bitmaps more than 0.42%.
+/// This keeps more than twice that as margin for any seed, and still
+/// catches a bias for one orientation, like the 10% the saved
+/// horizontal-streaks bitmap once gained turned, when residual blocks
+/// were counted at a bit a cell.
 const MOST_TURNED_DRIFT_PERCENT: f64 = 2.0;
-
-/// `bitmap` turned a quarter clockwise.
-fn turned_a_quarter(bitmap: &Bitmap) -> Bitmap {
-    let mut turned = Bitmap::new();
-    for y in 0..=u8::MAX {
-        for x in 0..=u8::MAX {
-            if bitmap.get(x, y) {
-                turned.set(u8::MAX - y, x);
-            }
-        }
-    }
-    turned
-}
 
 /// Every family, at its `timed` count, and the saved adversarial
 /// bitmaps take about as many bits turned any way round: each turn's
@@ -97,27 +78,7 @@ fn turned_a_quarter(bitmap: &Bitmap) -> Bitmap {
 #[test]
 #[ignore]
 fn turned_bitmaps_take_about_as_many_bits() {
-    let (mut gct, mut stream) = (Gct::new(), BitStream::default());
     let mut sets = families(HowMany::Timed);
     sets.push(("the saved adversarial bitmaps".to_string(), record::saved().into_iter().map(|(_, bitmap)| bitmap).collect()));
-    for (family, maps) in sets {
-        let mut bits_by_turn = [0; QUARTER_TURNS];
-        for bitmap in &maps {
-            let mut turned = bitmap.clone();
-            for bits in &mut bits_by_turn {
-                gct.encode(&turned, &mut stream);
-                *bits += stream.len();
-                turned = turned_a_quarter(&turned);
-            }
-        }
-        let as_drawn = bits_by_turn[0];
-        for (quarter_turns, &bits) in bits_by_turn.iter().enumerate().skip(1) {
-            let drift = (bits as f64 / as_drawn as f64 - 1.0) * 100.0;
-            assert!(
-                drift.abs() <= MOST_TURNED_DRIFT_PERCENT,
-                "{family}: turned {} degrees, {bits} bits against {as_drawn} as drawn ({drift:+.2}%)",
-                quarter_turns * 90
-            );
-        }
-    }
+    check_turned_bits(sets, MOST_TURNED_DRIFT_PERCENT);
 }
