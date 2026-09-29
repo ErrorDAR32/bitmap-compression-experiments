@@ -64,8 +64,8 @@ pub struct Scratch {
 /// Creates complex tiles from the greedy tiler's output -- the complex
 /// tiling pyramid with its placements, the value bound above each tile
 /// and the sizes bound under it -- and completes it in place: every
-/// chosen complex tile's size offset added. Whether it chose any.
-pub fn complex_tiler(complex_tiling: &mut ComplexTiling, bitmap: &Bitmap, residual_prices: &ResidualPrices, scratch: &mut Scratch) -> bool {
+/// chosen complex tile's size offset added.
+pub fn complex_tiler(complex_tiling: &mut ComplexTiling, bitmap: &Bitmap, residual_prices: &ResidualPrices, scratch: &mut Scratch) {
     decide_raw_masking(complex_tiling, residual_prices);
     scratch.chosen.clear();
     let counting = Counting { complex_tiling, bitmap, residual_prices };
@@ -77,7 +77,6 @@ pub fn complex_tiler(complex_tiling: &mut ComplexTiling, bitmap: &Bitmap, residu
             complex_tiling.make_complex_tile(candidate.tile, candidate.size_offset);
         }
     }
-    !scratch.chosen.is_empty()
 }
 
 /// Bits counts are held in: a stream's bits fit.

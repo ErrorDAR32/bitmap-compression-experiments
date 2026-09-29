@@ -48,8 +48,10 @@ const CONTEXTS: usize = 1 << CONTEXT_CELLS.len();
 const FIRST_WEIGHT: u32 = 1;
 /// ...and what each cell coded in it adds to its value's: one cell.
 const CELL_WEIGHT: u32 = 2;
-/// The most a context's two weights add up to fits the coder.
+/// The most a context's two weights add up to fits the coder, and a
+/// block row's worth multiplied fits the `u128` pricing takes them in.
 const _: () = assert!(2 * FIRST_WEIGHT as u64 + CELL_WEIGHT as u64 * CELLS as u64 <= MOST_WEIGHT);
+const _: () = assert!(((2 * FIRST_WEIGHT as u64 + CELL_WEIGHT as u64 * CELLS as u64) as u128).checked_pow(BLOCK_SIDE as u32).is_some());
 
 /// The most bits the pass takes over one a residual cell: for each
 /// context, what learning its odds costs over the fewest bits its cells
@@ -72,7 +74,7 @@ const BLOCK_CELLS: usize = cells_in_tile(BLOCK_LEVEL) as usize;
 /// A block's side, in cells.
 const BLOCK_SIDE: u8 = (CELLS.isqrt() / tiles_across(BLOCK_LEVEL)) as u8;
 /// Words of one bit a block.
-const BLOCK_WORDS: usize = BLOCKS.div_ceil(u64::BITS as usize);
+pub(crate) const BLOCK_WORDS: usize = BLOCKS.div_ceil(u64::BITS as usize);
 
 /// A block, by its Morton index among the blocks: what the pass keeps
 /// in its lists and its copies' sources, two bytes each.
@@ -83,7 +85,7 @@ const NO_SOURCE: BlockIndex = BlockIndex::MAX;
 const _: () = assert!(BLOCKS <= NO_SOURCE as usize, "every block has an index, and none is NO_SOURCE");
 
 /// One bit a block, by Morton index.
-type BlockSet = [u64; BLOCK_WORDS];
+pub(crate) type BlockSet = [u64; BLOCK_WORDS];
 
 /// Whether `index` is in `set`.
 fn contains(set: &BlockSet, index: usize) -> bool {
@@ -91,7 +93,7 @@ fn contains(set: &BlockSet, index: usize) -> bool {
 }
 
 /// Adds `index` to `set`.
-fn insert(set: &mut BlockSet, index: usize) {
+pub(crate) fn insert(set: &mut BlockSet, index: usize) {
     set[index / u64::BITS as usize] |= 1 << (index % u64::BITS as usize);
 }
 
@@ -112,9 +114,6 @@ trait CellCoder {
     /// Codes the cell at Morton index `cell_index` at `odds`, and says
     /// whether it is set.
     fn code(&mut self, odds: Odds, cell_index: usize) -> bool;
-
-    /// Notes that the residual block at `index` is coded, all its cells.
-    fn finish_block(&mut self, _index: usize) {}
 }
 
 /// Encoding: each cell read off the bitmap and written.
@@ -125,25 +124,13 @@ struct CellEncoder<'a, S: BitSink> {
     encoder: Encoder,
     /// Where the bits go.
     sink: &'a mut S,
-    /// Where each residual block's bits are noted.
-    prices: &'a mut ResidualPrices,
-    /// The bits the block being coded has taken so far, in fixed point:
-    /// each cell's `log2` of its odds' total over its value's weight.
-    block_bits: u32,
 }
 
 impl<S: BitSink> CellCoder for CellEncoder<'_, S> {
     fn code(&mut self, odds: Odds, cell_index: usize) -> bool {
         let set = self.bitmap.morton_run(cell_index, 1) == 1;
         self.encoder.encode(set, odds, self.sink);
-        let weight = if set { odds.set } else { odds.clear };
-        self.block_bits += fixed_point_log2(odds.clear + odds.set) - fixed_point_log2(weight);
         set
-    }
-
-    fn finish_block(&mut self, index: usize) {
-        self.prices.set(index, self.block_bits);
-        self.block_bits = 0;
     }
 }
 
@@ -167,8 +154,6 @@ pub struct LastPass {
     blocks: Blocks,
     /// Encoding: the cells as decoding has them.
     known: Bitmap,
-    /// What each residual block took, the last time the pass encoded.
-    prices: ResidualPrices,
 }
 
 /// The blocks the tree leaves unsaid, and the contexts' odds.
@@ -204,18 +189,12 @@ impl LastPass {
             pending: FixedList::new(),
             odds: [Odds { clear: FIRST_WEIGHT, set: FIRST_WEIGHT }; CONTEXTS],
         };
-        Self { blocks, known: Bitmap::new(), prices: ResidualPrices::new() }
+        Self { blocks, known: Bitmap::new() }
     }
 
     /// Where copies read from.
     pub fn offsets(&self) -> &CopyOffsets {
         &self.blocks.offsets
-    }
-
-    /// What each residual block took, the last time the pass encoded:
-    /// each block of that tree's is priced.
-    pub fn residual_prices(&self) -> &ResidualPrices {
-        &self.prices
     }
 
     /// Forgets every block noted: before the tree is walked.
@@ -258,7 +237,7 @@ impl LastPass {
         }
         // A pass coding no cell writes nothing: not even the coder's end.
         let codes_any_cell = self.blocks.residual != [0; BLOCK_WORDS];
-        let mut coder = CellEncoder { bitmap, encoder: Encoder::default(), sink, prices: &mut self.prices, block_bits: 0 };
+        let mut coder = CellEncoder { bitmap, encoder: Encoder::default(), sink };
         self.blocks.run(&mut self.known, &mut coder);
         if codes_any_cell {
             coder.encoder.finish(coder.sink);
@@ -351,22 +330,62 @@ impl Blocks {
         let mut window = Window::around(cells, index);
         let first_cell = index * BLOCK_CELLS;
         let mut block_run = 0;
-        // Indexed by place, not iterated: the loop runs a fixed sixteen
-        // times, and unrolls, each place's window position then fixed.
-        #[allow(clippy::needless_range_loop)]
-        for place in 0..BLOCK_CELLS {
-            let odds = &mut self.odds[window.context(place)];
-            let morton_place = MORTON_PLACES[place];
-            if coder.code(*odds, first_cell + morton_place) {
-                window.set(place);
-                block_run |= 1 << morton_place;
-                odds.set += CELL_WEIGHT;
-            } else {
-                odds.clear += CELL_WEIGHT;
+        for dy in 0..BLOCK_SIDE as u32 {
+            let mut columns = window.columns(dy);
+            for dx in 0..BLOCK_SIDE as u32 {
+                let odds = &mut self.odds[columns.context(dx)];
+                let morton_place = MORTON_PLACES[(dy * BLOCK_SIDE as u32 + dx) as usize];
+                if coder.code(*odds, first_cell + morton_place) {
+                    window.set(dx, dy);
+                    columns.set(dx);
+                    block_run |= 1 << morton_place;
+                    odds.set += CELL_WEIGHT;
+                } else {
+                    odds.clear += CELL_WEIGHT;
+                }
             }
         }
         cells.set_in_morton_run(first_cell, BLOCK_CELLS, block_run);
-        coder.finish_block(index);
+    }
+}
+
+/// Prices the residual blocks in `residual`, of a tree for `bitmap`,
+/// into `prices`: what the pass takes for each, without coding it --
+/// its cells' `log2` of their odds' totals over their values' weights,
+/// a row's multiplied first (each under 2^18, so a row's four under
+/// 2^72: a `u128` holds them), every
+/// context learning as the pass's do, the blocks in the pass's order.
+/// Contexts are read off `bitmap` itself: in the pass each context cell
+/// is final when its cell is coded, but for one of a copy still waiting
+/// on its source, which reads as clear there -- rare, and a price is
+/// what a block takes about.
+pub(crate) fn price_residual_blocks(bitmap: &Bitmap, residual: &BlockSet, prices: &mut ResidualPrices) {
+    let mut all_odds = [Odds { clear: FIRST_WEIGHT, set: FIRST_WEIGHT }; CONTEXTS];
+    for (word_index, &word) in residual.iter().enumerate() {
+        let mut remaining = word;
+        while remaining != 0 {
+            let index = word_index * u64::BITS as usize + remaining.trailing_zeros() as usize;
+            remaining &= remaining - 1;
+            let window = Window::around(bitmap, index);
+            let block_run = bitmap.morton_run(index * BLOCK_CELLS, BLOCK_CELLS);
+            let mut bits = 0;
+            for dy in 0..BLOCK_SIDE as u32 {
+                let columns = window.columns(dy);
+                // The row's cells' odds multiplied -- totals over the
+                // weights of the values they hold -- and one `log2` each.
+                let (mut totals, mut weights) = (1u128, 1u128);
+                for dx in 0..BLOCK_SIDE as u32 {
+                    let odds = &mut all_odds[columns.context(dx)];
+                    let set = block_run >> MORTON_PLACES[(dy * BLOCK_SIDE as u32 + dx) as usize] & 1 == 1;
+                    totals *= (odds.clear + odds.set) as u128;
+                    let weight = if set { &mut odds.set } else { &mut odds.clear };
+                    weights *= *weight as u128;
+                    *weight += CELL_WEIGHT;
+                }
+                bits += fixed_point_log2(totals) - fixed_point_log2(weights);
+            }
+            prices.set(index, bits);
+        }
     }
 }
 
@@ -411,19 +430,6 @@ const BLOCK_ROWS: [u64; 1 << (BLOCK_CELLS / 2)] = {
     rows
 };
 
-/// Where each of a block's cells, by its place in the block's rows, is
-/// in its window.
-const WINDOW_PLACES: [u32; BLOCK_CELLS] = {
-    let mut places = [0; BLOCK_CELLS];
-    let mut place = 0;
-    while place < BLOCK_CELLS {
-        let (dx, dy) = ((place % BLOCK_SIDE as usize) as u32, (place / BLOCK_SIDE as usize) as u32);
-        places[place] = (BLOCK_SIDE as u32 + dy) * WINDOW_SIDE + BLOCK_SIDE as u32 + dx;
-        place += 1;
-    }
-    places
-};
-
 /// How far left and up a context reaches, in cells: the square of cells
 /// from that far up and left of a cell to the cell itself -- its
 /// neighbourhood -- holds all of its context.
@@ -444,8 +450,9 @@ const CONTEXT_REACH: u32 = {
 const NEIGHBOURHOOD_SIDE: u32 = CONTEXT_REACH + 1;
 const _: () = assert!(CONTEXT_REACH <= BLOCK_SIDE as u32, "every context cell is in the window");
 
-/// Every neighbourhood's context, by its cells, a bit each, row after
-/// row: a bit for each of [`CONTEXT_CELLS`] set.
+/// Every neighbourhood's context, by its cells, a bit each, column after
+/// column, each column's top cell first: a bit for each of
+/// [`CONTEXT_CELLS`] set.
 const NEIGHBOURHOOD_CONTEXTS: [u8; 1 << (NEIGHBOURHOOD_SIDE * NEIGHBOURHOOD_SIDE)] = {
     let mut contexts = [0; 1 << (NEIGHBOURHOOD_SIDE * NEIGHBOURHOOD_SIDE)];
     let mut neighbourhood = 0;
@@ -455,7 +462,7 @@ const NEIGHBOURHOOD_CONTEXTS: [u8; 1 << (NEIGHBOURHOOD_SIDE * NEIGHBOURHOOD_SIDE
             let (dx, dy) = CONTEXT_CELLS[bit];
             let x = (CONTEXT_REACH as i32 + dx as i32) as u32;
             let y = (CONTEXT_REACH as i32 + dy as i32) as u32;
-            if neighbourhood >> (y * NEIGHBOURHOOD_SIDE + x) & 1 == 1 {
+            if neighbourhood >> (x * NEIGHBOURHOOD_SIDE + y) & 1 == 1 {
                 contexts[neighbourhood] |= 1 << bit;
             }
             bit += 1;
@@ -485,25 +492,66 @@ impl Window {
         )
     }
 
-    /// Where the block's cell at `place`, in its rows, is.
-    fn at(place: usize) -> u32 {
-        WINDOW_PLACES[place]
+    /// The window's row `y`, one bit a column.
+    fn row(&self, y: u32) -> usize {
+        (self.0 >> (y * WINDOW_SIDE)) as usize & ((1 << WINDOW_SIDE) - 1)
     }
 
-    /// The context of the block's cell at `place`: its neighbourhood's,
-    /// read a row at a time from the window moved to start at its corner.
-    fn context(&self, place: usize) -> usize {
-        let from_corner = self.0 >> (Self::at(place) - CONTEXT_REACH * (WINDOW_SIDE + 1));
-        let row_mask = (1 << NEIGHBOURHOOD_SIDE) - 1;
-        let mut neighbourhood = 0;
+    /// The rows the contexts of the block's row `dy` read -- it and the
+    /// [`CONTEXT_REACH`] above it -- column by column.
+    fn columns(&self, dy: u32) -> Columns {
+        let top = BLOCK_SIDE as u32 + dy - CONTEXT_REACH;
+        let mut columns = 0;
         for row in 0..NEIGHBOURHOOD_SIDE {
-            neighbourhood |= (from_corner >> (row * WINDOW_SIDE) & row_mask) << (row * NEIGHBOURHOOD_SIDE);
+            columns |= SPREAD_ROWS[self.row(top + row)] << row;
         }
-        NEIGHBOURHOOD_CONTEXTS[neighbourhood as usize] as usize
+        Columns(columns)
     }
 
-    /// Sets the block's cell at `place`, in its rows.
-    fn set(&mut self, place: usize) {
-        self.0 |= 1 << Self::at(place);
+    /// Sets the block's cell `dx` across and `dy` down from its corner.
+    fn set(&mut self, dx: u32, dy: u32) {
+        self.0 |= 1 << ((BLOCK_SIDE as u32 + dy) * WINDOW_SIDE + BLOCK_SIDE as u32 + dx);
+    }
+}
+
+/// A window's rows a block row's contexts read, column by column: for
+/// each window column `x`, [`NEIGHBOURHOOD_SIDE`] bits from bit
+/// `x * NEIGHBOURHOOD_SIDE`, the top row's cell lowest. A cell's
+/// neighbourhood is then one run of bits, the next cell's the run a
+/// column on: a shift and a lookup a cell.
+struct Columns(u32);
+const _: () = assert!(WINDOW_SIDE * NEIGHBOURHOOD_SIDE <= u32::BITS, "a window's columns fit");
+
+/// Every window row, one bit a column, with bit `x` moved to bit
+/// `x * NEIGHBOURHOOD_SIDE`: its place in [`Columns`].
+const SPREAD_ROWS: [u32; 1 << WINDOW_SIDE] = {
+    let mut spread = [0; 1 << WINDOW_SIDE];
+    let mut row = 0;
+    while row < spread.len() {
+        let mut x = 0;
+        while x < WINDOW_SIDE {
+            if row >> x & 1 == 1 {
+                spread[row] |= 1 << (x * NEIGHBOURHOOD_SIDE);
+            }
+            x += 1;
+        }
+        row += 1;
+    }
+    spread
+};
+
+impl Columns {
+    /// The context of the row's cell `dx` across from the block's
+    /// corner: its neighbourhood's, one run of the columns.
+    fn context(&self, dx: u32) -> usize {
+        let first_column = BLOCK_SIDE as u32 + dx - CONTEXT_REACH;
+        let neighbourhood = (self.0 >> (first_column * NEIGHBOURHOOD_SIDE)) as usize & (NEIGHBOURHOOD_CONTEXTS.len() - 1);
+        NEIGHBOURHOOD_CONTEXTS[neighbourhood] as usize
+    }
+
+    /// Sets the row's cell `dx` across from the block's corner: the
+    /// bottom of its column, the row's own.
+    fn set(&mut self, dx: u32) {
+        self.0 |= 1 << ((BLOCK_SIDE as u32 + dx) * NEIGHBOURHOOD_SIDE + CONTEXT_REACH);
     }
 }

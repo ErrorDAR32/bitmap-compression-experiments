@@ -30,6 +30,7 @@
 //! placed. The tree goes no finer than 4x4: a 2x2 placed is read only
 //! by a complex tile of 2x2 resolution that unmasks it.
 
+use crate::gct::last_pass::{insert, BlockSet, BLOCK_WORDS};
 use crate::gct::pyramids::complex_tiling::ComplexTiling;
 use crate::gct::pyramids::copyable::{matches_at, CopyOffsets, FINEST_COPY_LEVEL};
 use crate::gct::pyramids::placements::{Placement, BOUND_AT_THE_TOP, FINEST_MASKING_LEVEL};
@@ -56,18 +57,28 @@ pub const MIN_UNMASKED_NON_HOMOGENEOUS_CHILDREN: u32 = 2;
 /// least this many children.
 pub const MIN_UNMASKED_CHILDREN_OF_A_MASKING_BIND: u32 = 2;
 
-/// Places tiles over one bitmap, biggest first, into `placements`,
-/// whatever it held before; what it placed is a
-/// [complex tiling pyramid](crate::gct::pyramids::complex_tiling) with
-/// only its [placement](crate::gct::pyramids::placements) bits set. Reads
+/// What the greedy tiler writes, whatever it held before.
+pub struct GreedyTiling<'a> {
+    /// What it placed: a
+    /// [complex tiling pyramid](crate::gct::pyramids::complex_tiling)
+    /// with only its [placement](crate::gct::pyramids::placements) bits
+    /// set.
+    pub placements: &'a mut ComplexTiling,
+    /// The residual blocks it leaves: every 4x4 it reaches and places
+    /// nothing at -- its tree's residual blocks.
+    pub residual_blocks: &'a mut BlockSet,
+}
+
+/// Places tiles over one bitmap, biggest first, into `tiling`. Reads
 /// only the bitmap's content: which tiles are homogeneous and which
 /// match which, from its patterns -- copies reading from `offsets` -- and
 /// a 2x2's cells, finer than patterns go.
-pub fn greedy_tiler(bitmap: &Bitmap, patterns: &Patterns, offsets: &CopyOffsets, placements: &mut ComplexTiling) {
-    placements.clear();
+pub fn greedy_tiler(bitmap: &Bitmap, patterns: &Patterns, offsets: &CopyOffsets, tiling: &mut GreedyTiling) {
+    tiling.placements.clear();
+    *tiling.residual_blocks = [0; BLOCK_WORDS];
     let content = Content { bitmap, patterns, offsets };
     let whole_bitmap = Tile::whole_bitmap();
-    place_at_or_under(&content, Visit { tile: whole_bitmap, number: patterns.number(whole_bitmap), bound_above: BOUND_AT_THE_TOP }, placements);
+    place_at_or_under(&content, Visit { tile: whole_bitmap, number: patterns.number(whole_bitmap), bound_above: BOUND_AT_THE_TOP }, tiling);
 }
 
 /// What the greedy tiler reads of a bitmap: its cells and its patterns
@@ -101,14 +112,15 @@ struct Visit {
 
 /// Places at the visited tile, or leaves it to its children, then does
 /// the same for every child nothing placed here says.
-fn place_at_or_under(content: &Content, visit: Visit, placements: &mut ComplexTiling) {
+fn place_at_or_under(content: &Content, visit: Visit, tiling: &mut GreedyTiling) {
     let tile = visit.tile;
     if tile.level == FLOOR_LEVEL {
         let placed = floor_placement(content, visit);
         if placed.is_none() {
-            place_2x2s(content.bitmap, tile, placements);
+            place_2x2s(content.bitmap, tile, tiling.placements);
+            insert(tiling.residual_blocks, morton_index(tile.x, tile.y));
         }
-        placements.record_placed(tile, placed, visit.bound_above);
+        tiling.placements.record_placed(tile, placed, visit.bound_above);
         return;
     }
     // Every child's number, one lookup: four consecutive elements.
@@ -117,10 +129,10 @@ fn place_at_or_under(content: &Content, visit: Visit, placements: &mut ComplexTi
     let bound_inside = placed.map_or(visit.bound_above, |placement| placement.bound_inside(visit.bound_above));
     for (index, child) in tile.children().into_iter().enumerate() {
         if placed.is_none_or(|placement| placement.masks(child)) {
-            place_at_or_under(content, Visit { tile: child, number: children_numbers[index], bound_above: bound_inside }, placements);
+            place_at_or_under(content, Visit { tile: child, number: children_numbers[index], bound_above: bound_inside }, tiling);
         }
     }
-    placements.record_placed(tile, placed, visit.bound_above);
+    tiling.placements.record_placed(tile, placed, visit.bound_above);
 }
 
 /// Binds each of the 4x4 `tile`'s 2x2s that is homogeneous, read off

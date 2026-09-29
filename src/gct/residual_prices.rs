@@ -2,17 +2,19 @@
 //! cost, each at the odds its context had -- the complex tiler's price
 //! for leaving a 4x4 to the last pass, in place of a bit a cell.
 //!
-//! Measured on the greedy tiler's own tree, written before the complex
-//! tiler runs. A residual block costs about the same whatever else the
-//! complex tiler changes: a cell's context is the cells above and left
-//! of it, which hold the same values whichever node says them -- only
-//! the odds each context has learned by then differ. And every residual
+//! Measured on the greedy tiler's own tree, before the complex tiler
+//! runs, by a pass that prices without coding (`price_residual_blocks`,
+//! in the last pass). A residual block costs about the same whatever
+//! else the complex tiler changes: a cell's context is the cells above
+//! and left of it, which hold the same values whichever node says them
+//! -- only the odds each context has learned by then differ. And every residual
 //! block the complex tiler can leave is one in the greedy tiler's tree:
 //! it only ever adds complex tiles.
 
-use crate::gct::last_pass::BLOCKS;
+use crate::gct::last_pass::{price_residual_blocks, BlockSet, BLOCKS};
 use crate::gct::tile::{Tile, FLOOR_LEVEL};
 use crate::morton::morton_index;
+use crate::Bitmap;
 
 /// Each residual block's bits in the last pass, by its Morton index
 /// among the 4x4 blocks: rounded to the nearest bit, as the counts the
@@ -39,6 +41,12 @@ impl ResidualPrices {
     /// `index` among the 4x4 blocks.
     pub fn of_index(&self, index: usize) -> u64 {
         self.bits[index] as u64
+    }
+
+    /// Prices `residual_blocks`, those of the greedy tiler's own tree
+    /// for `bitmap`, before the complex tiler adds to it.
+    pub fn measure(&mut self, bitmap: &Bitmap, residual_blocks: &BlockSet) {
+        price_residual_blocks(bitmap, residual_blocks, self);
     }
 
     /// Notes that the residual block at `index` took `bits`, in
@@ -81,11 +89,15 @@ const FRACTIONS: [u32; 1 << FRACTION_BITS] = {
 };
 
 /// `log2(value)` in [`FRACTION_BITS`] fixed point, `value` at least 1:
-/// its whole part, and its fraction from the mantissa's top bits.
-pub(crate) fn fixed_point_log2(value: u32) -> u32 {
+/// its whole part, and its fraction from the mantissa's top bits -- the
+/// value moved up until its leading one is the top bit, then the bits
+/// under it. Wide enough for the product of a block row's odds.
+#[inline]
+pub(crate) fn fixed_point_log2(value: u128) -> u32 {
     let whole = value.ilog2();
-    let top_bits = if whole >= FRACTION_BITS { value >> (whole - FRACTION_BITS) } else { value << (FRACTION_BITS - whole) };
-    whole << FRACTION_BITS | FRACTIONS[(top_bits & ((1 << FRACTION_BITS) - 1)) as usize]
+    let normalized = value << (u128::BITS - 1 - whole);
+    let mantissa_top = (normalized >> (u128::BITS - 1 - FRACTION_BITS)) as usize & ((1 << FRACTION_BITS) - 1);
+    whole << FRACTION_BITS | FRACTIONS[mantissa_top]
 }
 
 impl Default for ResidualPrices {
@@ -102,13 +114,14 @@ mod tests {
     /// The fixed-point `log2` is never above the true one, and under a
     /// hundredth of a bit below it -- the mantissa's bits past the top
     /// eight, and the fraction's past the eighth, both cut off -- from 1
-    /// to the most a context's weights reach.
+    /// to the most a context's weights reach, and through products of
+    /// them.
     #[test]
     fn fixed_point_log2_is_close() {
         let hundredth_of_a_bit = (1 << FRACTION_BITS) as f64 / 100.0;
-        for value in (1..1 << 18).step_by(7) {
+        for value in (1..1u64 << 18).step_by(7).chain((1..1u64 << 60).step_by(1 << 44)) {
             let exact = (value as f64).log2() * (1 << FRACTION_BITS) as f64;
-            let fixed = fixed_point_log2(value) as f64;
+            let fixed = fixed_point_log2(value as u128) as f64;
             assert!(fixed <= exact && exact - fixed < hundredth_of_a_bit, "log2({value}): {fixed} against {exact}");
         }
     }
