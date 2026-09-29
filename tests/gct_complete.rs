@@ -7,6 +7,7 @@
 
 mod common;
 
+use tilesim::adversarial::record;
 use tilesim::gct::grammar::bit_stream::BitStream;
 use tilesim::gct::Gct;
 use tilesim::sample_generators::checkerboards::checkerboards;
@@ -70,10 +71,11 @@ const QUARTER_TURNS: usize = 4;
 /// every way round -- Morton order halves top and bottom first, copies
 /// read up and to the left, the last pass codes rows top down -- so a
 /// turned bitmap's tiles, copies and contexts differ. At the timed
-/// counts, over four seeds, no family moved more than 0.84%; this keeps
-/// more than twice that as margin for any seed, and still catches a
-/// bias for one orientation, like the 10% the saved horizontal-streaks
-/// bitmap gains turned.
+/// counts, over four seeds, no family moved more than 0.84%, nor the
+/// saved bitmaps more than 0.42%; this keeps more than twice that as
+/// margin for any seed, and still catches a bias for one orientation,
+/// like the 10% the saved horizontal-streaks bitmap once gained turned,
+/// when residual blocks were counted at a bit a cell.
 const MOST_TURNED_DRIFT_PERCENT: f64 = 2.0;
 
 /// `bitmap` turned a quarter clockwise.
@@ -89,14 +91,16 @@ fn turned_a_quarter(bitmap: &Bitmap) -> Bitmap {
     turned
 }
 
-/// Every family, at its `timed` count, takes about as many bits turned
-/// any way round: each turn's total within [`MOST_TURNED_DRIFT_PERCENT`]
-/// of the family's total as drawn.
+/// Every family, at its `timed` count, and the saved adversarial
+/// bitmaps take about as many bits turned any way round: each turn's
+/// total within [`MOST_TURNED_DRIFT_PERCENT`] of the total as drawn.
 #[test]
 #[ignore]
 fn turned_bitmaps_take_about_as_many_bits() {
     let (mut gct, mut stream) = (Gct::new(), BitStream::default());
-    for (family, maps) in families(HowMany::Timed) {
+    let mut sets = families(HowMany::Timed);
+    sets.push(("the saved adversarial bitmaps".to_string(), record::saved().into_iter().map(|(_, bitmap)| bitmap).collect()));
+    for (family, maps) in sets {
         let mut bits_by_turn = [0; QUARTER_TURNS];
         for bitmap in &maps {
             let mut turned = bitmap.clone();

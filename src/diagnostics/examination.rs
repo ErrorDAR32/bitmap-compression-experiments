@@ -12,9 +12,9 @@
 //! - the first cell decoding gets wrong, if any.
 
 use crate::gct::pyramids::complex_tiling::ComplexTiling;
-use crate::gct::complex_tiler::bit_cost::tree_bits;
+use crate::gct::complex_tiler::bit_cost::{tree_bits, Counting};
 use crate::gct::grammar::bit_stream::BitStream;
-use crate::gct::grammar::{count_split, COUNT_SPLIT_STREAM, RESIDUAL_BLOCK_BITS, STREAM_MODE_WIDTH};
+use crate::gct::grammar::{count_split, COUNT_SPLIT_STREAM, STREAM_MODE_WIDTH};
 use crate::gct::pyramids::placements::Placement;
 use crate::gct::pyramids::tree::{Node, Tree};
 use crate::gct::pyramids::copyable::FINEST_COPY_LEVEL;
@@ -140,10 +140,12 @@ impl Examination {
         }
         // The start level found from the tiling, as the encoder finds it:
         // were it not the tree's, these bits would not be the bits written.
-        // The count holds each residual block at a bit a cell, its most:
-        // the last pass's bits, as written, take their place.
-        let residual_bits = RESIDUAL_BLOCK_BITS as u64 * written.residual_blocks().count() as u64;
-        let tree_bits = tree_bits(complex_tiling, bitmap, start_level(complex_tiling)) - residual_bits + gct.last_pass_bits() as u64;
+        // The count holds each residual block at its price: the last
+        // pass's bits, as written, take their place.
+        let residual_prices = gct.residual_prices();
+        let residual_bits = written.residual_blocks().map(|index| residual_prices.of_index(index)).sum::<u64>();
+        let counting = Counting { complex_tiling, bitmap, residual_prices };
+        let tree_bits = tree_bits(counting, start_level(complex_tiling)) - residual_bits + gct.last_pass_bits() as u64;
         let tree_written_bits = (stream.len() - STREAM_MODE_WIDTH as usize) as u64;
         gct.decode(stream, back);
         let tree_read_back = *gct.tree() == written;

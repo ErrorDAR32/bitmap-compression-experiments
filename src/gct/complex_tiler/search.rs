@@ -21,16 +21,17 @@
 //! no way to say it: a bind in a complex tile's body is always a tile,
 //! and says no size offset (`docs/gct.md`).
 
-use super::bit_cost::{bits_with, cell_list_header_bits, node_bits, payload_bits};
+use super::bit_cost::{bits_with, cell_list_header_bits, node_bits, payload_bits, Counting};
 use super::raw_masking::decide_raw_masking;
 use crate::gct::fixed_list::FixedList;
 use crate::gct::grammar::*;
 use crate::gct::grammar::bit_stream::MOST_BITS;
 use crate::gct::grammar::cell_list;
 use crate::gct::nested_resolutions::NestedResolutions;
+use crate::gct::residual_prices::ResidualPrices;
 use crate::gct::pyramids::complex_tiling::{ComplexTiling, Fields};
 use crate::gct::pyramids::placements::Placement;
-use crate::gct::tile::{cells_in_tile, tiles_in_level, Tile, CELL_LEVEL, CHILDREN, FINEST_PLACED_LEVEL, FLOOR_LEVEL};
+use crate::gct::tile::{tiles_in_level, Tile, CELL_LEVEL, CHILDREN, FINEST_PLACED_LEVEL, FLOOR_LEVEL};
 use crate::Bitmap;
 
 /// The smallest tile a complex tile can be: 4x4, the floor, so its
@@ -63,11 +64,12 @@ pub struct Scratch {
 /// Creates complex tiles from the greedy tiler's output -- the complex
 /// tiling pyramid with its placements, the value bound above each tile
 /// and the sizes bound under it -- and completes it in place: every
-/// chosen complex tile's size offset added.
-pub fn complex_tiler(complex_tiling: &mut ComplexTiling, bitmap: &Bitmap, scratch: &mut Scratch) {
-    decide_raw_masking(complex_tiling);
+/// chosen complex tile's size offset added. Whether it chose any.
+pub fn complex_tiler(complex_tiling: &mut ComplexTiling, bitmap: &Bitmap, residual_prices: &ResidualPrices, scratch: &mut Scratch) -> bool {
+    decide_raw_masking(complex_tiling, residual_prices);
     scratch.chosen.clear();
-    Search { complex_tiling, bitmap, chosen: &mut scratch.chosen }.count(Tile::whole_bitmap());
+    let counting = Counting { complex_tiling, bitmap, residual_prices };
+    Search { counting, chosen: &mut scratch.chosen }.count(Tile::whole_bitmap());
     for candidate in scratch.chosen.iter() {
         if candidate.cell_list {
             complex_tiling.make_cell_list(candidate.tile);
@@ -75,6 +77,7 @@ pub fn complex_tiler(complex_tiling: &mut ComplexTiling, bitmap: &Bitmap, scratc
             complex_tiling.make_complex_tile(candidate.tile, candidate.size_offset);
         }
     }
+    !scratch.chosen.is_empty()
 }
 
 /// Bits counts are held in: a stream's bits fit.
@@ -105,9 +108,7 @@ struct Counted {
 /// One search over one bitmap's complex tiling.
 struct Search<'a> {
     /// The tiling searched: the greedy tiler's placements, filled in.
-    complex_tiling: &'a ComplexTiling,
-    /// The bitmap, for what a cell list costs.
-    bitmap: &'a Bitmap,
+    counting: Counting<'a>,
     /// The candidates kept so far.
     chosen: &'a mut FixedList<Candidate, MOST_CANDIDATES>,
 }
@@ -128,7 +129,7 @@ impl Search<'_> {
     /// Counts `tile`, and everything under it the tree could reach, and
     /// keeps the best candidates at or under it.
     fn count(&mut self, tile: Tile) -> Counted {
-        let here = self.complex_tiling.fields(tile);
+        let here = self.counting.complex_tiling.fields(tile);
         debug_assert!(here.complex_tile_size_offset().is_none(), "{tile:?}: a complex tile before the search");
         let children = self.children_of(tile, here);
         let child_tiles = tile.children();
@@ -162,11 +163,11 @@ impl Search<'_> {
             }
         }
 
-        let own = own_bits(tile, here, children.left);
+        let own = own_bits(tile, here, children.left, self.counting.residual_prices);
         let own_in_body = own - bind_size_offset_bits(tile, here);
         let without = own + counted_without;
         let without_in_body = own_in_body + counted_without_in_body;
-        debug_assert_matches_reference(self.complex_tiling, self.bitmap, tile, here, without);
+        debug_assert_matches_reference(self.counting, tile, here, without);
         let mut under = [0; RESOLUTION_SLOTS];
         under[tile.level as usize] = if here.entirely_bound_at(tile.level) { unmasked_bits(0) } else { without_in_body + MASK_BIT_WIDTH as Bits };
         let left = children.left.count_ones() as Bits;
@@ -215,7 +216,7 @@ impl Search<'_> {
             return Children { counted: masked, left: 0, visited: masked };
         }
         let mut left = 0;
-        for (index, (child, fields)) in tile.children().into_iter().zip(self.complex_tiling.children_fields(tile)).enumerate() {
+        for (index, (child, fields)) in tile.children().into_iter().zip(self.counting.complex_tiling.children_fields(tile)).enumerate() {
             if fields.left_to_binding_above(child, here.bound_above(), &NestedResolutions::none()) {
                 left |= 1 << index;
             }
@@ -242,14 +243,14 @@ impl Search<'_> {
             } else {
                 bits += children_under[resolution as usize];
             }
-            debug_assert_candidate_matches_reference(self.complex_tiling, self.bitmap, tile, here.as_complex_tile(size_offset), bits);
+            debug_assert_candidate_matches_reference(self.counting, tile, here.as_complex_tile(size_offset), bits);
             let mut cell_list = false;
             if resolution == CELL_LEVEL {
                 // The cells as a cell list, when strictly cheaper --
                 // counted only when the fewest bits it could take are.
                 let header = cell_list_header_bits(tile.level) as Bits;
-                if header + (cell_list::least_bits(self.bitmap, tile) as Bits) < bits {
-                    let listed = header + cell_list::bits(self.bitmap, tile) as Bits;
+                if header + (cell_list::least_bits(self.counting.bitmap, tile) as Bits) < bits {
+                    let listed = header + cell_list::bits(self.counting.bitmap, tile) as Bits;
                     if listed < bits {
                         (bits, cell_list) = (listed, true);
                     }
@@ -289,8 +290,9 @@ fn complex_tile_header_bits(level: u8, size_offset: u8) -> Bits {
 
 /// The bits `tile`, whose fields are `here`, takes itself as the tiling
 /// stands, its counted children's bits aside; `left` the children a
-/// divide leaves to the binding above.
-fn own_bits(tile: Tile, here: Fields, left: u8) -> Bits {
+/// divide leaves to the binding above; a residual block at its price in
+/// `residual_prices`.
+fn own_bits(tile: Tile, here: Fields, left: u8, residual_prices: &ResidualPrices) -> Bits {
     let leaf_and_code = (LEAF_WIDTH + CODE_WIDTH) as Bits;
     let mask_present = if copy_or_divide_may_mask(tile.level) { MASK_PRESENT_WIDTH as Bits } else { 0 };
     match here.placed() {
@@ -301,9 +303,8 @@ fn own_bits(tile: Tile, here: Fields, left: u8) -> Bits {
             let child_mask = if copy.masks_any() { CHILD_MASK_WIDTH as Bits } else { 0 };
             leaf_and_code + (FAR_WIDTH + DIRECTION_WIDTH) as Bits + mask_present + child_mask
         }
-        // A residual block, and its cells in the last pass, counted at a
-        // bit a cell.
-        None if tile.level == FLOOR_LEVEL => (LEAF_WIDTH + RESIDUAL_BLOCK_BITS) as Bits,
+        // A residual block, and its cells in the last pass, at its price.
+        None if tile.level == FLOOR_LEVEL => LEAF_WIDTH as Bits + residual_prices.of(tile) as Bits,
         None => LEAF_WIDTH as Bits + mask_present + if left != 0 { LEAVING_BITS } else { 0 },
     }
 }
@@ -338,19 +339,19 @@ const FINEST_CHECKED_LEVEL: u8 = CELL_LEVEL - 4;
 
 /// In debug builds, for a tile of 16x16 or finer, that `without` is what
 /// the reference count ([`bits_with`]) gives it.
-fn debug_assert_matches_reference(complex_tiling: &ComplexTiling, bitmap: &Bitmap, tile: Tile, here: Fields, without: Bits) {
+fn debug_assert_matches_reference(counting: Counting, tile: Tile, here: Fields, without: Bits) {
     if cfg!(debug_assertions) && tile.level >= FINEST_CHECKED_LEVEL {
-        let reference = bits_with(complex_tiling, bitmap, tile, here, &mut NestedResolutions::none(), here.bound_above());
+        let reference = bits_with(counting, tile, here, &mut NestedResolutions::none(), here.bound_above());
         assert_eq!(without as u64, reference, "{tile:?}: the search's count is not the reference count");
     }
 }
 
 /// In debug builds, for a candidate of 16x16 or finer, that `bits` is
 /// what the reference count gives the tile with `fields` as its fields.
-fn debug_assert_candidate_matches_reference(complex_tiling: &ComplexTiling, bitmap: &Bitmap, tile: Tile, fields: Fields, bits: Bits) {
+fn debug_assert_candidate_matches_reference(counting: Counting, tile: Tile, fields: Fields, bits: Bits) {
     if cfg!(debug_assertions) && tile.level >= FINEST_CHECKED_LEVEL {
-        let reference = node_bits(complex_tiling, bitmap, tile, fields, &mut NestedResolutions::none(), fields.bound_above(), &mut |child, fields, inside, bound_above| {
-            bits_with(complex_tiling, bitmap, child, fields, inside, bound_above)
+        let reference = node_bits(counting, tile, fields, &mut NestedResolutions::none(), fields.bound_above(), &mut |child, fields, inside, bound_above| {
+            bits_with(counting, child, fields, inside, bound_above)
         });
         assert_eq!(bits as u64, reference, "{tile:?}: the search's candidate count is not the reference count");
     }
@@ -358,4 +359,3 @@ fn debug_assert_candidate_matches_reference(complex_tiling: &ComplexTiling, bitm
 
 /// Every child's bit set.
 const ALL_CHILDREN: u8 = (1 << CHILDREN) - 1;
-const _: () = assert!(cells_in_tile(FLOOR_LEVEL) as u8 == RESIDUAL_BLOCK_BITS);

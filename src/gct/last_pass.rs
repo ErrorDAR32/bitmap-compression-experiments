@@ -24,6 +24,7 @@ use crate::gct::grammar::arithmetic::{BitSink, Decoder, Encoder, Odds, FINISHING
 use crate::gct::grammar::bit_stream::BitReader;
 use crate::gct::pyramids::copyable::{CopyOffsets, FINEST_COPY_LEVEL};
 use crate::gct::pyramids::tree::Tree;
+use crate::gct::residual_prices::{fixed_point_log2, ResidualPrices};
 use crate::gct::tile::{cells_in_tile, tiles_across, tiles_in_level, Tile, CELLS};
 use crate::morton::{morton_coordinates, morton_index};
 use crate::Bitmap;
@@ -111,6 +112,9 @@ trait CellCoder {
     /// Codes the cell at Morton index `cell_index` at `odds`, and says
     /// whether it is set.
     fn code(&mut self, odds: Odds, cell_index: usize) -> bool;
+
+    /// Notes that the residual block at `index` is coded, all its cells.
+    fn finish_block(&mut self, _index: usize) {}
 }
 
 /// Encoding: each cell read off the bitmap and written.
@@ -121,13 +125,25 @@ struct CellEncoder<'a, S: BitSink> {
     encoder: Encoder,
     /// Where the bits go.
     sink: &'a mut S,
+    /// Where each residual block's bits are noted.
+    prices: &'a mut ResidualPrices,
+    /// The bits the block being coded has taken so far, in fixed point:
+    /// each cell's `log2` of its odds' total over its value's weight.
+    block_bits: u32,
 }
 
 impl<S: BitSink> CellCoder for CellEncoder<'_, S> {
     fn code(&mut self, odds: Odds, cell_index: usize) -> bool {
         let set = self.bitmap.morton_run(cell_index, 1) == 1;
         self.encoder.encode(set, odds, self.sink);
+        let weight = if set { odds.set } else { odds.clear };
+        self.block_bits += fixed_point_log2(odds.clear + odds.set) - fixed_point_log2(weight);
         set
+    }
+
+    fn finish_block(&mut self, index: usize) {
+        self.prices.set(index, self.block_bits);
+        self.block_bits = 0;
     }
 }
 
@@ -151,6 +167,8 @@ pub struct LastPass {
     blocks: Blocks,
     /// Encoding: the cells as decoding has them.
     known: Bitmap,
+    /// What each residual block took, the last time the pass encoded.
+    prices: ResidualPrices,
 }
 
 /// The blocks the tree leaves unsaid, and the contexts' odds.
@@ -186,12 +204,18 @@ impl LastPass {
             pending: FixedList::new(),
             odds: [Odds { clear: FIRST_WEIGHT, set: FIRST_WEIGHT }; CONTEXTS],
         };
-        Self { blocks, known: Bitmap::new() }
+        Self { blocks, known: Bitmap::new(), prices: ResidualPrices::new() }
     }
 
     /// Where copies read from.
     pub fn offsets(&self) -> &CopyOffsets {
         &self.blocks.offsets
+    }
+
+    /// What each residual block took, the last time the pass encoded:
+    /// each block of that tree's is priced.
+    pub fn residual_prices(&self) -> &ResidualPrices {
+        &self.prices
     }
 
     /// Forgets every block noted: before the tree is walked.
@@ -234,7 +258,7 @@ impl LastPass {
         }
         // A pass coding no cell writes nothing: not even the coder's end.
         let codes_any_cell = self.blocks.residual != [0; BLOCK_WORDS];
-        let mut coder = CellEncoder { bitmap, encoder: Encoder::default(), sink };
+        let mut coder = CellEncoder { bitmap, encoder: Encoder::default(), sink, prices: &mut self.prices, block_bits: 0 };
         self.blocks.run(&mut self.known, &mut coder);
         if codes_any_cell {
             coder.encoder.finish(coder.sink);
@@ -342,6 +366,7 @@ impl Blocks {
             }
         }
         cells.set_in_morton_run(first_cell, BLOCK_CELLS, block_run);
+        coder.finish_block(index);
     }
 }
 

@@ -19,10 +19,11 @@ output, and steps 4 and 5 never decide anything.
 | 4. encoding | `encode.rs` | the tree's grammar with its payloads |
 | 5. last pass | `last_pass.rs` | the copies resolved, and the residual blocks' cells arithmetic-coded, each from the cells before it |
 
-Between steps 1 and 2 the encoder picks the stream's mode: the tree,
-or the bitmap's count split, when that takes fewer bits (see "Why the
-count split"). Only the one picked is made: for a count split, steps 2
-and 3 never run.
+Between steps 1 and 2 the encoder writes the greedy tiler's own tree,
+which prices every residual block for the complex tiler, and picks the
+stream's mode: the tree, or the bitmap's count split, when that takes
+fewer bits (see "Why the count split"). For a count split, steps 2 and
+3 never run.
 
 `decode.rs` reads the bits back. Both follow `grammar/`, the one place
 every rule of the bitstream lives: its constants and widths, the bit
@@ -287,9 +288,20 @@ bits a bind, most of them binds a raw complex tile masks.
 A candidate is scored in bits, counted exactly as the encoder would
 write them: mask bits, leaves, copies and their masked children,
 complex tiles with their bodies or payloads, and residual blocks --
-these at a bit a cell, a stand-in: the last pass codes their cells from
-the cells around them, so what they take depends on the whole pass,
-known only by coding it. The search reaches every tile a tile placed
+these at their **prices**: what the last pass took for each on the
+greedy tiler's own tree, written before the complex tiler runs
+(`residual_prices.rs`). The last pass codes a block's cells from the
+cells around them, so what they take is known only by coding them; a
+price is the bits its cells took there, each at its context's odds,
+rounded to the nearest bit. It stands for what the block takes in the
+final tree: a cell's context is the cells above and left of it, which
+hold the same values whichever node says them -- only the odds each
+context has learned by then differ -- and every residual block the
+complex tiler can leave is one in the greedy tiler's tree, as it only
+adds complex tiles. Before prices, residual blocks were counted at a
+bit a cell, and the complex tiler traded blocks the last pass codes for
+a third of that for raw complex tiles and cell lists: on every city and
+lines map its tree came out longer than the greedy tiler's alone. The search reaches every tile a tile placed
 nothing says, and the children a masking tile masks -- nothing under a
 tile placed whole, nor under the 4x4 floor -- and counts each, from its
 fields and its children's counts:
@@ -587,7 +599,7 @@ Every check: every cell is said by exactly one placed tile, or in a
 residual block by the last pass, or lies in a 2x2 that placed nothing
 inside a raw complex tile or a cell list; nothing finer than 4x4
 copies; nothing finer than a 2x2 is placed; the complex tiler's bit
-cost, with the last pass's bits in place of its stand-in for residual
+cost, with the last pass's bits in place of its prices for residual
 blocks, is the encoder's count; at most the raw cells and 1% are spent;
 the tree read back is the tree written; decoding gives back every
 cell.
@@ -638,28 +650,30 @@ the tree is kept. Grown blobs up to half set go to the count split too
 (`measurement.csv`).
 
 Only one of the two is ever made. After the greedy tiler, with its
-tiling filled in, the encoder counts two trees the grammar can always
-write, without making either:
+tiling filled in, the encoder weighs the count split against two trees
+the grammar can always write:
 
 - the **greedy tree**: the greedy tiler's tiles alone, no complex tiles
-  -- the complex tiler only ever commits what takes bits off it --
-  its residual blocks counted at a bit a cell, as the complex tiler
-  counts them;
+  -- the complex tiler only ever commits what takes bits off it, as
+  the prices count them. It is written: its residual blocks take what
+  only coding them tells, and writing them prices them for the complex
+  tiler;
 - the **cell lists tree**: start level 1, every 128x128 a cell list --
-  what the complex tiler comes to on scattered cells.
+  what the complex tiler comes to on scattered cells, counted exactly.
 
 The count split is made when it takes fewer bits than both; otherwise
-the complex tiler runs and the tree is made. Counting the count split
-stops once it reaches the greedy tree's bits, and the cell lists tree is
-counted only if it gets under them. There is no threshold: the rule
-compares bits. On every sample family (the tested counts) and the
-sparse sweep -- 948 bitmaps, from none set to three quarters -- it picks
-the shorter encoding for 940: 8.908% fewer bits than the tree alone,
-where making both and keeping the shorter would save 8.909%. The other
-8 lose 45 bits between them: the last pass takes less than a bit a
-cell, so there the tree was shorter than counted. The greedy tree alone is not
-enough: on scattered cells it overestimates the tree by the cell lists
-it lacks, and wrongly picks the count split.
+the complex tiler runs and the tree is made -- unless it chooses no
+complex tile, and the greedy tree, written, is the tree. The cell lists
+tree is counted only if the count split gets under the greedy tree.
+There is no threshold: the rule compares bits. On the tested sample
+families, a sweep of grown bitmaps from none set to half, and the saved
+bitmaps -- 173 in all -- it picks the shorter encoding for all but 2,
+which lose 69 bits between them: 1.337% fewer bits than the tree alone,
+where making both and keeping the shorter would save 1.339%. The greedy
+tree alone is not enough: on scattered cells it overestimates the tree
+by the cell lists it lacks. Counted rather than written, with residual
+blocks at a bit a cell, it once sent a bitmap of horizontal streaks to
+the count split at 50427 bits, where the tree takes 27797.
 
 **Why the start level header**: a trunk of depth `d` -- every tile
 coarser than level `d` subdivides -- saves `(4^d - 1) / 3` subdivide

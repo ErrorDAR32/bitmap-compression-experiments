@@ -15,6 +15,7 @@ use super::bit_cost::payload_bits;
 use crate::gct::grammar::*;
 use crate::gct::pyramids::complex_tiling::ComplexTiling;
 use crate::gct::pyramids::placements::Placement;
+use crate::gct::residual_prices::ResidualPrices;
 use crate::gct::tile::{cells_in_tile, Tile, CELL_LEVEL, FLOOR_LEVEL};
 
 /// Marks, in the complex tiling, the tiles a complex tile of 1x1
@@ -22,21 +23,21 @@ use crate::gct::tile::{cells_in_tile, Tile, CELL_LEVEL, FLOOR_LEVEL};
 /// Decided top-down, from the whole bitmap, only where a tile's cost
 /// depends on what is under it: under a tile placed whole nothing is
 /// ever asked.
-pub(crate) fn decide_raw_masking(complex_tiling: &mut ComplexTiling) {
-    cost_in_raw(complex_tiling, Tile::whole_bitmap());
+pub(crate) fn decide_raw_masking(complex_tiling: &mut ComplexTiling, residual_prices: &ResidualPrices) {
+    cost_in_raw(complex_tiling, residual_prices, Tile::whole_bitmap());
 }
 
 /// What `tile` costs in a raw complex tile, its mask bit included: the
 /// cheaper of its raw cells and itself, its parts each costed the same
 /// way. Marks `tile` raw masked when itself is cheaper.
-fn cost_in_raw(complex_tiling: &mut ComplexTiling, tile: Tile) -> u64 {
+fn cost_in_raw(complex_tiling: &mut ComplexTiling, residual_prices: &ResidualPrices, tile: Tile) -> u64 {
     let raw = cells_in_tile(tile.level);
     if tile.level == CELL_LEVEL {
         // A cell is only ever raw.
         return MASK_BIT_WIDTH as u64 + raw;
     }
     let placement = complex_tiling.placed_at(tile);
-    let by_itself = said_by_itself(placement, tile, |part| cost_in_raw(complex_tiling, part));
+    let by_itself = said_by_itself(placement, tile, residual_prices, |part| cost_in_raw(complex_tiling, residual_prices, part));
     if by_itself < raw {
         complex_tiling.mark_raw_masked(tile);
     }
@@ -44,8 +45,9 @@ fn cost_in_raw(complex_tiling: &mut ComplexTiling, tile: Tile) -> u64 {
 }
 
 /// What `tile`, coarser than a cell, with `placement` placed at it,
-/// costs said by itself, its parts each at `part_cost`.
-fn said_by_itself(placement: Option<Placement>, tile: Tile, mut part_cost: impl FnMut(Tile) -> u64) -> u64 {
+/// costs said by itself, its parts each at `part_cost`, a residual block
+/// at its price in `residual_prices`.
+fn said_by_itself(placement: Option<Placement>, tile: Tile, residual_prices: &ResidualPrices, mut part_cost: impl FnMut(Tile) -> u64) -> u64 {
     let leaf_bind = (LEAF_WIDTH + CODE_WIDTH) as u64;
     match placement {
         // In the raw complex tile's body: no size offset.
@@ -64,7 +66,7 @@ fn said_by_itself(placement: Option<Placement>, tile: Tile, mut part_cost: impl 
             bits
         }
         // At the 4x4 floor, a residual block.
-        None if tile.level == FLOOR_LEVEL => (LEAF_WIDTH + RESIDUAL_BLOCK_BITS) as u64,
+        None if tile.level == FLOOR_LEVEL => LEAF_WIDTH as u64 + residual_prices.of(tile),
         None => {
             let mut bits = LEAF_WIDTH as u64;
             if copy_or_divide_may_mask(tile.level) {
