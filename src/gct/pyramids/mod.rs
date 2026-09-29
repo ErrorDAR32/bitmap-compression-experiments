@@ -6,7 +6,6 @@
 //! file reads or writes its elements but through those methods.
 
 pub mod complex_tiling;
-pub mod copy_sources;
 pub mod copyable;
 pub mod patterns;
 pub mod placements;

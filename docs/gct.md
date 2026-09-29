@@ -100,7 +100,6 @@ their words with no gaps.
 | `complex_tiling` | 32 | 0-7 | the placement the greedy tiler made here, if any, and the children it masks -- the greedy tiler writes these bits, the complex tiler the rest; the one size every cell under the tile is bound at, if any; the complex tile's size offset, if it is one; whether a raw complex tile masks it; the sizes of the whole binds under it | its own, once the placements are complete, two words of children at a time: a tile's bound size is its children's when all four share one; the sizes under it are all of its children's |
 | `tree` | 8 | 0-6 | the tree's node at a tile | none |
 | `patterns` | 16 | 0-6 | the tile's pattern number: equal for two tiles of one size exactly when they hold the same cells; handed out in order of first appearance, 0 all clear and 1 all set, beside two tables a level -- a reverse lookup from a pattern (a 4x4's 16 cells, or a tile's four children's numbers, one word) to its number, each slot two bytes holding only the number (the pattern is read back off its first tile), and each number's first tile | its own, once a bitmap: the 4x4s' numbers from the bitmap's words, each coarser level's from the level below, one lookup a tile |
-| `copy_sources` | 16 | 6 | for each 4x4 block a copy covers, the block it is copied from, until it is (the last pass, both directions) | none |
 
 ## Step 1: the greedy tiler
 
@@ -420,7 +419,9 @@ unmask it: those whose resolution tiles the node covers whole.
      cells and some clear saying how many of its set cells lie in its
      first half -- one of the counts its halves could hold, in
      truncated binary. A run all set or all clear says nothing more,
-     and nothing inside it is said. Which of the two a bitmap gets is
+     and nothing inside it is said. A run holding one set cell says a
+     bit a halving, its place from the top bit down, each bit flipped:
+     read back at once. Which of the two a bitmap gets is
      judged from the greedy tiler's tiles, before the complex tiler,
      and only that one is made: see "Why the count split".
 
@@ -517,12 +518,22 @@ order:
 be unsaid when the tree reaches it -- even a residual block. A copy's
 own cells -- the copy, less the children it masks -- are always whole
 4x4 blocks, and each block's source is the block the copy's offset
-away: walking the tree notes each copied block's source in a one-level
-pyramid of 4x4 blocks. Every source is before its copy in reading
+away: walking the tree notes each copied block's source, block by
+block. Every source is before its copy in reading
 order, but a source up and to the right comes later in Morton order:
 a copied block's source copied first, down the chain, and when the
 chain ends at a residual block not coded yet the copy waits until the
 end of the pass.
+
+**Blocks by index.** A block is its Morton index among the 4x4 blocks,
+and its cells are the 16-cell run of the bitmap from 16 times that
+index. The pass keeps nothing else: each block's source is an index in
+one array of 4096, two bytes a block; the blocks copies cover and the
+residual blocks are a bit a block; the waiting and pending copies are
+lists of indices. A copy's own cells are aligned tiles, so their blocks
+are one run of indices, and so are their sources'. Copying a block is
+one 16-bit run read and one written; a residual block's cells are coded
+into a 16-bit run, set in the bitmap once.
 
 **The context.** Six cells before the cell being coded: top left,
 above and left, and the same two cells away -- `(-1,-1)`, `(0,-1)`,
@@ -530,6 +541,10 @@ above and left, and the same two cells away -- `(-1,-1)`, `(0,-1)`,
 later in Morton order, so each is final when the cell is coded, but for
 a cell of a copy still waiting on its source, which reads as clear, as
 does one off the bitmap. The six cells' values pick one of 64 contexts.
+A block is coded from a window of 8x8 cells, itself and the three
+blocks before it, read once; a cell's context is its 3x3 neighbourhood
+in the window -- the context cells lie at most two cells left and up --
+looked up in a table of 512 made from the context cells.
 Encoding works on the cells as decoding will have them at each step, so
 both read the same contexts.
 

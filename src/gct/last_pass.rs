@@ -22,10 +22,9 @@
 use crate::gct::fixed_list::FixedList;
 use crate::gct::grammar::arithmetic::{BitSink, Decoder, Encoder, Odds, FINISHING_BITS, MOST_WEIGHT};
 use crate::gct::grammar::bit_stream::BitReader;
-use crate::gct::pyramids::copy_sources::{CopySources, BLOCKS, BLOCK_LEVEL};
-use crate::gct::pyramids::copyable::CopyOffsets;
+use crate::gct::pyramids::copyable::{CopyOffsets, FINEST_COPY_LEVEL};
 use crate::gct::pyramids::tree::Tree;
-use crate::gct::tile::{cells_in_tile, tiles_across, Tile, CELLS};
+use crate::gct::tile::{cells_in_tile, tiles_across, tiles_in_level, Tile, CELLS};
 use crate::morton::{morton_coordinates, morton_index};
 use crate::Bitmap;
 
@@ -59,12 +58,28 @@ const _: () = assert!(2 * FIRST_WEIGHT as u64 + CELL_WEIGHT as u64 * CELLS as u6
 /// interval's 2^30), and its finishing bits.
 pub const MOST_EXTRA_BITS: usize = CONTEXTS * (CELLS.ilog2() as usize / 2 + 1) + (CELLS >> 12) + FINISHING_BITS;
 
-/// Cells in a block: one run of the bitmap, in Morton order.
+/// The level the pass works at: 4x4 blocks. A copy is 4x4 or coarser,
+/// and so is every child a masking copy says itself, so a copy's own
+/// cells are always whole blocks; and the tree's floor is 4x4, so a
+/// residual block is one too.
+pub const BLOCK_LEVEL: u8 = FINEST_COPY_LEVEL;
+/// Blocks in the bitmap.
+pub const BLOCKS: usize = tiles_in_level(BLOCK_LEVEL);
+/// Cells in a block: one run of the bitmap, in Morton order -- block
+/// `index` holds the cells from Morton index `index * BLOCK_CELLS`.
 const BLOCK_CELLS: usize = cells_in_tile(BLOCK_LEVEL) as usize;
 /// A block's side, in cells.
 const BLOCK_SIDE: u8 = (CELLS.isqrt() / tiles_across(BLOCK_LEVEL)) as u8;
 /// Words of one bit a block.
 const BLOCK_WORDS: usize = BLOCKS.div_ceil(u64::BITS as usize);
+
+/// A block, by its Morton index among the blocks: what the pass keeps
+/// in its lists and its copies' sources, two bytes each.
+type BlockIndex = u16;
+/// The source of a block no copy covers, or one already copied: no
+/// block's index.
+const NO_SOURCE: BlockIndex = BlockIndex::MAX;
+const _: () = assert!(BLOCKS <= NO_SOURCE as usize, "every block has an index, and none is NO_SOURCE");
 
 /// One bit a block, by Morton index.
 type BlockSet = [u64; BLOCK_WORDS];
@@ -84,21 +99,18 @@ fn remove(set: &mut BlockSet, index: usize) {
     set[index / u64::BITS as usize] &= !(1 << (index % u64::BITS as usize));
 }
 
-/// A block's Morton index.
-fn block_index(block: Tile) -> usize {
-    morton_index(block.x, block.y)
-}
-
-/// The block at Morton index `index`.
-fn block_at(index: usize) -> Tile {
-    let (x, y) = morton_coordinates(index);
-    Tile { level: BLOCK_LEVEL, x, y }
+/// The index of the first block of `tile`, 4x4 or coarser: its blocks
+/// are the run of indices from there, as many as it holds.
+fn first_block(tile: Tile) -> usize {
+    let (x, y) = tile.top_left_cell();
+    morton_index(x, y) / BLOCK_CELLS
 }
 
 /// Codes a residual cell, one way or the other.
 trait CellCoder {
-    /// Codes the cell at `(x, y)` at `odds`, and says whether it is set.
-    fn code(&mut self, odds: Odds, x: u8, y: u8) -> bool;
+    /// Codes the cell at Morton index `cell_index` at `odds`, and says
+    /// whether it is set.
+    fn code(&mut self, odds: Odds, cell_index: usize) -> bool;
 }
 
 /// Encoding: each cell read off the bitmap and written.
@@ -112,8 +124,8 @@ struct CellEncoder<'a, S: BitSink> {
 }
 
 impl<S: BitSink> CellCoder for CellEncoder<'_, S> {
-    fn code(&mut self, odds: Odds, x: u8, y: u8) -> bool {
-        let set = self.bitmap.get(x, y);
+    fn code(&mut self, odds: Odds, cell_index: usize) -> bool {
+        let set = self.bitmap.morton_run(cell_index, 1) == 1;
         self.encoder.get_or_insert_default().encode(set, odds, self.sink);
         set
     }
@@ -128,7 +140,7 @@ struct CellDecoder<'r, 'a> {
 }
 
 impl CellCoder for CellDecoder<'_, '_> {
-    fn code(&mut self, odds: Odds, _: u8, _: u8) -> bool {
+    fn code(&mut self, odds: Odds, _: usize) -> bool {
         if self.decoder.is_none() {
             self.decoder = Some(Decoder::new(self.reader));
         }
@@ -148,19 +160,19 @@ pub struct LastPass {
 struct Blocks {
     /// Where copies read from.
     offsets: CopyOffsets,
-    /// Each block a copy covers, and its source: a [copy sources
-    /// pyramid](crate::gct::pyramids::copy_sources).
-    sources: CopySources,
+    /// Each block's source while a copy covers it and it is not copied
+    /// yet; [`NO_SOURCE`] otherwise.
+    sources: Box<[BlockIndex; BLOCKS]>,
     /// The blocks copies cover, not yet copied.
     covered: BlockSet,
     /// The residual blocks not yet coded.
     residual: BlockSet,
     /// A copy waiting on its source, and that source on its own: a
     /// chain, never longer than there are blocks.
-    waiting: FixedList<Tile, BLOCKS>,
+    waiting: FixedList<BlockIndex, BLOCKS>,
     /// Copies whose source was a residual block not yet coded, copied at
     /// the end.
-    pending: FixedList<Tile, BLOCKS>,
+    pending: FixedList<BlockIndex, BLOCKS>,
     /// Each context's odds.
     odds: [Odds; CONTEXTS],
 }
@@ -170,7 +182,7 @@ impl LastPass {
     pub fn new(offsets: CopyOffsets) -> Self {
         let blocks = Blocks {
             offsets,
-            sources: CopySources::new(),
+            sources: Box::new([NO_SOURCE; BLOCKS]),
             covered: [0; BLOCK_WORDS],
             residual: [0; BLOCK_WORDS],
             waiting: FixedList::new(),
@@ -187,22 +199,24 @@ impl LastPass {
 
     /// Forgets every block noted: before the tree is walked.
     pub fn clear(&mut self) {
-        self.blocks.sources.clear();
+        self.blocks.sources.fill(NO_SOURCE);
         self.blocks.covered = [0; BLOCK_WORDS];
     }
 
     /// Notes that `part` -- the copy at `copy`, or a child of it the copy
     /// says itself -- is copied from the tile `far` and `direction` name,
-    /// counted in the copy's own sides: each of its blocks from the block
-    /// that far away.
+    /// counted in the copy's own sides: the tile of `part`'s size that
+    /// far away, aligned as `part` is, so each of `part`'s blocks is
+    /// copied from the block at the same place in the run of its source's.
     pub fn cover(&mut self, copy: Tile, part: Tile, far: bool, direction: u8) {
         let blocks = &mut self.blocks;
         let (dx, dy) = blocks.offsets.offset(far, direction);
-        let reach = tiles_across(BLOCK_LEVEL - copy.level) as isize;
-        for block in part.tiles_at_size_offset(BLOCK_LEVEL - part.level) {
-            let (x, y) = ((block.x as isize + dx * reach) as u8, (block.y as isize + dy * reach) as u8);
-            blocks.sources.set_source(block, Tile { level: BLOCK_LEVEL, x, y });
-            insert(&mut blocks.covered, block_index(block));
+        let reach = tiles_across(part.level - copy.level) as isize;
+        let source = Tile { level: part.level, x: (part.x as isize + dx * reach) as u8, y: (part.y as isize + dy * reach) as u8 };
+        let (first, source_first) = (first_block(part), first_block(source));
+        for place in 0..tiles_in_level(BLOCK_LEVEL - part.level) {
+            blocks.sources[first + place] = (source_first + place) as BlockIndex;
+            insert(&mut blocks.covered, first + place);
         }
     }
 
@@ -240,8 +254,8 @@ impl Blocks {
     /// Notes every residual block of `tree` as not coded yet.
     fn note_residual_blocks(&mut self, tree: &Tree) {
         self.residual = [0; BLOCK_WORDS];
-        for block in tree.residual_blocks() {
-            insert(&mut self.residual, block_index(block));
+        for index in tree.residual_blocks() {
+            insert(&mut self.residual, index);
         }
     }
 
@@ -251,82 +265,95 @@ impl Blocks {
         self.odds = [Odds { clear: FIRST_WEIGHT, set: FIRST_WEIGHT }; CONTEXTS];
         self.pending.clear();
         for word_index in 0..BLOCK_WORDS {
-            if self.covered[word_index] | self.residual[word_index] == 0 {
-                continue;
-            }
-            for bit in 0..u64::BITS as usize {
-                let index = word_index * u64::BITS as usize + bit;
+            // A block copied as the source of one before it is no longer
+            // covered when its turn comes, and is passed over.
+            let mut unsaid = self.covered[word_index] | self.residual[word_index];
+            while unsaid != 0 {
+                let index = word_index * u64::BITS as usize + unsaid.trailing_zeros() as usize;
+                unsaid &= unsaid - 1;
                 if contains(&self.covered, index) {
-                    let block = block_at(index);
-                    if !self.copy(block, cells) {
-                        self.pending.push(block);
+                    if !self.copy(index, cells) {
+                        self.pending.push(index as BlockIndex);
                     }
                 } else if contains(&self.residual, index) {
-                    self.code_block(block_at(index), cells, coder);
+                    self.code_block(index, cells, coder);
                     remove(&mut self.residual, index);
                 }
             }
         }
         for pending_index in 0..self.pending.len() {
-            let copied = self.copy(self.pending[pending_index], cells);
+            let copied = self.copy(self.pending[pending_index] as usize, cells);
             debug_assert!(copied, "every source is final by the end");
         }
     }
 
-    /// Copies `block`, and first its source when that is a block a copy
-    /// covers not copied yet, and so on down the chain -- unless the
-    /// chain ends at a residual block not coded yet: then nothing, and
-    /// whether it copied.
-    fn copy(&mut self, block: Tile, cells: &mut Bitmap) -> bool {
+    /// Copies the block at `index`, and first its source when that is a
+    /// block a copy covers not copied yet, and so on down the chain --
+    /// unless the chain ends at a residual block not coded yet: then
+    /// nothing, and whether it copied.
+    fn copy(&mut self, index: usize, cells: &mut Bitmap) -> bool {
         self.waiting.clear();
-        self.waiting.push(block);
+        self.waiting.push(index as BlockIndex);
         while let Some(&waiting) = self.waiting.last() {
-            let Some(source) = self.sources.source_of(waiting) else {
+            let source = self.sources[waiting as usize];
+            if source == NO_SOURCE {
                 self.waiting.pop();
                 continue;
-            };
-            if contains(&self.residual, block_index(source)) {
+            }
+            if contains(&self.residual, source as usize) {
                 return false;
             }
-            if self.sources.source_of(source).is_some() {
+            if self.sources[source as usize] != NO_SOURCE {
                 self.waiting.push(source);
                 continue;
             }
-            let run = cells.morton_run(block_index(source) * BLOCK_CELLS, BLOCK_CELLS);
-            cells.set_in_morton_run(block_index(waiting) * BLOCK_CELLS, BLOCK_CELLS, run);
-            self.sources.mark_copied(waiting);
-            remove(&mut self.covered, block_index(waiting));
+            let run = cells.morton_run(source as usize * BLOCK_CELLS, BLOCK_CELLS);
+            cells.set_in_morton_run(waiting as usize * BLOCK_CELLS, BLOCK_CELLS, run);
+            self.sources[waiting as usize] = NO_SOURCE;
+            remove(&mut self.covered, waiting as usize);
             self.waiting.pop();
         }
         true
     }
 
-    /// Codes the cells of the residual `block`, a row at a time, each
-    /// set in `cells` as it is known. Every context cell lies in the
-    /// block or the blocks left of it, above it and above left, which
-    /// come before it in Morton order and do not change while it is
-    /// coded: the four are read once, as one [`Window`].
-    fn code_block(&mut self, block: Tile, cells: &mut Bitmap, coder: &mut impl CellCoder) {
-        let mut window = Window::around(cells, block);
-        let (left, top) = block.top_left_cell();
-        // Offsets from the corner, not cell ranges: a block on the right
-        // or bottom edge ends past the last `u8`.
-        for dy in 0..BLOCK_SIDE {
-            for dx in 0..BLOCK_SIDE {
-                let odds = &mut self.odds[window.context(dx, dy)];
-                let (x, y) = (left + dx, top + dy);
-                let set = coder.code(*odds, x, y);
-                if set {
-                    cells.set(x, y);
-                    window.set(dx, dy);
-                    odds.set += CELL_WEIGHT;
-                } else {
-                    odds.clear += CELL_WEIGHT;
-                }
+    /// Codes the cells of the residual block at `index`, a row at a
+    /// time, then sets them in `cells`, as one run. Every context cell
+    /// lies in the block or the blocks left of it, above it and above
+    /// left, which come before it in Morton order and do not change
+    /// while it is coded: the four are read once, as one [`Window`].
+    fn code_block(&mut self, index: usize, cells: &mut Bitmap, coder: &mut impl CellCoder) {
+        let mut window = Window::around(cells, index);
+        let first_cell = index * BLOCK_CELLS;
+        let mut block_run = 0;
+        // Indexed by place, not iterated: the loop runs a fixed sixteen
+        // times, and unrolls, each place's window position then fixed.
+        #[allow(clippy::needless_range_loop)]
+        for place in 0..BLOCK_CELLS {
+            let odds = &mut self.odds[window.context(place)];
+            let morton_place = MORTON_PLACES[place];
+            if coder.code(*odds, first_cell + morton_place) {
+                window.set(place);
+                block_run |= 1 << morton_place;
+                odds.set += CELL_WEIGHT;
+            } else {
+                odds.clear += CELL_WEIGHT;
             }
         }
+        cells.set_in_morton_run(first_cell, BLOCK_CELLS, block_run);
     }
 }
+
+/// Each of a block's cells, a row at a time -- its place in the rows --
+/// by its place in the block's own Morton order.
+const MORTON_PLACES: [usize; BLOCK_CELLS] = {
+    let mut places = [0; BLOCK_CELLS];
+    let mut place = 0;
+    while place < BLOCK_CELLS {
+        places[place] = morton_index(place as u8 % BLOCK_SIDE, place as u8 / BLOCK_SIDE);
+        place += 1;
+    }
+    places
+};
 
 /// A block and the three blocks before it -- above left, above, left --
 /// as an 8x8 square of cells, a bit each, row after row: bit `8y + x`,
@@ -347,8 +374,7 @@ const BLOCK_ROWS: [u64; 1 << (BLOCK_CELLS / 2)] = {
         let mut index = 0;
         while index < BLOCK_CELLS / 2 {
             if run >> index & 1 == 1 {
-                // Morton order: x in the even bits, y in the odd.
-                let (x, y) = ((index & 1) | (index >> 2 & 1) << 1, index >> 1 & 1);
+                let (x, y) = morton_coordinates(index);
                 rows[run] |= 1 << (y as u32 * WINDOW_SIDE + x as u32);
             }
             index += 1;
@@ -358,17 +384,58 @@ const BLOCK_ROWS: [u64; 1 << (BLOCK_CELLS / 2)] = {
     rows
 };
 
+/// How far left and up a context reaches, in cells: the square of cells
+/// from that far up and left of a cell to the cell itself -- its
+/// neighbourhood -- holds all of its context.
+const CONTEXT_REACH: u32 = {
+    let mut reach = 0;
+    let mut index = 0;
+    while index < CONTEXT_CELLS.len() {
+        let (dx, dy) = CONTEXT_CELLS[index];
+        let farther = if dx < dy { -dx } else { -dy };
+        if farther as u32 > reach {
+            reach = farther as u32;
+        }
+        index += 1;
+    }
+    reach
+};
+/// A neighbourhood's side, in cells.
+const NEIGHBOURHOOD_SIDE: u32 = CONTEXT_REACH + 1;
+const _: () = assert!(CONTEXT_REACH <= BLOCK_SIDE as u32, "every context cell is in the window");
+
+/// Every neighbourhood's context, by its cells, a bit each, row after
+/// row: a bit for each of [`CONTEXT_CELLS`] set.
+const NEIGHBOURHOOD_CONTEXTS: [u8; 1 << (NEIGHBOURHOOD_SIDE * NEIGHBOURHOOD_SIDE)] = {
+    let mut contexts = [0; 1 << (NEIGHBOURHOOD_SIDE * NEIGHBOURHOOD_SIDE)];
+    let mut neighbourhood = 0;
+    while neighbourhood < contexts.len() {
+        let mut bit = 0;
+        while bit < CONTEXT_CELLS.len() {
+            let (dx, dy) = CONTEXT_CELLS[bit];
+            let x = (CONTEXT_REACH as i32 + dx as i32) as u32;
+            let y = (CONTEXT_REACH as i32 + dy as i32) as u32;
+            if neighbourhood >> (y * NEIGHBOURHOOD_SIDE + x) & 1 == 1 {
+                contexts[neighbourhood] |= 1 << bit;
+            }
+            bit += 1;
+        }
+        neighbourhood += 1;
+    }
+    contexts
+};
+
 impl Window {
-    /// The window of `block`, read off `cells`.
-    fn around(cells: &Bitmap, block: Tile) -> Self {
+    /// The window of the block at `index`, read off `cells`.
+    fn around(cells: &Bitmap, index: usize) -> Self {
         let rows_of = |x: Option<u8>, y: Option<u8>| match (x, y) {
             (Some(x), Some(y)) => {
-                let run = cells.morton_run(block_index(Tile { level: BLOCK_LEVEL, x, y }) * BLOCK_CELLS, BLOCK_CELLS);
+                let run = cells.morton_run(morton_index(x, y) * BLOCK_CELLS, BLOCK_CELLS);
                 BLOCK_ROWS[run as usize & 0xFF] | BLOCK_ROWS[run as usize >> (BLOCK_CELLS / 2)] << (2 * WINDOW_SIDE)
             }
             _ => 0,
         };
-        let (x, y) = (block.x, block.y);
+        let (x, y) = morton_coordinates(index);
         let block_row = BLOCK_SIDE as u32 * WINDOW_SIDE;
         Self(
             rows_of(x.checked_sub(1), y.checked_sub(1))
@@ -378,32 +445,26 @@ impl Window {
         )
     }
 
-    /// Where the block's cell `dx`, `dy` from its corner is.
-    fn at(dx: u8, dy: u8) -> u32 {
-        (BLOCK_SIDE + dy) as u32 * WINDOW_SIDE + (BLOCK_SIDE + dx) as u32
+    /// Where the block's cell at `place`, in its rows, is.
+    fn at(place: usize) -> u32 {
+        let (dx, dy) = (place as u32 % BLOCK_SIDE as u32, place as u32 / BLOCK_SIDE as u32);
+        (BLOCK_SIDE as u32 + dy) * WINDOW_SIDE + BLOCK_SIDE as u32 + dx
     }
 
-    /// The context of the block's cell `dx`, `dy` from its corner: a bit
-    /// for each of [`CONTEXT_CELLS`] set.
-    fn context(&self, dx: u8, dy: u8) -> usize {
-        let at = Self::at(dx, dy) as i32;
-        let mut context = 0;
-        for (bit, &(cx, cy)) in CONTEXT_CELLS.iter().enumerate() {
-            let there = at + cy as i32 * WINDOW_SIDE as i32 + cx as i32;
-            context |= (((self.0 >> there) & 1) as usize) << bit;
+    /// The context of the block's cell at `place`: its neighbourhood's,
+    /// read a row at a time from the window moved to start at its corner.
+    fn context(&self, place: usize) -> usize {
+        let from_corner = self.0 >> (Self::at(place) - CONTEXT_REACH * (WINDOW_SIDE + 1));
+        let row_mask = (1 << NEIGHBOURHOOD_SIDE) - 1;
+        let mut neighbourhood = 0;
+        for row in 0..NEIGHBOURHOOD_SIDE {
+            neighbourhood |= (from_corner >> (row * WINDOW_SIDE) & row_mask) << (row * NEIGHBOURHOOD_SIDE);
         }
-        context
+        NEIGHBOURHOOD_CONTEXTS[neighbourhood as usize] as usize
     }
 
-    /// Sets the block's cell `dx`, `dy` from its corner.
-    fn set(&mut self, dx: u8, dy: u8) {
-        self.0 |= 1 << Self::at(dx, dy);
+    /// Sets the block's cell at `place`, in its rows.
+    fn set(&mut self, place: usize) {
+        self.0 |= 1 << Self::at(place);
     }
 }
-const _: () = {
-    let mut index = 0;
-    while index < CONTEXT_CELLS.len() {
-        assert!(CONTEXT_CELLS[index].0 >= -(BLOCK_SIDE as i8) && CONTEXT_CELLS[index].1 >= -(BLOCK_SIDE as i8), "every context cell is in the window");
-        index += 1;
-    }
-};

@@ -40,6 +40,11 @@ impl Bitmap {
         &self.words
     }
 
+    /// The cells, 64 a word, in Morton order, to write.
+    pub(crate) fn words_mut(&mut self) -> &mut CellWords {
+        &mut self.words
+    }
+
     /// The cell at `(x, y)`. Both are `u8`, so every value is a cell of
     /// the 256x256 bitmap: out of bounds cannot be expressed.
     pub fn get(&self, x: u8, y: u8) -> bool {

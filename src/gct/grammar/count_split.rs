@@ -17,7 +17,6 @@
 //! the runs are the regions of a binary partition of the plane.
 
 use super::bit_stream::{gamma_bits, truncated_binary_bits, BitReader, BitStream};
-use crate::gct::tile::CELLS;
 use crate::WORDS;
 use crate::Bitmap;
 
@@ -200,27 +199,65 @@ pub fn write(bitmap: &Bitmap, stream: &mut BitStream) {
     words.write(stream, 0, WORDS, words.set());
 }
 
-/// Reads a count split, setting its set cells in `cell_values`, which
-/// start clear.
+/// Reads a count split into `cell_values`, whose every word it writes.
 pub fn read(reader: &mut BitReader, cell_values: &mut Bitmap) {
     let set = reader.gamma() - 1;
-    read_run(reader, cell_values, 0, CELLS, set);
+    read_words(reader, cell_values.words_mut(), set);
 }
 
-/// Reads the run from `first`, `cells` long, `set` of them set: sets
-/// them all if every one is, reads nothing if none is, else reads how
-/// many lie in its first half and each half in turn.
-fn read_run(reader: &mut BitReader, cell_values: &mut Bitmap, first: usize, cells: usize, set: u64) {
-    if set == 0 {
+/// Reads the run of `words`' words -- all of them -- `set` of its cells
+/// set, writing each word: every cell if every one is set, nothing if
+/// none is, else how many lie in its first half and each half in turn.
+fn read_words(reader: &mut BitReader, words: &mut [u64], set: u64) {
+    let cells = words.len() * WORD_CELLS;
+    if words.len() == 1 {
+        words[0] = read_word(reader, WORD_CELLS, set);
         return;
     }
-    if set == cells as u64 {
-        cell_values.set_morton_block(first, cells);
+    if set == 0 || set == cells as u64 {
+        words.fill(if set == 0 { 0 } else { u64::MAX });
         return;
+    }
+    if set == 1 {
+        words.fill(0);
+        let place = read_lone_cell_place(reader, cells);
+        words[place / WORD_CELLS] = 1 << (place % WORD_CELLS);
+        return;
+    }
+    let (fewest, counts) = first_half_counts(cells, set);
+    let first_half_set = fewest + reader.truncated_binary(counts);
+    let (first_half, second_half) = words.split_at_mut(words.len() / 2);
+    read_words(reader, first_half, first_half_set);
+    read_words(reader, second_half, set - first_half_set);
+}
+
+/// Reads the run of `cells` cells -- a word or less -- `set` of them
+/// set, as [`read_words`] a longer one, and gives its cells: bit `i` the
+/// run's cell `i`.
+fn read_word(reader: &mut BitReader, cells: usize, set: u64) -> u64 {
+    if set == 0 {
+        return 0;
+    }
+    if set == cells as u64 {
+        return u64::MAX >> (WORD_CELLS - cells);
+    }
+    if set == 1 {
+        return 1 << read_lone_cell_place(reader, cells);
     }
     let half = cells / 2;
     let (fewest, counts) = first_half_counts(cells, set);
     let first_half_set = fewest + reader.truncated_binary(counts);
-    read_run(reader, cell_values, first, half, first_half_set);
-    read_run(reader, cell_values, first + half, half, set - first_half_set);
+    let first_half = read_word(reader, half, first_half_set);
+    first_half | read_word(reader, half, set - first_half_set) << half
+}
+
+/// Reads where the one set cell of a run of `cells` cells is. Each
+/// halving of such a run says a bit -- whether the cell is in its first
+/// half, one of two counts -- and only the half holding it is halved
+/// again: so the run says the cell's place, from its top bit down, each
+/// bit flipped, read here at once.
+fn read_lone_cell_place(reader: &mut BitReader, cells: usize) -> usize {
+    let halvings = cells.ilog2();
+    let said = reader.value(halvings as u8);
+    ((!said).reverse_bits() >> (u64::BITS - halvings)) as usize
 }

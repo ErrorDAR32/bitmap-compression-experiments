@@ -126,7 +126,7 @@ impl BitStream {
 
     /// Reads from the start.
     pub fn reader(&self) -> BitReader<'_> {
-        BitReader { stream: self, position: 0 }
+        BitReader { stream: self, next_word: 0, buffer: 0, buffered: 0 }
     }
 }
 
@@ -154,12 +154,19 @@ const fn truncated_binary_shape(range: u64) -> Option<(u8, u64)> {
     Some((short_width, (1 << (short_width + 1)) - range))
 }
 
-/// Reads a [`BitStream`] back, in order. Past the end, bits read as 0.
+/// Reads a [`BitStream`] back, in order, a word at a time: each word
+/// taken off the stream once, into a buffer the bits are read from.
+/// Past the end, bits read as 0.
 pub struct BitReader<'a> {
     /// The stream read from.
     stream: &'a BitStream,
-    /// The next bit to read.
-    position: usize,
+    /// The next word to take off the stream.
+    next_word: usize,
+    /// The bits taken off the stream not read yet, the next one lowest;
+    /// every bit above them 0.
+    buffer: u64,
+    /// How many bits the buffer holds.
+    buffered: u32,
 }
 
 impl BitReader<'_> {
@@ -195,26 +202,30 @@ impl BitReader<'_> {
     }
 
     /// Reads `width` bits, at most a word, as written by
-    /// [`BitStream::push_value`]: from the word the next bit is in, and
-    /// the next when they straddle it. Past the stream's end every bit is
-    /// 0, and so is every word past the most a stream takes.
+    /// [`BitStream::push_value`]: off the buffer, and when it holds too
+    /// few, all it holds and the rest off the next word, whose bits left
+    /// over become the buffer. Past the stream's end every bit is 0, and
+    /// so is every word past the most a stream takes.
     #[inline]
     pub fn value(&mut self, width: u8) -> u64 {
-        let width = width as usize;
-        if width == 0 {
-            return 0;
+        let width = width as u32;
+        if width <= self.buffered {
+            let value = self.buffer & low_bits(width);
+            // Shifting a whole word's width out leaves nothing.
+            self.buffer = self.buffer.checked_shr(width).unwrap_or(0);
+            self.buffered -= width;
+            return value;
         }
-        let (word, shift) = (self.position / WORD_BITS, self.position % WORD_BITS);
-        let words = &self.stream.words;
-        let mut value = words.get(word).map_or(0, |&low| low >> shift);
-        if shift + width > WORD_BITS {
-            value |= words.get(word + 1).map_or(0, |&high| high << (WORD_BITS - shift));
-        }
-        self.position += width;
-        if width == WORD_BITS {
-            value
-        } else {
-            value & ((1 << width) - 1)
-        }
+        let word = self.stream.words.get(self.next_word).copied().unwrap_or(0);
+        self.next_word += 1;
+        let (value, taken_from_word) = (self.buffer | word << self.buffered, width - self.buffered);
+        self.buffer = word.checked_shr(taken_from_word).unwrap_or(0);
+        self.buffered = u64::BITS - taken_from_word;
+        value & low_bits(width)
     }
+}
+
+/// A word with its low `width` bits set, `width` at most a word.
+fn low_bits(width: u32) -> u64 {
+    u64::MAX.checked_shr(u64::BITS - width).unwrap_or(0)
 }

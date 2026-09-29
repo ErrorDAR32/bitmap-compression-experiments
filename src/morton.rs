@@ -30,7 +30,7 @@ const SPREAD: [u16; 256] = {
 };
 
 /// The Morton index of `(x, y)`.
-pub(crate) fn morton_index(x: u8, y: u8) -> usize {
+pub(crate) const fn morton_index(x: u8, y: u8) -> usize {
     SPREAD[x as usize] as usize | (SPREAD[y as usize] as usize) << 1
 }
 

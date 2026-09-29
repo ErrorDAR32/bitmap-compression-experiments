@@ -16,7 +16,6 @@
 use crate::gct::pyramids::pyramid::{Pyramid, PyramidShape};
 use crate::gct::grammar::{DIRECTION_MASK, DIRECTION_WIDTH, FAR_WIDTH};
 use crate::gct::tile::{Tile, LEVEL_BITS, FLOOR_LEVEL};
-use crate::morton::morton_coordinates;
 
 /// What the tree holds at one tile.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -189,15 +188,14 @@ impl Tree {
         self.node(tile) == Node::Subdivided && tile.children().into_iter().all(|child| self.node(child) != Node::Absent)
     }
 
-    /// The residual blocks, in Morton order: the 4x4 level's node codes
-    /// read a word at a time, a word of no node skipped whole.
-    pub fn residual_blocks(&self) -> impl Iterator<Item = Tile> + '_ {
-        let level = FLOOR_LEVEL;
-        self.level_words(level).iter().enumerate().filter(|&(_, &word)| word != 0).flat_map(move |(word_index, &word)| {
-            (0..NODES_A_WORD).filter(move |&slot| (word >> (slot * NODE_BITS)) & NODE_MASK == RESIDUAL_CODE).map(move |slot| {
-                let (x, y) = morton_coordinates(word_index * NODES_A_WORD + slot);
-                Tile { level, x, y }
-            })
+    /// The residual blocks, each by its Morton index among the 4x4
+    /// floor's tiles, in that order: the floor's node codes read a word at
+    /// a time, a word of no node skipped whole.
+    pub fn residual_blocks(&self) -> impl Iterator<Item = usize> + '_ {
+        self.level_words(FLOOR_LEVEL).iter().enumerate().filter(|&(_, &word)| word != 0).flat_map(move |(word_index, &word)| {
+            (0..NODES_A_WORD)
+                .filter(move |&slot| (word >> (slot * NODE_BITS)) & NODE_MASK == RESIDUAL_CODE)
+                .map(move |slot| word_index * NODES_A_WORD + slot)
         })
     }
 
