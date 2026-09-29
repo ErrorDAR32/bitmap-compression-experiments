@@ -9,11 +9,9 @@
 //! | `measured.rs` | bits, cells set and encode time over many bitmaps |
 //! | `tree_stats.rs` | what a tree holds: complex tiles by nesting, masking nodes, complex tiles' bodies |
 //! | `census.rs` | a tree's nodes, by kind and level |
-//! | `above_complex_tiles.rs` | the divides above the top tiles -- complex tiles, copies, 2x2s -- and what placing those costs |
 //! | `bitmaps.rs` | the bitmaps a diagnostic looks at by name: adversarial records, saved bitmaps, one named by the caller |
 //! | `png.rs` | a bitmap as a PNG image |
 
-pub mod above_complex_tiles;
 pub mod bitmaps;
 pub mod census;
 pub mod examination;

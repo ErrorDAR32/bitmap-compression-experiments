@@ -1,12 +1,11 @@
-//! One table renderer for every experiment, so that a column means the
+//! One table renderer for every measurement, so that a column means the
 //! same thing and looks the same wherever it is printed.
 //!
 //! Rules it enforces rather than leaves to the caller: a header rule
 //! under the headings, a bar between columns, and a heading that names
-//! the whole of what the column holds. A column of instruction counts
-//! headed "runmax" says neither what is counted nor per what; a column
-//! headed "runmax instructions per active cell" does, and
-//! it is not the table's business to make that shorter.
+//! the whole of what the column holds. A column headed "bits" says
+//! neither whose bits nor per what; one headed "gct bits a bitmap" does,
+//! and it is not the table's business to make that shorter.
 //!
 //! A heading with newlines in it stacks, so a long name costs height
 //! rather than width.

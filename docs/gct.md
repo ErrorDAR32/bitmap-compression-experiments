@@ -518,9 +518,9 @@ diagnostics (`src/diagnostics/`) gather; the diagnostics tool
 Every check: every cell is said by exactly one placed tile, or lies in
 a 2x2 that placed nothing and is said raw; nothing finer than 4x4
 copies; nothing finer than a 2x2 is placed; the complex tiler's bit
-cost is the encoder's count; the divides above the top tiles spend what
-the grammar says; the tree read back is the tree written; decoding
-gives back every cell.
+cost is the encoder's count; at most the raw cells and 1% are spent;
+the tree read back is the tree written; decoding gives back every
+cell.
 
 ## Measured
 
@@ -539,7 +539,6 @@ cargo run --release --bin gct_diagnostics -- show measurement
 |---|---|---|
 | `measurement.csv` | `gct_diagnostics -- measurement` | bits a bitmap by generator and parameter set, the checkerboards and the saved adversarial bitmaps; what the trees hold, family by family |
 | `census.csv` | `gct_diagnostics -- census` | node kinds by level, for each adversarial record and saved bitmap |
-| `above.csv` | `gct_diagnostics -- above` | the tree above the top tiles against a Morton list of them, below |
 | `per_shape.csv` | `gct_diagnostics -- per_shape` | bits a bitmap and a cell set, shape by shape |
 | `noise.csv` | `gct_diagnostics -- noise` | bits on noise at several densities, against the raw cells |
 | `copy_offsets.csv` | `gct_diagnostics -- copy_offsets` | the search for copy offsets, near and far: each climb, its best against the current offsets, and the best drawn |
@@ -555,45 +554,6 @@ On noise gct spends four raw 128x128 complex tiles, each with its
 payload mode bit, and the start level header: a few bits over the raw
 cells, and never more than the raw cells and 1%, which every check
 holds it to.
-
-**The tree above the top tiles** (`above.csv`,
-`diagnostics/above_complex_tiles.rs`). Down from the start level, the
-first node on each path that is not a divide -- a complex tile of any
-resolution, a copy, a point list, a 2x2 -- is a *top tile*, and a
-child a masking divide leaves to the binding above is a *background
-tile*. Together they tile the whole bitmap once, in Morton order; the
-tree above places them. Could a list of them in Morton order, each
-saying its size, place them for less?
-
-Dropping the tree does not drop what it says: a decoder must still
-learn where each tile ends. A list says each tile's size from the
-levels a tile starting at its first cell could have -- a bit a level,
-"this size" or "finer", none needed at the 2x2 floor -- and those are
-the tree's subdivide and leaf bits exactly, moved: each divide's bit
-becomes a "finer" bit of the first tile under it, each leaf bit the
-"this size" bit of its own tile. Every check asserts this, bit for bit.
-What differs is what else a decoder must be told of each tile. The
-tree says it in its divides: a mask-present bit on every divide at 8x8
-or coarser, a flip bit and a 4-bit child mask on a masking one, and a
-masking bind is spelled as a divide that flips. A list, after a tile's
-"this size" bit, must say whether it is background -- if it is one
-level under a tile of 8x8 or coarser -- or a masking bind -- if it is
-8x8 or coarser: `0` a node, `10` background, `11` a masking bind where
-both could be, a bit where one could; it spends no size on background
-beyond its sizes, and no mask-present or flip bit on a masking bind
-(above the top tiles the value bound is always clear, so a masking
-bind always binds set). `above.csv` has both spelled plainly, family by
-family: `tree: placing` against `list: placing`. The list wins on some
-families and loses on others, by about a percent of all bits either
-way; it is not a free saving, because the tree's divides were saying
-something the list must still say. An earlier version of this section
-left the masking binds out of the list, and so overstated what it
-saves; one before that compared the two as entropies, and so
-understated it.
-
-The last column is what else is open to the tree: its decisions coded
-by how often each is made at its level -- an entropy, which only an
-ideal adaptive coder reaches.
 
 **Why the start level header**: a trunk of depth `d` -- every tile
 coarser than level `d` subdivides -- saves `(4^d - 1) / 3` subdivide

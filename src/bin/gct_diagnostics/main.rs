@@ -8,7 +8,6 @@
 //! |---|---|
 //! | `measurement` | bits a bitmap from every sample generator, one table a generator and one row a parameter set, then what the trees hold, family by family |
 //! | `census` | what gct's tree is made of, node kind by level, for each bitmap looked at |
-//! | `above` | the divides above the top tiles, family by family, against listing those tiles in Morton order |
 //! | `per_shape` | gct's bits on every shape, plan and line set on its own |
 //! | `noise` | gct's bits on noise at several densities, against the raw cells |
 //! | `copy_offsets` | a search for better copy offsets, near and far, on the fast sample, the best then set against the current ones on the timed sample |
@@ -26,7 +25,6 @@
 
 #![warn(missing_docs, clippy::missing_docs_in_private_items)]
 
-mod above;
 mod census;
 mod copy_offsets;
 mod measurement;
@@ -41,10 +39,9 @@ use bitmap::table::report::Report;
 type Measuring = fn(&mut Report);
 
 /// The tools that measure, by name.
-const MEASURING: [(&str, Measuring); 6] = [
+const MEASURING: [(&str, Measuring); 5] = [
     ("measurement", measurement::run),
     ("census", census::run),
-    ("above", above::run),
     ("per_shape", per_shape::run),
     ("noise", noise::run),
     ("copy_offsets", copy_offsets::run),

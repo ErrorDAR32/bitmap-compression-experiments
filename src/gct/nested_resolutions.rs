@@ -3,11 +3,7 @@
 //! unmask the tile.
 
 use crate::gct::pyramids::complex_tiling::Fields;
-use crate::gct::tile::{Tile, CELL_LEVEL, LEVEL_BITS};
-
-/// Enough for a resolution plus one, up to `CELL_LEVEL + 1`.
-const RESOLUTION_BITS: u64 = LEVEL_BITS as u64;
-const _: () = assert!(CELL_LEVEL + 1 < 1 << LEVEL_BITS);
+use crate::gct::tile::{Tile, CELL_LEVEL};
 
 /// The most complex tiles a tile can be nested in: each has its own
 /// resolution, a level finer than the whole bitmap's.
@@ -34,21 +30,6 @@ impl NestedResolutions {
     /// The nesting a complex tile placed here gets: how many it is nested in.
     pub fn next_nesting(&self) -> u8 {
         self.count
-    }
-
-    /// One number standing for the resolutions, in order, of the complex
-    /// tiles that can reach a tile of `level` or anything under it --
-    /// those whose resolution is `level` or finer: four bits a
-    /// resolution, plus one so none is zero. A tile's bits depend on
-    /// nothing else of its nesting, since every rule asks only the
-    /// complex tiles able to unmask what it is asking about, and what is
-    /// under a tile is finer still. So two nestings differing only in
-    /// coarser resolutions share one key, and one count.
-    pub fn key_for(&self, level: u8) -> u64 {
-        self.resolutions[..self.count as usize]
-            .iter()
-            .filter(|&&resolution| resolution >= level)
-            .fold(0, |key, &resolution| key << RESOLUTION_BITS | (resolution as u64 + 1))
     }
 
     /// The resolution of the complex tile at `nesting`.

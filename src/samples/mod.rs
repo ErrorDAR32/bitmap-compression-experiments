@@ -1,42 +1,26 @@
-//! The one source of test bitmaps, and the shapes worth measuring on.
+//! The one source of sample bitmaps, tests and measurements alike, so
+//! changing what anything runs on is a change here. Two exceptions: a
+//! fine test (`tests/gct_fine.rs`) may draw one small bitmap by hand to
+//! pin a known case, never to measure; and [`checkerboards`] are drawn,
+//! the one family the same on every seed -- squares of an odd side never
+//! line up with the power-of-two grid, so one board exercises homogeneous
+//! tiles, cuts, copies and masking at once.
 //!
-//! Nothing in this crate is measured on a bitmap anybody drew by hand.
-//! Every sample comes from here, tests and measurements alike, so
-//! changing what anything runs on is a change in one file. Two
-//! exceptions: a fine test (`tests/gct_fine.rs`) may draw one small
-//! bitmap by hand to pin a known case, never to measure; and
-//! [`checkerboards`] are drawn, deliberately, as the one family that
-//! is the same on every seed.
+//! A sample is settled by its seed and its generator's parameters: the
+//! same ones give the same bitmap on every run and every machine.
+//! Nothing is stored; a corpus is grown again every time it is asked
+//! for. Four families of generator:
 //!
-//! A sample is settled entirely by four numbers, which is what makes a
-//! result reproducible: the same seed, side, density and cluster weight
-//! give the same bitmap on every run and every machine. Nothing is
-//! stored: a corpus is regenerated every time it is asked for, which
-//! costs almost nothing and means there is no file to fall out of step
-//! with the code that reads it.
+//! - grown ([`SHAPES`], `generate.rs`): cells scattered or clustered to
+//!   a density;
+//! - sparse ([`SPARSE`]): grown too thin to be a shape at all;
+//! - laid out ([`PLANS`], `city.rs`): streets, blocks and courtyards on a
+//!   grid at an offset of its own, never on the quadtree's;
+//! - drawn ([`LINE_SETS`], `lines.rs`): lines, straight and diagonal,
+//!   thin and wide.
 //!
-//! Hand-drawn shapes used to live here -- unions of circles, a
-//! checkerboard, three tiled motifs found by search. They are gone, and
-//! little was lost: the generator reaches worse ground than any of
-//! them. The worst motif cost 13,057 instructions per set cell, where
-//! `grown(_, 0.50, 0.00)` costs 124,610. Checkerboards came back for a
-//! different reason: squares of an odd side never line up with the
-//! power-of-two grid, so one board exercises everything at once --
-//! homogeneous tiles inside squares, subdivisions along every cut,
-//! copies of the repeating pattern, masking where a copy almost fits.
-//!
-//! Two families live here. [`SHAPES`] are grown: cells scattered or
-//! clustered to a density, which is what an algorithm is stressed on.
-//! [`PLANS`] are laid out: streets, blocks and courtyards on a grid,
-//! at an offset of its own in each bitmap, so never on the quadtree's. A
-//! result measured on one and not the other has been measured on
-//! half of what matters.
-//!
-//! `generate` holds the drawing itself, `city` holds the laying out,
-//! and `docs/testing_protocol.md` holds
-//! the rule for using it: fix with the seed held still, then check on a
-//! seed never seen. A change measured only on the corpus it was tuned
-//! on has not been measured.
+//! `docs/testing_protocol.md` holds the rule for using them: fix with
+//! the seed held still, then check on a seed never seen.
 
 pub mod checkerboards;
 mod city;
@@ -87,11 +71,6 @@ impl Shape {
         grown(sample_seed(self.name), self.density, self.cluster, count)
     }
 
-    /// The same, confined to a `side` by `side` corner.
-    pub fn take_in(&self, side: usize, count: u64) -> Samples {
-        grown_in(sample_seed(self.name), side, self.density, self.cluster, count)
-    }
-
     /// As many as a timed run of this shape should take.
     pub fn timed(&self) -> Samples {
         self.take(self.timed)
@@ -103,13 +82,9 @@ impl Shape {
     }
 }
 
-/// The settings worth measuring on, named for what they look like.
-///
-/// Density and cluster weight between them span the cases that matter.
-/// Scattered cells at any density are almost all forced 1x1 and cost
-/// nothing; solid blobs are few big rectangles; the ragged middle is
-/// where both algorithms work hardest and where the gap between them
-/// is widest.
+/// The grown shapes worth measuring on, named for what they look like:
+/// density and cluster weight between them span scattered cells, solid
+/// blobs and the ragged middle.
 pub const SHAPES: [Shape; 9] = [
     Shape { name: "sparse scattered", density: 0.05, cluster: 0.00, timed: 20, tested: 2 },
     Shape { name: "sparse ragged", density: 0.05, cluster: 0.70, timed: 20, tested: 2 },
@@ -132,25 +107,14 @@ pub const SPARSE: [Shape; 4] = [
     Shape { name: "one percent", density: 0.01, cluster: 0.00, timed: 12, tested: 2 },
 ];
 
-/// Which of them a general benchmark runs on: enough content to be
-/// connected, ragged enough to be mostly boundary.
-pub fn typical() -> &'static Shape {
-    &SHAPES[4]
-}
-
-/// A run of bitmaps from consecutive seeds, built one at a time.
-///
-/// Lazy because a caller measuring two thousand of them has no reason
-/// to hold two thousand at once, and because the sweeps that compare
-/// seed ranges would otherwise spend their first seconds allocating.
+/// A run of grown bitmaps from consecutive seeds, built one at a time,
+/// so a caller measuring thousands never holds them all.
 pub struct Samples {
     /// The next bitmap's seed.
     seed: u64,
     /// How many bitmaps are still to come.
     left: u64,
-    /// The side of the corner every bitmap is grown in, in cells.
-    side: usize,
-    /// The share of that corner's cells each bitmap ends up with set.
+    /// The share of the cells each bitmap ends up with set.
     density: f64,
     /// How often a new cell lands beside one already set rather than
     /// anywhere at all.
@@ -163,25 +127,15 @@ pub struct Samples {
 /// how often a new cell lands beside one already set rather than
 /// anywhere at all: at 0 the cells are scattered and every one is its
 /// own rectangle, at 1 they only extend what is standing and the
-/// bitmap is a few solid blobs. Between them the two parameters cover
-/// the cases that used to be drawn by hand.
+/// bitmap is a few solid blobs.
 pub fn grown(seed: u64, density: f64, cluster: f64, count: u64) -> Samples {
-    grown_in(seed, crate::WIDTH, density, cluster, count)
-}
-
-/// The same, confined to a `side` by `side` corner of the matrix.
-///
-/// For callers that cannot afford a full one: exhaustive search is
-/// exponential in the cells, so the ground truth runs on corners of
-/// eight or fewer.
-pub fn grown_in(seed: u64, side: usize, density: f64, cluster: f64, count: u64) -> Samples {
-    Samples { seed, left: count, side, density, cluster }
+    Samples { seed, left: count, density, cluster }
 }
 
 /// One bitmap, for a caller that wants a single sample rather than a
 /// run of them.
 pub fn one_grown(seed: u64, density: f64, cluster: f64) -> Bitmap {
-    generate::one(seed, crate::WIDTH, density, cluster)
+    generate::one(seed, density, cluster)
 }
 
 impl Iterator for Samples {
@@ -194,7 +148,7 @@ impl Iterator for Samples {
         self.left -= 1;
         let seed = self.seed;
         self.seed += 1;
-        Some(generate::one(seed, self.side, self.density, self.cluster))
+        Some(generate::one(seed, self.density, self.cluster))
     }
 }
 

@@ -5,15 +5,12 @@ use crate::gct::pyramids::tree::{Node, Tree};
 use crate::gct::tile::{Tile, CELL_LEVEL};
 use std::collections::BTreeMap;
 
-/// A masking bind's kind.
-pub const MASKING_BIND: &str = "masking bind";
-
 /// The node at `tile`'s kind, named as the grammar spells it.
 pub fn kind(tree: &Pyramid, tile: Tile, node: Node) -> &'static str {
     match node {
         Node::ComplexTile { size_offset, .. } if tile.level + size_offset == CELL_LEVEL => "raw",
         Node::ComplexTile { size_offset: 0, masks: false } => "tile",
-        Node::ComplexTile { size_offset: 0, masks: true } => MASKING_BIND,
+        Node::ComplexTile { size_offset: 0, masks: true } => "masking bind",
         Node::ComplexTile { .. } => "complex tile",
         Node::Subdivided if tree.divides_whole(tile) => "divide",
         Node::Subdivided => "masking divide",

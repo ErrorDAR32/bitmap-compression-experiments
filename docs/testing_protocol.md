@@ -6,14 +6,6 @@ representative. A change tuned until one corpus likes it has been tuned
 on that corpus, and the number it improved may be a fact about those
 bitmaps rather than about the algorithm.
 
-This has already happened once. The hand-drawn corpus that preceded the
-generator meshed to about seventy areas a bitmap; the generated one
-meshes to thousands. Three separate claims in the code were settled on
-the small one and were wrong on the large one, including the mesher's
-central decision, which stood unquestioned for the whole of the small
-corpus's life. Nothing was wrong with the measurements. They were
-answers to a question nobody noticed they were asking.
-
 So the protocol is two-phase, and the phases must not be mixed.
 
 ## Where the seed comes from
@@ -74,7 +66,6 @@ diagnostics gather, and each stopping if gct loses a cell:
 |---|---|
 | `measurement` | one table a sample generator (grown, city, lines, checkerboard, and the saved adversarial bitmaps), a row a parameter set with its parameters, bitmaps, cells set, gct's mean, fewest and most bits, share of the raw cells and encode time; then what the trees hold, family by family |
 | `census` | node kinds by level, for each bitmap looked at |
-| `above` | what the tree above the top tiles spends placing them, family by family, against a plain Morton-ordered list of the same tiles, and the tree ideally coded |
 | `copy_offsets` | a search for better copy offsets, near and far, on the fast sample -- climbs from several starts, single changes then pairs -- the best set against the current offsets on the timed sample |
 | `show` | the kept measurements, read back from `measurements/` |
 | `per_shape` | gct's bits on every shape, plan and line set |

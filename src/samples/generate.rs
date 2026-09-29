@@ -7,14 +7,20 @@
 //! changed separately. What a corpus is made of is a decision; how a
 //! bitmap is filled is a mechanism.
 
-use crate::{Bitmap, HEIGHT, WIDTH};
+use crate::{Bitmap, WIDTH};
 
-/// A bitmap grown from a seed, confined to a `side` by `side` corner.
+/// Cells in the bitmap.
+const CELLS: usize = WIDTH * WIDTH;
+
+/// Guesses at a clear cell before scanning for one.
+const GUESSES_BEFORE_SCANNING: usize = 64;
+
+/// A bitmap grown from a seed.
 ///
-/// The seed settles it entirely: the same four arguments give the same
+/// The seed settles it entirely: the same three arguments give the same
 /// bitmap on every run and every machine.
 ///
-/// `density` is the share of the `side * side` cells that end up set.
+/// `density` is the share of the cells that end up set.
 /// `cluster` is how often a new cell lands beside one already set
 /// rather than anywhere at all: at 0 the cells are scattered and every
 /// one of them is its own rectangle; at 1 they only ever extend what is
@@ -25,9 +31,8 @@ use crate::{Bitmap, HEIGHT, WIDTH};
 /// cell with three set neighbours is three times as likely to be taken
 /// as one with a single neighbour. That is the point: it is what makes
 /// a blob fill in rather than sprawl.
-pub(super) fn one(seed: u64, side: usize, density: f64, cluster: f64) -> Bitmap {
-    let side = side.clamp(1, WIDTH.min(HEIGHT));
-    let wanted = (density.clamp(0.0, 1.0) * (side * side) as f64) as usize;
+pub(super) fn one(seed: u64, density: f64, cluster: f64) -> Bitmap {
+    let wanted = (density.clamp(0.0, 1.0) * CELLS as f64) as usize;
     let cluster = (cluster.clamp(0.0, 1.0) * u32::MAX as f64) as u64;
 
     let mut bits = Bitmap::new();
@@ -60,14 +65,14 @@ pub(super) fn one(seed: u64, side: usize, density: f64, cluster: f64) -> Bitmap 
 
         let (x, y) = match beside {
             Some(cell) => cell,
-            None => anywhere_clear(&bits, side, &mut next),
+            None => anywhere_clear(&bits, &mut next),
         };
 
         bits.set(x, y);
         standing += 1;
         let (x, y) = (x as i32, y as i32);
         for (nx, ny) in [(x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)] {
-            if (0..side as i32).contains(&nx) && (0..side as i32).contains(&ny) {
+            if (0..WIDTH as i32).contains(&nx) && (0..WIDTH as i32).contains(&ny) {
                 let (nx, ny) = (nx as u8, ny as u8);
                 if !bits.get(nx, ny) {
                     edge.push((nx, ny));
@@ -79,30 +84,20 @@ pub(super) fn one(seed: u64, side: usize, density: f64, cluster: f64) -> Bitmap 
     bits
 }
 
-/// Any cell of the corner still clear, found by guessing and then, once
-/// guessing stops paying, by looking.
+/// Any cell still clear, found by guessing and then, once guessing stops
+/// paying, by looking.
 ///
 /// Guessing answers nearly every draw, because a bitmap is usually far
 /// from full. The scan is there so that a density close to 1 still
 /// finishes rather than rolling dice forever.
-fn anywhere_clear(bits: &Bitmap, side: usize, next: &mut impl FnMut() -> u64) -> (u8, u8) {
-    for _ in 0..64 {
+fn anywhere_clear(bits: &Bitmap, next: &mut impl FnMut() -> u64) -> (u8, u8) {
+    for _ in 0..GUESSES_BEFORE_SCANNING {
         let roll = next();
-        let (x, y) = ((roll as usize % side) as u8, ((roll >> 32) as usize % side) as u8);
+        let (x, y) = ((roll as usize % WIDTH) as u8, ((roll >> 32) as usize % WIDTH) as u8);
         if !bits.get(x, y) {
             return (x, y);
         }
     }
-
-    // The first clear cell in reading order. `side` is a `usize`
-    // throughout: it can be 256, which a `u8` cannot hold, and casting
-    // it early is how this went wrong once already.
-    for y in 0..side {
-        for x in 0..side {
-            if !bits.get(x as u8, y as u8) {
-                return (x as u8, y as u8);
-            }
-        }
-    }
-    panic!("a corner that is not already full");
+    // The first clear cell in reading order.
+    (0..=u8::MAX).flat_map(|y| (0..=u8::MAX).map(move |x| (x, y))).find(|&(x, y)| !bits.get(x, y)).expect("a bitmap not already full")
 }
