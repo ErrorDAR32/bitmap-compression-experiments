@@ -42,12 +42,6 @@ impl<T: Copy + Default, const N: usize> FixedList<T, N> {
         self.len = self.len.min(len);
     }
 
-    /// Adds every item of `items` at the end.
-    pub(crate) fn extend(&mut self, items: impl IntoIterator<Item = T>) {
-        for item in items {
-            self.push(item);
-        }
-    }
 }
 
 impl<T: Copy + Default, const N: usize> Default for FixedList<T, N> {
@@ -92,12 +86,16 @@ mod tests {
     #[test]
     fn holds_up_to_its_capacity() {
         let mut list: FixedList<u8, 3> = FixedList::new();
-        list.extend([1, 2, 3]);
+        for item in [1, 2, 3] {
+            list.push(item);
+        }
         assert_eq!(&*list, &[1, 2, 3]);
         assert_eq!(list.pop(), Some(3));
         list.clear();
         assert!(list.is_empty());
-        list.extend([4, 5, 6]);
+        for item in [4, 5, 6] {
+            list.push(item);
+        }
         assert!(std::panic::catch_unwind(move || list.push(7)).is_err());
     }
 }

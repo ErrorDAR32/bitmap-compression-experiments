@@ -1,8 +1,7 @@
-//! The complex tiler: candidate complex tiles, and the passes that
-//! commit them.
+//! The complex tiler: what a tile costs in bits, what a complex tile of
+//! 1x1 resolution would mask, and the search that chooses the complex
+//! tiles.
 
 pub mod bit_cost;
-pub mod complex_tile_candidates;
-pub mod cost_pyramid;
-pub mod passes;
 pub mod raw_masking;
+pub mod search;

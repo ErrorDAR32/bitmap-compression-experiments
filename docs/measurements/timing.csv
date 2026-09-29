@@ -1,15 +1,15 @@
 # written by `cargo run --release --bin gct_diagnostics -- timing`
 # 100 bitmaps a generator, the saved adversarial bitmaps 20 times each
 # seed 1950720362523133367
-# commit 266d8ff, with uncommitted changes
+# commit 4780328, with uncommitted changes
 
 ## encode and decode times
 family,bitmaps,mean us,median us,p90 us,max us,decode us
-laid out like a city,400,1428.4,1508.1,1850.2,2131.0,353.4
-grown like a blob,900,1403.2,1392.5,2120.6,5573.8,174.6
-sparse,1100,286.4,133.0,1078.9,1843.0,11.8
-drawn with lines,300,1031.9,709.4,2144.3,2908.7,329.0
+laid out like a city,400,1061.2,973.9,1437.8,2211.9,441.0
+grown like a blob,900,1282.7,1274.2,1912.3,7782.3,222.8
+sparse,1100,312.8,161.1,811.6,5283.4,13.9
+drawn with lines,300,1119.8,710.0,2401.8,3327.3,383.4
 ---
-all,2700,910.7,814.9,1934.1,5573.8,152.0
+all,2700,836.6,736.2,1770.3,7782.3,187.9
 ---
-"adversarial, saved",100,1770.8,1843.5,2187.9,3908.9,325.3
+"adversarial, saved",100,2329.1,2154.8,3077.9,3285.1,610.7

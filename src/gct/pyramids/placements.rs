@@ -49,7 +49,7 @@ impl Placement {
     }
 
     /// The children it masks, bit `i` for child `i`.
-    fn masked_children(self) -> u8 {
+    pub fn masked_children(self) -> u8 {
         match self {
             Placement::Bound { masked_children, .. } | Placement::Copied { masked_children, .. } => masked_children,
         }

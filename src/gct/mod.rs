@@ -5,8 +5,8 @@
 //! 1. [`greedy_tiler`](mod@greedy_tiler): tiles placed biggest first, each bound to one
 //!    value or copying a same-size area -- the placement bits of the
 //!    complex tiling pyramid.
-//! 2. [`complex_tiler`](mod@complex_tiler): those tiles grouped into complex tiles, nested
-//!    as deep as they keep paying -- a complex tiling pyramid.
+//! 2. [`complex_tiler`](mod@complex_tiler): those tiles grouped into complex tiles, in one
+//!    bottom-up search -- a complex tiling pyramid.
 //! 3. [`tree_representation`](mod@tree_representation): the tree read off it, one node per
 //!    tile -- a [tree pyramid](pyramids::tree) of node codes.
 //! 4. [`encode`](mod@encode): that tree spelled out in bits, by the
@@ -33,7 +33,7 @@ pub mod tree_representation;
 
 use crate::Bitmap;
 use crate::gct::complex_tiler::bit_cost::{cell_lists_tree_bits, tree_bits};
-use crate::gct::complex_tiler::passes::{complex_tiler, Scratch};
+use crate::gct::complex_tiler::search::{complex_tiler, Scratch};
 use crate::gct::decode::StreamContents;
 use crate::gct::last_pass::LastPass;
 use crate::gct::encode::{write, write_count_split};

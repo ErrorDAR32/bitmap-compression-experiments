@@ -41,8 +41,19 @@ pub fn least_bits(bitmap: &Bitmap, tile: Tile) -> u64 {
 pub fn bits(bitmap: &Bitmap, tile: Tile) -> u64 {
     let set = set_count(bitmap, tile);
     let parameter = rice_parameter(cells_in_tile(tile.level), set);
-    // Every gap's unary end and low bits, then each gap's high part.
-    let high_parts: u64 = gaps(bitmap, tile).map(|gap| gap >> parameter).sum();
+    // Every gap's unary end and low bits, then each gap's high part: a
+    // word of cells at a time, each set cell its place in the tile's
+    // Morton order.
+    let (mut high_parts, mut next) = (0, 0);
+    for (word_index, word) in bitmap.square_words(tile.top_left_cell(), tile.side_in_cells()).enumerate() {
+        let mut remaining = word;
+        while remaining != 0 {
+            let place = word_index * u64::BITS as usize + remaining.trailing_zeros() as usize;
+            high_parts += ((place - next) as u64) >> parameter;
+            next = place + 1;
+            remaining &= remaining - 1;
+        }
+    }
     gamma_bits(set + 1) + set * (1 + parameter as u64) + high_parts
 }
 

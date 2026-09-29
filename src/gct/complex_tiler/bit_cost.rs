@@ -1,10 +1,9 @@
 //! What a tile costs to say, in bits, as the complex tiling stands: the
 //! grammar's own widths ([`crate::gct::grammar`]) applied to what the
 //! tiling holds at each tile -- the same rules the tree is read by, so
-//! the count is the encoder's own. The complex tiler scores a candidate
-//! by the bits it saves: its tile's cost without it, less its cost with
-//! it. The one thing not counted is what is not decided yet: the complex
-//! tiles later passes will nest inside it. And one thing is counted at a
+//! the count is the encoder's own, for any tiling: the reference the
+//! complex tiler's own counts ([`super::search`]) are held to in debug
+//! builds, and what the tree is counted by. One thing is counted at a
 //! stand-in: a residual block's cells, at a bit a cell, as if raw. The
 //! last pass codes them from the cells around them, so what they take
 //! depends on the whole pass, and is known only by coding it.

@@ -8,7 +8,6 @@
 pub mod complex_tiling;
 pub mod copy_sources;
 pub mod copyable;
-pub mod costs;
 pub mod patterns;
 pub mod placements;
 pub mod pyramid;
