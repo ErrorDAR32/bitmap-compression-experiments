@@ -50,7 +50,9 @@ pub const ALL_SET: u16 = 1;
 const FIRST_PATTERN: u16 = 2;
 
 /// The finest level held: 4x4, the finest tile a copy reads.
-const FINEST: u8 = FINEST_COPY_LEVEL;
+pub const FINEST_NUMBERED_LEVEL: u8 = FINEST_COPY_LEVEL;
+/// The same, within this file.
+const FINEST: u8 = FINEST_NUMBERED_LEVEL;
 /// Bits a number takes: enough for every 4x4 its own pattern, and the
 /// two homogeneous ones.
 const NUMBER_BITS: usize = 16;
@@ -146,6 +148,9 @@ pub struct Patterns {
     first: Box<[u16; NUMBERS]>,
     /// How many numbers each level has handed out.
     handed_out: [u16; LEVELS],
+    /// How many tiles of each level hold a set cell: numbered anything
+    /// but all clear.
+    occupied: [u32; LEVELS],
 }
 
 impl Default for Patterns {
@@ -156,6 +161,7 @@ impl Default for Patterns {
             slots: Box::new([EMPTY_SLOT; SLOTS]),
             first: Box::new([0; NUMBERS]),
             handed_out: [FIRST_PATTERN; LEVELS],
+            occupied: [0; LEVELS],
         }
     }
 }
@@ -166,6 +172,7 @@ impl Patterns {
     pub fn build(&mut self, bitmap: &Bitmap) {
         self.slots.fill(EMPTY_SLOT);
         self.handed_out = [FIRST_PATTERN; LEVELS];
+        self.occupied = [0; LEVELS];
 
         for level in (0..=FINEST).rev() {
             let tiles = tiles_in_level(level);
@@ -174,7 +181,9 @@ impl Patterns {
                 for quarter in 0..NUMBERS_A_WORD.min(tiles) {
                     let tile_index = word_index * NUMBERS_A_WORD + quarter;
                     let key = self.key(bitmap, level, tile_index);
-                    numbers |= (self.intern(bitmap, level, key, tile_index) as u64) << (quarter * NUMBER_BITS);
+                    let number = self.intern(bitmap, level, key, tile_index);
+                    self.occupied[level as usize] += (number != ALL_CLEAR) as u32;
+                    numbers |= (number as u64) << (quarter * NUMBER_BITS);
                 }
                 self.numbers.level_words_mut(level)[word_index] = numbers;
             }
@@ -259,6 +268,11 @@ impl Patterns {
             let (x, y) = morton_coordinates(self.first[FIRST_STARTS[level as usize] + number as usize] as usize);
             Tile { level, x, y }
         })
+    }
+
+    /// How many tiles at `level` hold a set cell.
+    pub fn occupied(&self, level: u8) -> usize {
+        self.occupied[level as usize] as usize
     }
 
     /// How many patterns at `level` are not homogeneous.

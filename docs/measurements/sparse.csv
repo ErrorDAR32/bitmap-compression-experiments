@@ -1,6 +1,6 @@
 # written by `cargo run --release --bin gct_diagnostics -- sparse`
 # grown from the fixed seed 42, 20 bitmaps a density and clustering
-# commit 5a420ca, with uncommitted changes
+# commit 69fbb7f, with uncommitted changes
 
 ## sparse bitmaps
 cluster,density,"set cells
@@ -12,7 +12,7 @@ are count splits","scattered
 bound"
 0,0.01%,6,124,93,94,20 of 20,87
 0,0.03%,19,295,266,267,20 of 20,247
-0,0.1%,65,802,786,787,19 of 20,738
+0,0.1%,65,802,786,803,0 of 20,738
 0,0.3%,196,2003,2054,2004,0 of 20,1921
 0,1%,655,5393,5709,5394,0 of 20,5286
 0,2%,1310,9392,10112,9393,0 of 20,9259
@@ -33,7 +33,7 @@ bound"
 0.7,15%,9830,41096,35085,41097,0 of 20,""
 ---
 0.95,0.01%,6,74,53,54,20 of 20,""
-0.95,0.03%,19,123,110,109,16 of 20,""
+0.95,0.03%,19,123,110,111,20 of 20,""
 0.95,0.1%,65,300,256,257,20 of 20,""
 0.95,0.3%,196,797,663,664,20 of 20,""
 0.95,1%,655,2383,1957,1958,20 of 20,""

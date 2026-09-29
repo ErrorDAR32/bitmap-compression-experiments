@@ -422,9 +422,9 @@ unmask it: those whose resolution tiles the node covers whole.
      cells and some clear saying how many of its set cells lie in its
      first half -- one of the counts its halves could hold, in
      truncated binary. A run all set or all clear says nothing more,
-     and nothing inside it is said. The encoder writes the count split
-     when it takes strictly fewer bits than the tree, and tries it only
-     on bitmaps an eighth set or sparser.
+     and nothing inside it is said. Which of the two a bitmap gets is
+     judged from its patterns pyramid before either is made, and only
+     that one is made: see "Why the count split".
 
 3 bits: the start level, the level of the tree's coarsest node that does
 not subdivide into four nodes. Every coarser tile does -- the trunk --
@@ -580,10 +580,21 @@ pays nothing for an empty or full region and a bit a halving for a lone
 cell. Measured (`sparse.csv`): clustered sparse bitmaps take 15-30%
 fewer bits than the tree at every density up to 10%, and scattered ones
 fewer below 0.1%; from there up scattered cells split near evenly, the
-uniform count wastes bits, and the tree is kept. Each bitmap takes
-whichever is shorter, for one bit. Past an eighth set the count split
-is not tried: walking its runs would cost time on every bitmap for the
-few it saves on.
+uniform count wastes bits, and the tree is kept.
+
+Only one of the two is ever made. The patterns pyramid, built first
+either way, says which: the count split for a bitmap at most a
+thousandth set (64 cells), which it says in fewer bits however the cells
+lie, or one at most an eighth set whose set cells are clustered -- random cells at
+its density would occupy at least a fifth more of its 4x4 tiles than
+its cells do -- and do not repeat -- at least one distinct 4x4 pattern
+for every four occupied tiles; the tree for everything else, built on
+that same pyramid. Scattered cells measure within a few percent of
+random, and bunched groups three to ten times; lines and streets, which
+the tree copies, measure under one distinct pattern for six occupied
+tiles, grown clusters over two for five. On every sample family and
+density sweep the rule saves 3.19% of the tree's bits, where picking
+the shorter of both by making both would save 3.21%.
 
 **Why the start level header**: a trunk of depth `d` -- every tile
 coarser than level `d` subdivides -- saves `(4^d - 1) / 3` subdivide

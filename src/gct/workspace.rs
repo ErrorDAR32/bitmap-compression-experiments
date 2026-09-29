@@ -12,7 +12,8 @@
 use crate::gct::pyramids::complex_tiling::ComplexTiling;
 use crate::gct::complex_tiler::passes::{complex_tiler, Scratch};
 use crate::gct::decode::{decode, Copies, StreamContents};
-use crate::gct::encode::write;
+use crate::gct::encode::{write, write_count_split};
+use crate::gct::grammar::count_split;
 use crate::gct::grammar::bit_stream::BitStream;
 use crate::gct::greedy_tiler::greedy_tiler;
 use crate::gct::pyramids::patterns::Patterns;
@@ -58,13 +59,34 @@ impl Workspace {
         Self { copy_offsets, ..Self::new() }
     }
 
-    /// Encodes `bitmap` into `stream`, whatever it held before.
+    /// Encodes `bitmap` into `stream`, whatever it held before: its
+    /// patterns pyramid first, then from it the one encoding that suits
+    /// -- the count split, for sparse clustered cells, or the tree, built
+    /// on that same pyramid.
     pub fn encode(&mut self, bitmap: &Bitmap, stream: &mut BitStream) {
         self.patterns.build(bitmap);
+        if count_split::suits(bitmap, &self.patterns) {
+            write_count_split(bitmap, stream);
+        } else {
+            self.build_tree(bitmap);
+            write(&self.tree, bitmap, stream);
+        }
+    }
+
+    /// Encodes `bitmap` as its tree, whichever encoding suits it: for
+    /// looking at the tree of a bitmap the count split suits.
+    pub fn encode_tree(&mut self, bitmap: &Bitmap, stream: &mut BitStream) {
+        self.patterns.build(bitmap);
+        self.build_tree(bitmap);
+        write(&self.tree, bitmap, stream);
+    }
+
+    /// Builds `bitmap`'s tree from its patterns pyramid, already built:
+    /// the greedy tiler, the complex tiler, the tree read off.
+    fn build_tree(&mut self, bitmap: &Bitmap) {
         greedy_tiler(bitmap, &self.patterns, &self.copy_offsets, &mut self.complex_tiling);
         complex_tiler(&mut self.complex_tiling, bitmap, &mut self.scratch);
         tree_representation(&self.complex_tiling, &mut self.tree);
-        write(&self.tree, bitmap, stream);
     }
 
     /// Decodes `stream` into `bitmap`, whatever it held before.

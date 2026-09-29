@@ -3,8 +3,8 @@
 //! stream takes (the fewer, and its mode bit), how many streams are count
 //! splits, and, for scattered cells, the least any encoding could take on
 //! average: log2 of how many ways the set cells could be placed. The
-//! count split is only tried on bitmaps an eighth set or sparser; its
-//! bits are counted here at every density.
+//! stream is whichever the patterns pyramid says suits the bitmap; both
+//! encodings' bits are counted here at every density.
 
 use tilesim::diagnostics::examination::Examination;
 use tilesim::gct::grammar::bit_stream::BitStream;

@@ -13,7 +13,7 @@ use tilesim::table::Table;
 pub fn run(report: &mut Report) {
     let (mut workspace, mut stream) = (Workspace::new(), BitStream::default());
     for (name, bitmap) in looked_at() {
-        workspace.encode(&bitmap, &mut stream);
+        workspace.encode_tree(&bitmap, &mut stream);
         let tree = workspace.tree();
         let headings: Vec<String> = std::iter::once("node".to_string())
             .chain((0..CELL_LEVEL).map(|level| format!("level {level}\n{0}x{0}", tile_side(level))))

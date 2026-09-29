@@ -7,6 +7,7 @@ use tilesim::diagnostics::measured::Measured;
 use tilesim::diagnostics::tree_stats::TreeStats;
 use tilesim::diagnostics::RAW_CELLS;
 use tilesim::gct::grammar::bit_stream::BitStream;
+use tilesim::gct::grammar::{COUNT_SPLIT_STREAM, STREAM_MODE_WIDTH};
 use tilesim::gct::Workspace;
 use tilesim::sample_generators::checkerboards::checkerboards;
 use tilesim::sample_generators::{families, HowMany, LINE_SETS, PLANS, SHAPES, SPARSE};
@@ -108,11 +109,14 @@ pub fn run(report: &mut Report) {
     add_structure(&mut workspace, report);
 }
 
-/// What gct's trees hold, family by family: complex tiles and masking
-/// nodes, and what the complex tiles' bodies are made of.
+/// What gct's trees hold, family by family -- every bitmap's tree, even
+/// where the count split suits it: how many streams are count splits,
+/// complex tiles and masking nodes, and what the complex tiles' bodies
+/// are made of.
 fn add_structure(workspace: &mut Workspace, report: &mut Report) {
     let mut structure = Table::new(&[
         "family",
+        "streams that\nare count splits",
         "complex tiles a bitmap,\nby nesting",
         "complex tiles\nmasking",
         "tiles\na bitmap",
@@ -132,9 +136,11 @@ fn add_structure(workspace: &mut Workspace, report: &mut Report) {
 
     let mut stream = BitStream::default();
     for (family, maps) in families(HowMany::Timed) {
-        let mut stats = TreeStats::default();
+        let (mut stats, mut count_splits) = (TreeStats::default(), 0);
         for bitmap in &maps {
             workspace.encode(bitmap, &mut stream);
+            count_splits += (stream.reader().value(STREAM_MODE_WIDTH) == COUNT_SPLIT_STREAM) as usize;
+            workspace.encode_tree(bitmap, &mut stream);
             stats.add(&TreeStats::of(workspace.tree()));
         }
 
@@ -145,6 +151,7 @@ fn add_structure(workspace: &mut Workspace, report: &mut Report) {
         let by_nesting: Vec<String> = stats.complex_tiles_at_nesting.iter().map(|&count| per_bitmap(count)).collect();
         structure.row(&[
             name.clone(),
+            share(count_splits, bitmaps),
             by_nesting.join(", "),
             format!("{:.1}%", percent(stats.complex_tiles_that_mask, stats.complex_tiles())),
             per_bitmap(stats.tiles),
