@@ -1,8 +1,8 @@
 //! The order of a complex tile's payload: which parts of it the payload
 //! says, walked down the tree, used by both directions, so writing and
-//! reading can never disagree. (The residual pass needs no walk: its
-//! 2x2s are read off the tree in Morton order,
-//! `Tree::residual_squares`.)
+//! reading can never disagree. (The last pass needs no walk: its
+//! residual blocks are read off the tree in Morton order,
+//! `Tree::residual_blocks`.)
 
 use crate::gct::pyramids::tree::{Node, Tree};
 use crate::gct::tile::{Tile, CELL_LEVEL};

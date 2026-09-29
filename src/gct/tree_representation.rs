@@ -32,7 +32,7 @@ pub fn start_level(complex_tiling: &ComplexTiling) -> u8 {
     };
     (0..=FLOOR_LEVEL)
         .find(|&level| Tile::all_of_level(level).any(|tile| !divides_whole(tile)))
-        .expect("the 2x2 floor never subdivides")
+        .expect("the 4x4 floor never subdivides")
 }
 
 /// Sets the node for `tile`, nested in `nested`, `bound_above` the value
@@ -72,17 +72,7 @@ fn node_for(complex_tiling: &ComplexTiling, tile: Tile, nested: &NestedResolutio
         return Node::Unmasked { nesting };
     }
     let tile_node = Node::ComplexTile { size_offset: 0, masks: false };
-    let placed = here.placed();
-    if tile.level == FLOOR_LEVEL {
-        // The 2x2 floor: a homogeneous 2x2 is a tile; anything else
-        // placed nothing, its cells left to the residual pass.
-        return match placed {
-            Some(placement) if placement.is_whole_bind() => tile_node,
-            None => Node::Residual,
-            Some(other) => unreachable!("a 2x2 is never {other:?}"),
-        };
-    }
-    match placed {
+    match here.placed() {
         Some(Placement::Bound { masked_children: 0, .. }) => tile_node,
         Some(Placement::Bound { .. }) => Node::ComplexTile { size_offset: 0, masks: true },
         Some(Placement::Copied { far, direction, masked_children }) => {
@@ -94,6 +84,8 @@ fn node_for(complex_tiling: &ComplexTiling, tile: Tile, nested: &NestedResolutio
                 let masks = !here.entirely_bound_at(tile.level + size_offset);
                 Node::ComplexTile { size_offset, masks }
             }
+            // At the 4x4 floor, its cells are left to the last pass.
+            None if tile.level == FLOOR_LEVEL => Node::Residual,
             None => Node::Subdivided,
         },
     }

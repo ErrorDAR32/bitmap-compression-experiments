@@ -47,14 +47,6 @@ fn cost_in_raw(complex_tiling: &mut ComplexTiling, tile: Tile) -> u64 {
 /// costs said by itself, its parts each at `part_cost`.
 fn said_by_itself(placement: Option<Placement>, tile: Tile, mut part_cost: impl FnMut(Tile) -> u64) -> u64 {
     let leaf_bind = (LEAF_WIDTH + CODE_WIDTH) as u64;
-    if tile.level == FLOOR_LEVEL {
-        // The 2x2 floor: a tile and its value, or a residual.
-        let value_or_cells = match placement {
-            Some(placement) if placement.is_whole_bind() => payload_bits(0),
-            _ => cells_in_tile(tile.level),
-        };
-        return LEAF_WIDTH as u64 + value_or_cells;
-    }
     match placement {
         Some(Placement::Bound { masked_children: 0, .. }) => leaf_bind + resolution_width(tile.level) as u64 + payload_bits(0),
         Some(bind @ Placement::Bound { .. }) => {
@@ -70,6 +62,8 @@ fn said_by_itself(placement: Option<Placement>, tile: Tile, mut part_cost: impl 
             }
             bits
         }
+        // At the 4x4 floor, a residual block.
+        None if tile.level == FLOOR_LEVEL => (LEAF_WIDTH + RESIDUAL_BLOCK_BITS) as u64,
         None => {
             let mut bits = LEAF_WIDTH as u64;
             if copy_or_divide_may_mask(tile.level) {

@@ -5,6 +5,7 @@
 //! gamma and truncated binary.
 
 use super::{CHILD_MASK_WIDTH, CODE_WIDTH, DIRECTION_WIDTH, FAR_WIDTH, LEAF_WIDTH, MASK_PRESENT_WIDTH, START_LEVEL_WIDTH, STREAM_MODE_WIDTH};
+use crate::gct::last_pass::MOST_EXTRA_BITS;
 use crate::gct::tile::{tiles_down_to, CELLS, CELL_LEVEL, FLOOR_LEVEL};
 
 /// Bits a word holds.
@@ -19,12 +20,16 @@ const MOST_NODE_BITS: usize = CELL_LEVEL as usize
     + CHILD_MASK_WIDTH as usize;
 
 /// The most bits a stream takes: its mode, the start level, a node at
-/// every tile down to the 2x2 floor, and each cell's value said at most
+/// every tile down to the 4x4 floor, and each cell's value said at most
 /// once -- in a payload, a cell list (only ever chosen when cheaper than
-/// a bit a cell) or the residual pass. A stream that is a count split
-/// is only ever shorter than the tree.
-pub const MOST_BITS: usize =
-    STREAM_MODE_WIDTH as usize + START_LEVEL_WIDTH as usize + tiles_down_to(FLOOR_LEVEL) * MOST_NODE_BITS + CELLS;
+/// a bit a cell) or the last pass, which may take a little more than a
+/// bit a cell. A stream that is a count split is only ever shorter than
+/// the tree.
+pub const MOST_BITS: usize = STREAM_MODE_WIDTH as usize
+    + START_LEVEL_WIDTH as usize
+    + tiles_down_to(FLOOR_LEVEL) * MOST_NODE_BITS
+    + CELLS
+    + MOST_EXTRA_BITS;
 
 /// Words the most bits a stream takes fill.
 const MOST_WORDS: usize = MOST_BITS.div_ceil(WORD_BITS);

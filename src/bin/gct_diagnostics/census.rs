@@ -4,7 +4,7 @@
 use tilesim::diagnostics::bitmaps::looked_at;
 use tilesim::diagnostics::census::census;
 use tilesim::gct::grammar::bit_stream::BitStream;
-use tilesim::gct::tile::{tile_side, CELL_LEVEL};
+use tilesim::gct::tile::{tile_side, FLOOR_LEVEL};
 use tilesim::gct::Gct;
 use tilesim::table::report::Report;
 use tilesim::table::Table;
@@ -16,7 +16,7 @@ pub fn run(report: &mut Report) {
         gct.encode_tree(&bitmap, &mut stream);
         let tree = gct.tree();
         let headings: Vec<String> = std::iter::once("node".to_string())
-            .chain((0..CELL_LEVEL).map(|level| format!("level {level}\n{0}x{0}", tile_side(level))))
+            .chain((0..=FLOOR_LEVEL).map(|level| format!("level {level}\n{0}x{0}", tile_side(level))))
             .collect();
         let mut table = Table::new(&headings.iter().map(String::as_str).collect::<Vec<_>>());
         for (kind, by_level) in census(tree) {

@@ -34,7 +34,7 @@ pub struct TreeStats {
     pub masked_tile: usize,
     /// ...nested complex tiles, cell lists included...
     pub masked_nested: usize,
-    /// ...and residual 2x2s.
+    /// ...and residual blocks.
     pub masked_residual: usize,
     /// Cell lists, anywhere.
     pub cell_lists: usize,

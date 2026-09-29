@@ -4,7 +4,10 @@
 //! the count is the encoder's own. The complex tiler scores a candidate
 //! by the bits it saves: its tile's cost without it, less its cost with
 //! it. The one thing not counted is what is not decided yet: the complex
-//! tiles later passes will nest inside it.
+//! tiles later passes will nest inside it. And one thing is counted at a
+//! stand-in: a residual block's cells, at a bit a cell, as if raw. The
+//! last pass codes them from the cells around them, so what they take
+//! depends on the whole pass, and is known only by coding it.
 //!
 //! Every check in `tests/common` holds this to the encoder's count
 //! (`crate::diagnostics::examination` gathers both), on every bitmap
@@ -15,7 +18,7 @@ use crate::gct::grammar::*;
 use crate::gct::nested_resolutions::NestedResolutions;
 use crate::gct::pyramids::complex_tiling::{ComplexTiling, Fields};
 use crate::gct::pyramids::placements::Placement;
-use crate::gct::tile::{cells_in_tile, tiles_in_level, Tile, CHILDREN, FLOOR_LEVEL};
+use crate::gct::tile::{tiles_in_level, Tile, CHILDREN, FLOOR_LEVEL};
 use crate::Bitmap;
 
 /// How many resolution tiles a tile holds `size_offset` levels finer:
@@ -33,7 +36,8 @@ pub fn bits(complex_tiling: &ComplexTiling, bitmap: &Bitmap, tile: Tile, nested:
 }
 
 /// The bits the whole tree takes, as the tiling stands, starting at
-/// `start_level`: the start level, then every tile of that level.
+/// `start_level`: the start level, then every tile of that level --
+/// residual blocks at a bit a cell.
 pub fn tree_bits(complex_tiling: &ComplexTiling, bitmap: &Bitmap, start_level: u8) -> u64 {
     START_LEVEL_WIDTH as u64
         + Tile::all_of_level(start_level)
@@ -95,16 +99,6 @@ pub fn node_bits(
     }
 
     let leaf_bind = (LEAF_WIDTH + CODE_WIDTH) as u64;
-    if tile.level == FLOOR_LEVEL {
-        // The 2x2 floor: a tile and its value, or a residual and its cells
-        // in the residual pass.
-        return mask_bits
-            + LEAF_WIDTH as u64
-            + match here.placed() {
-                Some(placement) if placement.is_whole_bind() => payload_bits(0),
-                _ => cells_in_tile(tile.level),
-            };
-    }
     mask_bits + match here.placed() {
         Some(Placement::Bound { masked_children: 0, .. }) => {
             leaf_bind + resolution_width(tile.level) as u64 + payload_bits(0)
@@ -147,6 +141,10 @@ pub fn node_bits(
                                 .sum::<u64>()
                         })
                 }
+            }
+            None if tile.level == FLOOR_LEVEL => {
+                // A residual block, and its cells in the last pass.
+                (LEAF_WIDTH + RESIDUAL_BLOCK_BITS) as u64
             }
             None => {
                 let mut divide_bits = LEAF_WIDTH as u64;

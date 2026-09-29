@@ -97,6 +97,17 @@ impl Bitmap {
         self.words[first_cell_index / BITS_PER_WORD] |= run << (first_cell_index % BITS_PER_WORD);
     }
 
+    /// Makes every cell what it is in `other`, in place.
+    pub(crate) fn copy_from(&mut self, other: &Bitmap) {
+        *self.words = *other.words;
+    }
+
+    /// Clears the `cells` from Morton index `first_cell_index` (fewer
+    /// than a word, the index a multiple of it).
+    pub(crate) fn clear_morton_run(&mut self, first_cell_index: usize, cells: usize) {
+        self.words[first_cell_index / BITS_PER_WORD] &= !(low_bits_mask(cells) << (first_cell_index % BITS_PER_WORD));
+    }
+
     /// The cells of an aligned square of a word of cells or more, top
     /// left at `(x, y)`, `side` cells a side, to write: its words, in
     /// Morton order.

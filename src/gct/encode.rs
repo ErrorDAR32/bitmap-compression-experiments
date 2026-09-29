@@ -1,22 +1,28 @@
 //! Encoding: the tree spelled out in bits, by the grammar
 //! ([`crate::gct::grammar`]) -- the start level, the tree node by node
-//! from there, each complex tile's payload after its body, then the
-//! residual pass.
+//! from there, each complex tile's payload after its body -- then the
+//! [last pass](crate::gct::last_pass).
 
 use crate::gct::grammar::bit_stream::BitStream;
+use crate::gct::last_pass::LastPass;
 use crate::gct::grammar::order::payload_parts;
 use crate::gct::grammar::cell_list;
 use crate::gct::grammar::*;
 use crate::gct::nested_resolutions::NestedResolutions;
 use crate::gct::pyramids::tree::{Node, Tree};
-use crate::gct::tile::{cells_in_tile, Tile, CELL_LEVEL, FLOOR_LEVEL};
+use crate::gct::tile::{cells_in_tile, Tile, CELL_LEVEL};
 use crate::Bitmap;
 
-/// Spells out `tree` for `bitmap` into `stream`, whatever it held before.
-pub fn write(tree: &Tree, bitmap: &Bitmap, stream: &mut BitStream) {
+/// Spells out `tree` for `bitmap` into `stream`, whatever it held
+/// before, then the last pass, in `last_pass`: how many bits that took.
+pub fn write(tree: &Tree, bitmap: &Bitmap, stream: &mut BitStream, last_pass: &mut LastPass) -> usize {
     stream.clear();
     stream.push_value(TREE_STREAM, STREAM_MODE_WIDTH);
-    write_tree(tree, bitmap, stream);
+    last_pass.clear();
+    write_tree(tree, bitmap, stream, last_pass);
+    let tree_end = stream.len();
+    last_pass.encode(tree, bitmap, stream);
+    stream.len() - tree_end
 }
 
 /// Spells out `bitmap`'s count split into `stream`, whatever it held
@@ -28,16 +34,13 @@ pub fn write_count_split(bitmap: &Bitmap, stream: &mut BitStream) {
 }
 
 /// Spells out `tree` for `bitmap` at the end of `stream`: the start
-/// level, every node from there, then the residual pass.
-fn write_tree(tree: &Tree, bitmap: &Bitmap, stream: &mut BitStream) {
+/// level, then every node from there, each copy noted in `last_pass`.
+fn write_tree(tree: &Tree, bitmap: &Bitmap, stream: &mut BitStream, last_pass: &mut LastPass) {
     let start_level = tree.start_level();
     stream.push_value(start_level as u64, START_LEVEL_WIDTH);
-    let mut writer = Writer { tree, bitmap, stream };
+    let mut writer = Writer { tree, bitmap, stream, last_pass };
     for tile in Tile::all_of_level(start_level) {
         writer.node(tile, &mut NestedResolutions::none());
-    }
-    for square in tree.residual_squares() {
-        writer.stream.push_value(bitmap.small_square(square.top_left_cell(), square.side_in_cells()), RESIDUAL_SQUARE_BITS);
     }
 }
 
@@ -49,6 +52,8 @@ struct Writer<'a> {
     bitmap: &'a Bitmap,
     /// Where the bits go.
     stream: &'a mut BitStream,
+    /// Where copies are noted, for the last pass.
+    last_pass: &'a mut LastPass,
 }
 
 impl Writer<'_> {
@@ -63,18 +68,6 @@ impl Writer<'_> {
             self.stream.push_value(MASKED, MASK_BIT_WIDTH);
         }
 
-        if tile.level == FLOOR_LEVEL {
-            match node {
-                Node::ComplexTile { size_offset: 0, .. } => {
-                    self.stream.push_value(LEAF, LEAF_WIDTH);
-                    self.payload(tile, nested.next_nesting(), 0);
-                }
-                Node::Residual => self.stream.push_value(RESIDUAL, LEAF_WIDTH),
-                _ => unreachable!("the 2x2 floor is always a bound tile or residual"),
-            }
-            return;
-        }
-
         match node {
             Node::Copied { far, direction, masks } => {
                 self.stream.push_value(LEAF, LEAF_WIDTH);
@@ -85,7 +78,14 @@ impl Writer<'_> {
                     self.mask_present(masks);
                 }
                 if masks {
+                    for child in tile.children() {
+                        if self.tree.node(child) == Node::Absent {
+                            self.last_pass.cover(tile, child, far, direction);
+                        }
+                    }
                     self.named_children(tile, nested);
+                } else {
+                    self.last_pass.cover(tile, tile, far, direction);
                 }
             }
             Node::ComplexTile { size_offset: 0, masks: true } => {
@@ -140,7 +140,8 @@ impl Writer<'_> {
                 self.stream.push_value(CELL_LIST, PAYLOAD_MODE_WIDTH);
                 cell_list::write(self.bitmap, tile, self.stream);
             }
-            Node::Unmasked { .. } | Node::Residual | Node::Absent => unreachable!("{node:?} is never written here"),
+            Node::Residual => self.stream.push_value(RESIDUAL, LEAF_WIDTH),
+            Node::Unmasked { .. } | Node::Absent => unreachable!("{node:?} is never written here"),
         }
     }
 

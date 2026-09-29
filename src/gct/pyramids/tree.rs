@@ -1,8 +1,8 @@
 //! The tree the complex tiler produces, held as a pyramid: one 8-bit
-//! node code per tile, levels 0 (the whole bitmap) to 2x2. Every node
+//! node code per tile, levels 0 (the whole bitmap) to 4x4. Every node
 //! sits at exactly one tile, so no pointers are needed -- a tile's node
 //! is one lookup away, and its children's nodes are its children's
-//! elements. Tiles inside a coarser leaf, or finer than the 2x2 floor,
+//! elements. Tiles inside a coarser leaf, or finer than the 4x4 floor,
 //! hold no node.
 //!
 //! The whole plane is tiled with complex tiles: every placed `Bound`
@@ -23,7 +23,7 @@ use crate::morton::morton_coordinates;
 pub enum Node {
     /// No node at this tile: it lies inside a coarser node's tile -- a
     /// leaf's, or a child a masking copy says -- or the binding above it
-    /// says it, or it is finer than the 2x2 floor.
+    /// says it, or it is finer than the 4x4 floor.
     Absent,
     /// The same question asked again of this tile's four children -- of
     /// those holding a node; the binding above says the others.
@@ -61,8 +61,8 @@ pub enum Node {
         /// Whether some of what it holds is masked in it.
         masks: bool,
     },
-    /// A 2x2 that is not one bound tile: its four cells are left to the
-    /// residual pass.
+    /// A residual block: a 4x4 that is not one bound tile, a copy or a
+    /// complex tile, its cells left to the last pass.
     Residual,
     /// A complex tile of 1x1 resolution masking nothing, saying its set
     /// cells as a [cell list](crate::gct::grammar::cell_list).
@@ -155,10 +155,10 @@ const NODE_BITS: usize = 8;
 const NODE_MASK: u64 = (1 << NODE_BITS) - 1;
 /// Node codes a word holds.
 const NODES_A_WORD: usize = u64::BITS as usize / NODE_BITS;
-/// A residual 2x2's code: its kind, with no parameter.
+/// A residual block's code: its kind, with no parameter.
 const RESIDUAL_CODE: u64 = RESIDUAL;
 
-/// One node code a tile, 8 bits, down to the 2x2 floor: nothing finer
+/// One node code a tile, 8 bits, down to the 4x4 floor: nothing finer
 /// is ever a node.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct TreeShape;
@@ -189,9 +189,9 @@ impl Tree {
         self.node(tile) == Node::Subdivided && tile.children().into_iter().all(|child| self.node(child) != Node::Absent)
     }
 
-    /// The residual 2x2s, in Morton order: the 2x2 level's node codes
+    /// The residual blocks, in Morton order: the 4x4 level's node codes
     /// read a word at a time, a word of no node skipped whole.
-    pub fn residual_squares(&self) -> impl Iterator<Item = Tile> + '_ {
+    pub fn residual_blocks(&self) -> impl Iterator<Item = Tile> + '_ {
         let level = FLOOR_LEVEL;
         self.level_words(level).iter().enumerate().filter(|&(_, &word)| word != 0).flat_map(move |(word_index, &word)| {
             (0..NODES_A_WORD).filter(move |&slot| (word >> (slot * NODE_BITS)) & NODE_MASK == RESIDUAL_CODE).map(move |slot| {
@@ -207,6 +207,6 @@ impl Tree {
     pub fn start_level(&self) -> u8 {
         (0..=FLOOR_LEVEL)
             .find(|&level| Tile::all_of_level(level).any(|tile| !self.divides_whole(tile)))
-            .expect("the 2x2 floor never subdivides")
+            .expect("the 4x4 floor never subdivides")
     }
 }

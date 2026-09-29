@@ -11,7 +11,8 @@
 //!    tile -- a [tree pyramid](pyramids::tree) of node codes.
 //! 4. [`encode`](mod@encode): that tree spelled out in bits, by the
 //!    [`grammar`]; [`decode`](mod@decode) reads it back by the same
-//!    grammar and resolves copies into cells.
+//!    grammar, and the [`last_pass`] copies blocks and codes the
+//!    residual blocks' cells, each from the cells before it.
 //!
 //! Everything per tile is held in [`pyramids`], and every structure the
 //! steps use lives in a [`Gct`], allocated once and reused for every
@@ -24,6 +25,7 @@ pub mod encode;
 mod fixed_list;
 pub mod grammar;
 pub mod greedy_tiler;
+pub mod last_pass;
 pub mod nested_resolutions;
 pub mod pyramids;
 pub mod tile;
@@ -32,7 +34,8 @@ pub mod tree_representation;
 use crate::Bitmap;
 use crate::gct::complex_tiler::bit_cost::{cell_lists_tree_bits, tree_bits};
 use crate::gct::complex_tiler::passes::{complex_tiler, Scratch};
-use crate::gct::decode::{Copies, StreamContents};
+use crate::gct::decode::StreamContents;
+use crate::gct::last_pass::LastPass;
 use crate::gct::encode::{write, write_count_split};
 use crate::gct::grammar::bit_stream::BitStream;
 use crate::gct::grammar::count_split;
@@ -80,10 +83,11 @@ pub struct Gct {
     scratch: Scratch,
     /// The tree last written or read.
     tree: Tree,
-    /// Room to resolve copies in, decoding.
-    copies: Copies,
-    /// Where copies read from, encoding and decoding alike.
-    copy_offsets: CopyOffsets,
+    /// Room for the last pass, encoding and decoding alike, and where
+    /// copies read from.
+    last_pass: LastPass,
+    /// The bits the last pass of the tree last written took.
+    last_pass_bits: usize,
 }
 
 impl Gct {
@@ -94,8 +98,8 @@ impl Gct {
             complex_tiling: ComplexTiling::new(),
             scratch: Scratch::default(),
             tree: Tree::new(),
-            copies: Copies::default(),
-            copy_offsets: CopyOffsets::default(),
+            last_pass: LastPass::new(CopyOffsets::default()),
+            last_pass_bits: 0,
         }
     }
 
@@ -103,7 +107,7 @@ impl Gct {
     /// than the default ones: for trying other offsets. A stream decodes
     /// only in a `Gct` with the offsets it was encoded with.
     pub fn with_copy_offsets(copy_offsets: CopyOffsets) -> Self {
-        Self { copy_offsets, ..Self::new() }
+        Self { last_pass: LastPass::new(copy_offsets), ..Self::new() }
     }
 
     /// Encodes `bitmap` into `stream`, whatever it held before: the
@@ -116,7 +120,7 @@ impl Gct {
             write_count_split(bitmap, stream);
         } else {
             self.complex_tree(bitmap);
-            write(&self.tree, bitmap, stream);
+            self.last_pass_bits = write(&self.tree, bitmap, stream, &mut self.last_pass);
         }
     }
 
@@ -125,7 +129,7 @@ impl Gct {
     pub fn encode_tree(&mut self, bitmap: &Bitmap, stream: &mut BitStream) {
         self.greedy_tiling(bitmap);
         self.complex_tree(bitmap);
-        write(&self.tree, bitmap, stream);
+        self.last_pass_bits = write(&self.tree, bitmap, stream, &mut self.last_pass);
     }
 
     /// Whether `bitmap`'s count split takes fewer bits than its tree
@@ -146,7 +150,7 @@ impl Gct {
     /// pyramid, then the greedy tiler on it.
     fn greedy_tiling(&mut self, bitmap: &Bitmap) {
         self.patterns.build(bitmap);
-        greedy_tiler(bitmap, &self.patterns, &self.copy_offsets, &mut self.complex_tiling);
+        greedy_tiler(bitmap, &self.patterns, self.last_pass.offsets(), &mut self.complex_tiling);
         self.complex_tiling.fill_in();
     }
 
@@ -162,8 +166,7 @@ impl Gct {
         let mut read = StreamContents {
             tree: &mut self.tree,
             cell_values: bitmap,
-            copies: &mut self.copies,
-            offsets: &self.copy_offsets,
+            last_pass: &mut self.last_pass,
         };
         decode::decode(stream, &mut read);
     }
@@ -172,6 +175,11 @@ impl Gct {
     /// decoded.
     pub fn tree(&self) -> &Tree {
         &self.tree
+    }
+
+    /// The bits the last pass took in the tree last written.
+    pub fn last_pass_bits(&self) -> usize {
+        self.last_pass_bits
     }
 
     /// The complex tiling of the bitmap last encoded: the greedy tiler's

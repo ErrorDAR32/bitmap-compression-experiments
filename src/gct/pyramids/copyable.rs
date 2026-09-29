@@ -96,9 +96,8 @@ pub fn child_offset((dx, dy): (isize, isize)) -> (isize, isize) {
     (dx * across, dy * across)
 }
 
-/// Nothing finer than 4x4 copies. A 2x2 is either homogeneous, a tile,
-/// or its four cells are the residual pass's own -- a copy there would
-/// never reach the stream. A cell is always homogeneous.
+/// Nothing finer than 4x4 copies: the tree holds no node finer than the
+/// 4x4 floor, so a copy of a 2x2 would never reach the stream.
 pub const FINEST_COPY_LEVEL: u8 = CELL_LEVEL - 2;
 
 /// The first direction whose near or far copy of `tile`, by `offsets`,

@@ -2,22 +2,23 @@
 //! everything the result can be held to, gathered:
 //!
 //! - how each cell is said: by exactly one of the greedy tiler's placed
-//!   tiles, or in a 2x2 that is not homogeneous, placed nothing, and is
-//!   said raw -- a residual 2x2, or inside a complex tile of 1x1
+//!   tiles, or in a residual block by the last pass, or in a 2x2 that is
+//!   not homogeneous, placed nothing, and is inside a complex tile of 1x1
 //!   resolution or a cell list. Every cell that is not is a fault;
 //! - placed tiles finer than a 2x2, and copies finer than 4x4;
-//! - the bits the complex tiler counts for the tree, and the bits
-//!   written;
+//! - the bits the complex tiler counts for the tree -- its residual
+//!   blocks at the bits the last pass took -- and the bits written;
 //! - whether the tree read back from the bits is the tree written;
 //! - the first cell decoding gets wrong, if any.
 
 use crate::gct::pyramids::complex_tiling::ComplexTiling;
 use crate::gct::complex_tiler::bit_cost::tree_bits;
 use crate::gct::grammar::bit_stream::BitStream;
-use crate::gct::grammar::{count_split, COUNT_SPLIT_STREAM, STREAM_MODE_WIDTH};
+use crate::gct::grammar::{count_split, COUNT_SPLIT_STREAM, RESIDUAL_BLOCK_BITS, STREAM_MODE_WIDTH};
 use crate::gct::pyramids::placements::Placement;
 use crate::gct::pyramids::tree::{Node, Tree};
-use crate::gct::tile::{Tile, CELL_LEVEL, FLOOR_LEVEL};
+use crate::gct::pyramids::copyable::FINEST_COPY_LEVEL;
+use crate::gct::tile::{Tile, CELL_LEVEL, FINEST_PLACED_LEVEL, FLOOR_LEVEL};
 use crate::gct::tree_representation::start_level;
 use crate::gct::Gct;
 use crate::Bitmap;
@@ -89,13 +90,18 @@ pub fn tree_of(bitmap: &Bitmap) -> Tree {
 fn coverage_fault(bitmap: &Bitmap, placements: &ComplexTiling, tree: &Tree, cell: Tile) -> Option<CoverageFault> {
     // Down the cell's path: the first tile placed that does not mask the
     // way on says it, and nothing under that may be placed.
-    let path = (0..=FLOOR_LEVEL).map(|level| cell.ancestor(level));
+    let path = (0..=FINEST_PLACED_LEVEL).map(|level| cell.ancestor(level));
     let placed: Vec<(Tile, Placement)> = path.filter_map(|ancestor| placements.placed_at(ancestor).map(|placement| (ancestor, placement))).collect();
     let sayer = placed.iter().position(|&(ancestor, placement)| !placement.masks(cell.ancestor(ancestor.level + 1)));
+    if tree.node(cell.ancestor(FLOOR_LEVEL)) == Node::Residual {
+        // Said in the last pass: whatever is placed inside the block goes
+        // unsaid, but nothing coarser may say it.
+        return sayer.filter(|&sayer| placed[sayer].0.level < FLOOR_LEVEL).map(|_| CoverageFault::SaidTwice(cell));
+    }
     if let Some(sayer) = sayer {
         return (sayer + 1 != placed.len()).then_some(CoverageFault::SaidTwice(cell));
     }
-    let square = cell.ancestor(FLOOR_LEVEL);
+    let square = cell.ancestor(FINEST_PLACED_LEVEL);
     if placements.placed_at(square).is_some() {
         return Some(CoverageFault::SaidByNone(cell));
     }
@@ -104,13 +110,12 @@ fn coverage_fault(bitmap: &Bitmap, placements: &ComplexTiling, tree: &Tree, cell
     if (0..2).all(|dy| (0..2).all(|dx| bitmap.get(left + dx, top + dy) == first)) {
         return Some(CoverageFault::HomogeneousLeftRaw(square));
     }
-    let residual = tree.node(square) == Node::Residual;
-    let raw = (0..CELL_LEVEL).any(|level| match tree.node(cell.ancestor(level)) {
+    let raw = (0..=FLOOR_LEVEL).any(|level| match tree.node(cell.ancestor(level)) {
         Node::ComplexTile { size_offset, .. } => level + size_offset == CELL_LEVEL,
         Node::CellList => true,
         _ => false,
     });
-    (!residual && !raw).then_some(CoverageFault::SaidNowhere(cell))
+    (!raw).then_some(CoverageFault::SaidNowhere(cell))
 }
 
 impl Examination {
@@ -129,13 +134,16 @@ impl Examination {
             if tile.level >= CELL_LEVEL {
                 placed_finer_than_2x2.push(tile);
             }
-            if matches!(placement, Placement::Copied { .. }) && tile.level >= FLOOR_LEVEL {
+            if matches!(placement, Placement::Copied { .. }) && tile.level > FINEST_COPY_LEVEL {
                 copied_finer_than_4x4.push(tile);
             }
         }
         // The start level found from the tiling, as the encoder finds it:
         // were it not the tree's, these bits would not be the bits written.
-        let tree_bits = tree_bits(complex_tiling, bitmap, start_level(complex_tiling));
+        // The count holds each residual block at a bit a cell, its most:
+        // the last pass's bits, as written, take their place.
+        let residual_bits = RESIDUAL_BLOCK_BITS as u64 * written.residual_blocks().count() as u64;
+        let tree_bits = tree_bits(complex_tiling, bitmap, start_level(complex_tiling)) - residual_bits + gct.last_pass_bits() as u64;
         let tree_written_bits = (stream.len() - STREAM_MODE_WIDTH as usize) as u64;
         gct.decode(stream, back);
         let tree_read_back = *gct.tree() == written;

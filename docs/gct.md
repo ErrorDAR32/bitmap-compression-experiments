@@ -5,30 +5,33 @@ describes. `src/gct/` is the code; this file is the one full
 description of its grammar. Kept up to date by hand: if the code
 changes and this doesn't, this file is wrong, not the code.
 
-## Four steps
+## Five steps
 
 Each step is its own folder or file and reads only the step before it.
 Deciding and writing are never combined: steps 1-3 never see a bit of
-output, and step 4 never decides anything.
+output, and steps 4 and 5 never decide anything.
 
 | step | code | output |
 |---|---|---|
 | 1. greedy tiling | `greedy_tiler.rs` | the placement bits of the complex tiling pyramid: what tile was placed where |
 | 2. complex tiling | `complex_tiler/` | a complex tiling pyramid: the placements, each tile's single bound size, and which tiles are complex tiles at what size offset |
 | 3. tree representation | `tree_representation.rs` | the tree read off the complex tiling alone: one node code per tile, held as a pyramid (`pyramids/tree.rs`) |
-| 4. encoding | `encode.rs` | the tree's grammar with its payloads, then the residual pass |
+| 4. encoding | `encode.rs` | the tree's grammar with its payloads |
+| 5. last pass | `last_pass.rs` | the copies resolved, and the residual blocks' cells arithmetic-coded, each from the cells before it |
 
 Between steps 1 and 2 the encoder picks the stream's mode: the tree,
 or the bitmap's count split, when that takes fewer bits (see "Why the
 count split"). Only the one picked is made: for a count split, steps 2
 and 3 never run.
 
-`decode.rs` reads the bits back and resolves copies into cells. Both
-follow `grammar/`, the one place every rule of the bitstream lives:
-its constants and widths, the bit stream, and the order of a complex
-tile's payload (`grammar/order.rs`). The residual pass is the 2x2s left
-residual, read off the tree's 2x2 level in Morton order, four raw bits
-each.
+`decode.rs` reads the bits back. Both follow `grammar/`, the one place
+every rule of the bitstream lives: its constants and widths, the bit
+stream, the arithmetic coder (`grammar/arithmetic.rs`) and the order of
+a complex tile's payload (`grammar/order.rs`). The last pass, shared by
+both directions, goes over the 4x4 blocks the tree leaves unsaid in
+Morton order: a block a copy covers is copied, and a residual block's
+cells are coded one by one, each predicted from the cells before it
+(see "Step 5: the last pass").
 
 Every structure the steps use -- the pyramids, the complex tiler's
 scratch, a payload's parts -- lives in one `Gct` (`src/gct/mod.rs`),
@@ -39,12 +42,13 @@ and each step clears or overwrites what the last bitmap left.
 Nothing grows. Every structure has an upper bound, and is allocated at
 it once: a pyramid at its shape, and every list (`fixed_list.rs`: a
 boxed array of fixed capacity and a length) at a bound named where it is
-made -- a run's tiles at the cells, residual 2x2s at the 2x2s, copied
-rows at a quarter of the cells (copies are 4x4 or bigger), candidates at
-the tiles down to 4x4, and so on. The stream is sized at the most bits
-any stream can take: its mode bit, the start level, 18 bits at every
-tile down to the 2x2 floor (8 nesting mask bits and a masking copy's
-10-bit header) and each cell's value said once -- 458750. Encoding and decoding never
+made -- the last pass's waiting and pending copies at the 4x4 blocks,
+candidates at the tiles down to 4x4, and so on. The stream is sized at
+the most bits any stream can take: its mode bit, the start level, 18
+bits at every tile down to the 4x4 floor (8 nesting mask bits and a
+masking copy's 10-bit header), each cell's value said once, and what
+the last pass can take over a bit a cell (594, see step 5) -- 164432.
+Encoding and decoding never
 allocate, the first bitmap included; pushing past a bound would be a
 bug, and panics rather than growing.
 
@@ -94,10 +98,10 @@ their words with no gaps.
 | pyramid | bits | levels | holds | sweep |
 |---|---|---|---|---|
 | `complex_tiling` | 32 | 0-7 | the placement the greedy tiler made here, if any, and the children it masks -- the greedy tiler writes these bits, the complex tiler the rest; the one size every cell under the tile is bound at, if any; the complex tile's size offset, if it is one; whether a raw complex tile masks it; the sizes of the whole binds under it | its own, once the placements are complete, two words of children at a time: a tile's bound size is its children's when all four share one; the sizes under it are all of its children's |
-| `tree` | 8 | 0-7 | the tree's node at a tile | none |
+| `tree` | 8 | 0-6 | the tree's node at a tile | none |
 | `costs` | 256 | 0-6 | eight 32-bit slots: a tile's bits with no candidate above it, then for each candidate resolution finer than the tile how much that candidate takes off them, up to seven changes -- a coarser one changes nothing, and the tile's own level's follows from the tile (the complex tiler's, a search area at a time) | none; every count set by the complex tiler's walk up |
 | `patterns` | 16 | 0-6 | the tile's pattern number: equal for two tiles of one size exactly when they hold the same cells; handed out in order of first appearance, 0 all clear and 1 all set, beside two tables a level -- a reverse lookup from a pattern (a 4x4's 16 cells, or a tile's four children's numbers, one word) to its number, each slot two bytes holding only the number (the pattern is read back off its first tile), and each number's first tile | its own, once a bitmap: the 4x4s' numbers from the bitmap's words, each coarser level's from the level below, one lookup a tile |
-| `copy_sources` | 16 | 6 | for each 4x4 block a copy covers, the block it is copied from, until it is (decoding) | none |
+| `copy_sources` | 16 | 6 | for each 4x4 block a copy covers, the block it is copied from, until it is (the last pass, both directions) | none |
 
 ## Step 1: the greedy tiler
 
@@ -105,7 +109,8 @@ their words with no gaps.
 there: a bind of one value, a copy of a same-size neighbour, a copy that
 masks some children, a bind that masks some children, or nothing (the
 tile is left to its four children). The result is *domain perfect*:
-every cell is said by exactly one placed tile or lies in a 2x2 said raw.
+every cell is said by exactly one placed tile or lies in a 2x2 that is
+not homogeneous.
 It is not yet the fewest bits: that is step 2's job.
 
 **What it reads:** the patterns pyramid: two same-size tiles hold the
@@ -144,7 +149,7 @@ place(tile, bound):
             said = children homogeneous with value v
             if said >= 2: place Bind(v) masking the other children;
                           place(child, v) for each masked child -- done
-  4. if tile is a 2x2: place nothing -- its four cells are said raw
+  4. if tile is a 2x2: place nothing
      else: place(child, bound) for each of the four children
 ```
 
@@ -175,8 +180,9 @@ searches for better ones, near and far together (`copy_offsets.csv`).
 taken at once, coarsest first. What a tile gets depends only on its own
 cells and what its ancestors got. Cells are always homogeneous, so the
 whole bitmap is always covered. A 2x2 is only asked whether it is
-homogeneous: nothing finer than a 2x2 is ever placed, so single cells
-only ever appear four at a time, as the raw cells of a 2x2.
+homogeneous: nothing finer than a 2x2 is ever placed. The tree goes no
+finer than 4x4 (step 3), so a placed 2x2 is read only by a complex tile
+of 2x2 resolution that unmasks it.
 
 **Example.** A 16x16 tile, the value bound above clear, whose top-left
 8x8 is all set, whose top-right 8x8 is all set, whose bottom-left 8x8
@@ -227,13 +233,13 @@ by_itself(tile)    = its node's own bits, each part at cost_in_raw(part):
     copy             leaf + code + far + direction (+ mask-present at 8x8+)
                      (+ 4-bit mask + masked parts, if it masks)
     nothing placed   1 (+ mask-present at 8x8+) + all four children
-    2x2              1 + (1 value bit if one tile, else its 4 raw cells)
+                     -- at 4x4, a residual block: 1 + its 16 cells
 a tile is masked (said by itself) when by_itself < raw
 ```
 
 For example a 4x4 bound whole costs 1 + 1 + 1 + 1 = 4 by itself against
-16 raw: masked. A 2x2 that is not one tile costs 1 + 4 = 5 by itself
-against 4 raw: raw. This only settles what a raw complex tile would
+16 raw: masked. A 4x4 with nothing placed costs 1 + 16 = 17 by itself
+against 16 raw: raw. This only settles what a raw complex tile would
 mask; whether one is worth placing is decided in 2c like any other.
 
 ### 2b. Filling in the tiling
@@ -281,8 +287,10 @@ a pass is scored; only its commits do.
 
 A candidate is scored in bits, counted exactly as the encoder would
 write them (`complex_tiler/bit_cost.rs`): mask bits, leaves, copies and
-their masked children, complex tiles with their bodies or payloads, the
-2x2 floor and residual cells. Every count is held before any is asked
+their masked children, complex tiles with their bodies or payloads, and
+residual blocks -- these at a bit a cell, a stand-in: the last pass
+codes their cells from the cells around them, so what they take depends
+on the whole pass, known only by coding it. Every count is held before any is asked
 (`complex_tiler/cost_pyramid.rs`). For each search area, one walk down
 collects the tiles a count can reach -- all a tile placed nothing says,
 the children a masking tile masks, nothing under a tile placed whole or
@@ -316,12 +324,8 @@ payload(n) = 4^n, one bit for each tile of the resolution
 ```
 
 Nothing else changes: no complex tile is under a search area's roots
-while its counts are filled. A 2x2 is never counted one by one: single
-cells only ever come four at a time, as a 2x2's raw cells, so a 2x2's
-bits depend only on whether it is one tile, whether a raw complex tile
-masks it, and whether the candidate reaches inside it (at 2x2 or 1x1
-resolution) -- twelve counts an area, made once when its counts are
-filled, every 2x2's read off them. Debug
+while its counts are filled. The 4x4 floor is the finest level counted:
+it has no child node. Debug
 builds check every count at 16x16 and finer against a reference count
 that counts every node under every candidate in full.
 
@@ -400,8 +404,8 @@ reaches (`tree_representation.rs`):
 | `Unmasked { nesting }` | unmasked in the nearest complex tile it is nested in whose resolution is the tile's single bound size (`nesting` 0 is the outermost) |
 | `ComplexTile { size_offset, masks }` | a placed whole bind (a tile: size offset 0), a masking bind (size offset 0, masking), or a committed complex tile; `masks` when not every resolution tile is unmasked in it |
 | `Copied { far, direction, masks }` | a placed copy |
-| `Subdivided` | anything else coarser than 2x2 |
-| `Residual` | a 2x2 that is not one whole bind |
+| `Subdivided` | anything else coarser than 4x4 |
+| `Residual` | anything else at 4x4: a residual block, its 16 cells left to the last pass |
 | `Absent` | no node: inside a coarser node's tile, or left to the binding above |
 
 **The binding above.** A divide at 8x8 or coarser leaves a child to the
@@ -445,11 +449,7 @@ nested in that could unmask it, nearest first --
   1: masked -- ask the next one out
 A node masked in all of them goes on:
 
-One level above cells (2x2):
-1: a tile + 1 value bit
-0: residual -- its four cells are left to the residual pass
-
-Any coarser level:
+Then, at any level:
 1: leaf
    0: copy  + 1 far/near bit + 2 direction bits, then at 8x8 or coarser
             0: no masking | 1: masking -- 4 child mask bits in reading
@@ -471,16 +471,16 @@ Any coarser level:
       then its payload: one value bit for every tile of its resolution
       unmasked in it, in body order (including nodes inside complex
       tiles nested in it), each node's tiles in Morton order
-0: subdivide, then at 8x8 or coarser
+0: at the 4x4 floor, a residual block: its 16 cells are left to the
+   last pass
+   coarser, subdivide, then at 8x8 or coarser
      0: four child nodes
      1: masking -- 1 flip bit (0: the binding above stays, 1: it flips,
         a masking bind), 4 child mask bits in reading order (0 left to
         the binding above, 1 a node), then each named child as a node
 
-After the whole tree, the residual pass: one raw bit for every cell of
-every residual 2x2, the 2x2s in Morton order, each one's four cells in
-Morton order -- as they lie in the bitmap, so each 2x2 is one 4-bit
-value.
+After the whole tree, the last pass (step 5): arithmetic-coded bits for
+the residual blocks' cells, if there are any.
 ```
 
 `resolution_width(level)` names size offsets 0 (a tile) to a 2x2 resolution:
@@ -510,27 +510,68 @@ tiler reads the bitmap.
 | complex tile, size offset > 1, masking | `1+1+r+1`, four child nodes, then its payload |
 | subdivide | `1`, `+1` at 8x8 or coarser |
 | masking subdivide, or masking bind | `1+1+1+4 = 7`, then its named children |
-| 2x2 tile | `1+1 = 2` |
-| 2x2 residual | `1`, then 4 raw bits in the residual pass |
+| residual block (4x4) | `1`, then its 16 cells in the last pass: under a bit each where the cells around them predict them |
 
 (`r` is `resolution_width(level)`. Every complex tile a node is nested
 in that could unmask it but masks it adds one `1` in front.)
 
-## Decoding
+## Step 5: the last pass
 
-A copy is chosen on content alone, so its source may not be resolved
-when the tree reaches it; it may even be a residual cell the residual pass binds.
-So decoding is separate steps: read the tree (each complex tile's
-payload filled into cells right after its body), read the residual
-pass, then resolve copies. A copy's own cells -- the copy, less the
-children it masks -- are always whole 4x4 blocks, and each block's
-source is the block the copy's offset away. Reading the tree notes each
-copied block's source in a one-level pyramid of 4x4 blocks; then the
-blocks are copied in Morton order, each block's 16 cells one run of the
-bitmap. A source up and to the right comes later in Morton order and
-may be a copied block not copied yet: then its own source goes first,
-down the chain. Every source is strictly earlier in the blocks' reading
-order -- above, or left in the same row -- so every chain ends.
+After the tree, encoding and decoding both make one more pass
+(`last_pass.rs`), over the 4x4 blocks the tree leaves unsaid, in Morton
+order:
+
+- a block a copy covers is copied from its source block;
+- a residual block's 16 cells are coded one by one, a row at a time,
+  each by the arithmetic coder (`grammar/arithmetic.rs`) at the odds its
+  context has had so far.
+
+**Copies.** A copy is chosen on content alone, so its source may still
+be unsaid when the tree reaches it -- even a residual block. A copy's
+own cells -- the copy, less the children it masks -- are always whole
+4x4 blocks, and each block's source is the block the copy's offset
+away: walking the tree notes each copied block's source in a one-level
+pyramid of 4x4 blocks. Every source is before its copy in reading
+order, but a source up and to the right comes later in Morton order:
+a copied block's source copied first, down the chain, and when the
+chain ends at a residual block not coded yet the copy waits until the
+end of the pass.
+
+**The context.** Six cells before the cell being coded: top left,
+above and left, and the same two cells away -- `(-1,-1)`, `(0,-1)`,
+`(-1,0)`, `(-2,-2)`, `(0,-2)`, `(-2,0)`. Left and above never come
+later in Morton order, so each is final when the cell is coded, but for
+a cell of a copy still waiting on its source, which reads as clear, as
+does one off the bitmap. The six cells' values pick one of 64 contexts.
+Encoding works on the cells as decoding will have them at each step, so
+both read the same contexts.
+
+**The odds.** Each context counts how often its cell was clear and how
+often set so far, each starting at a half (the Krichevsky-Trofimov
+estimate): the odds are learned from the bitmap alone, and nothing about
+them is written. A cell the odds expect costs well under a bit; a
+surprise more. Over a whole bitmap the pass takes at most the fewest
+bits its cells could be said in, context by context, plus half the log2
+of the cells coded in each context and one, the coder's rounding (under
+2^-12 bits a cell) and its two finishing bits -- so never more than a
+bit a cell and 594 bits.
+
+**The coder** holds an interval of `[0, 1)` as two 32-bit ends. A cell
+splits it at its odds, clear below and set above, and keeps its part;
+a settled leading bit is written and the interval doubled, so it never
+narrows below a quarter. The stream is the fewest bits naming a number
+inside the final interval that no bits after it (the reader reads 0 past
+the end) can take out of it. Decoding replays every split with the same
+odds, and reads each cell off which part that number lies in.
+
+**Why the 4x4 floor.** With the floor at 2x2, a 2x2 that was not one
+tile cost 5 bits, its leaf bit and four raw cells, and a 4x4 divided
+into 2x2s at least 9. With the floor at 4x4, such a 4x4 is one residual
+block: its leaf bit, then 16 cells the last pass codes from the cells
+around them -- well under a bit a cell along the edges of streets and
+lines, where the neighbours say nearly everything. Raw, the 4x4 floor
+would lose (17 bits a block); predicted, it wins, and gives the
+contexts whole blocks to learn from.
 
 ## Tests
 
@@ -539,10 +580,12 @@ test), `gct_fast` (a small seeded sample), `gct_complete` (everything,
 plus a second seed base and the checkerboards). Each judges what the
 diagnostics (`src/diagnostics/`) gather; the diagnostics tool
 (`src/bin/gct_diagnostics/`) prints it, the measurement below included.
-Every check: every cell is said by exactly one placed tile, or lies in
-a 2x2 that placed nothing and is said raw; nothing finer than 4x4
+Every check: every cell is said by exactly one placed tile, or in a
+residual block by the last pass, or lies in a 2x2 that placed nothing
+inside a raw complex tile or a cell list; nothing finer than 4x4
 copies; nothing finer than a 2x2 is placed; the complex tiler's bit
-cost is the encoder's count; at most the raw cells and 1% are spent;
+cost, with the last pass's bits in place of its stand-in for residual
+blocks, is the encoder's count; at most the raw cells and 1% are spent;
 the tree read back is the tree written; decoding gives back every
 cell.
 
@@ -584,11 +627,11 @@ holds it to.
 copy are the tree's worst case -- every node says its own place, and an
 empty region beside a set cell is a node of its own. The count split
 pays nothing for an empty or full region and a bit a halving for a lone
-cell. Measured (`sparse.csv`): clustered bitmaps take 11-30% fewer bits
+cell. Measured (`sparse.csv`): clustered bitmaps take 8-32% fewer bits
 than the tree at every density from a few cells to 15% set, and
 scattered ones fewer below about 0.15% (a hundred cells); from there up
 scattered cells split near evenly, the uniform count wastes bits, and
-the tree is kept. Grown blobs a fifth or half set take 13-16% fewer too
+the tree is kept. Grown blobs up to half set go to the count split too
 (`measurement.csv`).
 
 Only one of the two is ever made. After the greedy tiler, with its
@@ -596,7 +639,9 @@ tiling filled in, the encoder counts two trees the grammar can always
 write, without making either:
 
 - the **greedy tree**: the greedy tiler's tiles alone, no complex tiles
-  -- the complex tiler only ever commits what takes bits off it;
+  -- the complex tiler only ever commits what takes bits off it --
+  its residual blocks counted at a bit a cell, as the complex tiler
+  counts them;
 - the **cell lists tree**: start level 1, every 128x128 a cell list --
   what the complex tiler comes to on scattered cells.
 
@@ -605,9 +650,11 @@ the complex tiler runs and the tree is made. Counting the count split
 stops once it reaches the greedy tree's bits, and the cell lists tree is
 counted only if it gets under them. There is no threshold: the rule
 compares bits. On every sample family (the tested counts) and the
-sparse sweep -- 948 bitmaps, from none set to three quarters -- it picks the shorter
-encoding every time: 10.37% fewer bits than the tree alone, the same as
-making both and keeping the shorter. The greedy tree alone is not
+sparse sweep -- 948 bitmaps, from none set to three quarters -- it picks
+the shorter encoding for 940: 8.908% fewer bits than the tree alone,
+where making both and keeping the shorter would save 8.909%. The other
+8 lose 45 bits between them: the last pass takes less than a bit a
+cell, so there the tree was shorter than counted. The greedy tree alone is not
 enough: on scattered cells it overestimates the tree by the cell lists
 it lacks, and wrongly picks the count split.
 

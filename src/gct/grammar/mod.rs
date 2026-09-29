@@ -5,11 +5,13 @@
 //!
 //! A stream is its mode, then either the tree -- the start level, the
 //! tree node by node from every tile of that level in Morton order (each
-//! complex tile's payload right after its body), then the residual pass
-//! -- or, when it takes fewer bits, the bitmap's
+//! complex tile's payload right after its body), then the
+//! [last pass](crate::gct::last_pass) -- or, when it takes fewer bits,
+//! the bitmap's
 //! [count split](count_split): sparse cells, with no whole areas and
 //! nothing to copy, which the tree says poorly.
 
+pub mod arithmetic;
 pub mod bit_stream;
 pub mod cell_list;
 pub mod count_split;
@@ -27,12 +29,11 @@ pub const COUNT_SPLIT_STREAM: u64 = 1;
 /// Bits in the stream's mode.
 pub const STREAM_MODE_WIDTH: u8 = 1;
 
-/// A residual 2x2's bits in the residual pass: one a cell, in Morton
-/// order -- as its cells lie in the bitmap, so read or written as one
-/// value.
-pub const RESIDUAL_SQUARE_BITS: u8 = cells_in_tile(FLOOR_LEVEL) as u8;
+/// A residual block's bits in the last pass: one a cell, in Morton order
+/// -- as its cells lie in the bitmap, so read or written as one value.
+pub const RESIDUAL_BLOCK_BITS: u8 = cells_in_tile(FLOOR_LEVEL) as u8;
 
-/// The level the tree starts at, whole bitmap (0) to the 2x2 floor:
+/// The level the tree starts at, whole bitmap (0) to the 4x4 floor:
 /// every coarser tile subdivides, so none of them is written.
 pub const START_LEVEL_WIDTH: u8 = (u8::BITS - (FLOOR_LEVEL).leading_zeros()) as u8;
 
@@ -48,14 +49,13 @@ pub const MASKED: u64 = 1;
 /// Bits in one mask bit.
 pub const MASK_BIT_WIDTH: u8 = 1;
 
-/// The leaf bit's value for a leaf: a copy or a bind follows, or, at
-/// the 2x2 floor, a tile and its value.
+/// The leaf bit's value for a leaf: a copy or a bind follows.
 pub const LEAF: u64 = 1;
-/// The leaf bit's value for a divide, above the 2x2 floor: the node's
+/// The leaf bit's value for a divide, above the 4x4 floor: the node's
 /// children follow, or, at 8x8 and coarser, first its mask-present bit.
 pub const SUBDIVIDE: u64 = 0;
-/// The leaf bit's value at the 2x2 floor for a residual: its four cells
-/// are left to the residual pass.
+/// The leaf bit's value at the 4x4 floor for a residual block: its
+/// cells are left to the last pass.
 pub const RESIDUAL: u64 = 0;
 /// Bits in the leaf bit.
 pub const LEAF_WIDTH: u8 = 1;

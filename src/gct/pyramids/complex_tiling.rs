@@ -36,7 +36,7 @@
 use super::placements::{placement_code, placement_from_code, Placement, BOUND_AT_THE_TOP, FINEST_MASKING_LEVEL, PLACEMENT_CODE_BITS};
 use super::pyramid::{Pyramid, PyramidShape};
 use crate::gct::nested_resolutions::NestedResolutions;
-use crate::gct::tile::{tiles_in_level, Tile, CELL_LEVEL, CHILDREN, LEVEL_BITS, FLOOR_LEVEL};
+use crate::gct::tile::{tiles_in_level, Tile, CELL_LEVEL, CHILDREN, LEVEL_BITS, FINEST_PLACED_LEVEL};
 
 /// A field's value for nothing: no bound size, no size offset.
 const EMPTY_FIELD: u64 = 0;
@@ -193,13 +193,14 @@ impl Fields {
     }
 }
 
-/// 32 bits a tile, whole bitmap to the 2x2 floor: the fields above.
+/// 32 bits a tile, whole bitmap to the finest placed tile, a 2x2: the
+/// fields above.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct ComplexTilingShape;
 
 impl PyramidShape for ComplexTilingShape {
     const COARSEST_LEVEL: u8 = 0;
-    const FINEST_LEVEL: u8 = FLOOR_LEVEL;
+    const FINEST_LEVEL: u8 = FINEST_PLACED_LEVEL;
     const ELEMENT_BITS: usize = ELEMENT_BITS;
 }
 
@@ -228,7 +229,7 @@ impl ComplexTiling {
     /// Every placed tile, coarsest level first, Morton order within
     /// each level.
     pub fn placed_tiles(&self) -> impl Iterator<Item = (Tile, Placement)> + '_ {
-        (0..=FLOOR_LEVEL).flat_map(move |level| {
+        (0..=FINEST_PLACED_LEVEL).flat_map(move |level| {
             Tile::all_of_level(level).filter_map(move |tile| self.placed_at(tile).map(|placement| (tile, placement)))
         })
     }
@@ -285,7 +286,7 @@ impl ComplexTiling {
 /// two. Done once, when the placements are complete: nothing set
 /// afterwards changes either field.
 fn carry_bound_sizes_up(pyramid: &mut ComplexTiling) {
-    for level in (0..FLOOR_LEVEL).rev() {
+    for level in (0..FINEST_PLACED_LEVEL).rev() {
         let (coarser, finer) = pyramid.level_and_finer_mut(level);
         for tile_index in 0..tiles_in_level(level) {
             let children_words = &finer[CHILDREN_WORDS * tile_index..][..CHILDREN_WORDS];
@@ -303,14 +304,14 @@ fn carry_bound_sizes_up(pyramid: &mut ComplexTiling) {
 }
 
 /// Hands the value bound above down from the whole bitmap, a level at a
-/// time, to the 2x2 floor: a tile's children have its value if a bind
+/// time, to the finest placed tile: a tile's children have its value if a bind
 /// that masks is placed at it, else the value bound above it -- all four
 /// consecutive elements, two words, set at once. After the bound sizes
 /// are carried up, which reads children that must hold nothing else.
 fn hand_bound_above_down(pyramid: &mut ComplexTiling) {
     let whole_bitmap_element = pyramid.fields(Tile::whole_bitmap()).0;
     pyramid.set(Tile::whole_bitmap(), with_field(whole_bitmap_element, BOUND_ABOVE, BOUND_AT_THE_TOP as u64));
-    for level in 0..FLOOR_LEVEL {
+    for level in 0..FINEST_PLACED_LEVEL {
         let (coarser, finer) = pyramid.level_and_finer_mut(level);
         for tile_index in 0..tiles_in_level(level) {
             let element = element_at(coarser, tile_index);

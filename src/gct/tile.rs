@@ -12,9 +12,14 @@ use crate::morton::{morton_coordinates, morton_index};
 /// The level of a single cell, the finest there is.
 pub const CELL_LEVEL: u8 = 8;
 
-/// The 2x2 floor: the finest tile the greedy tiler places or the tree
-/// holds a node at -- a 2x2 that is not one tile has its cells said raw.
-pub const FLOOR_LEVEL: u8 = CELL_LEVEL - 1;
+/// The 4x4 floor: the finest tile the tree holds a node at -- a 4x4
+/// that is not one tile, a copy or a complex tile of 2x2 resolution is a
+/// residual block, its cells said in the last pass.
+pub const FLOOR_LEVEL: u8 = CELL_LEVEL - 2;
+
+/// The finest tile the greedy tiler places: a 2x2, finer than the tree
+/// goes, for the complex tiles of 2x2 resolution that unmask it.
+pub const FINEST_PLACED_LEVEL: u8 = CELL_LEVEL - 1;
 
 /// Where a tile may copy from: the four same-size neighbours reading
 /// order puts before it -- top left, above, top right, left.

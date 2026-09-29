@@ -30,21 +30,18 @@
 //! entirely unmasked in the area; then back up, a level at a time, each
 //! tile's bits and changes from its children's, by the rules the bit
 //! count ([`super::bit_cost`]) spells out. The value bound above a tile
-//! is its own field in the complex tiling, not carried down. A 2x2's
-//! bits depend only on whether it is one tile, whether a raw complex
-//! tile masks it, and whether the candidate reaches inside it -- at 2x2
-//! or 1x1 -- so an area's twelve 2x2 counts are made once and read off.
-//! Nothing is changed while the pyramid is read: it is a snapshot of the
+//! is its own field in the complex tiling, not carried down. The 4x4
+//! floor, the finest level held, has no child node to count. Nothing is changed while the pyramid is read: it is a snapshot of the
 //! tiling as the pass found it.
 
 use super::bit_cost::{node_bits, payload_bits};
 use crate::gct::fixed_list::FixedList;
-use crate::gct::grammar::{CHILD_MASK_WIDTH, FLIP_WIDTH, LEAF_WIDTH, MASK_BIT_WIDTH};
+use crate::gct::grammar::{CHILD_MASK_WIDTH, FLIP_WIDTH, MASK_BIT_WIDTH};
 use crate::gct::nested_resolutions::NestedResolutions;
 use crate::gct::pyramids::complex_tiling::{ComplexTiling, Fields};
 use crate::gct::pyramids::costs::{Changes, Costs, FINEST_HELD, NO_CANDIDATE, RESOLUTIONS};
 use crate::gct::pyramids::placements::Placement;
-use crate::gct::tile::{cells_in_tile, tiles_down_to, Tile, ALL_CHILDREN, CELL_LEVEL, FLOOR_LEVEL};
+use crate::gct::tile::{tiles_down_to, Tile, ALL_CHILDREN};
 use crate::Bitmap;
 
 /// The most tiles a count can reach: every tile held, whole bitmap to
@@ -56,72 +53,6 @@ const MOST_REACHED: usize = tiles_down_to(FINEST_HELD);
 /// that leaves none does not.
 const LEAVING_BITS: i32 = (FLIP_WIDTH + CHILD_MASK_WIDTH) as i32;
 
-/// Set in a 2x2's kind when it is one tile, not four raw cells.
-const WHOLE_KIND: usize = 1;
-/// Set in a 2x2's kind when a complex tile of 1x1 resolution masks it.
-const RAW_MASKED_KIND: usize = 2;
-/// 2x2 kinds.
-const FLOOR_KINDS: usize = WHOLE_KIND + RAW_MASKED_KIND + 1;
-
-/// What a 2x2 is, as far as its bits go: one tile or four raw cells,
-/// and whether a complex tile of 1x1 resolution masks it -- its value,
-/// and anything else, change nothing.
-fn floor_kind(here: Fields) -> usize {
-    let whole = if here.placed().is_some_and(Placement::is_whole_bind) { WHOLE_KIND } else { 0 };
-    whole | if here.raw_masks() { RAW_MASKED_KIND } else { 0 }
-}
-
-/// Candidates a 2x2's bits can differ under: none, and the two
-/// resolutions that reach inside a 2x2 -- itself, and 1x1.
-const FLOOR_CANDIDATES: [u8; 3] = [NO_CANDIDATE, FLOOR_LEVEL, CELL_LEVEL];
-/// Where no candidate is in [`FLOOR_CANDIDATES`]...
-const UNDER_NO_CANDIDATE: usize = 0;
-/// ...one of 2x2 resolution...
-const UNDER_FLOOR_CANDIDATE: usize = 1;
-/// ...and one of 1x1 resolution.
-const UNDER_CELL_CANDIDATE: usize = 2;
-const _: () = assert!(
-    FLOOR_CANDIDATES[UNDER_NO_CANDIDATE] == NO_CANDIDATE
-        && FLOOR_CANDIDATES[UNDER_FLOOR_CANDIDATE] == FLOOR_LEVEL
-        && FLOOR_CANDIDATES[UNDER_CELL_CANDIDATE] == CELL_LEVEL
-);
-
-/// Which of [`FLOOR_CANDIDATES`] a candidate of `resolution` counts as,
-/// for a 2x2: none, if it is coarser.
-fn floor_candidate(resolution: u8) -> usize {
-    match resolution {
-        FLOOR_LEVEL => UNDER_FLOOR_CANDIDATE,
-        CELL_LEVEL => UNDER_CELL_CANDIDATE,
-        _ => UNDER_NO_CANDIDATE,
-    }
-}
-
-/// A 2x2's bits, by its kind and the candidate above it, in one search
-/// area: 1 a leaf bit and a value bit, or a residual bit and four raw
-/// cells -- after its mask bits, nearest complex tile first, unless one
-/// unmasks it, when its bits are those mask bits and that one's payload.
-/// Nothing else of a 2x2 or its nesting counts, so the area's twelve
-/// counts are made once, and every 2x2's is read off.
-fn floor_bits(base: &NestedResolutions) -> [[u64; FLOOR_CANDIDATES.len()]; FLOOR_KINDS] {
-    let floor = Tile { level: FLOOR_LEVEL, x: 0, y: 0 };
-    std::array::from_fn(|kind| {
-        let (whole, raw_masked) = (kind & WHOLE_KIND != 0, kind & RAW_MASKED_KIND != 0);
-        FLOOR_CANDIDATES.map(|candidate| {
-            let nested = if candidate == NO_CANDIDATE { *base } else { base.with_nested(candidate) };
-            let mut mask_bits = 0;
-            for nesting in nested.able_to_unmask(floor) {
-                mask_bits += MASK_BIT_WIDTH as u64;
-                let resolution = nested.resolution(nesting);
-                let unmasked = if resolution == CELL_LEVEL { !raw_masked } else { whole && resolution == FLOOR_LEVEL };
-                if unmasked {
-                    return mask_bits + payload_bits(resolution - FLOOR_LEVEL);
-                }
-            }
-            mask_bits + LEAF_WIDTH as u64 + if whole { payload_bits(0) } else { cells_in_tile(FLOOR_LEVEL) }
-        })
-    })
-}
-
 /// The cost pyramid, and room to collect the tiles to fill it for, all
 /// allocated once.
 pub struct CostPyramid {
@@ -130,18 +61,12 @@ pub struct CostPyramid {
     counts: Costs,
     /// The tiles a count can reach, each after its parent.
     reached: FixedList<Tile, MOST_REACHED>,
-    /// Every 2x2's bits in the area, by its kind and candidate.
-    floor: [[u64; FLOOR_CANDIDATES.len()]; FLOOR_KINDS],
 }
 
 impl Default for CostPyramid {
     /// The pyramid allocated, nothing counted.
     fn default() -> Self {
-        Self {
-            counts: Costs::new(),
-            reached: FixedList::new(),
-            floor: [[0; FLOOR_CANDIDATES.len()]; FLOOR_KINDS],
-        }
+        Self { counts: Costs::new(), reached: FixedList::new() }
     }
 }
 
@@ -187,7 +112,6 @@ impl CostPyramid {
     /// in a search area nested in `base`.
     pub fn fill(&mut self, complex_tiling: &ComplexTiling, bitmap: &Bitmap, roots: &[Tile], base: &NestedResolutions) {
         debug_assert!(roots.iter().all(|root| root.level == roots[0].level), "roots of one level");
-        self.floor = floor_bits(base);
         self.reached.clear();
         self.reached.extend(roots.iter().copied().filter(|root| root.level <= FINEST_HELD));
         // Down, breadth first, so a level at a time: every tile reached is
@@ -238,30 +162,17 @@ impl CostPyramid {
     }
 
     /// `tile`'s bits with no candidate, nested as the area is, and its
-    /// changes: held, or, for a 2x2, whose fields are `here`, read off the
-    /// area's 2x2 counts.
+    /// changes, whose fields are `here`.
     fn without_and_changes(&self, tile: Tile, here: Fields) -> (u64, Changes) {
-        if tile.level > FINEST_HELD {
-            let bits = &self.floor[floor_kind(here)];
-            let without = bits[UNDER_NO_CANDIDATE];
-            let mut changes = [0; RESOLUTIONS];
-            changes[FLOOR_LEVEL as usize - 1] = without as i32 - bits[UNDER_FLOOR_CANDIDATE] as i32;
-            changes[CELL_LEVEL as usize - 1] = without as i32 - bits[UNDER_CELL_CANDIDATE] as i32;
-            return (without, changes);
-        }
         let without = self.counts.without(tile);
         let mut changes = self.counts.finer_changes(tile);
         changes[tile.level as usize - 1] = own_level_change(tile, here, without);
         (without, changes)
     }
 
-    /// `tile`'s bits under a candidate of `resolution` in the area: held,
-    /// or, for a 2x2, whose fields are `here`, read off the area's 2x2
-    /// counts.
+    /// `tile`'s bits under a candidate of `resolution` in the area, whose
+    /// fields are `here`.
     pub fn child_bits(&self, tile: Tile, here: Fields, resolution: u8) -> u64 {
-        if tile.level > FINEST_HELD {
-            return self.floor[floor_kind(here)][floor_candidate(resolution)];
-        }
         let without = self.counts.without(tile);
         let change = match resolution {
             NO_CANDIDATE => 0,

@@ -25,15 +25,16 @@
 //! cheaper.
 //!
 //! A 2x2 is only ever asked whether it is homogeneous: if not, nothing
-//! is placed in it -- its four cells are said raw, by the residual pass
-//! or a complex tile of 1x1 resolution -- so nothing finer than a 2x2 is
-//! ever placed.
+//! is placed in it -- its cells are said in the last pass or by a
+//! complex tile of 1x1 resolution -- so nothing finer than a 2x2 is ever
+//! placed. The tree goes no finer than 4x4: a 2x2 placed is read only
+//! by a complex tile of 2x2 resolution that unmasks it.
 
 use crate::gct::pyramids::complex_tiling::ComplexTiling;
 use crate::gct::pyramids::copyable::{child_offset, matches_at, matching_direction, CopyOffsets, FINEST_COPY_LEVEL};
 use crate::gct::pyramids::placements::{Placement, BOUND_AT_THE_TOP, FINEST_MASKING_LEVEL};
 use crate::gct::pyramids::patterns::Patterns;
-use crate::gct::tile::{directions, Tile, FLOOR_LEVEL};
+use crate::gct::tile::{directions, Tile, FINEST_PLACED_LEVEL};
 use crate::Bitmap;
 
 /// A masking copy costs about 10 bits before its masked children: a
@@ -83,9 +84,9 @@ struct Content<'a> {
 /// above `tile`.
 fn place_at_or_under(content: &Content, tile: Tile, bound_above: bool, placements: &mut ComplexTiling) {
     let Some(placement) = placement(content, tile, bound_above) else {
-        if tile.level == FLOOR_LEVEL {
-            // A 2x2 that is not one tile: its cells are said raw, and
-            // nothing reads a placement finer than a 2x2.
+        if tile.level == FINEST_PLACED_LEVEL {
+            // A 2x2 that is not one tile: nothing reads a placement finer
+            // than a 2x2.
             return;
         }
         for child in tile.children() {
