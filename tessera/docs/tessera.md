@@ -56,7 +56,7 @@ allocated once. `tessera.encode(&bitmap, &mut stream)` and
 and each step clears or overwrites what the last bitmap left.
 
 Nothing grows. Every structure has an upper bound, and is allocated at
-it once: a pyramid at its shape, and every list (`fixed_list.rs`: a
+it once: a pyramid at its shape, and every list (`FixedList`, `../utilities/src/fixed_list.rs`: a
 boxed array of fixed capacity and a length) at a bound named where it is
 made -- the last pass's waiting and pending copies at the 4x4 blocks.
 The stream is sized at the most bits any stream can take: its mode bit,
@@ -76,7 +76,7 @@ a single cell) and its (x, y) in that level's plane; its children are
 the 2x2 block one level finer.
 
 The bitmap and every pyramid level are laid out in Morton (Z) order
-(`src/morton.rs`): a cell's index interleaves its coordinates' bits, so
+(`../bitmap/src/morton.rs`): a cell's index interleaves its coordinates' bits, so
 
 ```text
  0  1  4  5
@@ -519,11 +519,11 @@ contexts whole blocks to learn from.
 
 ## Tests
 
-In `tests/`, per `docs/testing_protocol.md`: `tessera_fine` (one bitmap per
-test), `tessera_fast` (a small seeded sample), `tessera_complete` (everything,
+In `tests/`, per `docs/testing_protocol.md`: `fine` (one bitmap per
+test), `fast` (a small seeded sample), `complete` (everything,
 plus a second seed base and the checkerboards). Each judges what the
 diagnostics (`src/diagnostics/`) gather; the diagnostics tool
-(`src/bin/tessera_diagnostics/`) prints it, the measurement below included.
+(`src/bin/diagnostics/`) prints it, the measurement below included.
 Every check: every cell is said by exactly one placed tile, or in a
 residual block by the last pass, or lies in a 2x2 that placed nothing
 inside a raw complex tile or a cell list; nothing finer than 4x4
@@ -542,22 +542,22 @@ file's notes, and rewrites the file on every run; `show` prints them
 back without measuring (`docs/testing_protocol.md`):
 
 ```
-cargo run --release --bin tessera_diagnostics -- show
-cargo run --release --bin tessera_diagnostics -- show measurement
+cargo run --release --bin diagnostics -- show
+cargo run --release --bin diagnostics -- show measurement
 ```
 
 | file | written by | holds |
 |---|---|---|
-| `measurement.csv` | `cargo run --release --bin tessera_diagnostics -- measurement` | bits a bitmap by generator and parameter set, the checkerboards and the saved adversarial bitmaps; what the trees hold, family by family |
-| `census.csv` | `cargo run --release --bin tessera_diagnostics -- census` | node kinds by level, for each adversarial record and saved bitmap |
-| `per_shape.csv` | `cargo run --release --bin tessera_diagnostics -- per_shape` | bits a bitmap and a cell set, shape by shape |
-| `noise.csv` | `cargo run --release --bin tessera_diagnostics -- noise` | bits on noise at several densities, against the raw cells |
-| `copy_offsets.csv` | `cargo run --release --bin tessera_diagnostics -- copy_offsets` | the search for copy offsets, near and far: each climb, its best against the current offsets, and the best drawn |
-| `timing.csv` | `cargo run --release --bin tessera_diagnostics -- timing` | encode and decode times, family by family |
-| `instruction_count.csv` | `cargo run --release --bin tessera_diagnostics -- instruction_count` | instructions to encode and to decode a sample, counted by callgrind |
-| `sparse.csv` | `cargo run --release --bin tessera_diagnostics -- sparse` | the tree against the count split on sparse bitmaps, beside the least scattered cells can take |
+| `measurement.csv` | `cargo run --release --bin diagnostics -- measurement` | bits a bitmap by generator and parameter set, the checkerboards and the saved adversarial bitmaps; what the trees hold, family by family |
+| `census.csv` | `cargo run --release --bin diagnostics -- census` | node kinds by level, for each adversarial record and saved bitmap |
+| `per_shape.csv` | `cargo run --release --bin diagnostics -- per_shape` | bits a bitmap and a cell set, shape by shape |
+| `noise.csv` | `cargo run --release --bin diagnostics -- noise` | bits on noise at several densities, against the raw cells |
+| `copy_offsets.csv` | `cargo run --release --bin diagnostics -- copy_offsets` | the search for copy offsets, near and far: each climb, its best against the current offsets, and the best drawn |
+| `timing.csv` | `cargo run --release --bin diagnostics -- timing` | encode and decode times, family by family |
+| `instruction_count.csv` | `cargo run --release --bin diagnostics -- instruction_count` | instructions to encode and to decode a sample, counted by callgrind |
+| `sparse.csv` | `cargo run --release --bin diagnostics -- sparse` | the tree against the count split on sparse bitmaps, beside the least scattered cells can take |
 | `external_benchmarks.csv` | `cargo run --release --manifest-path external_benchmarks/Cargo.toml` | Tessera against G4, JBIG and zstd: bits and times, family by family |
-| `tessera_adversarial.csv` | `cargo run --release --bin tessera_adversarial` | the last search against the raw cells: what each of its searches found, and the record before and after |
+| `adversarial.csv` | `cargo run --release --bin adversarial` | the last search against the raw cells: what each of its searches found, and the record before and after |
 | `external_adversarial.csv` | `cargo run --release --manifest-path external_benchmarks/Cargo.toml --bin adversarial` | the last searches against the codecs: each record's gap before and after, both encoders' bits and times on it |
 
 On noise Tessera spends four raw 128x128 complex tiles, each with its

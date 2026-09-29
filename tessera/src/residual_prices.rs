@@ -13,7 +13,7 @@
 
 use crate::last_pass::BLOCKS;
 use crate::tile::{Tile, FLOOR_LEVEL};
-use crate::morton::morton_index;
+use bitmap::morton::morton_index;
 
 /// Each residual block's bits in the last pass, by its Morton index
 /// among the 4x4 blocks: rounded to the nearest bit, as the counts the

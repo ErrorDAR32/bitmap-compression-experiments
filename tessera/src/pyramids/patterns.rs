@@ -28,8 +28,8 @@
 use super::copyable::FINEST_COPY_LEVEL;
 use super::pyramid::{Pyramid, PyramidShape};
 use crate::tile::{tiles_in_level, tiles_down_to, Tile, CELL_LEVEL};
-use crate::morton::morton_coordinates;
-use crate::Bitmap;
+use bitmap::morton::morton_coordinates;
+use bitmap::Bitmap;
 
 /// What a tile whose pattern number is `number` holds, if every cell of
 /// it agrees.

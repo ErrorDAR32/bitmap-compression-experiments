@@ -4,7 +4,7 @@
 
 use super::Codec;
 use crate::rows::{Rows, BYTES, HEIGHT, ROW_BYTES, WIDTH};
-use tessera::Bitmap;
+use bitmap::Bitmap;
 use fax::decoder::decode_g4;
 use fax::encoder::Encoder;
 use fax::{Color, VecWriter};

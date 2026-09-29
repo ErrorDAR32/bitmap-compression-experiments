@@ -12,9 +12,13 @@ complex tile takes fewer bits than the tiles under it, it replaces
 them. The result is written as a tree, and the cells no tile says are
 coded from the cells around them.
 
-This folder is a project of its own: a Rust crate with no dependencies
-beyond the standard library, with its own tests, tools, documentation
-and benchmarks. Every command below runs from here, `tessera/`.
+This folder is a project of its own: a Rust crate with its own tests,
+tools, documentation and benchmarks. It depends only on the standard
+library and two crates beside it in the repository:
+[`bitmap`](../bitmap/), the bitmap it encodes, and
+[`utilities`](../utilities/), the table printer, the random source and
+the fixed-capacity list. Every command below runs from here,
+`tessera/`.
 
 ## What it holds to
 
@@ -35,8 +39,9 @@ and benchmarks. Every command below runs from here, `tessera/`.
 ## Using it
 
 ```rust
+use bitmap::Bitmap;
 use tessera::grammar::bit_stream::BitStream;
-use tessera::{Bitmap, Tessera};
+use tessera::Tessera;
 
 let mut bitmap = Bitmap::new();
 bitmap.set_rect(10, 10, 40, 30);
@@ -80,7 +85,8 @@ nothing; the last four write and decide nothing.
 Decoding reads the mode, then either the count split, or the tree and
 the same last pass.
 
-`docs/tessera.md` describes every step and every bit of the stream.
+[`docs/tessera.md`](docs/tessera.md) describes every step and every
+bit of the stream.
 
 ## Testing
 
@@ -88,9 +94,9 @@ Three tiers:
 
 | tier | what | command |
 |---|---|---|
-| fine | one bitmap a test, hand-drawn or grown from the seed; every adversarial record and saved bitmap | `cargo test --test tessera_fine` |
-| fast | a small seeded sample of every generator, and every family turned each way | `cargo test --test tessera_fast` |
-| complete | everything the measurements run on, a second seed base, every checkerboard | `cargo test --release --test tessera_complete -- --ignored` |
+| fine | one bitmap a test, hand-drawn or grown from the seed; every adversarial record and saved bitmap | `cargo test --test fine` |
+| fast | a small seeded sample of every generator, and every family turned each way | `cargo test --test fast` |
+| complete | everything the measurements run on, a second seed base, every checkerboard | `cargo test --release --test complete -- --ignored` |
 
 Plain `cargo test` runs fine, fast and the unit tests. Every check
 covers the same ground:
@@ -104,19 +110,19 @@ covers the same ground:
 Sampled bitmaps come from a seed kept in `tests/last_seed`, outside git.
 It rolls by itself every five runs, so no corpus is measured against for
 long. `TESSERA_SEED=<seed>` pins a run, and `TESSERA_SEED=fresh` draws a
-new seed for one run. `docs/testing_protocol.md` is the whole protocol,
-with every command and every parameter.
+new seed for one run. [`docs/testing_protocol.md`](docs/testing_protocol.md)
+is the whole protocol, with every command and every parameter.
 
 ## Tools
 
 Every tool prints its results as tables. A tool that measures also keeps
-them in `docs/measurements/`.
+them in [`docs/measurements/`](docs/measurements/).
 
 | command | does |
 |---|---|
-| `cargo run --release --bin tessera_diagnostics` | lists the diagnostics tools: bits by generator and shape, node census, noise, sparse bitmaps, copy offsets, timing, instruction counts, PNG renders |
-| `cargo run --release --bin tessera_diagnostics -- show` | prints every kept measurement without measuring |
-| `cargo run --release --bin tessera_adversarial` | searches for the bitmaps Tessera does worst on against the raw cells |
+| `cargo run --release --bin diagnostics` | lists the diagnostics tools: bits by generator and shape, node census, noise, sparse bitmaps, copy offsets, timing, instruction counts, PNG renders |
+| `cargo run --release --bin diagnostics -- show` | prints every kept measurement without measuring |
+| `cargo run --release --bin adversarial` | searches for the bitmaps Tessera does worst on against the raw cells |
 | `cargo run --release --manifest-path external_benchmarks/Cargo.toml` | Tessera against CCITT G4, JBIG and zstd 3 and 19: bits and times, family by family |
 | `cargo run --release --manifest-path external_benchmarks/Cargo.toml --bin adversarial` | searches for the bitmaps Tessera does worst on against each of them |
 
@@ -138,6 +144,6 @@ tessera/
   external_benchmarks/  against G4, JBIG and zstd; the adversarial bitmaps
 ```
 
-`src/lib.rs` maps every module to its step. The TileSim repository's
-`docs/design_statements.md` is what every design decision here is
-weighed against.
+[`src/lib.rs`](src/lib.rs) maps every module to its step. The
+repository's [design statements](../docs/design_statements.md) are what
+every design decision here is weighed against.

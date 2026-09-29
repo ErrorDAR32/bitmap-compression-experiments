@@ -8,8 +8,8 @@ use crate::pyramids::copyable::matches_at;
 use crate::pyramids::placements::Placement;
 use crate::pyramids::patterns::value_of;
 use crate::tile::{cells_in_tile, directions, Tile, FINEST_PLACED_LEVEL};
-use crate::morton::morton_index;
-use crate::Bitmap;
+use bitmap::morton::morton_index;
+use bitmap::Bitmap;
 
 /// A masking copy costs about 10 bits before its masked children: a
 /// copy, a mask-present bit, a 4-bit child mask. What it saves depends

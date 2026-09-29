@@ -11,7 +11,7 @@ use crate::grammar::{cell_list, raw_resolution_fits};
 use crate::pyramids::complex_tiling::Fields;
 use crate::set_counts::SetCounts;
 use crate::tile::{Tile, CELL_LEVEL};
-use crate::Bitmap;
+use bitmap::Bitmap;
 
 /// A complex tile a tile can become.
 #[derive(Clone, Copy, Debug)]

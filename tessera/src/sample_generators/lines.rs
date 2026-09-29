@@ -3,8 +3,8 @@
 //! -- a width of one most often, each wider one less likely, as the line
 //! set says. Like every sample, settled by a seed.
 
-use crate::rng::Rng;
-use crate::{Bitmap, WIDTH};
+use utilities::rng::Rng;
+use bitmap::{Bitmap, WIDTH};
 
 /// A kind of drawing: how many lines a bitmap is given, how wide they
 /// get, and how many to measure over and to test.

@@ -7,8 +7,7 @@ pub mod jbig;
 pub mod zstd;
 
 use crate::rows::Rows;
-// `::tessera`, the crate: plain `tessera` here is the module above.
-use ::tessera::Bitmap;
+use bitmap::Bitmap;
 
 /// One codec, holding its own room and its last output.
 pub trait Codec {

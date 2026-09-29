@@ -6,7 +6,7 @@
 
 use super::Codec;
 use crate::rows::{Rows, BYTES, HEIGHT, WIDTH};
-use tessera::Bitmap;
+use bitmap::Bitmap;
 
 extern "C" {
     /// See `csrc/jbig_shim.c`.

@@ -2,8 +2,8 @@
 //! first, most significant bit leftmost, 1 a set cell -- the raster
 //! layout G4 and JBIG work in.
 
-pub use tessera::{HEIGHT, WIDTH};
-use tessera::Bitmap;
+pub use bitmap::{HEIGHT, WIDTH};
+use bitmap::Bitmap;
 
 /// Bytes a row.
 pub const ROW_BYTES: usize = WIDTH / 8;

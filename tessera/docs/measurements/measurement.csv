@@ -1,4 +1,4 @@
-# written by `cargo run --release --bin tessera_diagnostics -- measurement`
+# written by `cargo run --release --bin diagnostics -- measurement`
 # seed 1950720362523133367
 # commit c73083a, with uncommitted changes
 

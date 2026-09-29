@@ -10,7 +10,7 @@ use crate::grammar::cell_list;
 use crate::grammar::*;
 use crate::pyramids::tree::{Node, Tree};
 use crate::tile::{cells_in_tile, Tile, CELL_LEVEL};
-use crate::Bitmap;
+use bitmap::Bitmap;
 
 /// Spells out `tree` for `bitmap` into `stream`, whatever it held
 /// before, then the last pass, in `last_pass`: how many bits that took.

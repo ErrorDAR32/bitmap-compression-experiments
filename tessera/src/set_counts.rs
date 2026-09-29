@@ -5,8 +5,8 @@
 //! subtraction.
 
 use crate::tile::{cells_in_tile, Tile};
-use crate::morton::morton_index;
-use crate::{Bitmap, WORDS};
+use bitmap::morton::morton_index;
+use bitmap::{Bitmap, WORDS};
 
 /// Cells a word of the bitmap holds.
 const WORD_CELLS: usize = u64::BITS as usize;

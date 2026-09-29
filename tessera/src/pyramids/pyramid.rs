@@ -5,7 +5,7 @@
 //!
 //! A tile is its level and its (x, y) in that level's plane; a tile's
 //! children are the 2x2 block at (2x..2x+1, 2y..2y+1) one level finer.
-//! Each level's plane is stored in Morton order (`src/morton.rs`), so a
+//! Each level's plane is stored in Morton order ([`bitmap::morton`]), so a
 //! tile's four children are four consecutive elements, and everything
 //! under a tile at any level is one contiguous run. A specialized
 //! pyramid may read and write a level's words directly
@@ -27,7 +27,7 @@
 use std::marker::PhantomData;
 
 use crate::tile::{tiles_in_level, Tile, CELL_LEVEL};
-use crate::morton::morton_index;
+use bitmap::morton::morton_index;
 
 /// Bits in a word.
 const WORD_BITS: usize = u64::BITS as usize;

@@ -1,7 +1,7 @@
 //! Adversarial bitmaps: searches for the bitmaps an encoder does worst
 //! on, by any score the caller gives -- Tessera against its raw cells, or
 //! against another encoder. Kept in the library so every search, in any
-//! crate, is the same search: `src/bin/tessera_adversarial.rs` scores Tessera
+//! crate, is the same search: `src/bin/adversarial.rs` scores Tessera
 //! against the raw cells, `external_benchmarks/` scores it against the
 //! external codecs. See `docs/testing_protocol.md`.
 //!
@@ -24,10 +24,10 @@ pub mod record;
 
 pub use anneal::Found;
 use anneal::anneal;
-use crate::rng::Rng;
+use utilities::rng::Rng;
 
 use crate::tile::Tile;
-use crate::Bitmap;
+use bitmap::Bitmap;
 
 /// What one bitmap scored.
 #[derive(Clone, Copy, Debug)]

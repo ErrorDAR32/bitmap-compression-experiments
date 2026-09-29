@@ -4,7 +4,7 @@
 use super::Codec;
 use crate::rows::{Rows, HEIGHT, WIDTH};
 use tessera::grammar::bit_stream::BitStream;
-use tessera::Bitmap;
+use bitmap::Bitmap;
 
 /// Tessera, with its stream and decoded bitmap kept between bitmaps.
 pub struct Tessera {

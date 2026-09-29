@@ -1,4 +1,4 @@
-# written by `cargo run --release --bin tessera_diagnostics -- copy_offsets`
+# written by `cargo run --release --bin diagnostics -- copy_offsets`
 # 144 candidates within 8 tiles; 43974 sets scored on the fast sample's 34 bitmaps: 1495116 encodes, and as many decodes
 # seed 7249028512820078104, fresh for this run
 # commit f018350, with uncommitted changes

@@ -6,7 +6,7 @@
 //! masking copies turn up everywhere. No seed: a checkerboard is
 //! settled by its square side alone.
 
-use crate::Bitmap;
+use bitmap::Bitmap;
 
 /// The smallest square side measured: the smallest odd side above one
 /// cell, which would be the plain alternating board.

@@ -10,10 +10,10 @@
 //! What is maximized is the caller's: any score of a bitmap.
 
 use super::moves::CHANGES;
-use crate::rng::Rng;
+use utilities::rng::Rng;
 use super::Score;
 use crate::tile::Tile;
-use crate::Bitmap;
+use bitmap::Bitmap;
 
 /// How many bits a change may lose and still often be kept at the
 /// start: about what one change moves, so early on the search crosses

@@ -24,9 +24,10 @@
 
 use tessera::adversarial::{record, search_at_once, Effort, Score, SEARCHES_AT_ONCE};
 use tessera::sample_generators::sample_seed;
-use tessera::table::report::Report;
-use tessera::table::Table;
-use tessera::Bitmap;
+use tessera::measurements;
+use utilities::table::report::Report;
+use utilities::table::Table;
+use bitmap::Bitmap;
 use external_benchmarks::codecs::g4::G4;
 use external_benchmarks::codecs::tessera::Tessera;
 use external_benchmarks::codecs::jbig::Jbig;
@@ -41,7 +42,7 @@ const TIMINGS: usize = 21;
 /// A codec to search against: what its record is kept under, and how to
 /// make one.
 struct Opponent {
-    /// The record's name, `tessera_against_` and the codec.
+    /// The record's name, `against_` and the codec.
     record: &'static str,
     /// A fresh codec: each search gets its own.
     make: fn() -> Box<dyn Codec>,
@@ -49,10 +50,10 @@ struct Opponent {
 
 /// Every codec searched against.
 const OPPONENTS: [Opponent; 4] = [
-    Opponent { record: "tessera_against_g4", make: || Box::new(G4::new()) },
-    Opponent { record: "tessera_against_jbig", make: || Box::new(Jbig::new()) },
-    Opponent { record: "tessera_against_zstd3", make: || Box::new(Zstd::new(3)) },
-    Opponent { record: "tessera_against_zstd19", make: || Box::new(Zstd::new(19)) },
+    Opponent { record: "against_g4", make: || Box::new(G4::new()) },
+    Opponent { record: "against_jbig", make: || Box::new(Jbig::new()) },
+    Opponent { record: "against_zstd3", make: || Box::new(Zstd::new(3)) },
+    Opponent { record: "against_zstd19", make: || Box::new(Zstd::new(19)) },
 ];
 
 /// Tessera's bits and the codec's, on one bitmap.
@@ -148,5 +149,5 @@ fn main() {
     ));
     report.note(format!("times: the median of {TIMINGS} encodings of the record"));
     report.add("the records, each round tripping through both", table);
-    report.publish();
+    measurements::publish(report);
 }

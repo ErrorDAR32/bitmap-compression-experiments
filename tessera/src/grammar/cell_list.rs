@@ -13,7 +13,7 @@
 
 use super::bit_stream::{gamma_bits, BitReader, BitStream};
 use crate::tile::{cells_in_tile, Tile};
-use crate::Bitmap;
+use bitmap::Bitmap;
 
 /// The low bits of every gap, given `cells` in the tile and `set` of
 /// them set: the whole part of log2 of the mean gap, `(cells - set) /

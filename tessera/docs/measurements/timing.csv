@@ -1,4 +1,4 @@
-# written by `cargo run --release --bin tessera_diagnostics -- timing`
+# written by `cargo run --release --bin diagnostics -- timing`
 # 100 bitmaps a generator, the saved adversarial bitmaps 20 times each
 # seed 1950720362523133367
 # commit 08135be, with uncommitted changes

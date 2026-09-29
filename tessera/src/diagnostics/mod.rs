@@ -1,7 +1,7 @@
 //! Diagnostics: data gathered from Tessera's steps and its output, one kind
 //! of data to a file. They only gather: nothing here judges a result or
 //! prints one. The tests (`tests/`) judge what they gather, and the
-//! diagnostics tool (`src/bin/tessera_diagnostics/`) prints it.
+//! diagnostics tool (`src/bin/diagnostics/`) prints it.
 //!
 //! | file | what it gathers |
 //! |---|---|
@@ -20,4 +20,4 @@ pub mod png;
 pub mod tree_stats;
 
 /// The raw cells: what a bitmap costs written out, one bit a cell.
-pub const RAW_CELLS: usize = crate::WIDTH * crate::HEIGHT;
+pub const RAW_CELLS: usize = bitmap::WIDTH * bitmap::HEIGHT;

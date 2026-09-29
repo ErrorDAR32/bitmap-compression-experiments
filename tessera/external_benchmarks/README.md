@@ -40,11 +40,11 @@ The argument, if given, is how many bitmaps each generator makes.
 ## Adversarial search against each codec
 
 `src/bin/adversarial.rs` runs the library's adversarial search
-(`tessera::adversarial`, the same one `src/bin/tessera_adversarial.rs`
+(`tessera::adversarial`, the same one `src/bin/adversarial.rs`
 runs against the raw cells) against each codec here: four searches at
 once for each of G4, JBIG, zstd 3 and zstd 19, maximizing Tessera's bits
 less the codec's. The worst found for each is kept in
-`external_benchmarks/adversarial/tessera_against_<codec>.pbm`, replaced only when
+`external_benchmarks/adversarial/against_<codec>.pbm`, replaced only when
 beaten, and each run carries on from it; every record must round trip
 through both encoders, and both are timed on it (the median of 21
 encodes). From `tessera/`, in release:

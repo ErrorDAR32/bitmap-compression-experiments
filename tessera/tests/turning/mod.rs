@@ -7,7 +7,7 @@
 
 use tessera::grammar::bit_stream::BitStream;
 use tessera::Tessera;
-use tessera::Bitmap;
+use bitmap::Bitmap;
 
 /// Quarter turns in a whole turn.
 const QUARTER_TURNS: usize = 4;

@@ -1,6 +1,6 @@
 //! The one source of sample bitmaps, tests and measurements alike, so
 //! changing what anything runs on is a change here. Two exceptions: a
-//! fine test (`tests/tessera_fine.rs`) may draw one small bitmap by hand to
+//! fine test (`tests/fine.rs`) may draw one small bitmap by hand to
 //! pin a known case, never to measure; and [`checkerboards`] are drawn,
 //! the one family the same on every seed -- squares of an odd side never
 //! line up with the power-of-two grid, so one board exercises homogeneous
@@ -32,7 +32,7 @@ pub use city::{one_laid_out, Cities, Plan, PLANS};
 pub use lines::{one_drawn, Drawings, LineSet, LINE_SETS};
 pub use seed::seed_uncounted;
 
-use crate::Bitmap;
+use bitmap::Bitmap;
 
 /// Where every sample's seeds start, read from
 /// [`seed::WHERE_THE_SEED_IS_KEPT`] rather than written here, counted as

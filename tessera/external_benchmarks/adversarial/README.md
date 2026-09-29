@@ -14,7 +14,7 @@ Two kinds, both plain PBM images (`P1`, `1` set), 256x256, with notes as
 
 Searching and saving are described in `docs/testing_protocol.md`. The
 last search's report -- what it found, and each record before and after
--- is kept in `docs/measurements/tessera_adversarial.csv` (against the raw
+-- is kept in `docs/measurements/adversarial.csv` (against the raw
 cells) and `docs/measurements/external_adversarial.csv` (against the
 codecs).
 

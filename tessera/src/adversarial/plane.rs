@@ -7,7 +7,7 @@
 //! unless the window is itself symmetric.
 
 use crate::tile::{tile_side, Tile};
-use crate::Bitmap;
+use bitmap::Bitmap;
 
 /// A window can be turned four ways...
 const ROTATIONS: usize = 4;

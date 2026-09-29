@@ -34,7 +34,7 @@
 //! belong to the working copy they were used in, and checking out or
 //! resetting files must not move them.
 
-use crate::table::Table;
+use utilities::table::Table;
 use std::io::Write;
 use std::sync::OnceLock;
 

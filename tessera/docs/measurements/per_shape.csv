@@ -1,4 +1,4 @@
-# written by `cargo run --release --bin tessera_diagnostics -- per_shape`
+# written by `cargo run --release --bin diagnostics -- per_shape`
 # seed 1950720362523133367
 # commit 4780328, with uncommitted changes
 

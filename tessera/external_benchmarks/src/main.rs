@@ -21,9 +21,10 @@
 
 use tessera::diagnostics::RAW_CELLS;
 use tessera::sample_generators::{families, HowMany, TIMING_PER_GENERATOR};
-use tessera::table::report::Report;
-use tessera::table::Table;
-use tessera::Bitmap;
+use tessera::measurements;
+use utilities::table::report::Report;
+use utilities::table::Table;
+use bitmap::Bitmap;
 use external_benchmarks::codecs::g4::G4;
 use external_benchmarks::codecs::tessera::Tessera;
 use external_benchmarks::codecs::jbig::Jbig;
@@ -104,7 +105,7 @@ fn main() {
         }
     }
     add_table(&mut report, "all", &codecs, &overall);
-    report.publish();
+    measurements::publish(report);
 }
 
 /// Encodes and decodes every bitmap of `family` with `codec`, checking

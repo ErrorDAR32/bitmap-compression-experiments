@@ -13,8 +13,8 @@
 //! are: settled entirely by a seed and a plan, regenerated every time
 //! they are asked for, never stored.
 
-use crate::rng::Rng;
-use crate::Bitmap;
+use utilities::rng::Rng;
+use bitmap::Bitmap;
 
 /// How a city is laid out: how far apart the streets run, how wide
 /// they are, how many courtyards a block is given and how big, and how
@@ -140,9 +140,9 @@ pub fn one_laid_out(seed: u64, plan: &Plan) -> Bitmap {
     let (offset_x, offset_y) = (rng.below(plan.pitch as u64) as i64, rng.below(plan.pitch as u64) as i64);
 
     let mut y = offset_y - plan.pitch;
-    while y < crate::HEIGHT as i64 {
+    while y < bitmap::HEIGHT as i64 {
         let mut x = offset_x - plan.pitch;
-        while x < crate::WIDTH as i64 {
+        while x < bitmap::WIDTH as i64 {
             block(&mut bitmap, x, y, plan, &mut rng);
             x += plan.pitch;
         }

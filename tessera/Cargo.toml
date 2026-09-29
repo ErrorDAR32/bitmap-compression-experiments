@@ -2,6 +2,9 @@
 name = "tessera"
 version = "0.1.0"
 edition = "2021"
+description = "A lossless encoding of a 256x256 bitmap"
+publish = false
 
-[profile.release]
-debug = true
+[dependencies]
+bitmap = { path = "../bitmap" }
+utilities = { path = "../utilities" }

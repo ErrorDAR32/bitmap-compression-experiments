@@ -7,8 +7,8 @@
 //! changed separately. What a corpus is made of is a decision; how a
 //! bitmap is filled is a mechanism.
 
-use crate::rng::Rng;
-use crate::{Bitmap, WIDTH};
+use utilities::rng::Rng;
+use bitmap::{Bitmap, WIDTH};
 
 /// Cells in the bitmap.
 const CELLS: usize = WIDTH * WIDTH;

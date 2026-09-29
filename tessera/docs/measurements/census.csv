@@ -1,7 +1,7 @@
-# written by `cargo run --release --bin tessera_diagnostics -- census`
+# written by `cargo run --release --bin diagnostics -- census`
 # commit 4780328, with uncommitted changes
 
-## tessera_against_g4: 37653 bits, start level 3
+## against_g4: 37653 bits, start level 3
 node,"level 0
 256x256","level 1
 128x128","level 2
@@ -22,7 +22,7 @@ residual,0,0,0,0,0,0,1979
 tile,0,0,0,0,0,1,173
 unmasked,0,0,0,0,18,55,187
 
-## tessera_against_jbig: 57365 bits, start level 2
+## against_jbig: 57365 bits, start level 2
 node,"level 0
 256x256","level 1
 128x128","level 2
@@ -43,7 +43,7 @@ residual,0,0,0,0,0,0,721
 tile,0,0,0,0,0,1,55
 unmasked,0,0,0,12,67,99,288
 
-## tessera_against_raw: 65568 bits, start level 1
+## against_raw: 65568 bits, start level 1
 node,"level 0
 256x256","level 1
 128x128","level 2
@@ -55,7 +55,7 @@ node,"level 0
 divide,1,0,0,0,0,0,0
 raw,0,4,0,0,0,0,0
 
-## tessera_against_zstd19: 36626 bits, start level 2
+## against_zstd19: 36626 bits, start level 2
 node,"level 0
 256x256","level 1
 128x128","level 2
@@ -76,7 +76,7 @@ residual,0,0,0,0,0,0,1048
 tile,0,0,0,0,0,5,70
 unmasked,0,0,0,1,43,71,177
 
-## tessera_against_zstd3: 39303 bits, start level 2
+## against_zstd3: 39303 bits, start level 2
 node,"level 0
 256x256","level 1
 128x128","level 2

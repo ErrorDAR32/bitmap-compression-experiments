@@ -5,7 +5,7 @@ use tessera::diagnostics::examination::Examination;
 use tessera::diagnostics::RAW_CELLS;
 use tessera::grammar::bit_stream::BitStream;
 use tessera::Tessera;
-use tessera::Bitmap;
+use bitmap::Bitmap;
 use std::cell::RefCell;
 
 /// The most Tessera may ever spend on a bitmap: the raw cells and 1%.

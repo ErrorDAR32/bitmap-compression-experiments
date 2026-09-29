@@ -52,7 +52,7 @@ Three parts, kept apart:
 - **Tests** (`tests/`) judge what the diagnostics gather: pass or fail.
 - **Tools** (`src/bin/`, and the external benchmarks' crate) print what
   the diagnostics gather, or search for bitmaps. Every tool prints its
-  results as tables, through the one table printer (`src/table/`), and
+  results as tables, through the one table printer (`../utilities/src/table/`), and
   a tool that measures or searches keeps them
   (`docs/measurements/<tool>.csv`).
 
@@ -60,9 +60,9 @@ Three parts, kept apart:
 
 | tier | runs on | command |
 |---|---|---|
-| fine | one bitmap per test: drawn by hand, or grown from the seed, not counted as a use; and every adversarial record and saved bitmap | `cargo test --test tessera_fine` |
-| fast | a small sample from the seed: every shape, sparse shape, plan and line set at its `tested` count; and every family and the saved adversarial bitmaps turned a quarter, a half and three quarters, each turn's total bits within 5% of the total as drawn | `cargo test --test tessera_fast` |
-| complete | every family at its `timed` count, plus a second sample of 4 bitmaps of each shape and plan from the seed plus a million, plus every checkerboard of odd square side 3 to 31; and every family and the saved adversarial bitmaps turned each way, within 2% | `cargo test --release --test tessera_complete -- --ignored` |
+| fine | one bitmap per test: drawn by hand, or grown from the seed, not counted as a use; and every adversarial record and saved bitmap | `cargo test --test fine` |
+| fast | a small sample from the seed: every shape, sparse shape, plan and line set at its `tested` count; and every family and the saved adversarial bitmaps turned a quarter, a half and three quarters, each turn's total bits within 5% of the total as drawn | `cargo test --test fast` |
+| complete | every family at its `timed` count, plus a second sample of 4 bitmaps of each shape and plan from the seed plus a million, plus every checkerboard of odd square side 3 to 31; and every family and the saved adversarial bitmaps turned each way, within 2% | `cargo test --release --test complete -- --ignored` |
 
 Plain `cargo test` runs fine and fast, and the library's own unit tests.
 `cargo test --release -- --ignored` runs complete. While the algorithm is
@@ -71,7 +71,7 @@ every run checks bitmaps never seen and a failure names the seed that
 reproduces it:
 
 ```
-TESSERA_SEED=fresh cargo test --release --test tessera_fast
+TESSERA_SEED=fresh cargo test --release --test fast
 ```
 
 Every tier's check (`tests/common`) examines each bitmap
@@ -86,11 +86,11 @@ tree, to the reference count.
 
 ### The diagnostics tool
 
-One tool a file (`src/bin/tessera_diagnostics/`), each printing what the
+One tool a file (`src/bin/diagnostics/`), each printing what the
 diagnostics gather, and each stopping if Tessera loses a cell:
 
 ```
-cargo run --release --bin tessera_diagnostics -- <tool> [<argument>]
+cargo run --release --bin diagnostics -- <tool> [<argument>]
 ```
 
 | tool | prints | argument |
@@ -104,12 +104,12 @@ cargo run --release --bin tessera_diagnostics -- <tool> [<argument>]
 | `timing` | encode and decode times over a large sample, family by family | bitmaps a generator (100) |
 | `instruction_count` | instructions to encode and to decode a sample, counted by callgrind | |
 | `instruction_sample` | encodes and decodes that sample alone, uncounted: what callgrind runs; keeps nothing | |
-| `render` | PNG images of the bitmaps looked at, in `target/tessera_diagnostics/`; keeps nothing | |
+| `render` | PNG images of the bitmaps looked at, in `target/diagnostics/`; keeps nothing | |
 | `show` | the kept measurements, read back from `docs/measurements/` without measuring | a tool's name, for its alone |
 
 Run with no tool, or one not there, it prints this list as a table --
 each tool, what it prints, its argument and the file it keeps -- from
-`TOOLS` in `src/bin/tessera_diagnostics/main.rs`. `render` prints a table
+`TOOLS` in `src/bin/diagnostics/main.rs`. `render` prints a table
 of the images it wrote; `show` prints each kept report as it was
 published.
 
@@ -120,7 +120,8 @@ Every tool that measures -- these, the external benchmarks and the
 adversarial searches -- keeps
 its tables in `docs/measurements/<tool>.csv`, rewritten by every run,
 with the command, the seed and the commit it was measured on as the
-file's notes (`src/table/report.rs`). The latest numbers live there and
+file's notes (`../utilities/src/table/report.rs`, published by
+`src/measurements.rs`). The latest numbers live there and
 nowhere else. A run on a fresh seed rewrites the file too, and its notes
 say so; commit the files measured on the file's seed.
 
@@ -135,12 +136,12 @@ run settled. Its sample: 5 bitmaps of every generator, weighted as the
 timed sample is, a bitmap of noise at half density, from the seed; a
 checkerboard of 7-cell squares and the saved adversarial bitmaps,
 fixed. It needs valgrind installed (`apt-get install valgrind`). Each
-run's callgrind output is left in `target/tessera_diagnostics/`, to see
+run's callgrind output is left in `target/diagnostics/`, to see
 where the instructions go:
 
 ```
-cargo run --release --bin tessera_diagnostics -- instruction_count
-callgrind_annotate --inclusive=yes target/tessera_diagnostics/callgrind.encode.out | head -40
+cargo run --release --bin diagnostics -- instruction_count
+callgrind_annotate --inclusive=yes target/diagnostics/callgrind.encode.out | head -40
 ```
 
 Counts are compared on one seed: pin it (`TESSERA_SEED=<seed>`) when a
@@ -156,8 +157,8 @@ nothing else busy. It prints the encode time's mean, median, 90th
 percentile and worst by family, and the decode mean:
 
 ```
-cargo run --release --bin tessera_diagnostics -- timing
-cargo run --release --bin tessera_diagnostics -- timing 400
+cargo run --release --bin diagnostics -- timing
+cargo run --release --bin diagnostics -- timing 400
 ```
 
 ### Against existing codecs
@@ -176,7 +177,7 @@ The argument, if given, is how many bitmaps each generator makes (100).
 
 ### Adversarial searches
 
-`tessera_adversarial` looks for the bitmaps Tessera does worst on against the
+`adversarial` looks for the bitmaps Tessera does worst on against the
 raw cells, by simulated annealing, four searches at once, one a core --
 first on one 64x64 window, then on the plane filled with that window's
 16 variants (4 turns, mirrored or not, inverted or not). The worst
@@ -189,10 +190,10 @@ codec -- scored as Tessera's bits less the codec's -- keeping the worst for
 each beside it, and times both encoders on each record, 21 times, the
 median kept.
 
-Each search prints, and keeps, its report: `tessera_adversarial` a table of
+Each search prints, and keeps, its report: `adversarial` a table of
 what each of its searches found -- the worst window and plane, the
 start each came from -- and one of the record, before and after, and
-whether it was replaced (`docs/measurements/tessera_adversarial.csv`); the
+whether it was replaced (`docs/measurements/adversarial.csv`); the
 codecs' search a row a codec, with its record's gap before and after,
 both encoders' bits and times on it
 (`docs/measurements/external_adversarial.csv`).
@@ -205,7 +206,7 @@ the records, and a search's moves follow the seed: give each run a fresh
 one.
 
 ```
-TESSERA_SEED=fresh cargo run --release --bin tessera_adversarial -- 4000
+TESSERA_SEED=fresh cargo run --release --bin adversarial -- 4000
 TESSERA_SEED=fresh cargo run --release --manifest-path external_benchmarks/Cargo.toml --bin adversarial -- 4000
 ```
 
@@ -218,7 +219,7 @@ is, with a line describing it and the record's scores as comment lines
 table of what it saved, from which record, and where:
 
 ```
-cargo run --release --bin tessera_adversarial -- save <record> <name> "<description>"
+cargo run --release --bin adversarial -- save <record> <name> "<description>"
 ```
 
 The fine tier checks every record and saved bitmap; `instruction_count`,
@@ -229,18 +230,18 @@ The fine tier checks every record and saved bitmap; `instruction_count`,
 | what | command |
 |---|---|
 | fine and fast tests, and unit tests | `cargo test` |
-| one tier | `cargo test --test tessera_fine`, `cargo test --test tessera_fast`, `cargo test --release --test tessera_complete -- --ignored` |
+| one tier | `cargo test --test fine`, `cargo test --test fast`, `cargo test --release --test complete -- --ignored` |
 | every tier | `cargo test --release -- --include-ignored` |
 | lints | `cargo clippy --all-targets --release` |
 | the code's documentation | `cargo doc --no-deps --document-private-items` |
-| a diagnostics tool | `cargo run --release --bin tessera_diagnostics -- <tool> [<argument>]` |
-| the kept measurements | `cargo run --release --bin tessera_diagnostics -- show [<tool>]` |
-| the instruction count | `cargo run --release --bin tessera_diagnostics -- instruction_count` |
-| times | `cargo run --release --bin tessera_diagnostics -- timing [<bitmaps a generator>]` |
+| a diagnostics tool | `cargo run --release --bin diagnostics -- <tool> [<argument>]` |
+| the kept measurements | `cargo run --release --bin diagnostics -- show [<tool>]` |
+| the instruction count | `cargo run --release --bin diagnostics -- instruction_count` |
+| times | `cargo run --release --bin diagnostics -- timing [<bitmaps a generator>]` |
 | against existing codecs | `cargo run --release --manifest-path external_benchmarks/Cargo.toml [-- <bitmaps a generator>]` |
-| the search against the raw cells | `cargo run --release --bin tessera_adversarial [-- <changes>]` |
+| the search against the raw cells | `cargo run --release --bin adversarial [-- <changes>]` |
 | the searches against the codecs | `cargo run --release --manifest-path external_benchmarks/Cargo.toml --bin adversarial [-- <changes>]` |
-| saving a record | `cargo run --release --bin tessera_adversarial -- save <record> <name> "<description>"` |
+| saving a record | `cargo run --release --bin adversarial -- save <record> <name> "<description>"` |
 
 | variable | what it does |
 |---|---|
@@ -257,18 +258,18 @@ Each is set, beside its reason, at the place given.
 | runs a seed serves before it rolls | 5 | `USES_BEFORE_THE_SEED_ROLLS`, `src/sample_generators/seed.rs` |
 | each generator's `tested` and `timed` bitmaps | per shape, sparse shape, plan and line set | `SHAPES`, `SPARSE` (`src/sample_generators/mod.rs`), `PLANS` (`city.rs`), `LINE_SETS` (`lines.rs`) |
 | the most any bitmap may take, every tier | the raw cells and 1% | `CAP_BITS`, `tests/common/mod.rs` |
-| a turned family's drift, fast tier | 5% | `MOST_TURNED_DRIFT_PERCENT`, `tests/tessera_fast.rs` |
-| a turned family's drift, complete tier | 2% | `MOST_TURNED_DRIFT_PERCENT`, `tests/tessera_complete.rs` |
-| the complete tier's second sample | 4 bitmaps a shape and plan, from the seed plus 1,000,000 | `SECOND_SAMPLE_EACH`, `SECOND_SEED_OFFSET`, `tests/tessera_complete.rs` |
+| a turned family's drift, fast tier | 5% | `MOST_TURNED_DRIFT_PERCENT`, `tests/fast.rs` |
+| a turned family's drift, complete tier | 2% | `MOST_TURNED_DRIFT_PERCENT`, `tests/complete.rs` |
+| the complete tier's second sample | 4 bitmaps a shape and plan, from the seed plus 1,000,000 | `SECOND_SAMPLE_EACH`, `SECOND_SEED_OFFSET`, `tests/complete.rs` |
 | checkerboards | odd square sides 3 to 31 | `SMALLEST_SQUARE_SIDE`, `LARGEST_SQUARE_SIDE`, `src/sample_generators/checkerboards.rs` |
 | the tiles debug builds check against the reference count | 16x16 and finer | `FINEST_CHECKED_LEVEL`, `src/greedy_tiler/mod.rs` |
 | timing's bitmaps a generator | 100, or the argument | `TIMING_PER_GENERATOR`, `src/sample_generators/mod.rs` |
-| timing's saved adversarial repeats | 20 | `RECORD_REPEATS`, `src/bin/tessera_diagnostics/timing.rs` |
+| timing's saved adversarial repeats | 20 | `RECORD_REPEATS`, `src/bin/diagnostics/timing.rs` |
 | timing's percentiles | median, 90th | `MEDIAN_PERCENT`, `TAIL_PERCENT`, same file |
-| the instruction count's sample | 5 bitmaps a generator, 1 of noise at half density, a checkerboard of 7-cell squares | `BITMAPS_PER_GENERATOR`, `NOISE_BITMAPS`, `NOISE_DENSITY`, `CHECKERBOARD_SQUARE`, `src/bin/tessera_diagnostics/instruction_count.rs` |
-| `noise`'s densities | 0.5, 0.35, 0.2, 0.1, 3 bitmaps each | `DENSITIES`, `EACH`, `src/bin/tessera_diagnostics/noise.rs` |
-| `sparse`'s densities and clusterings | 15 densities, clustering 0, 0.7, 0.95, 20 bitmaps each | `DENSITIES`, `CLUSTERS`, `EACH`, `src/bin/tessera_diagnostics/sparse.rs` |
-| `copy_offsets`' search | reach 8 tiles; 3 random starts; 6 best singles tried in pairs; 16 rounds at most; 4 sets scored at once | `REACH`, `RANDOM_STARTS`, `PAIR_CANDIDATES`, `MOST_ROUNDS`, `THREADS`, `src/bin/tessera_diagnostics/copy_offsets.rs` |
+| the instruction count's sample | 5 bitmaps a generator, 1 of noise at half density, a checkerboard of 7-cell squares | `BITMAPS_PER_GENERATOR`, `NOISE_BITMAPS`, `NOISE_DENSITY`, `CHECKERBOARD_SQUARE`, `src/bin/diagnostics/instruction_count.rs` |
+| `noise`'s densities | 0.5, 0.35, 0.2, 0.1, 3 bitmaps each | `DENSITIES`, `EACH`, `src/bin/diagnostics/noise.rs` |
+| `sparse`'s densities and clusterings | 15 densities, clustering 0, 0.7, 0.95, 20 bitmaps each | `DENSITIES`, `CLUSTERS`, `EACH`, `src/bin/diagnostics/sparse.rs` |
+| `copy_offsets`' search | reach 8 tiles; 3 random starts; 6 best singles tried in pairs; 16 rounds at most; 4 sets scored at once | `REACH`, `RANDOM_STARTS`, `PAIR_CANDIDATES`, `MOST_ROUNDS`, `THREADS`, `src/bin/diagnostics/copy_offsets.rs` |
 | `render`'s pixels a cell | 2 | `PIXELS_A_CELL`, `src/diagnostics/png.rs` |
 | searches at once | 4 | `SEARCHES_AT_ONCE`, `src/adversarial/mod.rs` |
 | the searched window | the top left 64x64 | `WINDOW`, same file |
@@ -302,7 +303,7 @@ When the problems that corpus showed are solved, re-run the measurement
 on a seed never seen -- a fresh one, or wherever the file has rolled to:
 
 ```
-TESSERA_SEED=fresh cargo run --release --bin tessera_diagnostics -- measurement
+TESSERA_SEED=fresh cargo run --release --bin diagnostics -- measurement
 ```
 
 A change that is real holds its size on more than one unseen seed. A

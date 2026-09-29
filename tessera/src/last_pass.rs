@@ -22,15 +22,15 @@
 //! and one multiply -- no division -- and a cell's price with two
 //! lookups.
 
-use crate::fixed_list::FixedList;
+use utilities::fixed_list::FixedList;
 use crate::grammar::arithmetic::{ClearProbability, Decoder, Encoder, FINISHING_BITS};
 use crate::grammar::bit_stream::{BitReader, BitStream};
 use crate::pyramids::copyable::{CopyOffsets, FINEST_COPY_LEVEL};
 use crate::pyramids::tree::Tree;
 use crate::residual_prices::{fixed_point_log2, ResidualPrices};
 use crate::tile::{cells_in_tile, tiles_across, tiles_in_level, Tile, CELLS};
-use crate::morton::{morton_coordinates, morton_index};
-use crate::Bitmap;
+use bitmap::morton::{morton_coordinates, morton_index};
+use bitmap::Bitmap;
 
 /// Where a cell's context reads, relative to it, `(dx, dy)`: top left,
 /// above and left, then the same two cells away -- each before it in

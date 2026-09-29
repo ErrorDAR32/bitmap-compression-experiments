@@ -59,8 +59,8 @@ use crate::pyramids::placements::{BOUND_AT_THE_TOP, FINEST_MASKING_LEVEL};
 use crate::residual_prices::ResidualPrices;
 use crate::set_counts::SetCounts;
 use crate::tile::{tiles_in_level, Tile, CELL_LEVEL, FINEST_PLACED_LEVEL, FLOOR_LEVEL};
-use crate::morton::morton_index;
-use crate::Bitmap;
+use bitmap::morton::morton_index;
+use bitmap::Bitmap;
 use complex_tiles::best_complex_tile;
 use rule::{floor_placement, place_2x2s, placement};
 

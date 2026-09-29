@@ -4,7 +4,7 @@
 use super::examination::first_difference;
 use crate::grammar::bit_stream::BitStream;
 use crate::Tessera;
-use crate::Bitmap;
+use bitmap::Bitmap;
 use std::time::Instant;
 
 /// What some bitmaps came to.

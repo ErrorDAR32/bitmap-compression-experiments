@@ -3,10 +3,10 @@
 //! encoders are built on -- tile boundaries, homogeneity, copies that
 //! almost match, and structure no power-of-two tile lines up with.
 
-use crate::rng::Rng;
+use utilities::rng::Rng;
 use crate::pyramids::copyable::FINEST_COPY_LEVEL;
 use crate::tile::{tile_side, Tile, CELL_LEVEL, DIRECTIONS};
-use crate::Bitmap;
+use bitmap::Bitmap;
 
 /// The largest square a painted rectangle or a checkerboard patch
 /// spans, as a share of the area's side: big enough to cross several

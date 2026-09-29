@@ -9,7 +9,7 @@ use crate::grammar::*;
 use crate::last_pass::LastPass;
 use crate::pyramids::tree::{Node, Tree};
 use crate::tile::{Tile, CELL_LEVEL, FLOOR_LEVEL};
-use crate::Bitmap;
+use bitmap::Bitmap;
 
 /// Where reading a stream back writes: the tree, and every cell.
 pub struct StreamContents<'a> {

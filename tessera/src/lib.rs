@@ -15,7 +15,8 @@
 //!
 //! ```
 //! use tessera::grammar::bit_stream::BitStream;
-//! use tessera::{Bitmap, Tessera};
+//! use bitmap::Bitmap;
+//! use tessera::Tessera;
 //!
 //! let mut bitmap = Bitmap::new();
 //! bitmap.set_rect(10, 10, 40, 30);
@@ -60,11 +61,12 @@
 //! # How the crate is laid out
 //!
 //! One folder to a domain, and inside it one file to a purpose. The
-//! encoding:
+//! bitmap it encodes is the [`bitmap`] crate's, laid out in its
+//! [Morton order](bitmap::morton); the lists it keeps, the table printer
+//! and the random source are the [`utilities`] crate's. The encoding:
 //!
 //! | module | its part |
 //! |---|---|
-//! | [`bitmap`] | the 65536 cells, and what can be drawn on them |
 //! | [`tile`] | a tile: its level and its place in that level's plane |
 //! | [`pyramids`] | everything per tile: patterns, placements, the complex tiling, the tree |
 //! | [`set_counts`] | step 1 |
@@ -73,8 +75,6 @@
 //! | [`grammar`] | every rule of the bitstream: widths, codes, the bit stream, the count split, cell lists and the arithmetic coder |
 //! | [`encode`](mod@encode), [`decode`](mod@decode) | step 7, and reading it back |
 //! | [`last_pass`] | step 8, both directions |
-//! | `fixed_list` | the fixed-capacity list every bounded list is |
-//! | `morton` | the Morton order the bitmap and every pyramid level are laid out in |
 //!
 //! And what measures and tests it:
 //!
@@ -82,9 +82,8 @@
 //! |---|---|
 //! | [`adversarial`] | searches for the bitmaps an encoder does worst on, by any score |
 //! | [`diagnostics`] | data gathered from Tessera's steps and output, for the tests to judge and the tools to print |
-//! | [`rng`] | the one seeded random source, for the sample generators and the searches |
+//! | [`measurements`] | where measurements are kept, `docs/measurements/`, and publishing one there |
 //! | [`sample_generators`] | the bitmaps everything is measured on, and where the seed comes from |
-//! | [`table`] | printing any of it the same way, and keeping measurements in `docs/measurements/` |
 //!
 //! `tests/` holds Tessera's tests, which judge what [`diagnostics`]
 //! gathers, and `tests/last_seed`, the seed every seeded run uses, kept
@@ -95,8 +94,8 @@
 //! searches against each, and the bitmaps those found.
 //!
 //! `docs/testing_protocol.md` is how a change to any of it gets
-//! measured, and the repository's `docs/design_statements.md` what every
-//! decision here is weighed against.
+//! measured, and `../docs/design_statements.md`, at the repository's
+//! root, what every decision here is weighed against.
 
 // Every item is documented, private ones included; `cargo clippy`
 // checks the private ones.
@@ -106,7 +105,6 @@
 pub mod bit_cost;
 pub mod decode;
 pub mod encode;
-mod fixed_list;
 pub mod grammar;
 pub mod greedy_tiler;
 pub mod last_pass;
@@ -116,28 +114,14 @@ pub mod set_counts;
 pub mod tile;
 pub mod tree_representation;
 
-pub mod bitmap;
-mod morton;
 
 // What measures and tests it.
 pub mod adversarial;
 pub mod diagnostics;
-pub mod rng;
+pub mod measurements;
 pub mod sample_generators;
-pub mod table;
 
-pub use bitmap::Bitmap;
-
-/// The bitmap is always this wide... Nothing is sized at run time,
-/// which is what lets a `Tessera` be built once and reused.
-pub const WIDTH: usize = 256;
-/// ...and this tall.
-pub const HEIGHT: usize = 256;
-
-/// Cells a word holds.
-pub(crate) const BITS_PER_WORD: usize = 64;
-/// Words a bitmap takes.
-pub(crate) const WORDS: usize = (WIDTH * HEIGHT) / BITS_PER_WORD;
+use bitmap::Bitmap;
 
 use crate::bit_cost::{tree_bits, Counting};
 use crate::decode::StreamContents;
@@ -188,7 +172,7 @@ pub fn decode(stream: &BitStream) -> Bitmap {
 /// decoding takes the stream and where the bitmap goes. Every structure
 /// is sized at the most any bitmap needs -- the pyramids by their
 /// shape, every list at a bound named where it is made (`FixedList`,
-/// `src/fixed_list.rs`) -- so neither ever allocates or grows,
+/// `utilities::fixed_list`) -- so neither ever allocates or grows,
 /// whatever the bitmap, the first included. Each is kept as small as
 /// that allows: nothing is held for a level or a list that can never be
 /// used.

@@ -2,7 +2,7 @@
 //! and saved bitmap, and the PBM image named in `TESSERA_DIAGNOSE`, if any.
 
 use crate::adversarial::record;
-use crate::Bitmap;
+use bitmap::Bitmap;
 use std::path::Path;
 
 /// The environment variable naming one more PBM image to look at.

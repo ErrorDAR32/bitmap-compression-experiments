@@ -17,8 +17,8 @@
 
 use super::bit_stream::{gamma_bits, truncated_binary_bits, truncated_binary_shape, BitReader, BitStream};
 use crate::set_counts::SetCounts;
-use crate::WORDS;
-use crate::Bitmap;
+use bitmap::WORDS;
+use bitmap::Bitmap;
 
 /// The counts a run of `cells` cells, `set` of them set, could have in
 /// its first half: the fewest, and how many there are.

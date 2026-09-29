@@ -22,7 +22,7 @@ use crate::pyramids::copyable::FINEST_COPY_LEVEL;
 use crate::tile::{Tile, CELL_LEVEL, FINEST_PLACED_LEVEL, FLOOR_LEVEL};
 use crate::tree_representation::start_level;
 use crate::Tessera;
-use crate::Bitmap;
+use bitmap::Bitmap;
 
 /// A cell said wrongly.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

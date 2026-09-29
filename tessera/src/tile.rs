@@ -6,8 +6,8 @@
 //! no level has more than 256 tiles across. Cell coordinates, also
 //! `u8`, are worked out only where cells are actually read.
 
-use crate::{Bitmap, WIDTH};
-use crate::morton::{morton_coordinates, morton_index};
+use bitmap::{Bitmap, WIDTH};
+use bitmap::morton::{morton_coordinates, morton_index};
 
 /// The level of a single cell, the finest there is.
 pub const CELL_LEVEL: u8 = 8;

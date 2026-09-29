@@ -12,7 +12,7 @@
 //!
 //! Comment lines (`#`) carry notes: what a bitmap is, and what it scored.
 
-use crate::{Bitmap, HEIGHT, WIDTH};
+use bitmap::{Bitmap, HEIGHT, WIDTH};
 use std::fs;
 use std::path::{Path, PathBuf};
 

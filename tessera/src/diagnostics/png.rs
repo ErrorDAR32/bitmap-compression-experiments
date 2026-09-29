@@ -1,7 +1,7 @@
 //! A bitmap as a PNG image, set cells black, two pixels a cell: a PNG is
 //! a zlib stream, so this writes one uncompressed, with no library.
 
-use crate::Bitmap;
+use bitmap::Bitmap;
 
 /// Each cell is this many pixels square.
 const PIXELS_A_CELL: usize = 2;

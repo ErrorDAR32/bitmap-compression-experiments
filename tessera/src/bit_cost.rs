@@ -18,7 +18,7 @@ use crate::pyramids::complex_tiling::{ComplexTiling, Fields};
 use crate::pyramids::placements::Placement;
 use crate::residual_prices::ResidualPrices;
 use crate::tile::{tiles_in_level, Tile, CHILDREN, FLOOR_LEVEL};
-use crate::Bitmap;
+use bitmap::Bitmap;
 
 /// How many resolution tiles a tile holds `size_offset` levels finer:
 /// one payload bit each.
