@@ -84,9 +84,10 @@ type BlockIndex = u16;
 const NO_SOURCE: BlockIndex = BlockIndex::MAX;
 const _: () = assert!(BLOCKS <= NO_SOURCE as usize, "every block has an index, and none is NO_SOURCE");
 
-/// A block's Morton index's `x` bits -- the even ones -- and its `y`
-/// bits, the odd ones: a neighbour's index is one field stepped in place.
+/// A block's Morton index's `x` bits, the even ones...
 const BLOCK_X_BITS: usize = 0x5555_5555 & (BLOCKS - 1);
+/// ...and its `y` bits, the odd ones: a neighbour's index is one of the
+/// two fields stepped in place.
 const BLOCK_Y_BITS: usize = BLOCK_X_BITS << 1;
 const _: () = assert!(BLOCK_X_BITS | BLOCK_Y_BITS == BLOCKS - 1, "the two fields cover a block index");
 
