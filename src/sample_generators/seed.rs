@@ -58,11 +58,12 @@ fn fresh_seed() -> u64 {
 /// The seed a sample group starts from.
 ///
 /// `GCT_SEED` in the environment wins, so a run can be pinned to any
-/// bitmaps; picking one there moves the file's seed to it, its first
-/// use. `GCT_SEED=fresh` draws one for this run alone and writes
-/// nothing. Otherwise the file's seed is used, and counted -- or, once
-/// it has been used [`USES_BEFORE_THE_SEED_ROLLS`] times, a fresh one is
-/// rolled in its place.
+/// bitmaps -- both sides of a comparison, say -- for that run alone:
+/// the file is left as it is, its count too, so pinning never holds a
+/// seed past its uses. `GCT_SEED=fresh` draws one for this run alone,
+/// likewise. Otherwise the file's seed is used, and counted -- or, once
+/// it has been used [`USES_BEFORE_THE_SEED_ROLLS`] times, a fresh one
+/// is rolled in its place.
 pub fn seed_for_group(group: &str) -> u64 {
     let settled = settled();
     let _ = writeln!(std::io::stderr(), "  {group}: seed {}{}", settled.seed, settled.note);
@@ -91,25 +92,26 @@ pub fn seed_in_use() -> Option<(u64, bool)> {
 }
 
 /// The seed itself, read once however many groups ask for it, and --
-/// unless fresh -- written down with how many runs have now used it,
-/// rolled first if the file's has been used up.
+/// unless fresh or picked -- written down with how many runs have now
+/// used it, rolled first if the file's has been used up.
 fn settled() -> &'static Settled {
     SETTLED.get_or_init(|| {
         if std::env::var(SEED_VARIABLE).is_ok_and(|value| value.trim() == FRESH) {
             return Settled { seed: fresh_seed(), fresh: true, note: ", fresh for this run, not kept".to_string() };
+        }
+        if let Some(seed) = std::env::var(SEED_VARIABLE).ok().and_then(|value| value.trim().parse::<u64>().ok()) {
+            return Settled { seed, fresh: false, note: ", picked for this run, the file left as it is".to_string() };
         }
         let held = std::fs::read_to_string(WHERE_THE_SEED_IS_KEPT).ok();
         let mut kept = held.iter().flat_map(|text| text.lines());
         let last = kept.next().and_then(|line| line.trim().parse::<u64>().ok());
         let uses = kept.next().and_then(|line| line.trim().parse::<u64>().ok()).unwrap_or(0);
 
-        let asked = std::env::var(SEED_VARIABLE).ok().and_then(|value| value.trim().parse::<u64>().ok());
-        let (seed, uses, note) = match (asked, last) {
-            (Some(seed), _) => (seed, 1, ", picked for this run".to_string()),
-            (None, Some(last)) if uses < USES_BEFORE_THE_SEED_ROLLS => {
+        let (seed, uses, note) = match last {
+            Some(last) if uses < USES_BEFORE_THE_SEED_ROLLS => {
                 (last, uses + 1, format!(", the same bitmaps as the last run (use {} of {USES_BEFORE_THE_SEED_ROLLS})", uses + 1))
             }
-            (None, _) => {
+            _ => {
                 let seed = fresh_seed();
                 let rolled = last.map_or(String::new(), |last| format!(" -- seed {last} was used {uses} times"));
                 let _ = writeln!(std::io::stderr(), "\n  rolled a fresh seed, {seed}{rolled}\n");

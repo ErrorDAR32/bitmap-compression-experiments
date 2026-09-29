@@ -15,9 +15,9 @@ many runs have used it. Each run that draws from it counts one use;
 after 5 (`USES_BEFORE_THE_SEED_ROLLS`, `src/sample_generators/seed.rs`)
 the next run rolls a fresh seed by itself and says so, so no corpus is
 held for longer than a few measure-and-compare cycles, and no one has to
-remember to move it. Setting `GCT_SEED` picks a seed for one run, and
-moves the file's to it, its first use. `GCT_SEED=fresh` draws a new one
-for one run and moves nothing. Every run says which seed each sample
+remember to move it. Setting `GCT_SEED` picks a seed for one run and
+leaves the file alone, its count too, so pinning never holds a seed
+past its uses; `GCT_SEED=fresh` draws a new one for one run, likewise. Every run says which seed each sample
 group used, and which use of it the run is, so a number can always be
 traced to its bitmaps. The fine tests are the exception: they draw
 their bitmaps by hand or from a seed fixed in the test, and never read
