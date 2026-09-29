@@ -1,11 +1,11 @@
-# written by `cargo run --release --bin gct_diagnostics -- per_shape`
+# written by `cargo run --release --bin tessera_diagnostics -- per_shape`
 # seed 1950720362523133367
 # commit 4780328, with uncommitted changes
 
 ## every shape, plan and line set
 sample,bitmaps,"cells set
-a bitmap","gct
-bits a bitmap","gct bits
+a bitmap","Tessera
+bits a bitmap","Tessera bits
 a cell set","of the
 raw cells"
 sparse scattered,20,3276,19052,5.82,29.1%

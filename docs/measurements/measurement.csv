@@ -1,10 +1,10 @@
-# written by `cargo run --release --bin gct_diagnostics -- measurement`
+# written by `cargo run --release --bin tessera_diagnostics -- measurement`
 # seed 1950720362523133367
 # commit c73083a, with uncommitted changes
 
 ## grown
 grown,"density, cluster",bitmaps,"cells set
-a bitmap","gct bits
+a bitmap","Tessera bits
 a bitmap",fewest,most,"of the
 raw cells","encode us
 a bitmap"
@@ -33,7 +33,7 @@ all,"",216,3162,10010,20,65568,15.3%,401
 
 ## laid out like a city
 laid out like a city,"pitch, street, courtyards",bitmaps,"cells set
-a bitmap","gct bits
+a bitmap","Tessera bits
 a bitmap",fewest,most,"of the
 raw cells","encode us
 a bitmap"
@@ -46,7 +46,7 @@ all,"",48,35522,8263,4521,13147,12.6%,632
 
 ## drawn with lines
 drawn with lines,lines,bitmaps,"cells set
-a bitmap","gct bits
+a bitmap","Tessera bits
 a bitmap",fewest,most,"of the
 raw cells","encode us
 a bitmap"
@@ -58,7 +58,7 @@ all,"",36,9220,9476,968,21997,14.5%,613
 
 ## checkerboard
 checkerboard,square side,bitmaps,"cells set
-a bitmap","gct bits
+a bitmap","Tessera bits
 a bitmap",fewest,most,"of the
 raw cells","encode us
 a bitmap"
@@ -82,7 +82,7 @@ all,"",15,32702,9470,4082,18108,14.5%,715
 
 ## adversarial, saved
 "adversarial, saved","",bitmaps,"cells set
-a bitmap","gct bits
+a bitmap","Tessera bits
 a bitmap",fewest,most,"of the
 raw cells","encode us
 a bitmap"

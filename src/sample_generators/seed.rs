@@ -49,9 +49,9 @@ pub const WHERE_THE_SEED_IS_KEPT: &str = "tests/last_seed";
 pub const USES_BEFORE_THE_SEED_ROLLS: u64 = 5;
 
 /// The environment variable that picks a seed for one run.
-const SEED_VARIABLE: &str = "GCT_SEED";
+const SEED_VARIABLE: &str = "TESSERA_SEED";
 
-/// `GCT_SEED`'s value that draws a fresh seed for one run and leaves the
+/// `TESSERA_SEED`'s value that draws a fresh seed for one run and leaves the
 /// file alone: a check on bitmaps never seen, which moves nothing a
 /// measurement holds still -- what the fast tier runs on while the code
 /// changes.
@@ -66,10 +66,10 @@ fn fresh_seed() -> u64 {
 
 /// The seed every sample starts from.
 ///
-/// `GCT_SEED` in the environment wins, so a run can be pinned to any
+/// `TESSERA_SEED` in the environment wins, so a run can be pinned to any
 /// bitmaps -- both sides of a comparison, say -- for that run alone:
 /// the file is left as it is, its count too, so pinning never holds a
-/// seed past its uses. `GCT_SEED=fresh` draws one for this run alone,
+/// seed past its uses. `TESSERA_SEED=fresh` draws one for this run alone,
 /// likewise. Otherwise the file's seed is used, and counted -- or, once
 /// it has been used [`USES_BEFORE_THE_SEED_ROLLS`] times, a fresh one
 /// is rolled in its place.
@@ -131,7 +131,7 @@ fn settled(counted: Counted) -> &'static Settled {
     })
 }
 
-/// [`settled`]'s seed, settled: from `GCT_SEED`, or the file, rolled if
+/// [`settled`]'s seed, settled: from `TESSERA_SEED`, or the file, rolled if
 /// used up, and the file rewritten.
 fn settle(counted: Counted) -> Settled {
     let not_counted = "not counted".to_string();

@@ -2,11 +2,11 @@
 name = "external_benchmarks"
 version = "0.1.0"
 edition = "2021"
-description = "gct against existing bitmap compressors: CCITT Group 4, JBIG (jbigkit) and zstd"
+description = "Tessera against existing bitmap compressors: CCITT Group 4, JBIG (jbigkit) and zstd"
 publish = false
 default-run = "external_benchmarks"
 
-# Its own workspace: the external codecs never enter gct's build.
+# Its own workspace: the external codecs never enter Tessera's build.
 [workspace]
 
 [dependencies]
@@ -19,3 +19,8 @@ cc = "1"
 
 [profile.release]
 debug = true
+
+# The searches live in src/tools/, not src/bin/, so each is named here.
+[[bin]]
+name = "adversarial"
+path = "src/tools/adversarial.rs"

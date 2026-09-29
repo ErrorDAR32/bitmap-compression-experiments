@@ -5,3 +5,12 @@ edition = "2021"
 
 [profile.release]
 debug = true
+
+# The tools live in src/tools/, not src/bin/, so each is named here.
+[[bin]]
+name = "tessera_diagnostics"
+path = "src/tools/tessera_diagnostics/main.rs"
+
+[[bin]]
+name = "tessera_adversarial"
+path = "src/tools/tessera_adversarial.rs"

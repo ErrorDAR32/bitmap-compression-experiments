@@ -1,8 +1,8 @@
 //! What a tree holds: tiles, complex tiles and the tiles of their
 //! resolutions they say, masking nodes and cell lists.
 
-use crate::gct::pyramids::tree::{Node, Tree};
-use crate::gct::tile::Tile;
+use crate::tessera::pyramids::tree::{Node, Tree};
+use crate::tessera::tile::Tile;
 
 /// The counts, over one tree or added up over many.
 #[derive(Default, Clone, Debug)]

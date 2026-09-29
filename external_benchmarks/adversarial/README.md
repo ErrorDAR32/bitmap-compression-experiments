@@ -4,7 +4,7 @@ Two kinds, both plain PBM images (`P1`, `1` set), 256x256, with notes as
 `#` comment lines:
 
 - **Records**, here: the worst bitmap found so far for each search, one
-  a codec gct is scored against. A search starts from its record and
+  a codec Tessera is scored against. A search starts from its record and
   replaces it only when it beats it, so records move.
 - **Saved bitmaps**, in `saved/`: records copied once their search had
   settled, named for what they are, never replaced by a search. The fine
@@ -14,7 +14,7 @@ Two kinds, both plain PBM images (`P1`, `1` set), 256x256, with notes as
 
 Searching and saving are described in `docs/testing_protocol.md`. The
 last search's report -- what it found, and each record before and after
--- is kept in `docs/measurements/gct_adversarial.csv` (against the raw
+-- is kept in `docs/measurements/tessera_adversarial.csv` (against the raw
 cells) and `docs/measurements/external_adversarial.csv` (against the
 codecs).
 
@@ -27,7 +27,7 @@ four searches a codec each time: the longer search barely moved the zstd
 and JBIG records, so they had settled; G4's still moved, so it may yet
 be beaten.
 
-What gct and the codecs make of them now is measured, not written here:
+What Tessera and the codecs make of them now is measured, not written here:
 `docs/measurements/measurement.csv` (the `adversarial, saved` table),
 `docs/measurements/census.csv` and `docs/measurements/external_benchmarks.csv`.
 
@@ -45,10 +45,10 @@ What each is, measured on the image:
   cells differ, clustered in 89 of the 512 8x8s. In the zstd-19 bitmap
   149 cells differ, about two in each of 74 8x8s. Both have a blocky
   texture with runs about 4 long. zstd matches the rows 4 KiB back and
-  skips past the differences; gct's copies need exact tiles, so each
+  skips past the differences; Tessera's copies need exact tiles, so each
   difference breaks the copy of every tile around it.
 - **`inverted_half_noise_vs_raw`**: white noise at half density, the
   bottom half the exact inverse of the top. One 2x2 in five and one 4x4
-  in fifty is all one value, too few for leaves to pay, and gct's copies
-  cannot follow an inverse. It was found by an older gct's search and
+  in fifty is all one value, too few for leaves to pay, and Tessera's copies
+  cannot follow an inverse. It was found by an older Tessera's search and
   not searched again.

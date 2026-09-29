@@ -1,9 +1,9 @@
 //! Bits, cells set and encode time, over many bitmaps, each encoded and
-//! decoded by one `Gct`.
+//! decoded by one `Tessera`.
 
 use super::examination::first_difference;
-use crate::gct::grammar::bit_stream::BitStream;
-use crate::gct::Gct;
+use crate::tessera::grammar::bit_stream::BitStream;
+use crate::tessera::Tessera;
 use crate::Bitmap;
 use std::time::Instant;
 
@@ -14,7 +14,7 @@ pub struct Measured {
     pub bitmaps: usize,
     /// Their cells set, all together.
     pub cells_set: usize,
-    /// gct's bits for them, all together.
+    /// Tessera's bits for them, all together.
     pub bits: usize,
     /// The fewest bits one took; 0 of none.
     pub fewest: usize,
@@ -28,16 +28,16 @@ pub struct Measured {
 }
 
 impl Measured {
-    /// Encodes and decodes every bitmap of `bitmaps` with `gct`, and
+    /// Encodes and decodes every bitmap of `bitmaps` with `tessera`, and
     /// gathers what they came to.
-    pub fn of(gct: &mut Gct, bitmaps: impl IntoIterator<Item = Bitmap>) -> Self {
+    pub fn of(tessera: &mut Tessera, bitmaps: impl IntoIterator<Item = Bitmap>) -> Self {
         let (mut stream, mut back) = (BitStream::default(), Bitmap::new());
         let mut measured = Measured::default();
         for (case, bitmap) in bitmaps.into_iter().enumerate() {
             let start = Instant::now();
-            gct.encode(&bitmap, &mut stream);
+            tessera.encode(&bitmap, &mut stream);
             measured.encode_micros += start.elapsed().as_micros();
-            gct.decode(&stream, &mut back);
+            tessera.decode(&stream, &mut back);
             if first_difference(&bitmap, &back).is_some() {
                 measured.lost.push(case);
             }

@@ -4,7 +4,7 @@
 //! Rules it enforces rather than leaves to the caller: a header rule
 //! under the headings, a bar between columns, and a heading that names
 //! the whole of what the column holds. A column headed "bits" says
-//! neither whose bits nor per what; one headed "gct bits a bitmap" does,
+//! neither whose bits nor per what; one headed "Tessera bits a bitmap" does,
 //! and it is not the table's business to make that shorter.
 //!
 //! A heading with newlines in it stacks, so a long name costs height

@@ -2,7 +2,7 @@
 //! bitmap, decode it back, check it came back whole.
 
 pub mod g4;
-pub mod gct;
+pub mod tessera;
 pub mod jbig;
 pub mod zstd;
 
@@ -14,7 +14,7 @@ pub trait Codec {
     /// What the tables call it.
     fn name(&self) -> String;
 
-    /// Encodes one bitmap, given both as gct takes it and in rows. Only
+    /// Encodes one bitmap, given both as Tessera takes it and in rows. Only
     /// this is timed as encoding.
     fn encode(&mut self, bitmap: &Bitmap, rows: &Rows);
 

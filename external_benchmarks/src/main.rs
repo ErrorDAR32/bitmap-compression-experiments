@@ -1,4 +1,4 @@
-//! gct against existing bitmap compressors -- CCITT Group 4, JBIG
+//! Tessera against existing bitmap compressors -- CCITT Group 4, JBIG
 //! (jbigkit) and zstd -- on the same large sample the diagnostics tool's `timing` uses:
 //! every generator, `sample_generators::TIMING_PER_GENERATOR` distinct bitmaps each. For
 //! each family and codec: the mean encoded size, and the mean time to
@@ -24,7 +24,7 @@ use tilesim::table::report::Report;
 use tilesim::table::Table;
 use tilesim::Bitmap;
 use external_benchmarks::codecs::g4::G4;
-use external_benchmarks::codecs::gct::Gct;
+use external_benchmarks::codecs::tessera::Tessera;
 use external_benchmarks::codecs::jbig::Jbig;
 use external_benchmarks::codecs::zstd::Zstd;
 use external_benchmarks::codecs::Codec;
@@ -81,7 +81,7 @@ fn main() {
     let per_generator = std::env::args().nth(1).map_or(TIMING_PER_GENERATOR, |count| count.parse().expect("a count"));
     let families: Vec<Family> =
         families(HowMany::Each(per_generator)).into_iter().map(|(name, bitmaps)| Family::of(name, bitmaps.into_iter())).collect();
-    let mut codecs: Vec<Box<dyn Codec>> = vec![Box::new(Gct::new()), Box::new(G4::new()), Box::new(Jbig::new())];
+    let mut codecs: Vec<Box<dyn Codec>> = vec![Box::new(Tessera::new()), Box::new(G4::new()), Box::new(Jbig::new())];
     codecs.extend(ZSTD_LEVELS.map(|level| Box::new(Zstd::new(level)) as Box<dyn Codec>));
 
     // One pass of each codec over one bitmap first, so the first timed one

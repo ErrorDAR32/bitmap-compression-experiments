@@ -1,7 +1,7 @@
 //! Adversarial bitmaps: searches for the bitmaps an encoder does worst
-//! on, by any score the caller gives -- gct against its raw cells, or
+//! on, by any score the caller gives -- Tessera against its raw cells, or
 //! against another encoder. Kept in the library so every search, in any
-//! crate, is the same search: `src/bin/gct_adversarial.rs` scores gct
+//! crate, is the same search: `src/tools/tessera_adversarial.rs` scores Tessera
 //! against the raw cells, `external_benchmarks/` scores it against the
 //! external codecs. See `docs/testing_protocol.md`.
 //!
@@ -9,7 +9,7 @@
 //! over structure-aware changes (`moves.rs`):
 //!
 //! 1. One 64x64 window, in an otherwise clear bitmap, from a clear start
-//!    and from a noisy one: every change lands where it counts, and gct
+//!    and from a noisy one: every change lands where it counts, and Tessera
 //!    reads a quadtree, so what is bad in a window is bad anywhere.
 //! 2. The whole plane: filled with the best window's sixteen variants
 //!    (`plane.rs`), from noise, and from the worst bitmap recorded so
@@ -26,17 +26,17 @@ pub use anneal::Found;
 use anneal::anneal;
 use crate::rng::Rng;
 
-use crate::gct::tile::Tile;
+use crate::tessera::tile::Tile;
 use crate::Bitmap;
 
 /// What one bitmap scored.
 #[derive(Clone, Copy, Debug)]
 pub struct Score {
-    /// What the search maximizes: gct's bits less what they are held
+    /// What the search maximizes: Tessera's bits less what they are held
     /// against.
     pub gap: i64,
-    /// gct's bits for the whole bitmap.
-    pub gct_bits: u64,
+    /// Tessera's bits for the whole bitmap.
+    pub tessera_bits: u64,
 }
 
 /// The searched window: a 64x64, the top left one.

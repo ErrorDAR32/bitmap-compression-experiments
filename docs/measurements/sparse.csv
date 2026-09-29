@@ -1,4 +1,4 @@
-# written by `cargo run --release --bin gct_diagnostics -- sparse`
+# written by `cargo run --release --bin tessera_diagnostics -- sparse`
 # 20 bitmaps a density and clustering
 # seed 17400261585918632413
 # commit 98096ce, with uncommitted changes

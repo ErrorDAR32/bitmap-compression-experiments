@@ -7,7 +7,7 @@
 //! | `bitmap_drawing` | rectangles and circles, drawn by their shape |
 //!
 //! Nothing here decides anything. What to describe, at what size, in
-//! what order -- all of that is the encoding's, [`crate::gct`]'s, which
+//! what order -- all of that is the encoding's, [`crate::tessera`]'s, which
 //! holds a bitmap and reads it.
 
 mod bitmap_data;

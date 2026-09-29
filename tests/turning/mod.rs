@@ -1,12 +1,12 @@
 //! That turned bitmaps take about as many bits, shared by the fast and
-//! complete tiers. gct is not the same every way round -- Morton order
+//! complete tiers. Tessera is not the same every way round -- Morton order
 //! halves top and bottom first, copies read up and to the left, the
 //! last pass codes rows top down -- so a turned bitmap's tiles, copies
 //! and contexts differ, and so do its bits; but a set's total should
 //! barely move, and a bias for one orientation shows there.
 
-use tilesim::gct::grammar::bit_stream::BitStream;
-use tilesim::gct::Gct;
+use tilesim::tessera::grammar::bit_stream::BitStream;
+use tilesim::tessera::Tessera;
 use tilesim::Bitmap;
 
 /// Quarter turns in a whole turn.
@@ -29,13 +29,13 @@ fn turned_a_quarter(bitmap: &Bitmap) -> Bitmap {
 /// round: each turn's total within `most_drift_percent` of the set's
 /// total as drawn.
 pub fn check_turned_bits(sets: Vec<(String, Vec<Bitmap>)>, most_drift_percent: f64) {
-    let (mut gct, mut stream) = (Gct::new(), BitStream::default());
+    let (mut tessera, mut stream) = (Tessera::new(), BitStream::default());
     for (set, maps) in sets {
         let mut bits_by_turn = [0; QUARTER_TURNS];
         for bitmap in &maps {
             let mut turned = bitmap.clone();
             for bits in &mut bits_by_turn {
-                gct.encode(&turned, &mut stream);
+                tessera.encode(&turned, &mut stream);
                 *bits += stream.len();
                 turned = turned_a_quarter(&turned);
             }

@@ -4,8 +4,8 @@
 //! almost match, and structure no power-of-two tile lines up with.
 
 use crate::rng::Rng;
-use crate::gct::pyramids::copyable::FINEST_COPY_LEVEL;
-use crate::gct::tile::{tile_side, Tile, CELL_LEVEL, DIRECTIONS};
+use crate::tessera::pyramids::copyable::FINEST_COPY_LEVEL;
+use crate::tessera::tile::{tile_side, Tile, CELL_LEVEL, DIRECTIONS};
 use crate::Bitmap;
 
 /// The largest square a painted rectangle or a checkerboard patch

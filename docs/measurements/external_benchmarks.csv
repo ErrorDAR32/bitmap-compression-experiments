@@ -9,7 +9,7 @@ a bitmap","of the
 raw cells","encode us
 a bitmap","decode us
 a bitmap"
-gct,8464,12.9%,478.2,163.9
+Tessera,8464,12.9%,478.2,163.9
 CCITT G4 (fax crate),9106,13.9%,140.7,91.2
 JBIG (jbigkit),5326,8.1%,247.9,235.7
 zstd level 3,6776,10.3%,22.4,9.7
@@ -21,7 +21,7 @@ a bitmap","of the
 raw cells","encode us
 a bitmap","decode us
 a bitmap"
-gct,35891,54.8%,1078.5,346.4
+Tessera,35891,54.8%,1078.5,346.4
 CCITT G4 (fax crate),59971,91.5%,435.1,350.6
 JBIG (jbigkit),34622,52.8%,682.3,686.1
 zstd level 3,39970,61.0%,36.8,11.7
@@ -33,7 +33,7 @@ a bitmap","of the
 raw cells","encode us
 a bitmap","decode us
 a bitmap"
-gct,2266,3.5%,104.8,5.6
+Tessera,2266,3.5%,104.8,5.6
 CCITT G4 (fax crate),4104,6.3%,100.7,20.3
 JBIG (jbigkit),2428,3.7%,223.9,208.6
 zstd level 3,4076,6.2%,13.7,6.1
@@ -45,7 +45,7 @@ a bitmap","of the
 raw cells","encode us
 a bitmap","decode us
 a bitmap"
-gct,9363,14.3%,469.5,182.9
+Tessera,9363,14.3%,469.5,182.9
 CCITT G4 (fax crate),13220,20.2%,188.8,93.9
 JBIG (jbigkit),4206,6.4%,348.5,329.7
 zstd level 3,17072,26.0%,31.7,11.2
@@ -57,7 +57,7 @@ a bitmap","of the
 raw cells","encode us
 a bitmap","decode us
 a bitmap"
-gct,15181,23.2%,525.2,162.4
+Tessera,15181,23.2%,525.2,162.4
 CCITT G4 (fax crate),24480,37.4%,227.9,149.1
 JBIG (jbigkit),13786,21.0%,394.1,385.2
 zstd level 3,17884,27.3%,24.7,9.1

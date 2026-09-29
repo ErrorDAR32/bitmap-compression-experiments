@@ -1,5 +1,5 @@
-# written by `cargo run --release --bin gct_diagnostics -- instruction_count`
-# 5 bitmaps a generator, a checkerboard, the saved adversarial bitmaps and noise; counted by callgrind, output in target/gct_diagnostics/
+# written by `cargo run --release --bin tessera_diagnostics -- instruction_count`
+# 5 bitmaps a generator, a checkerboard, the saved adversarial bitmaps and noise; counted by callgrind, output in target/tessera_diagnostics/
 # seed 17400261585918632413
 # commit 98096ce, with uncommitted changes
 

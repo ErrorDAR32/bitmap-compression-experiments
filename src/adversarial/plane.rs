@@ -6,7 +6,7 @@
 //! only ever translate, so none of the variants is a copy of another
 //! unless the window is itself symmetric.
 
-use crate::gct::tile::{tile_side, Tile};
+use crate::tessera::tile::{tile_side, Tile};
 use crate::Bitmap;
 
 /// A window can be turned four ways...

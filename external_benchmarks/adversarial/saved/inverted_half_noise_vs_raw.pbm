@@ -1,6 +1,6 @@
 P1
-# inverted_half_noise_vs_raw: white noise at half density, the bottom half the exact inverse of the top: one 2x2 in five and one 4x4 in fifty all one value, too few for leaves to pay, and gct's copies cannot follow an inverse; gct writes 65567 bits, 31 over the raw cells (the record's note below is from an older gct)
-# from record gct_against_raw: gap 523 bits
+# inverted_half_noise_vs_raw: white noise at half density, the bottom half the exact inverse of the top: one 2x2 in five and one 4x4 in fifty all one value, too few for leaves to pay, and Tessera's copies cannot follow an inverse; Tessera writes 65567 bits, 31 over the raw cells (the record's note below is from an older Tessera)
+# from record tessera_against_raw: gap 523 bits
 256 256
 1000010010010011111100110100011111000011011000011001000010000111011000001101010110101110010111011101100110001101100010011110110100001100010010101101000000000000001001100000000011100000111110101001111010100000000000001000110100110000111101011101000000001100
 0101000000000111011100010101000000100101000101111000111001001100101001010110010101010001011101000101101000101101111011010000001001110001111100011001000000010000011000000000000111101100101110011011010010010111001001111000111111000000111111010110000000111110

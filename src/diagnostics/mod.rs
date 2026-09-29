@@ -1,7 +1,7 @@
-//! Diagnostics: data gathered from gct's steps and its output, one kind
+//! Diagnostics: data gathered from Tessera's steps and its output, one kind
 //! of data to a file. They only gather: nothing here judges a result or
 //! prints one. The tests (`tests/`) judge what they gather, and the
-//! diagnostics tool (`src/bin/gct_diagnostics/`) prints it.
+//! diagnostics tool (`src/tools/tessera_diagnostics/`) prints it.
 //!
 //! | file | what it gathers |
 //! |---|---|

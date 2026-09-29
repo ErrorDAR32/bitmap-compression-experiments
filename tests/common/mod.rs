@@ -1,14 +1,14 @@
-//! What every gct test checks of a bitmap, shared by the three tiers:
+//! What every Tessera test checks of a bitmap, shared by the three tiers:
 //! judgements on what `tilesim::diagnostics` gathers.
 
 use tilesim::diagnostics::examination::Examination;
 use tilesim::diagnostics::RAW_CELLS;
-use tilesim::gct::grammar::bit_stream::BitStream;
-use tilesim::gct::Gct;
+use tilesim::tessera::grammar::bit_stream::BitStream;
+use tilesim::tessera::Tessera;
 use tilesim::Bitmap;
 use std::cell::RefCell;
 
-/// The most gct may ever spend on a bitmap: the raw cells and 1%.
+/// The most Tessera may ever spend on a bitmap: the raw cells and 1%.
 pub const CAP_BITS: usize = RAW_CELLS + RAW_CELLS / 100;
 
 /// Everything that has to hold of one bitmap, each failure naming what
@@ -22,19 +22,19 @@ pub const CAP_BITS: usize = RAW_CELLS + RAW_CELLS / 100;
 /// - the reference bit cost the greedy tiler scores with is the tree's written
 ///   bits, and the bits counted for the encoding that suits the bitmap
 ///   -- the tree, or the count split -- are the stream's;
-/// - gct spends at most [`CAP_BITS`], the raw cells and 1%;
+/// - Tessera spends at most [`CAP_BITS`], the raw cells and 1%;
 /// - the tree read back from its bits is the tree that was written, and
 ///   both the tree's bits and the stream's decode to every cell.
 pub fn check(bitmap: &Bitmap, label: &str) {
     thread_local! {
-        /// One `Gct` for every check a thread makes, so every test
+        /// One `Tessera` for every check a thread makes, so every test
         /// also checks that nothing one bitmap leaves in it leaks into
         /// the next.
-        static GCT: RefCell<(Gct, BitStream, Bitmap)> =
-            RefCell::new((Gct::new(), BitStream::default(), Bitmap::new()));
+        static TESSERA: RefCell<(Tessera, BitStream, Bitmap)> =
+            RefCell::new((Tessera::new(), BitStream::default(), Bitmap::new()));
     }
-    GCT.with_borrow_mut(|(gct, stream, back)| {
-        let examined = Examination::of(gct, stream, back, bitmap);
+    TESSERA.with_borrow_mut(|(tessera, stream, back)| {
+        let examined = Examination::of(tessera, stream, back, bitmap);
         assert_eq!(examined.coverage_faults.first(), None, "{label}: a cell said wrongly");
         assert_eq!(examined.placed_finer_than_2x2.first(), None, "{label}: placed finer than a 2x2");
         assert_eq!(examined.copied_finer_than_4x4.first(), None, "{label}: copied finer than 4x4");

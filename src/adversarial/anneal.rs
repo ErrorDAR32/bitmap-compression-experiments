@@ -12,7 +12,7 @@
 use super::moves::CHANGES;
 use crate::rng::Rng;
 use super::Score;
-use crate::gct::tile::Tile;
+use crate::tessera::tile::Tile;
 use crate::Bitmap;
 
 /// How many bits a change may lose and still often be kept at the

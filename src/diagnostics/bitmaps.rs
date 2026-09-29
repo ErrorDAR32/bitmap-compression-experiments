@@ -1,14 +1,14 @@
 //! The bitmaps a diagnostic looks at by name: every adversarial record
-//! and saved bitmap, and the PBM image named in `GCT_DIAGNOSE`, if any.
+//! and saved bitmap, and the PBM image named in `TESSERA_DIAGNOSE`, if any.
 
 use crate::adversarial::record;
 use crate::Bitmap;
 use std::path::Path;
 
 /// The environment variable naming one more PBM image to look at.
-pub const EXTRA: &str = "GCT_DIAGNOSE";
+pub const EXTRA: &str = "TESSERA_DIAGNOSE";
 
-/// Every adversarial record and saved bitmap, then `GCT_DIAGNOSE`'s
+/// Every adversarial record and saved bitmap, then `TESSERA_DIAGNOSE`'s
 /// image, each named.
 pub fn looked_at() -> Vec<(String, Bitmap)> {
     let mut bitmaps = record::all();

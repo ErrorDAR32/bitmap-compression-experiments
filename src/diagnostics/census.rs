@@ -1,7 +1,7 @@
 //! A tree's nodes, counted by kind and level.
 
-use crate::gct::pyramids::tree::{Node, Tree};
-use crate::gct::tile::{Tile, CELL_LEVEL, FLOOR_LEVEL};
+use crate::tessera::pyramids::tree::{Node, Tree};
+use crate::tessera::tile::{Tile, CELL_LEVEL, FLOOR_LEVEL};
 use std::collections::BTreeMap;
 
 /// The node at `tile`'s kind, named as the grammar spells it.

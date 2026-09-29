@@ -1,6 +1,6 @@
 P1
-# near_repeated_half_vs_zstd3: bottom half a near repeat of the top: 980 cells differ, clustered in 89 of the 512 8x8s (169 of the 2048 4x4s); blocky texture, runs about 4 long; zstd matches the rows 4 KiB back past the differences, gct's copies need exact tiles, so each difference breaks the copy of every tile around it
-# from record gct_against_zstd3: gct 41477 bits over zstd level 3
+# near_repeated_half_vs_zstd3: bottom half a near repeat of the top: 980 cells differ, clustered in 89 of the 512 8x8s (169 of the 2048 4x4s); blocky texture, runs about 4 long; zstd matches the rows 4 KiB back past the differences, Tessera's copies need exact tiles, so each difference breaks the copy of every tile around it
+# from record tessera_against_zstd3: Tessera 41477 bits over zstd level 3
 256 256
 0000000000000000000000000111100000000000000000000000000000000000000000000000000000000000000011111111100000000000000000000000000000000000000000000000000000000000000111100000000000000000000000000110000011110000000111111000001111000000000111000000000000000000
 0000000000000001111100000111100000000000000000000000000000000000100000000000000000000000000011111111100000000000000000000000000000000000000000000000000000000000000111100000111110000000000000000001111100110000111111100000111000001111111000000000111000111000

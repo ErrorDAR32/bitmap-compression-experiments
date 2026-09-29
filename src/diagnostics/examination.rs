@@ -1,4 +1,4 @@
-//! One bitmap examined: encoded and decoded by a `Gct`, and
+//! One bitmap examined: encoded and decoded by a `Tessera`, and
 //! everything the result can be held to, gathered:
 //!
 //! - how each cell is said: by exactly one of the greedy tiler's placed
@@ -11,17 +11,17 @@
 //! - whether the tree read back from the bits is the tree written;
 //! - the first cell decoding gets wrong, if any.
 
-use crate::gct::pyramids::complex_tiling::ComplexTiling;
-use crate::gct::bit_cost::{tree_bits, Counting};
-use crate::gct::set_counts::SetCounts;
-use crate::gct::grammar::bit_stream::BitStream;
-use crate::gct::grammar::{count_split, COUNT_SPLIT_STREAM, STREAM_MODE_WIDTH};
-use crate::gct::pyramids::placements::Placement;
-use crate::gct::pyramids::tree::{Node, Tree};
-use crate::gct::pyramids::copyable::FINEST_COPY_LEVEL;
-use crate::gct::tile::{Tile, CELL_LEVEL, FINEST_PLACED_LEVEL, FLOOR_LEVEL};
-use crate::gct::tree_representation::start_level;
-use crate::gct::Gct;
+use crate::tessera::pyramids::complex_tiling::ComplexTiling;
+use crate::tessera::bit_cost::{tree_bits, Counting};
+use crate::tessera::set_counts::SetCounts;
+use crate::tessera::grammar::bit_stream::BitStream;
+use crate::tessera::grammar::{count_split, COUNT_SPLIT_STREAM, STREAM_MODE_WIDTH};
+use crate::tessera::pyramids::placements::Placement;
+use crate::tessera::pyramids::tree::{Node, Tree};
+use crate::tessera::pyramids::copyable::FINEST_COPY_LEVEL;
+use crate::tessera::tile::{Tile, CELL_LEVEL, FINEST_PLACED_LEVEL, FLOOR_LEVEL};
+use crate::tessera::tree_representation::start_level;
+use crate::tessera::Tessera;
 use crate::Bitmap;
 
 /// A cell said wrongly.
@@ -79,11 +79,11 @@ pub fn first_difference(a: &Bitmap, b: &Bitmap) -> Option<(u8, u8)> {
     (0..=u8::MAX).flat_map(|y| (0..=u8::MAX).map(move |x| (x, y))).find(|&(x, y)| a.get(x, y) != b.get(x, y))
 }
 
-/// The tree gct makes of `bitmap`, from a `Gct` of its own.
+/// The tree Tessera makes of `bitmap`, from a `Tessera` of its own.
 pub fn tree_of(bitmap: &Bitmap) -> Tree {
-    let mut gct = Gct::new();
-    gct.encode_tree(bitmap, &mut BitStream::default());
-    gct.tree().clone()
+    let mut tessera = Tessera::new();
+    tessera.encode_tree(bitmap, &mut BitStream::default());
+    tessera.tree().clone()
 }
 
 /// How `cell` is said, if wrongly: `placements` what the greedy tiler
@@ -120,14 +120,14 @@ fn coverage_fault(bitmap: &Bitmap, placements: &ComplexTiling, tree: &Tree, cell
 }
 
 impl Examination {
-    /// Encodes `bitmap` with `gct` into `stream` as its tree and
+    /// Encodes `bitmap` with `tessera` into `stream` as its tree and
     /// decodes that, then encodes it as the encoding that suits it and
     /// decodes that, gathering what came of both: the tree is checked
     /// whichever encoding suits.
-    pub fn of(gct: &mut Gct, stream: &mut BitStream, back: &mut Bitmap, bitmap: &Bitmap) -> Self {
-        gct.encode_tree(bitmap, stream);
-        let complex_tiling = gct.complex_tiling();
-        let written = gct.tree().clone();
+    pub fn of(tessera: &mut Tessera, stream: &mut BitStream, back: &mut Bitmap, bitmap: &Bitmap) -> Self {
+        tessera.encode_tree(bitmap, stream);
+        let complex_tiling = tessera.complex_tiling();
+        let written = tessera.tree().clone();
 
         let coverage_faults = Tile::all_cells().filter_map(|cell| coverage_fault(bitmap, complex_tiling, &written, cell)).collect();
         let (mut placed_finer_than_2x2, mut copied_finer_than_4x4) = (Vec::new(), Vec::new());
@@ -143,19 +143,19 @@ impl Examination {
         // were it not the tree's, these bits would not be the bits written.
         // The count holds each residual block at its price: the last
         // pass's bits, as written, take their place.
-        let residual_prices = gct.residual_prices();
+        let residual_prices = tessera.residual_prices();
         let residual_bits = written.residual_blocks().map(|index| residual_prices.of_index(index)).sum::<u64>();
         let counting = Counting { complex_tiling, bitmap, residual_prices };
-        let tree_bits = tree_bits(counting, start_level(complex_tiling)) - residual_bits + gct.last_pass_bits() as u64;
+        let tree_bits = tree_bits(counting, start_level(complex_tiling)) - residual_bits + tessera.last_pass_bits() as u64;
         let tree_written_bits = (stream.len() - STREAM_MODE_WIDTH as usize) as u64;
-        gct.decode(stream, back);
-        let tree_read_back = *gct.tree() == written;
+        tessera.decode(stream, back);
+        let tree_read_back = *tessera.tree() == written;
         let tree_first_difference = first_difference(bitmap, back);
 
-        gct.encode(bitmap, stream);
+        tessera.encode(bitmap, stream);
         let count_split_stream = stream.reader().value(STREAM_MODE_WIDTH) == COUNT_SPLIT_STREAM;
         let counted_bits = STREAM_MODE_WIDTH as u64 + if count_split_stream { count_split::bits(bitmap, &SetCounts::of(bitmap)) } else { tree_bits };
-        gct.decode(stream, back);
+        tessera.decode(stream, back);
         Self {
             written_bits: stream.len(),
             counted_bits,
