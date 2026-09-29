@@ -169,8 +169,8 @@ fn climb(families: &Families, baseline: &[usize], candidates: &[(isize, isize)],
         let best_of_slot: Vec<Vec<(isize, isize)>> = (0..SLOTS)
             .map(|slot| {
                 let mut of_slot: Vec<&Scored> =
-                    singles.iter().zip(&tried).filter(|((at, _), _)| *at == slot).map(|(_, scored)| scored).collect();
-                of_slot.sort_by(|a, b| a.score.total_cmp(&b.score));
+                    singles.iter().zip(&tried).filter(|((changed_slot, _), _)| *changed_slot == slot).map(|(_, scored)| scored).collect();
+                of_slot.sort_by(|first, second| first.score.total_cmp(&second.score));
                 of_slot.iter().take(PAIR_CANDIDATES).map(|scored| scored.offsets[slot]).collect()
             })
             .collect();

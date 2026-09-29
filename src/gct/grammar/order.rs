@@ -39,11 +39,11 @@ impl PayloadWalk {
         };
         self.waiting.clear();
         self.waiting.extend(tile.children().into_iter().rev());
-        while let Some(at) = self.waiting.pop() {
-            match tree.node(at) {
-                Node::Unmasked { nesting: unmasked_in } if unmasked_in == nesting => self.tiles.push(at),
+        while let Some(body_tile) = self.waiting.pop() {
+            match tree.node(body_tile) {
+                Node::Unmasked { nesting: unmasked_in } if unmasked_in == nesting => self.tiles.push(body_tile),
                 Node::Subdivided | Node::ComplexTile { masks: true, .. } | Node::Copied { masks: true, .. } => {
-                    self.waiting.extend(at.children().into_iter().rev())
+                    self.waiting.extend(body_tile.children().into_iter().rev())
                 }
                 _ => {}
             }

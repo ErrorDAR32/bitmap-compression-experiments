@@ -143,39 +143,39 @@ impl Patterns {
 
         // The 4x4s: each one's key its 16 cells, four to a word of the
         // bitmap -- four numbers to a word of the level.
-        let cells = bitmap.words();
-        for (at, &word) in cells.iter().enumerate() {
+        for (cell_word_index, &cell_word) in bitmap.words().iter().enumerate() {
             let mut numbers = 0;
             for quarter in 0..NUMBERS_A_WORD {
-                let key = word >> (quarter * NUMBER_BITS) & NUMBER_MASK;
-                let index = at * NUMBERS_A_WORD + quarter;
-                numbers |= (self.intern(FINEST, key, index) as u64) << (quarter * NUMBER_BITS);
+                let key = cell_word >> (quarter * NUMBER_BITS) & NUMBER_MASK;
+                let tile_index = cell_word_index * NUMBERS_A_WORD + quarter;
+                numbers |= (self.intern(FINEST, key, tile_index) as u64) << (quarter * NUMBER_BITS);
             }
-            self.numbers.level_words_mut(FINEST)[at] = numbers;
+            self.numbers.level_words_mut(FINEST)[cell_word_index] = numbers;
         }
 
         // Every coarser level: each tile's key its children's word.
         for level in (0..FINEST).rev() {
-            for word_at in 0..(tiles_across(level) * tiles_across(level)).div_ceil(NUMBERS_A_WORD) {
+            let tiles = tiles_across(level) * tiles_across(level);
+            for word_index in 0..tiles.div_ceil(NUMBERS_A_WORD) {
                 let mut numbers = 0;
                 for quarter in 0..NUMBERS_A_WORD {
-                    let index = word_at * NUMBERS_A_WORD + quarter;
-                    if index >= tiles_across(level) * tiles_across(level) {
+                    let tile_index = word_index * NUMBERS_A_WORD + quarter;
+                    if tile_index >= tiles {
                         break;
                     }
-                    let key = self.numbers.level_words(level + 1)[index];
-                    numbers |= (self.intern(level, key, index) as u64) << (quarter * NUMBER_BITS);
+                    let children_numbers = self.numbers.level_words(level + 1)[tile_index];
+                    numbers |= (self.intern(level, children_numbers, tile_index) as u64) << (quarter * NUMBER_BITS);
                 }
-                self.numbers.level_words_mut(level)[word_at] = numbers;
+                self.numbers.level_words_mut(level)[word_index] = numbers;
             }
         }
     }
 
     /// The number of the pattern `key` at `level`, first seen at the tile
-    /// whose Morton index is `index`: a homogeneous one's own, one already
-    /// handed out, or the next.
+    /// whose Morton index is `tile_index`: a homogeneous one's own, one
+    /// already handed out, or the next.
     #[inline]
-    fn intern(&mut self, level: u8, key: u64, index: usize) -> u16 {
+    fn intern(&mut self, level: u8, key: u64, tile_index: usize) -> u16 {
         let (all_clear, all_set) = if level == FINEST { (0, NUMBER_MASK) } else { (CHILDREN_ALL_CLEAR, CHILDREN_ALL_SET) };
         if key == all_clear {
             return ALL_CLEAR;
@@ -183,21 +183,21 @@ impl Patterns {
         if key == all_set {
             return ALL_SET;
         }
-        let (start, count) = self.slot_ranges[level as usize];
-        let mut at = (key.wrapping_mul(HASH_MULTIPLIER) >> (u64::BITS - count.trailing_zeros())) as usize;
+        let (first_slot, slot_count) = self.slot_ranges[level as usize];
+        let mut probe = (key.wrapping_mul(HASH_MULTIPLIER) >> (u64::BITS - slot_count.trailing_zeros())) as usize;
         loop {
-            let slot = &mut self.slots[start + at];
+            let slot = &mut self.slots[first_slot + probe];
             if slot.build != self.build {
                 let number = self.handed_out[level as usize];
                 self.handed_out[level as usize] += 1;
                 *slot = Slot { key, number, build: self.build };
-                self.first[self.first_starts[level as usize] + number as usize] = index as u16;
+                self.first[self.first_starts[level as usize] + number as usize] = tile_index as u16;
                 return number;
             }
             if slot.key == key {
                 return slot.number;
             }
-            at = (at + 1) & (count - 1);
+            probe = (probe + 1) & (slot_count - 1);
         }
     }
 
@@ -211,8 +211,7 @@ impl Patterns {
     /// `tile`'s four children's pattern numbers, in reading order.
     #[inline]
     pub fn children_numbers(&self, tile: Tile) -> [u16; 4] {
-        let [a, b, c, d] = self.numbers.children_elements(tile);
-        [a as u16, b as u16, c as u16, d as u16]
+        self.numbers.children_elements(tile).map(|number| number as u16)
     }
 
     /// The tile the pattern numbered `number` at `level` first appeared

@@ -34,7 +34,7 @@ impl Table {
     /// and then it stacks over as many lines as it needs.
     pub fn new(headings: &[&str]) -> Self {
         Self {
-            headings: headings.iter().map(|h| h.split('\n').map(str::to_string).collect()).collect(),
+            headings: headings.iter().map(|heading| heading.split('\n').map(str::to_string).collect()).collect(),
             rows: Vec::new(),
             rules: Vec::new(),
         }
@@ -43,7 +43,7 @@ impl Table {
     /// One row. Must have as many fields as there are headings.
     pub fn row<S: AsRef<str>>(&mut self, fields: &[S]) {
         assert_eq!(fields.len(), self.headings.len(), "a row must fill every column");
-        self.rows.push(fields.iter().map(|f| f.as_ref().to_string()).collect());
+        self.rows.push(fields.iter().map(|field| field.as_ref().to_string()).collect());
     }
 
     /// A rule under the row last added, for a total or a group.
@@ -53,48 +53,40 @@ impl Table {
 
     /// The width each column needs: the widest of its heading lines and
     /// its fields.
-    fn widths(&self) -> Vec<usize> {
+    fn column_widths(&self) -> Vec<usize> {
         (0..self.headings.len())
-            .map(|c| {
-                let head = self.headings[c].iter().map(|l| l.chars().count()).max().unwrap_or(0);
-                let body = self.rows.iter().map(|r| r[c].chars().count()).max().unwrap_or(0);
-                head.max(body)
+            .map(|column| {
+                let heading_width = self.headings[column].iter().map(|line| line.chars().count()).max().unwrap_or(0);
+                let field_width = self.rows.iter().map(|row| row[column].chars().count()).max().unwrap_or(0);
+                heading_width.max(field_width)
             })
             .collect()
     }
 
-    /// One printed line of `fields`, each column `widths` wide.
-    fn line(&self, widths: &[usize], fields: &[String]) -> String {
-        let mut out = String::from("  ");
-        for (c, width) in widths.iter().enumerate() {
-            if c > 0 {
-                out.push_str(" | ");
-            }
-            let field = fields.get(c).map(String::as_str).unwrap_or("");
-            if c == 0 {
-                out.push_str(&format!("{field:<width$}"));
+    /// One printed line of `fields`, each column as wide as
+    /// `column_widths` says: the first left aligned, the rest right.
+    fn printed_line(column_widths: &[usize], fields: &[String]) -> String {
+        let mut line = String::from("  ");
+        for (column, &width) in column_widths.iter().enumerate() {
+            let field = fields.get(column).map_or("", String::as_str);
+            if column == 0 {
+                line.push_str(&format!("{field:<width$}"));
             } else {
-                out.push_str(&format!("{field:>width$}"));
+                line.push_str(&format!(" | {field:>width$}"));
             }
         }
         // Right hand padding goes, but never a column bar: a heading
         // line that ends in blank cells still has to show where its
         // columns are.
-        let cut = out.rfind('|').map_or(0, |at| at + 1);
-        let (bars, tail) = out.split_at(cut);
-        format!("{bars}{}", tail.trim_end())
+        let after_last_bar = line.rfind('|').map_or(0, |bar| bar + 1);
+        let (with_bars, padding) = line.split_at(after_last_bar);
+        format!("{with_bars}{}", padding.trim_end())
     }
 
-    /// A rule across every column, each `widths` wide.
-    fn rule_line(&self, widths: &[usize]) -> String {
-        let mut out = String::from("  ");
-        for (c, width) in widths.iter().enumerate() {
-            if c > 0 {
-                out.push_str("-+-");
-            }
-            out.push_str(&"-".repeat(*width));
-        }
-        out
+    /// A rule across every column, each as wide as `column_widths` says.
+    fn rule_line(column_widths: &[usize]) -> String {
+        let dashes: Vec<String> = column_widths.iter().map(|&width| "-".repeat(width)).collect();
+        format!("  {}", dashes.join("-+-"))
     }
 
     /// Prints the table: the headings in a ruled block, then the rows.
@@ -104,29 +96,29 @@ impl Table {
     /// something to close the top they read as empty rows of the table
     /// rather than as part of its head.
     pub fn print(&self) {
-        let widths = self.widths();
-        let tall = self.headings.iter().map(Vec::len).max().unwrap_or(1);
+        let column_widths = self.column_widths();
+        let heading_lines = self.headings.iter().map(Vec::len).max().unwrap_or(1);
 
-        println!("{}", self.rule_line(&widths));
+        println!("{}", Self::rule_line(&column_widths));
         // Headings sit at the bottom of their stack, so a one line
         // heading lines up with the last line of a taller one.
-        for line in 0..tall {
+        for heading_line in 0..heading_lines {
             let fields: Vec<String> = self
                 .headings
                 .iter()
-                .map(|h| {
-                    let pad = tall - h.len();
-                    if line < pad { String::new() } else { h[line - pad].clone() }
+                .map(|heading| {
+                    let blank_lines_above = heading_lines - heading.len();
+                    heading_line.checked_sub(blank_lines_above).map_or(String::new(), |line| heading[line].clone())
                 })
                 .collect();
-            println!("{}", self.line(&widths, &fields));
+            println!("{}", Self::printed_line(&column_widths, &fields));
         }
-        println!("{}", self.rule_line(&widths));
+        println!("{}", Self::rule_line(&column_widths));
 
         for (index, row) in self.rows.iter().enumerate() {
-            println!("{}", self.line(&widths, row));
+            println!("{}", Self::printed_line(&column_widths, row));
             if self.rules.contains(&(index + 1)) {
-                println!("{}", self.rule_line(&widths));
+                println!("{}", Self::rule_line(&column_widths));
             }
         }
     }

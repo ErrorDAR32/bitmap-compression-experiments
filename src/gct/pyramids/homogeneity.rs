@@ -9,7 +9,7 @@
 //! folded from.
 
 use super::pyramid::{Pyramid, PyramidShape};
-use crate::gct::tile::{Tile, CELL_LEVEL};
+use crate::gct::tile::{Tile, CELL_LEVEL, CHILDREN};
 use crate::Bitmap;
 
 /// Bit 0: whether every cell of the tile agrees.
@@ -49,18 +49,18 @@ impl Homogeneity for Pyramid {
         // Every cell is homogeneous: two words of elements to a word of
         // cells, each cell's value its element's value bit.
         let cells = self.level_words_mut(CELL_LEVEL);
-        for (at, &word) in bitmap.words().iter().enumerate() {
-            cells[2 * at] = every_cell(word as u32);
-            cells[2 * at + 1] = every_cell((word >> u32::BITS) as u32);
+        for (cell_word_index, &cell_word) in bitmap.words().iter().enumerate() {
+            cells[2 * cell_word_index] = every_cell(cell_word as u32);
+            cells[2 * cell_word_index + 1] = every_cell((cell_word >> u32::BITS) as u32);
         }
         for level in (0..CELL_LEVEL).rev() {
             let (coarser, finer) = self.two_levels_mut(level);
-            for (at, children) in finer.chunks(FINER_WORDS_A_WORD).enumerate() {
-                coarser[at] = children
+            for (coarser_word_index, finer_words) in finer.chunks(FINER_WORDS_A_WORD).enumerate() {
+                coarser[coarser_word_index] = finer_words
                     .iter()
                     .enumerate()
-                    .map(|(i, &word)| folded(word) << (i as u32 * FOLDED_BITS))
-                    .fold(0, |word, part| word | part);
+                    .map(|(quarter, &finer_word)| folded(finer_word) << (quarter as u32 * FOLDED_BITS))
+                    .fold(0, |coarser_word, quarter_bits| coarser_word | quarter_bits);
             }
         }
     }
@@ -71,8 +71,7 @@ impl Homogeneity for Pyramid {
 
     #[inline]
     fn children_values(&self, tile: Tile) -> [Option<bool>; 4] {
-        let [a, b, c, d] = self.children_elements(tile);
-        [value_of(a), value_of(b), value_of(c), value_of(d)]
+        self.children_elements(tile).map(value_of)
     }
 }
 
@@ -90,20 +89,20 @@ const EVEN_BITS: u64 = 0x5555_5555_5555_5555;
 const BYTE_LOW_BITS: u64 = 0x0101_0101_0101_0101;
 /// A word of finer elements folds to this many coarser elements' bits:
 /// four children a coarser tile, so a quarter of a word.
-const FOLDED_BITS: u32 = u64::BITS / 4;
+const FOLDED_BITS: u32 = u64::BITS / CHILDREN as u32;
 /// So this many words of a finer level fold into one of a coarser.
-const FINER_WORDS_A_WORD: usize = 4;
+const FINER_WORDS_A_WORD: usize = CHILDREN as usize;
 
 /// Thirty-two cells as homogeneous elements: each value spread to the
 /// odd bits, every homogeneous bit set.
 fn every_cell(values: u32) -> u64 {
-    let mut v = values as u64;
-    v = (v | v << 16) & 0x0000_ffff_0000_ffff;
-    v = (v | v << 8) & 0x00ff_00ff_00ff_00ff;
-    v = (v | v << 4) & 0x0f0f_0f0f_0f0f_0f0f;
-    v = (v | v << 2) & 0x3333_3333_3333_3333;
-    v = (v | v << 1) & EVEN_BITS;
-    v << 1 | EVEN_BITS
+    let mut spread = values as u64;
+    spread = (spread | spread << 16) & 0x0000_ffff_0000_ffff;
+    spread = (spread | spread << 8) & 0x00ff_00ff_00ff_00ff;
+    spread = (spread | spread << 4) & 0x0f0f_0f0f_0f0f_0f0f;
+    spread = (spread | spread << 2) & 0x3333_3333_3333_3333;
+    spread = (spread | spread << 1) & EVEN_BITS;
+    spread << 1 | EVEN_BITS
 }
 
 /// A word of 32 elements folded into their 8 parents' elements, in the
@@ -112,12 +111,12 @@ fn every_cell(values: u32) -> u64 {
 fn folded(children: u64) -> u64 {
     let all_four = |bits: u64| bits & bits >> 2 & bits >> 4 & bits >> 6 & BYTE_LOW_BITS;
     let (homogeneous, values) = (children & EVEN_BITS, children >> 1 & EVEN_BITS);
-    let ones = all_four(values);
-    let zeros = all_four(!values & EVEN_BITS);
-    let parents = all_four(homogeneous) & (ones | zeros);
+    let all_set = all_four(values);
+    let all_clear = all_four(!values & EVEN_BITS);
+    let homogeneous_parents = all_four(homogeneous) & (all_set | all_clear);
     // Each parent's two bits at the bottom of its byte, then the bytes
     // packed together.
-    let mut packed = parents | (ones & parents) << 1;
+    let mut packed = homogeneous_parents | (all_set & homogeneous_parents) << 1;
     packed = (packed | packed >> 6) & 0x000f_000f_000f_000f;
     packed = (packed | packed >> 12) & 0x0000_00ff_0000_00ff;
     (packed | packed >> 24) & 0xffff

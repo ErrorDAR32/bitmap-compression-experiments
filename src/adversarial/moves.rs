@@ -94,9 +94,10 @@ fn copy_almost(rng: &mut Rng, bitmap: &mut Bitmap, area: Tile) {
     let ((to_x, to_y), (from_x, from_y)) = (tile.top_left_cell(), source.top_left_cell());
     for dy in 0..side {
         for dx in 0..side {
-            let (fx, fy, tx, ty) = (from_x as usize + dx, from_y as usize + dy, to_x as usize + dx, to_y as usize + dy);
-            if bitmap.get(fx as u8, fy as u8) != bitmap.get(tx as u8, ty as u8) {
-                flip(bitmap, tx as u8, ty as u8);
+            let (source_x, source_y) = ((from_x as usize + dx) as u8, (from_y as usize + dy) as u8);
+            let (copy_x, copy_y) = ((to_x as usize + dx) as u8, (to_y as usize + dy) as u8);
+            if bitmap.get(source_x, source_y) != bitmap.get(copy_x, copy_y) {
+                flip(bitmap, copy_x, copy_y);
             }
         }
     }

@@ -129,7 +129,7 @@ fn patterns_number_cells_across_builds() {
             (top..=bottom).flat_map(|y| (left..=right).map(move |x| (x, y))).map(|(x, y)| bitmap.get(x, y)).collect::<Vec<bool>>()
         };
         let contents: Vec<Vec<bool>> = tiles.iter().map(|&tile| cells(tile)).collect();
-        for (at, &tile) in tiles.iter().enumerate() {
+        for (index, &tile) in tiles.iter().enumerate() {
             let number = patterns.number(tile);
             if let Some(first) = patterns.first_tile(level, number) {
                 assert_eq!(patterns.number(first), number, "{tile:?}");
@@ -137,7 +137,7 @@ fn patterns_number_cells_across_builds() {
             // Against a handful of others, not all: every pair would take
             // too long at the finest levels.
             for other in (0..tiles.len()).step_by(tiles.len() / 64 + 1) {
-                let same = contents[at] == contents[other];
+                let same = contents[index] == contents[other];
                 assert_eq!(number == patterns.number(tiles[other]), same, "{tile:?} {:?}", tiles[other]);
             }
         }

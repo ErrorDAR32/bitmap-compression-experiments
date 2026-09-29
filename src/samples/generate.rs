@@ -36,7 +36,7 @@ pub(super) fn one(seed: u64, density: f64, cluster: f64) -> Bitmap {
     let wanted = (density.clamp(0.0, 1.0) * CELLS as f64) as usize;
     let cluster = cluster.clamp(0.0, 1.0);
 
-    let mut bits = Bitmap::new();
+    let mut bitmap = Bitmap::new();
     let mut rng = Rng::new(seed);
 
     // Unset cells beside a set one, with repeats.
@@ -46,9 +46,9 @@ pub(super) fn one(seed: u64, density: f64, cluster: f64) -> Bitmap {
     while standing < wanted {
         let beside = (!edge.is_empty() && rng.unit() < cluster)
             .then(|| {
-                while let Some(at) = (!edge.is_empty()).then(|| rng.below(edge.len() as u64) as usize) {
-                    let cell = edge.swap_remove(at);
-                    if !bits.get(cell.0, cell.1) {
+                while let Some(edge_index) = (!edge.is_empty()).then(|| rng.below(edge.len() as u64) as usize) {
+                    let cell = edge.swap_remove(edge_index);
+                    if !bitmap.get(cell.0, cell.1) {
                         return Some(cell);
                     }
                 }
@@ -58,23 +58,23 @@ pub(super) fn one(seed: u64, density: f64, cluster: f64) -> Bitmap {
 
         let (x, y) = match beside {
             Some(cell) => cell,
-            None => anywhere_clear(&bits, &mut rng),
+            None => anywhere_clear(&bitmap, &mut rng),
         };
 
-        bits.set(x, y);
+        bitmap.set(x, y);
         standing += 1;
         let (x, y) = (x as i32, y as i32);
-        for (nx, ny) in [(x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)] {
-            if (0..WIDTH as i32).contains(&nx) && (0..WIDTH as i32).contains(&ny) {
-                let (nx, ny) = (nx as u8, ny as u8);
-                if !bits.get(nx, ny) {
-                    edge.push((nx, ny));
+        for (neighbour_x, neighbour_y) in [(x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)] {
+            if (0..WIDTH as i32).contains(&neighbour_x) && (0..WIDTH as i32).contains(&neighbour_y) {
+                let (neighbour_x, neighbour_y) = (neighbour_x as u8, neighbour_y as u8);
+                if !bitmap.get(neighbour_x, neighbour_y) {
+                    edge.push((neighbour_x, neighbour_y));
                 }
             }
         }
     }
 
-    bits
+    bitmap
 }
 
 /// Any cell still clear, found by guessing and then, once guessing stops
@@ -83,13 +83,13 @@ pub(super) fn one(seed: u64, density: f64, cluster: f64) -> Bitmap {
 /// Guessing answers nearly every draw, because a bitmap is usually far
 /// from full. The scan is there so that a density close to 1 still
 /// finishes rather than rolling dice forever.
-fn anywhere_clear(bits: &Bitmap, rng: &mut Rng) -> (u8, u8) {
+fn anywhere_clear(bitmap: &Bitmap, rng: &mut Rng) -> (u8, u8) {
     for _ in 0..GUESSES_BEFORE_SCANNING {
         let (x, y) = (rng.below(WIDTH as u64) as u8, rng.below(WIDTH as u64) as u8);
-        if !bits.get(x, y) {
+        if !bitmap.get(x, y) {
             return (x, y);
         }
     }
     // The first clear cell in reading order.
-    (0..=u8::MAX).flat_map(|y| (0..=u8::MAX).map(move |x| (x, y))).find(|&(x, y)| !bits.get(x, y)).expect("a bitmap not already full")
+    (0..=u8::MAX).flat_map(|y| (0..=u8::MAX).map(move |x| (x, y))).find(|&(x, y)| !bitmap.get(x, y)).expect("a bitmap not already full")
 }

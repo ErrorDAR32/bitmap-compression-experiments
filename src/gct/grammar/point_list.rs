@@ -39,9 +39,9 @@ pub fn bits(bitmap: &Bitmap, tile: Tile) -> u64 {
     // Every gap's unary end and low bits, then each gap's high part.
     let mut bits = gamma_bits(set + 1) + set * (1 + parameter as u64);
     let mut next = 0;
-    for (at, mut word) in words().enumerate() {
+    for (word_index, mut word) in words().enumerate() {
         while word != 0 {
-            let offset = (at * u64::BITS as usize + word.trailing_zeros() as usize) as u64;
+            let offset = (word_index * u64::BITS as usize + word.trailing_zeros() as usize) as u64;
             bits += (offset - next) >> parameter;
             next = offset + 1;
             word &= word - 1;
@@ -51,17 +51,17 @@ pub fn bits(bitmap: &Bitmap, tile: Tile) -> u64 {
 }
 
 /// Writes `tile`'s point list.
-pub fn write(bitmap: &Bitmap, tile: Tile, out: &mut BitStream) {
+pub fn write(bitmap: &Bitmap, tile: Tile, stream: &mut BitStream) {
     let cells = cells_in_tile(tile.level);
     let set = set_cells(bitmap, tile).count() as u64;
-    write_gamma(set + 1, out);
+    write_gamma(set + 1, stream);
     let parameter = rice_parameter(cells, set);
     for gap in gaps(bitmap, tile) {
         for _ in 0..gap >> parameter {
-            out.push(true);
+            stream.push(true);
         }
-        out.push(false);
-        out.push_value(gap, parameter);
+        stream.push(false);
+        stream.push_value(gap, parameter);
     }
 }
 
@@ -101,13 +101,13 @@ fn gaps(bitmap: &Bitmap, tile: Tile) -> impl Iterator<Item = u64> + '_ {
 
 /// Writes `value`, at least 1, in Elias gamma code: its length less one
 /// in unary, then all but its top bit.
-fn write_gamma(value: u64, out: &mut BitStream) {
+fn write_gamma(value: u64, stream: &mut BitStream) {
     let length = value.ilog2() as u8;
     for _ in 0..length {
-        out.push(true);
+        stream.push(true);
     }
-    out.push(false);
-    out.push_value(value, length);
+    stream.push(false);
+    stream.push_value(value, length);
 }
 
 /// Reads what [`write_gamma`] wrote.

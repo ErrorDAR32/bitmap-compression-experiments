@@ -47,7 +47,7 @@ fn field(field: &str) -> String {
 
 /// `fields` as one CSV record, ended by a newline.
 fn record<S: AsRef<str>>(fields: &[S]) -> String {
-    let fields: Vec<String> = fields.iter().map(|it| field(it.as_ref())).collect();
+    let fields: Vec<String> = fields.iter().map(|text| field(text.as_ref())).collect();
     format!("{}\n", fields.join(&SEPARATOR.to_string()))
 }
 

@@ -82,7 +82,7 @@ impl Iterator for Drawings {
 /// orientation, of a random length up to the bitmap's side, at a random
 /// width. The border cuts what runs past it.
 pub fn one_drawn(seed: u64, set: &LineSet) -> Bitmap {
-    let mut bits = Bitmap::new();
+    let mut bitmap = Bitmap::new();
     let mut rng = Rng::new(seed);
     let side = WIDTH as u64;
     for _ in 0..set.lines {
@@ -95,8 +95,8 @@ pub fn one_drawn(seed: u64, set: &LineSet) -> Bitmap {
         }
         for step in 0..length {
             let (step_x, step_y) = (x + dx * step, y + dy * step);
-            bits.set_rect(step_x, step_y, step_x + width - 1, step_y + width - 1);
+            bitmap.set_rect(step_x, step_y, step_x + width - 1, step_y + width - 1);
         }
     }
-    bits
+    bitmap
 }

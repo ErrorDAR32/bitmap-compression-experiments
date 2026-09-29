@@ -94,7 +94,7 @@ impl Iterator for Cities {
 /// courtyards inside them, the grid starting at a random offset, so the
 /// border cuts the blocks along it.
 pub fn one_laid_out(seed: u64, plan: &Plan) -> Bitmap {
-    let mut bits = Bitmap::new();
+    let mut bitmap = Bitmap::new();
     let mut rng = Rng::new(seed);
     let side = plan.block();
     let (offset_x, offset_y) = (rng.below(plan.pitch as u64) as i64, rng.below(plan.pitch as u64) as i64);
@@ -103,12 +103,12 @@ pub fn one_laid_out(seed: u64, plan: &Plan) -> Bitmap {
     while y < crate::HEIGHT as i64 {
         let mut x = offset_x - plan.pitch;
         while x < crate::WIDTH as i64 {
-            block(&mut bits, x, y, side, plan.courtyards, &mut rng);
+            block(&mut bitmap, x, y, side, plan.courtyards, &mut rng);
             x += plan.pitch;
         }
         y += plan.pitch;
     }
-    bits
+    bitmap
 }
 
 /// How often, in a hundred blocks, one is left clear: a park.
@@ -119,11 +119,11 @@ const COURTYARD_SIDES: [i64; 3] = [2, 4, 8];
 
 /// One block, filled, with courtyards cut out of it -- or left clear
 /// altogether, which is a park.
-fn block(bits: &mut Bitmap, x: i64, y: i64, side: i64, courtyards: u64, rng: &mut Rng) {
+fn block(bitmap: &mut Bitmap, x: i64, y: i64, side: i64, courtyards: u64, rng: &mut Rng) {
     if rng.percent_chance(PARKS_IN_A_HUNDRED) {
         return;
     }
-    bits.set_rect(x, y, x + side - 1, y + side - 1);
+    bitmap.set_rect(x, y, x + side - 1, y + side - 1);
     for _ in 0..courtyards {
         let courtyard_side = COURTYARD_SIDES[rng.below(COURTYARD_SIDES.len() as u64) as usize];
         if courtyard_side >= side {
@@ -131,7 +131,7 @@ fn block(bits: &mut Bitmap, x: i64, y: i64, side: i64, courtyards: u64, rng: &mu
         }
         let room = (side - courtyard_side + 1) as u64;
         let (courtyard_x, courtyard_y) = (x + rng.below(room) as i64, y + rng.below(room) as i64);
-        bits.unset_rect(courtyard_x, courtyard_y, courtyard_x + courtyard_side - 1, courtyard_y + courtyard_side - 1);
+        bitmap.unset_rect(courtyard_x, courtyard_y, courtyard_x + courtyard_side - 1, courtyard_y + courtyard_side - 1);
     }
 }
 
@@ -164,8 +164,8 @@ mod tests {
     #[test]
     fn every_plan_lays_out_a_city() {
         for plan in &PLANS {
-            let bits = one_laid_out(0, plan);
-            let set = bits.count_set();
+            let bitmap = one_laid_out(0, plan);
+            let set = bitmap.count_set();
             assert!(set > 0, "{} lays out nothing", plan.name);
             assert!(set < 65536, "{} covers everything", plan.name);
             assert!(plan.block() > 0, "{} has no block", plan.name);

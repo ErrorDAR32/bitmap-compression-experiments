@@ -138,8 +138,8 @@ impl Default for CostPyramid {
 fn changes_of(tile: Tile, here: Fields, without: u64, under: &Changes, left: i32) -> Changes {
     let mask = MASK_BIT_WIDTH as i32;
     let mut changes = [0; RESOLUTIONS];
-    for (at, change) in changes.iter_mut().enumerate() {
-        let resolution = at as u8 + 1;
+    for (change_index, change) in changes.iter_mut().enumerate() {
+        let resolution = change_index as u8 + 1;
         if tile.level > resolution {
             continue;
         }
@@ -150,9 +150,9 @@ fn changes_of(tile: Tile, here: Fields, without: u64, under: &Changes, left: i32
             // A divide leaving children to the binding above, each bound
             // whole at the candidate's resolution: unmasked, a mask bit and
             // a payload bit each, and no flip bit or child mask.
-            -mask + under[at] + LEAVING_BITS - left * (mask + payload_bits(0) as i32)
+            -mask + under[change_index] + LEAVING_BITS - left * (mask + payload_bits(0) as i32)
         } else {
-            -mask + under[at]
+            -mask + under[change_index]
         };
     }
     changes
@@ -191,8 +191,8 @@ impl CostPyramid {
             }
         }
         for level in (coarsest..=FINEST_HELD).rev() {
-            for at in 0..self.reached[level as usize].len() {
-                let tile = self.reached[level as usize][at];
+            for index_in_level in 0..self.reached[level as usize].len() {
+                let tile = self.reached[level as usize][index_in_level];
                 let here = complex_tiling.fields(tile);
                 debug_assert!(here.complex_tile_size_offset().is_none(), "{tile:?}: a complex tile under a search area's roots");
                 let mut under = [0; RESOLUTIONS];

@@ -20,7 +20,7 @@ pub const BLOCKS: usize = tiles_across(BLOCK_LEVEL) * tiles_across(BLOCK_LEVEL);
 const SHAPE: PyramidShape = PyramidShape { coarsest_level: BLOCK_LEVEL, finest_level: BLOCK_LEVEL, element_bits: 16 };
 const _: () = assert!(BLOCKS < 1 << SHAPE.element_bits);
 /// A block no copy covers, or one already copied.
-const NONE: u64 = 0;
+const NO_SOURCE: u64 = 0;
 
 /// The copy sources pyramid's queries and updates.
 pub trait CopySources {
@@ -49,13 +49,13 @@ impl CopySources for Pyramid {
     #[inline]
     fn source_of(&self, block: Tile) -> Option<Tile> {
         let source = self.get(block);
-        (source != NONE).then(|| {
+        (source != NO_SOURCE).then(|| {
             let (x, y) = morton_coordinates(source as usize - 1);
             Tile { level: BLOCK_LEVEL, x, y }
         })
     }
 
     fn mark_copied(&mut self, block: Tile) {
-        self.set(block, NONE);
+        self.set(block, NO_SOURCE);
     }
 }

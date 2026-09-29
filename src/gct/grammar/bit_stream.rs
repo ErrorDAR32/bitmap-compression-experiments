@@ -86,7 +86,7 @@ impl BitStream {
 
     /// Reads from the start.
     pub fn reader(&self) -> BitReader<'_> {
-        BitReader { stream: self, at: 0 }
+        BitReader { stream: self, position: 0 }
     }
 }
 
@@ -95,7 +95,7 @@ pub struct BitReader<'a> {
     /// The stream read from.
     stream: &'a BitStream,
     /// The next bit to read.
-    at: usize,
+    position: usize,
 }
 
 impl BitReader<'_> {
@@ -115,13 +115,13 @@ impl BitReader<'_> {
         if width == 0 {
             return 0;
         }
-        let (word, shift) = (self.at / WORD_BITS, self.at % WORD_BITS);
+        let (word, shift) = (self.position / WORD_BITS, self.position % WORD_BITS);
         let words = &self.stream.words;
         let mut value = words.get(word).map_or(0, |&low| low >> shift);
         if shift + width > WORD_BITS {
             value |= words.get(word + 1).map_or(0, |&high| high << (WORD_BITS - shift));
         }
-        self.at += width;
+        self.position += width;
         if width == WORD_BITS {
             value
         } else {

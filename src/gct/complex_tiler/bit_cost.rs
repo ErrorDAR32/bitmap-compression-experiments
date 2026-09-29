@@ -147,19 +147,19 @@ pub fn node_bits(
                 }
                 let (children, fields) = (tile.children(), complex_tiling.children_fields(tile));
                 let mut left = [false; CHILDREN as usize];
-                for at in 0..children.len() {
-                    left[at] = fields[at].left_to_binding_above(children[at], bound_above, nested);
+                for child_index in 0..children.len() {
+                    left[child_index] = fields[child_index].left_to_binding_above(children[child_index], bound_above, nested);
                 }
                 let leaves_some = left.contains(&true);
                 if leaves_some {
                     divide_bits += FLIP_WIDTH as u64;
                 }
-                for at in 0..children.len() {
+                for child_index in 0..children.len() {
                     if leaves_some {
                         divide_bits += MASK_BIT_WIDTH as u64;
                     }
-                    if !left[at] {
-                        divide_bits += child_bits(children[at], fields[at], nested, bound_above);
+                    if !left[child_index] {
+                        divide_bits += child_bits(children[child_index], fields[child_index], nested, bound_above);
                     }
                 }
                 divide_bits

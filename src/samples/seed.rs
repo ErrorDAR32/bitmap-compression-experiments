@@ -91,7 +91,7 @@ pub fn seed_in_use() -> Option<(u64, bool)> {
 /// after it: whether it is the last run's, or fresh and not kept.
 fn settled() -> (u64, &'static str) {
     *SETTLED.get_or_init(|| {
-        if std::env::var(SEED_VARIABLE).is_ok_and(|it| it.trim() == FRESH) {
+        if std::env::var(SEED_VARIABLE).is_ok_and(|value| value.trim() == FRESH) {
             return (fresh_seed(), FRESH_NOTE);
         }
         let held = std::fs::read_to_string(WHERE_THE_SEED_IS_KEPT).ok();
@@ -99,7 +99,7 @@ fn settled() -> (u64, &'static str) {
         let last = kept.next().and_then(|line| line.trim().parse::<u64>().ok());
         let runs_unmoved = kept.next().and_then(|line| line.trim().parse::<u64>().ok()).unwrap_or(0);
 
-        let asked = std::env::var(SEED_VARIABLE).ok().and_then(|it| it.trim().parse::<u64>().ok());
+        let asked = std::env::var(SEED_VARIABLE).ok().and_then(|value| value.trim().parse::<u64>().ok());
         let (seed, runs_unmoved) = match asked {
             Some(seed) => (seed, 1),
             None => (last.unwrap_or(0), runs_unmoved + 1),

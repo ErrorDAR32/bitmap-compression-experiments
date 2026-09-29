@@ -43,9 +43,9 @@ pub fn fill_the_plane(bitmap: &Bitmap, area: Tile) -> Bitmap {
         for y in 0..side {
             for x in 0..side {
                 let value = bitmap.get(left + x as u8, top + y as u8) != invert;
-                let (tx, ty) = transformed(variant, side, x, y);
+                let (transformed_x, transformed_y) = transformed(variant, side, x, y);
                 if value {
-                    plane.set(to_x + tx as u8, to_y + ty as u8);
+                    plane.set(to_x + transformed_x as u8, to_y + transformed_y as u8);
                 }
             }
         }

@@ -81,19 +81,19 @@ impl Pyramid {
             "an element's bits divide a word, or are whole words"
         );
         assert!(shape.coarsest_level <= shape.finest_level);
-        let per_word = (word_bits / shape.element_bits).max(1);
+        let elements_a_word = (word_bits / shape.element_bits).max(1);
         let words_per_element = shape.element_bits.div_ceil(word_bits);
         let mut level_starts = [0; LEVEL_STARTS];
         for level in shape.coarsest_level..=shape.finest_level {
             let elements = tiles_across(level).pow(2);
-            level_starts[level as usize + 1] = level_starts[level as usize] + elements.div_ceil(per_word) * words_per_element;
+            level_starts[level as usize + 1] = level_starts[level as usize] + elements.div_ceil(elements_a_word) * words_per_element;
         }
         let element_mask = if shape.element_bits >= word_bits { u64::MAX } else { (1 << shape.element_bits) - 1 };
         Self {
             shape,
             words: std::iter::repeat_n(0, level_starts[shape.finest_level as usize + 1]).collect(),
             level_starts,
-            per_word_shift: per_word.trailing_zeros(),
+            per_word_shift: elements_a_word.trailing_zeros(),
             element_mask,
             words_per_element,
         }
@@ -102,11 +102,6 @@ impl Pyramid {
     /// Sets every element back to zero, keeping the room they take.
     pub fn clear(&mut self) {
         self.words.fill(0);
-    }
-
-    /// The three parameters it was built from.
-    pub fn shape(&self) -> PyramidShape {
-        self.shape
     }
 
     /// Whether this pyramid holds `tile`'s level at all.
@@ -121,8 +116,8 @@ impl Pyramid {
         debug_assert!(self.holds(tile), "{tile:?} is outside this pyramid's levels");
         debug_assert!(self.words_per_element == 1, "an element wider than a word is read by its words");
         let index = morton_index(tile.x, tile.y);
-        let in_word = index & ((1 << self.per_word_shift) - 1);
-        (self.level_starts[tile.level as usize] + (index >> self.per_word_shift), in_word * self.shape.element_bits)
+        let place_in_word = index & ((1 << self.per_word_shift) - 1);
+        (self.level_starts[tile.level as usize] + (index >> self.per_word_shift), place_in_word * self.shape.element_bits)
     }
 
     /// A tile's element.
@@ -138,13 +133,13 @@ impl Pyramid {
     #[inline]
     pub fn children_elements(&self, tile: Tile) -> [u64; 4] {
         debug_assert!(self.holds(Tile { level: tile.level + 1, ..tile }), "{tile:?}'s children are outside this pyramid's levels");
-        let first = morton_index(tile.x, tile.y) * 4;
-        let start = self.level_starts[tile.level as usize + 1];
+        let first_child_index = morton_index(tile.x, tile.y) * 4;
+        let finer_level_start = self.level_starts[tile.level as usize + 1];
         let mut elements = [0; 4];
         for (child, element) in elements.iter_mut().enumerate() {
-            let index = first + child;
+            let index = first_child_index + child;
             let shift = (index & ((1 << self.per_word_shift) - 1)) * self.shape.element_bits;
-            *element = (self.words[start + (index >> self.per_word_shift)] >> shift) & self.element_mask;
+            *element = (self.words[finer_level_start + (index >> self.per_word_shift)] >> shift) & self.element_mask;
         }
         elements
     }
@@ -156,8 +151,8 @@ impl Pyramid {
     pub fn children_words(&self, tile: Tile) -> &[u64] {
         debug_assert!(self.shape.element_bits * 4 >= u64::BITS as usize, "four children fill whole words");
         let words = self.shape.element_bits * 4 / u64::BITS as usize;
-        let first = self.level_starts[tile.level as usize + 1] + morton_index(tile.x, tile.y) * words;
-        &self.words[first..first + words]
+        let first_word = self.level_starts[tile.level as usize + 1] + morton_index(tile.x, tile.y) * words;
+        &self.words[first_word..first_word + words]
     }
 
     /// Replaces a tile's element, nothing else.
@@ -174,15 +169,15 @@ impl Pyramid {
     /// a tile's four children's are next to each other.
     #[inline]
     pub fn element_words(&self, tile: Tile) -> &[u64] {
-        let first = self.first_word_of(tile);
-        &self.words[first..first + self.words_per_element]
+        let first_word = self.first_word_of(tile);
+        &self.words[first_word..first_word + self.words_per_element]
     }
 
     /// A tile's element of one word or more, to write.
     #[inline]
     pub fn element_words_mut(&mut self, tile: Tile) -> &mut [u64] {
-        let first = self.first_word_of(tile);
-        &mut self.words[first..first + self.words_per_element]
+        let first_word = self.first_word_of(tile);
+        &mut self.words[first_word..first_word + self.words_per_element]
     }
 
     /// The first word of a tile's element of one word or more.
@@ -199,34 +194,29 @@ impl Pyramid {
         &self.words[self.level_starts[level as usize]..self.level_starts[level as usize + 1]]
     }
 
+    /// `level`'s words and the next finer level's, both writable.
+    fn level_and_finer_mut(&mut self, level: u8) -> (&mut LevelWords, &mut LevelWords) {
+        let [start, finer_start, end] = [0, 1, 2].map(|past| self.level_starts[level as usize + past]);
+        self.words[start..end].split_at_mut(finer_start - start)
+    }
+
     /// `level`'s words to write, and the next finer level's to read --
     /// for building a level from the one below it.
     pub fn two_levels_mut(&mut self, level: u8) -> (&mut LevelWords, &LevelWords) {
-        let (start, split, end) = (
-            self.level_starts[level as usize],
-            self.level_starts[level as usize + 1],
-            self.level_starts[level as usize + 2],
-        );
-        let (coarser, finer) = self.words[start..end].split_at_mut(split - start);
+        let (coarser, finer) = self.level_and_finer_mut(level);
         (coarser, finer)
     }
 
     /// `level`'s words to read, and the next finer level's to write --
     /// for handing something down from a level to the one below it.
     pub fn finer_level_mut(&mut self, level: u8) -> (&LevelWords, &mut LevelWords) {
-        let (start, split, end) = (
-            self.level_starts[level as usize],
-            self.level_starts[level as usize + 1],
-            self.level_starts[level as usize + 2],
-        );
-        let (coarser, finer) = self.words[start..end].split_at_mut(split - start);
+        let (coarser, finer) = self.level_and_finer_mut(level);
         (coarser, finer)
     }
 
-    /// A level's words, to write directly. Past the
-    /// level's last element, a word's bits must stay zero.
+    /// A level's words, to write directly. Past the level's last
+    /// element, a word's bits must stay zero.
     pub fn level_words_mut(&mut self, level: u8) -> &mut LevelWords {
         &mut self.words[self.level_starts[level as usize]..self.level_starts[level as usize + 1]]
     }
-
 }

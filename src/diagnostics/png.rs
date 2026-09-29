@@ -50,36 +50,36 @@ fn crc32(bytes: &[u8]) -> u32 {
 
 /// Adler-32, the checksum ending a zlib stream.
 fn adler32(bytes: &[u8]) -> u32 {
-    let (mut a, mut b) = (1u32, 0u32);
+    let (mut sum_of_bytes, mut sum_of_sums) = (1u32, 0u32);
     for &byte in bytes {
-        a = (a + byte as u32) % ADLER_MODULUS;
-        b = (b + a) % ADLER_MODULUS;
+        sum_of_bytes = (sum_of_bytes + byte as u32) % ADLER_MODULUS;
+        sum_of_sums = (sum_of_sums + sum_of_bytes) % ADLER_MODULUS;
     }
-    (b << 16) | a
+    (sum_of_sums << 16) | sum_of_bytes
 }
 
-/// Appends one PNG chunk to `out`: its length, `kind`, `data`, and the
+/// Appends one PNG chunk to `bytes`: its length, `kind`, `data`, and the
 /// CRC of the last two.
-fn chunk(out: &mut Vec<u8>, kind: &[u8; 4], data: &[u8]) {
-    out.extend((data.len() as u32).to_be_bytes());
+fn chunk(bytes: &mut Vec<u8>, kind: &[u8; 4], data: &[u8]) {
+    bytes.extend((data.len() as u32).to_be_bytes());
     let mut body = kind.to_vec();
     body.extend(data);
-    out.extend(&body);
-    out.extend(crc32(&body).to_be_bytes());
+    bytes.extend(&body);
+    bytes.extend(crc32(&body).to_be_bytes());
 }
 
 /// A zlib stream of stored (uncompressed) blocks.
 fn stored_zlib(data: &[u8]) -> Vec<u8> {
-    let mut out = ZLIB_HEADER.to_vec();
+    let mut bytes = ZLIB_HEADER.to_vec();
     let blocks: Vec<&[u8]> = data.chunks(STORED_BLOCK).collect();
-    for (at, block) in blocks.iter().enumerate() {
-        out.push(u8::from(at + 1 == blocks.len()));
-        out.extend((block.len() as u16).to_le_bytes());
-        out.extend((!(block.len() as u16)).to_le_bytes());
-        out.extend(*block);
+    for (block_index, block) in blocks.iter().enumerate() {
+        bytes.push(u8::from(block_index + 1 == blocks.len()));
+        bytes.extend((block.len() as u16).to_le_bytes());
+        bytes.extend((!(block.len() as u16)).to_le_bytes());
+        bytes.extend(*block);
     }
-    out.extend(adler32(data).to_be_bytes());
-    out
+    bytes.extend(adler32(data).to_be_bytes());
+    bytes
 }
 
 /// `bitmap` as an 8-bit greyscale PNG.
@@ -93,12 +93,12 @@ pub fn png(bitmap: &Bitmap) -> Vec<u8> {
             rows.push(if set { BLACK } else { WHITE });
         }
     }
-    let mut out = SIGNATURE.to_vec();
+    let mut bytes = SIGNATURE.to_vec();
     let mut header = (side as u32).to_be_bytes().to_vec();
     header.extend((side as u32).to_be_bytes());
     header.extend([BIT_DEPTH, GREYSCALE, DEFLATE, ADAPTIVE_FILTERING, NO_INTERLACE]);
-    chunk(&mut out, b"IHDR", &header);
-    chunk(&mut out, b"IDAT", &stored_zlib(&rows));
-    chunk(&mut out, b"IEND", &[]);
-    out
+    chunk(&mut bytes, b"IHDR", &header);
+    chunk(&mut bytes, b"IDAT", &stored_zlib(&rows));
+    chunk(&mut bytes, b"IEND", &[]);
+    bytes
 }

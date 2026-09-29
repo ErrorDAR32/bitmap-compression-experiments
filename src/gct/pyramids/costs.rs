@@ -68,26 +68,28 @@ impl Costs for Pyramid {
 
     #[inline]
     fn change(&self, tile: Tile, resolution: u8) -> i32 {
-        let at = resolution as usize - 1;
-        (self.element_words(tile)[1 + at / CHANGES_A_WORD] >> (at % CHANGES_A_WORD * CHANGE_BITS)) as u32 as i32
+        unpacked_change(self.element_words(tile), resolution as usize - 1)
     }
 
     #[inline]
     fn changes(&self, tile: Tile) -> Changes {
         let words = self.element_words(tile);
-        let mut changes = [0; RESOLUTIONS];
-        for (at, change) in changes.iter_mut().enumerate() {
-            *change = (words[1 + at / CHANGES_A_WORD] >> (at % CHANGES_A_WORD * CHANGE_BITS)) as u32 as i32;
-        }
-        changes
+        std::array::from_fn(|change_index| unpacked_change(words, change_index))
     }
 
     #[inline]
     fn set_counts(&mut self, tile: Tile, without: u64, changes: &Changes) {
         let words = self.element_words_mut(tile);
         words[0] = without;
-        for (at, pair) in changes.chunks_exact(CHANGES_A_WORD).enumerate() {
-            words[1 + at] = pair[0] as u32 as u64 | (pair[1] as u32 as u64) << CHANGE_BITS;
+        for (pair_index, pair) in changes.chunks_exact(CHANGES_A_WORD).enumerate() {
+            words[1 + pair_index] = pair[0] as u32 as u64 | (pair[1] as u32 as u64) << CHANGE_BITS;
         }
     }
+}
+
+/// The change at `change_index` (resolution less one) of an element's
+/// `words`: two to a word, after the bits without a candidate.
+#[inline]
+fn unpacked_change(words: &[u64], change_index: usize) -> i32 {
+    (words[1 + change_index / CHANGES_A_WORD] >> (change_index % CHANGES_A_WORD * CHANGE_BITS)) as u32 as i32
 }

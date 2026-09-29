@@ -241,8 +241,8 @@ impl Copies {
     /// each block's source first when that is a covered block not copied
     /// yet.
     fn resolve(&mut self, cells: &mut Bitmap) {
-        for at in 0..self.covered.len() {
-            self.waiting.push(self.covered[at]);
+        for covered_index in 0..self.covered.len() {
+            self.waiting.push(self.covered[covered_index]);
             while let Some(&block) = self.waiting.last() {
                 let Some(source) = self.sources.source_of(block) else {
                     self.waiting.pop();

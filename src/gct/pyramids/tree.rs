@@ -8,7 +8,7 @@
 //! The whole plane is tiled with complex tiles: every placed `Bound`
 //! tile is either unmasked in a complex tile it is nested in or is a
 //! complex tile whose resolution is its own size -- just a *tile*
-//! (`Complex` at size offset 0). A bind is always a complex tile.
+//! (`ComplexTile` at size offset 0). A bind is always a complex tile.
 //!
 //! Values are not held here: an unmasked tile's values are the cells of
 //! its resolution tiles, which are the bitmap's own.
@@ -206,9 +206,9 @@ impl Tree for Pyramid {
 
     fn residual_squares(&self) -> impl Iterator<Item = Tile> + '_ {
         let level = CELL_LEVEL - 1;
-        self.level_words(level).iter().enumerate().filter(|&(_, &word)| word != 0).flat_map(move |(at, &word)| {
+        self.level_words(level).iter().enumerate().filter(|&(_, &word)| word != 0).flat_map(move |(word_index, &word)| {
             (0..NODES_A_WORD).filter(move |&slot| (word >> (slot * NODE_BITS)) & NODE_MASK == RESIDUAL_CODE).map(move |slot| {
-                let (x, y) = morton_coordinates(at * NODES_A_WORD + slot);
+                let (x, y) = morton_coordinates(word_index * NODES_A_WORD + slot);
                 Tile { level, x, y }
             })
         })

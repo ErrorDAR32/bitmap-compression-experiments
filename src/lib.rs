@@ -42,9 +42,9 @@
 //! | [`gct`] | the greedy complex tiler, the encoding (`docs/gct.md`) |
 //! | `fixed_list` | the one list gct keeps: a fixed capacity, allocated once, never growing |
 //! | `morton` | the Morton order the bitmap and every pyramid level are laid out in |
-//! | [`rng`] | a small seeded random source, for the searches |
+//! | [`rng`] | the one seeded random source, for the samples and the searches |
 //! | [`samples`] | the bitmaps everything is measured on, and where the seed comes from |
-//! | [`table`] | printing any of it, which every measurement does the same way |
+//! | [`table`] | printing any of it the same way, and keeping measurements in `measurements/` |
 //!
 //! `tests/` holds gct's tests, which judge what [`diagnostics`] gathers;
 //! `src/bin/` the diagnostics tool, which prints it, and the adversarial

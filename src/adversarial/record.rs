@@ -82,14 +82,14 @@ pub fn read_from(path: &Path) -> Option<Bitmap> {
     if words.next()? != MAGIC || words.next()?.parse::<usize>().ok()? != WIDTH || words.next()?.parse::<usize>().ok()? != HEIGHT {
         return None;
     }
-    let cells: Vec<bool> = words.flat_map(str::chars).map(|c| c == '1').collect();
+    let cells: Vec<bool> = words.flat_map(str::chars).map(|character| character == '1').collect();
     if cells.len() != WIDTH * HEIGHT {
         return None;
     }
     let mut bitmap = Bitmap::new();
-    for (at, &value) in cells.iter().enumerate() {
+    for (reading_index, &value) in cells.iter().enumerate() {
         if value {
-            bitmap.set((at % WIDTH) as u8, (at / WIDTH) as u8);
+            bitmap.set((reading_index % WIDTH) as u8, (reading_index / WIDTH) as u8);
         }
     }
     Some(bitmap)

@@ -78,8 +78,8 @@ fn coverage_fault(bitmap: &Bitmap, placements: &Pyramid, tree: &Pyramid, cell: T
     // Down the cell's path: the first tile placed that does not mask the
     // way on says it, and nothing under that may be placed.
     let path = (0..=CELL_LEVEL).map(|level| cell.ancestor(level));
-    let placed: Vec<(Tile, Placement)> = path.filter_map(|at| placements.placement(at).map(|placement| (at, placement))).collect();
-    let sayer = placed.iter().position(|&(at, placement)| at.level == CELL_LEVEL || !placement.masks(cell.ancestor(at.level + 1)));
+    let placed: Vec<(Tile, Placement)> = path.filter_map(|ancestor| placements.placement(ancestor).map(|placement| (ancestor, placement))).collect();
+    let sayer = placed.iter().position(|&(ancestor, placement)| ancestor.level == CELL_LEVEL || !placement.masks(cell.ancestor(ancestor.level + 1)));
     if let Some(sayer) = sayer {
         return (sayer + 1 != placed.len()).then_some(CoverageFault::SaidTwice(cell));
     }

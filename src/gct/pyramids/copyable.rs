@@ -36,10 +36,10 @@ pub const fn precedes((dx, dy): (isize, isize)) -> bool {
 
 /// The default offsets all precede.
 const _: () = {
-    let mut at = 0;
-    while at < NEAR_OFFSETS.len() {
-        assert!(precedes(NEAR_OFFSETS[at]) && precedes(FAR_OFFSETS[at]));
-        at += 1;
+    let mut direction = 0;
+    while direction < NEAR_OFFSETS.len() {
+        assert!(precedes(NEAR_OFFSETS[direction]) && precedes(FAR_OFFSETS[direction]));
+        direction += 1;
     }
 };
 
@@ -65,7 +65,7 @@ impl CopyOffsets {
     /// [`precedes`] the copy and no two are the same tile.
     pub fn new(near: [(isize, isize); 4], far: [(isize, isize); 4]) -> Option<Self> {
         let all: Vec<(isize, isize)> = near.into_iter().chain(far).collect();
-        let distinct = all.iter().enumerate().all(|(at, offset)| !all[..at].contains(offset));
+        let distinct = all.iter().enumerate().all(|(position, offset)| !all[..position].contains(offset));
         (distinct && all.iter().all(|&offset| precedes(offset))).then_some(Self { near, far })
     }
 

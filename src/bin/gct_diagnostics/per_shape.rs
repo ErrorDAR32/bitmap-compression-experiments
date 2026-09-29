@@ -17,14 +17,14 @@ pub fn run(report: &mut Report) {
     let mut measure = |name: &str, bitmaps: Vec<Bitmap>| {
         let measured = Measured::of(&mut workspace, bitmaps);
         assert!(measured.lost.is_empty(), "{name}: gct lost cells of cases {:?}", measured.lost);
-        let n = measured.bitmaps;
+        let bitmaps = measured.bitmaps;
         table.row(&[
             name.to_string(),
-            n.to_string(),
-            (measured.cells_set / n).to_string(),
-            (measured.bits / n).to_string(),
+            bitmaps.to_string(),
+            (measured.cells_set / bitmaps).to_string(),
+            (measured.bits / bitmaps).to_string(),
             format!("{:.2}", measured.bits as f64 / measured.cells_set.max(1) as f64),
-            format!("{:.1}%", 100.0 * (measured.bits / n) as f64 / RAW_CELLS as f64),
+            format!("{:.1}%", 100.0 * (measured.bits / bitmaps) as f64 / RAW_CELLS as f64),
         ]);
     };
     for shape in SHAPES.iter().chain(&SPARSE) {

@@ -17,14 +17,14 @@
 /// `2i`. A table, since this is asked of every coordinate read.
 const SPREAD: [u16; 256] = {
     let mut table = [0u16; 256];
-    let mut v = 0;
-    while v < 256 {
-        let mut spread = v;
+    let mut byte = 0;
+    while byte < 256 {
+        let mut spread = byte;
         spread = (spread | spread << 4) & 0x0f0f;
         spread = (spread | spread << 2) & 0x3333;
         spread = (spread | spread << 1) & 0x5555;
-        table[v] = spread as u16;
-        v += 1;
+        table[byte] = spread as u16;
+        byte += 1;
     }
     table
 };
@@ -37,11 +37,11 @@ pub(crate) fn morton_index(x: u8, y: u8) -> usize {
 /// The even bits of `index` gathered into the low byte: the inverse of
 /// [`SPREAD`], one coordinate of a Morton index.
 const fn compact(index: usize) -> u8 {
-    let mut v = index & 0x5555;
-    v = (v | v >> 1) & 0x3333;
-    v = (v | v >> 2) & 0x0f0f;
-    v = (v | v >> 4) & 0x00ff;
-    v as u8
+    let mut gathered = index & 0x5555;
+    gathered = (gathered | gathered >> 1) & 0x3333;
+    gathered = (gathered | gathered >> 2) & 0x0f0f;
+    gathered = (gathered | gathered >> 4) & 0x00ff;
+    gathered as u8
 }
 
 /// The `(x, y)` whose Morton index is `index`.

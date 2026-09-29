@@ -118,11 +118,11 @@ impl TreeStats {
                     self.masked_nested += 1;
                 }
                 let nesting = nested.next_nesting();
-                let at = nesting as usize;
-                if self.complex_tiles_at_nesting.len() <= at {
-                    self.complex_tiles_at_nesting.resize(at + 1, 0);
+                let nesting_index = nesting as usize;
+                if self.complex_tiles_at_nesting.len() <= nesting_index {
+                    self.complex_tiles_at_nesting.resize(nesting_index + 1, 0);
                 }
-                self.complex_tiles_at_nesting[at] += 1;
+                self.complex_tiles_at_nesting[nesting_index] += 1;
                 if !masks {
                     self.unmasked += 1 << (2 * size_offset);
                     return;

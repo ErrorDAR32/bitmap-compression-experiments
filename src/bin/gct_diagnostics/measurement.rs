@@ -25,17 +25,17 @@ fn percent(part: usize, whole: usize) -> f64 {
 
 /// `measured`'s row, after the parameter set's name and parameters.
 fn row(measured: &Measured, name: &str, parameters: &str) -> Vec<String> {
-    let n = measured.bitmaps.max(1);
+    let bitmaps = measured.bitmaps.max(1);
     vec![
         name.to_string(),
         parameters.to_string(),
         measured.bitmaps.to_string(),
-        (measured.cells_set / n).to_string(),
-        (measured.bits / n).to_string(),
+        (measured.cells_set / bitmaps).to_string(),
+        (measured.bits / bitmaps).to_string(),
         measured.fewest.to_string(),
         measured.most.to_string(),
-        format!("{:.1}%", percent(measured.bits / n, RAW_CELLS)),
-        (measured.encode_micros / n as u128).to_string(),
+        format!("{:.1}%", percent(measured.bits / bitmaps, RAW_CELLS)),
+        (measured.encode_micros / bitmaps as u128).to_string(),
     ]
 }
 
@@ -138,10 +138,10 @@ fn add_structure(workspace: &mut Workspace, report: &mut Report) {
             stats.add(&TreeStats::of(workspace.tree()));
         }
 
-        let n = maps.len();
-        let per_bitmap = |count: usize| format!("{:.1}", count as f64 / n as f64);
+        let bitmaps = maps.len();
+        let per_bitmap = |count: usize| format!("{:.1}", count as f64 / bitmaps as f64);
         let share = |part: usize, whole: usize| format!("{:.2}%", percent(part, whole));
-        let name = format!("{family}, {n} bitmaps");
+        let name = format!("{family}, {bitmaps} bitmaps");
         let by_nesting: Vec<String> = stats.complex_tiles_at_nesting.iter().map(|&count| per_bitmap(count)).collect();
         structure.row(&[
             name.clone(),
