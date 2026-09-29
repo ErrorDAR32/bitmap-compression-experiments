@@ -222,24 +222,19 @@ then.
 ## What that looks like when it works
 
 An earlier tie-break change in this repository, checked this way on
-three seed ranges:
-
-```
-  seeds          before    after
-  0..60          3.553%    3.239%
-  1000..1060     3.542%    3.233%
-  50000..50060   3.533%    3.229%
-```
-
-Same size of win on ranges it had never seen, so it is the algorithm.
+three seed ranges, took the same share of bits off every one of them --
+including ranges it had never seen: so it was the algorithm, not the
+corpus.
 
 ## Two rules that fall out of this
 
 **Never quote a single shape as the corpus.** A figure measured on one
 shape is about that shape. Reporting one as the cost of a change once
-overstated that cost fourfold: +6.8% on one shape, +1.7% across all
-nine, and four of the nine were *cheaper*.
+overstated that cost several times over, while some of the other shapes
+got cheaper.
 
-**Write down what a number was measured on.** Every figure in the code
-and the docs says which corpus, how many bitmaps, and which seed. The
-ones that did not are the ones that went stale without anybody noticing.
+**Numbers live in the measurement files, nowhere else.** Every tool that
+measures keeps its tables in `docs/measurements/`, with what they were
+measured on -- the command, the seed, the commit -- as their notes, and
+prints them as tables. The code and the docs say why, never how much: a
+number copied into either goes stale without anybody noticing.

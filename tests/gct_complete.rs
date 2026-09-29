@@ -64,12 +64,10 @@ fn every_checkerboard_round_trips() {
 }
 
 /// How far, in percent, a family's bits may move turned a quarter, a
-/// half or three quarters, at the timed counts: over four seeds no
-/// family moved more than 0.84%, nor the saved bitmaps more than 0.42%.
-/// This keeps more than twice that as margin for any seed, and still
-/// catches a bias for one orientation, like the 10% the saved
-/// horizontal-streaks bitmap once gained turned, when residual blocks
-/// were counted at a bit a cell.
+/// half or three quarters, at the timed counts: more than twice what any
+/// seed's families have moved, and still far under the bias the saved
+/// horizontal-streaks bitmap once had for one orientation, when residual
+/// blocks were counted at a bit a cell.
 const MOST_TURNED_DRIFT_PERCENT: f64 = 2.0;
 
 /// Every family, at its `timed` count, and the saved adversarial

@@ -14,11 +14,10 @@ use turning::check_turned_bits;
 
 /// How far, in percent, a family's bits may move turned a quarter, a
 /// half or three quarters, at the tested counts -- as few as 6 bitmaps a
-/// family, so a total moves more than at the timed counts: over eleven
-/// seeds the line sets moved up to 3.0%, the city plans 1.2%, the other
-/// families and the saved bitmaps under 0.5%. This keeps margin for any
-/// seed, and still catches a bias like the 10% the saved
-/// horizontal-streaks bitmap once gained turned.
+/// family, so a total moves more than at the timed counts: wide enough
+/// that no seed's families have come near it, and still far under the
+/// bias the saved horizontal-streaks bitmap once had for one
+/// orientation.
 const MOST_TURNED_DRIFT_PERCENT: f64 = 5.0;
 
 /// Every shape and sparse shape, at its `tested` count, passes every check in

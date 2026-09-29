@@ -284,20 +284,20 @@ only the odds each context has learned by then differ -- and every
 residual block the tree leaves is one the walk priced, as complex
 tiles only ever take residual blocks away. Before prices, residual
 blocks were counted at a bit a cell, and complex tiles traded blocks
-the last pass codes for a third of that for raw cells and cell lists.
+the last pass codes for far less than that for raw cells and cell
+lists.
 
 **Why complex tiles never mask.** An earlier complex tiler, a search of
 its own after the greedy tiler, also made complex tiles that masked
 some of what they held: a body of nodes under the complex tile, each
 with a mask bit, masked ones said by nodes of their own, and complex
 tiles of 1x1 resolution masking what was cheaper said by itself.
-Measured on the tested sample families, a sweep of grown bitmaps and
-the saved bitmaps together, dropping masking complex tiles -- and with
-them their mask bits, the mask-present bit of every complex tile, and a
-bind's own size offset spelled in full -- took 0.047% fewer bits in all,
-no bitmap more than 0.97% more, and the search, the raw masking walk
-and nesting in the tree, encoder and decoder went with it: 16% fewer
-instructions to encode.
+Dropping masking complex tiles -- and with them their mask bits, the
+mask-present bit of every complex tile, and a bind's own size offset
+spelled in full -- cost no bits on the samples, and took the search, the
+raw masking walk and nesting in the tree, encoder and decoder with it:
+a complex tile became one tile's choice, made on the greedy tiler's
+walk.
 
 ## Step 2: the tree
 
@@ -465,10 +465,9 @@ more. Bounded so, a context's weights -- in half cells, `2n + 1` --
 add up to at most 2046, so its probability of clear is one multiply by a
 table of `2^32` over every total, with no division, and a cell's price
 two lookups in a table of their `log2`s: together 12 KiB, made when
-compiling. Halving at 512 changed the sample's bits by under 0.01%; at
-256 by 0.024%, at 128 by 0.07%, at 32 by 0.5% -- residual cells are much
-the same all over a bitmap, so forgetting costs, and 512 is where it
-stops to. Over a whole bitmap the pass takes at most the fewest bits
+compiling. Residual cells are much the same all over a bitmap, so
+forgetting costs bits, the more the sooner a context halves; 512 is
+where halving stops costing any the samples show. Over a whole bitmap the pass takes at most the fewest bits
 its cells could be said in, context by context, plus half the log2 of
 the cells coded in each context and one (the Krichevsky-Trofimov bound,
 which holds until the first halving), a bit for every 1024 cells coded
@@ -551,12 +550,10 @@ holds it to.
 copy are the tree's worst case -- every node says its own place, and an
 empty region beside a set cell is a node of its own. The count split
 pays nothing for an empty or full region and a bit a halving for a lone
-cell. Measured (`sparse.csv`): clustered bitmaps take 8-32% fewer bits
-than the tree at every density from a few cells to 15% set, and
-scattered ones fewer below about 0.15% (a hundred cells); from there up
-scattered cells split near evenly, the uniform count wastes bits, and
-the tree is kept. Grown blobs up to half set go to the count split too
-(`measurement.csv`).
+cell. Clustered cells take fewer bits as a count split than as a tree
+over a wide range of densities, scattered ones only when very sparse:
+past that, scattered cells split near evenly, the uniform count wastes
+bits, and the tree is kept (`sparse.csv` has the densities).
 
 Only one of the two is ever made. The greedy tiler's walk counts the
 tree it makes, complex tiles and all, with its residual blocks at their
@@ -568,12 +565,9 @@ every run's halves' counts by one subtraction -- and the same counts
 give the count split's writing, and every cell list's set count, 8x8
 and coarser being whole words. The count split encodes and decodes
 several times faster than a tree, and a bitmap may take up to 1% more
-bits for that. On the tested sample families, a sweep of grown bitmaps
-from none set to half, and the saved bitmaps -- 173 in all -- the
-encodings made take 0.011% more bits than the shorter of each bitmap's
-two, no bitmap more than 0.40%. With residual blocks counted at a bit a
-cell, the tree's count once sent a bitmap of horizontal streaks to the
-count split at 50427 bits, where the tree takes 27797.
+bits for that. The tree's count must hold its residual blocks at their
+prices: counted at a bit a cell, it once sent a bitmap of horizontal
+streaks to the count split at nearly twice the tree's bits.
 
 **Why the start level header**: a trunk of depth `d` -- every tile
 coarser than level `d` subdivides -- saves `(4^d - 1) / 3` subdivide

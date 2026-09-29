@@ -52,9 +52,10 @@ const FIRST_WEIGHT: u16 = 1;
 /// ...and what each cell coded in it adds to its value's: one cell.
 const CELL_WEIGHT: u16 = 2;
 /// The cells either value of a context counts at most: reaching it,
-/// both are halved. Past it the odds barely move, a cell at a time; and
-/// counting further changed the sample's bits by under 0.01%, where 256
-/// cost 0.024% and 128 0.07% (the whole sample, one seed).
+/// both are halved. Residual cells are much the same all over a bitmap,
+/// so halving forgets what costs bits, the more the sooner; this is
+/// where it stops costing any the samples show, and past it the odds
+/// barely move a cell at a time.
 const HALVING_COUNT: u16 = 512;
 /// The weight that, reached, halves both.
 const HALVING_WEIGHT: u16 = FIRST_WEIGHT + CELL_WEIGHT * HALVING_COUNT;
