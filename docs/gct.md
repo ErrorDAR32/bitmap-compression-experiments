@@ -44,10 +44,10 @@ it once: a pyramid at its shape, and every list (`fixed_list.rs`: a
 boxed array of fixed capacity and a length) at a bound named where it is
 made -- the last pass's waiting and pending copies at the 4x4 blocks,
 candidates at the tiles down to 4x4, and so on. The stream is sized at
-the most bits any stream can take: its mode bit, the start level, 18
-bits at every tile down to the 4x4 floor (8 nesting mask bits and a
-masking copy's 10-bit header), each cell's value said once, and what
-the last pass can take over a bit a cell (594, see step 5) -- 164432.
+the most bits any stream can take: its mode bit, the start level, 11
+bits at every tile down to the 4x4 floor (a mask bit and a masking
+copy's 10-bit header), each cell's value said once, and what the last
+pass can take over a bit a cell (594, see step 5) -- 126205.
 Encoding and decoding never
 allocate, the first bitmap included; pushing past a bound would be a
 bug, and panics rather than growing.
@@ -205,9 +205,9 @@ size finer than its own by its **size offset**. Tile size 0 is the whole
 256x256 bitmap and 8 a single cell, so a resolution is the tile's own
 size plus its size offset. Every part of it is either **unmasked** in
 it (a placed `Bound` tile at exactly its resolution, its value one bit
-of the complex tile's payload) or **masked**: said by a complex tile
-further out, a copy, a complex tile nested inside this one at another
-resolution, or further subdivided. A placed `Bound` tile unmasked in no
+of the complex tile's payload) or **masked**: said by a copy, a tile
+bound at another size, or further subdivided -- never by another
+complex tile. A placed `Bound` tile unmasked in no
 complex tile becomes a complex tile of its own size (size offset 0): a
 **tile**. A **1x1 resolution** says cells raw -- every cell a tile of its
 own -- the raw escape, offered at 128x128, 64x64, 32x32 and 8x8, where
@@ -272,13 +272,15 @@ masking tile says itself -- holds nothing, and nothing reads it.
 The complex tiler searches once, bottom-up (`complex_tiler/search.rs`):
 every tile the tree could reach is counted after its children, and
 scored as a candidate from those same counts on the way back up.
-Complex tiles are never nested in one another. The grammar allows it --
-a complex tile inside a complex tile, at another resolution -- and an
-earlier tiler searched for them, pass after pass, inside the complex
-tiles it had committed. Measured on every sample family and the saved
-bitmaps together, nesting saved no bits at all (city 0.31% more, the
-saved bitmaps 0.08% fewer, the rest the same) and was the slowest part
-of the tiler to count for: gone.
+Complex tiles are never nested in one another, and the grammar cannot
+say it: a bind in a complex tile's body is always a tile, so it says
+no size offset. An earlier tiler searched for nested complex tiles,
+pass after pass, inside the complex tiles it had committed; measured
+on every sample family and the saved bitmaps together, nesting saved
+no bits at all (city 0.31% more, the saved bitmaps 0.08% fewer, the
+rest the same) and was the slowest part of the tiler to count for:
+gone, and with it the size offset of every bind in a body -- 1 to 3
+bits a bind, most of them binds a raw complex tile masks.
 
 ### 2d. The counts: bits without, and under a candidate
 
@@ -431,12 +433,11 @@ not subdivide into four nodes. Every coarser tile does -- the trunk --
 so none of them is written; the tree is written from every tile of the start level,
 in Morton order.
 
-Every node starts with its mask bits: one for each complex tile it is
-nested in that could unmask it, nearest first --
-  0: unmasked in this one -- nothing more here; its values are bound in
-     that complex tile's payload
-  1: masked -- ask the next one out
-A node masked in all of them goes on:
+A node in a complex tile's body that could be unmasked in it -- one
+covering whole tiles of its resolution -- starts with its mask bit:
+  0: unmasked -- nothing more here; its values are bound in the complex
+     tile's payload
+  1: masked -- the node goes on:
 
 Then, at any level:
 1: leaf
@@ -445,11 +446,11 @@ Then, at any level:
             order (0 said by the copy, 1 masked), then each masked
             child as a node of its own
    1: complex tile -- resolution_width(level) bits: size offset, 0 meaning a
-      tile, then
+      tile; none in a complex tile's body, where a bind is always a
+      tile (complex tiles never nest); then
         size offset 0 or 1: nothing (never masks)
         otherwise:          0: no masking | 1: masking -- four child
-                            nodes follow, this complex tile now the
-                            nearest one they are nested in
+                            nodes follow, its body
         at a 1x1 resolution, masking nothing: the payload mode
                             0: plain | 1: cell list -- the count of
                             set cells k in Elias gamma code (of k+1),
@@ -458,8 +459,7 @@ Then, at any level:
                             parameter floor(log2((cells - k) / k)),
                             never written; nothing else follows
       then its payload: one value bit for every tile of its resolution
-      unmasked in it, in body order (including nodes inside complex
-      tiles nested in it), each node's tiles in Morton order
+      unmasked in it, in body order, each node's tiles in Morton order
 0: at the 4x4 floor, a residual block: its 16 cells are left to the
    last pass
    coarser, subdivide, then at 8x8 or coarser
@@ -489,10 +489,10 @@ tiler reads the bitmap.
 
 | node | bits, after its mask bits |
 |---|---|
-| unmasked in a complex tile it is nested in | none here; its values in that tile's payload |
+| unmasked in the complex tile it is in | none here; its values in that tile's payload |
 | copy | `1+1+1+2 = 5`, `+1` at 8x8 or coarser |
 | masking copy | `1+1+1+2+1+4 = 10`, then its masked children |
-| tile (size offset 0) | `1+1+r+1` |
+| tile (size offset 0) | `1+1+r+1`; in a complex tile's body `1+1+1` |
 | complex tile, size offset 1 | `1+1+r+4` |
 | complex tile, size offset > 1, no masking | `1+1+r+1+N`, `+1` at a 1x1 resolution |
 | cell list (1x1 resolution, masking nothing) | `1+1+r+1+1`, then about `k * (log2(N / k) + 1.5)` |
@@ -501,8 +501,8 @@ tiler reads the bitmap.
 | masking subdivide, or masking bind | `1+1+1+4 = 7`, then its named children |
 | residual block (4x4) | `1`, then its 16 cells in the last pass: under a bit each where the cells around them predict them |
 
-(`r` is `resolution_width(level)`. Every complex tile a node is nested
-in that could unmask it but masks it adds one `1` in front.)
+(`r` is `resolution_width(level)`. A node in a complex tile's body that
+could be unmasked in it but is masked adds one `1` in front.)
 
 ## Step 5: the last pass
 

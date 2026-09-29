@@ -94,7 +94,7 @@ impl StreamContents<'_> {
             }
             return;
         }
-        let size_offset = reader.value(resolution_width(tile.level)) as u8;
+        let size_offset = reader.value(bind_resolution_width(tile.level, nested.in_body())) as u8;
         let masks = complex_tile_may_mask(size_offset) && reader.value(MASK_PRESENT_WIDTH) == MASKING;
         if has_payload_mode(tile.level, size_offset, masks) && reader.value(PAYLOAD_MODE_WIDTH) == CELL_LIST {
             self.tree.set_node(tile, Node::CellList);

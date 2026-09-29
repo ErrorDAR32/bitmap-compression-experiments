@@ -48,7 +48,8 @@ fn cost_in_raw(complex_tiling: &mut ComplexTiling, tile: Tile) -> u64 {
 fn said_by_itself(placement: Option<Placement>, tile: Tile, mut part_cost: impl FnMut(Tile) -> u64) -> u64 {
     let leaf_bind = (LEAF_WIDTH + CODE_WIDTH) as u64;
     match placement {
-        Some(Placement::Bound { masked_children: 0, .. }) => leaf_bind + resolution_width(tile.level) as u64 + payload_bits(0),
+        // In the raw complex tile's body: no size offset.
+        Some(Placement::Bound { masked_children: 0, .. }) => leaf_bind + bind_resolution_width(tile.level, true) as u64 + payload_bits(0),
         Some(bind @ Placement::Bound { .. }) => {
             MASKING_DIVIDE_HEADER_WIDTH as u64 + masked_parts(tile, bind, &mut part_cost)
         }

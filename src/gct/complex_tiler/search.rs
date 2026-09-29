@@ -17,9 +17,9 @@
 //! as [`bit_cost`](super::bit_cost) spells them out for any tiling;
 //! debug builds hold the counts at 16x16 and finer to it. Here there is
 //! one case only: no complex tile yet, and at most the candidate above.
-//! Complex tiles are never nested in one another: the grammar allows
-//! it, but on every sample family and the saved bitmaps together
-//! nesting saved no bits at all (`docs/gct.md`).
+//! Complex tiles are never nested in one another, and the grammar has
+//! no way to say it: a bind in a complex tile's body is always a tile,
+//! and says no size offset (`docs/gct.md`).
 
 use super::bit_cost::{bits_with, cell_list_header_bits, node_bits, payload_bits};
 use super::raw_masking::decide_raw_masking;
@@ -90,6 +90,10 @@ const RESOLUTION_SLOTS: usize = CELL_LEVEL as usize + 1;
 struct Counted {
     /// Its bits as the tiling stands, with no complex tile above it.
     without: Bits,
+    /// Its bits as the tiling stands, masked in a complex tile's body:
+    /// the same, less every bind's size offset, which a bind there does
+    /// not say.
+    without_in_body: Bits,
     /// Its bits under one complex tile of each resolution, by the
     /// resolution's level: meaningful from the tile's own level to 1x1.
     under: [Bits; RESOLUTION_SLOTS],
@@ -140,12 +144,14 @@ impl Search<'_> {
         }
         // The children's counts summed once: those counted into the tile's
         // bits, and every visited one, as a candidate's children are.
-        let (mut counted_without, mut counted_under, mut visited_under) = (0, [0; RESOLUTION_SLOTS], [0; RESOLUTION_SLOTS]);
+        let (mut counted_without, mut counted_without_in_body) = (0, 0);
+        let (mut counted_under, mut visited_under) = ([0; RESOLUTION_SLOTS], [0; RESOLUTION_SLOTS]);
         for (index, counted) in child_counts.iter().enumerate() {
             let Some(counted) = counted else { continue };
             let is_counted = children.counted & 1 << index != 0;
             if is_counted {
                 counted_without += counted.without;
+                counted_without_in_body += counted.without_in_body;
             }
             for resolution in tile.level + 1..=CELL_LEVEL {
                 let bits = counted.under[resolution as usize];
@@ -156,10 +162,13 @@ impl Search<'_> {
             }
         }
 
-        let without = own_bits(tile, here, children.left) + counted_without;
+        let own = own_bits(tile, here, children.left);
+        let own_in_body = own - bind_size_offset_bits(tile, here);
+        let without = own + counted_without;
+        let without_in_body = own_in_body + counted_without_in_body;
         debug_assert_matches_reference(self.complex_tiling, self.bitmap, tile, here, without);
         let mut under = [0; RESOLUTION_SLOTS];
-        under[tile.level as usize] = if here.entirely_bound_at(tile.level) { unmasked_bits(0) } else { without + MASK_BIT_WIDTH as Bits };
+        under[tile.level as usize] = if here.entirely_bound_at(tile.level) { unmasked_bits(0) } else { without_in_body + MASK_BIT_WIDTH as Bits };
         let left = children.left.count_ones() as Bits;
         for resolution in tile.level + 1..=CELL_LEVEL {
             under[resolution as usize] = if here.entirely_bound_at(resolution) {
@@ -171,7 +180,7 @@ impl Search<'_> {
                 // above is bound whole at it, so unmasked instead: a mask
                 // bit and a payload bit each, and no flip bit or child
                 // mask.
-                let mut bits = without + MASK_BIT_WIDTH as Bits + counted_under[resolution as usize] - counted_without;
+                let mut bits = own_in_body + MASK_BIT_WIDTH as Bits + counted_under[resolution as usize];
                 if resolution == tile.level + 1 && left > 0 {
                     bits = bits + left * unmasked_bits(0) - LEAVING_BITS;
                 }
@@ -190,7 +199,7 @@ impl Search<'_> {
             }
             _ => best_under_children,
         };
-        Counted { without, under, best_saving }
+        Counted { without, without_in_body, under, best_saving }
     }
 
     /// Which of `tile`'s children the search goes into and counts: none
@@ -296,6 +305,16 @@ fn own_bits(tile: Tile, here: Fields, left: u8) -> Bits {
         // bit a cell.
         None if tile.level == FLOOR_LEVEL => (LEAF_WIDTH + RESIDUAL_BLOCK_BITS) as Bits,
         None => LEAF_WIDTH as Bits + mask_present + if left != 0 { LEAVING_BITS } else { 0 },
+    }
+}
+
+/// What `tile`, whose fields are `here`, spends of its own bits on a
+/// bind's size offset: none but for a bind, which in a complex tile's
+/// body does not say it.
+fn bind_size_offset_bits(tile: Tile, here: Fields) -> Bits {
+    match here.placed() {
+        Some(Placement::Bound { masked_children: 0, .. }) => resolution_width(tile.level) as Bits,
+        _ => 0,
     }
 }
 

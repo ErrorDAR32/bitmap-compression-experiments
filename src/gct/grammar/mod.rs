@@ -37,14 +37,12 @@ pub const RESIDUAL_BLOCK_BITS: u8 = cells_in_tile(FLOOR_LEVEL) as u8;
 /// every coarser tile subdivides, so none of them is written.
 pub const START_LEVEL_WIDTH: u8 = (u8::BITS - (FLOOR_LEVEL).leading_zeros()) as u8;
 
-/// One mask bit per complex tile a node is nested in that could unmask
-/// it, nearest first: this one means the node is unmasked in that
-/// complex tile -- its value is in the complex tile's payload, and the
-/// node ends here.
+/// The mask bit of a node in a complex tile's body that could be
+/// unmasked in it: this one means the node is unmasked -- its value is
+/// in the complex tile's payload, and the node ends here.
 pub const UNMASKED: u64 = 0;
-/// A mask bit meaning the node is masked in that complex tile: the next
-/// complex tile out is asked, or, after the last, the node itself
-/// follows.
+/// A mask bit meaning the node is masked in the complex tile: the node
+/// itself follows.
 pub const MASKED: u64 = 1;
 /// Bits in one mask bit.
 pub const MASK_BIT_WIDTH: u8 = 1;
@@ -139,6 +137,14 @@ pub fn complex_tile_may_mask(size_offset: u8) -> bool {
 pub const fn resolution_width(level: u8) -> u8 {
     let largest = levels_to_cells(level) - 1;
     (u8::BITS - largest.leading_zeros()) as u8
+}
+
+/// How many bits name a bind's size offset at `level`, `in_body` whether
+/// it lies in a complex tile's body: none there -- complex tiles are
+/// never nested, so a bind in one is always a tile, size offset 0 --
+/// and [`resolution_width`] everywhere else.
+pub const fn bind_resolution_width(level: u8, in_body: bool) -> u8 {
+    if in_body { 0 } else { resolution_width(level) }
 }
 
 /// Whether a 1x1 resolution -- a complex tile saying every cell under it

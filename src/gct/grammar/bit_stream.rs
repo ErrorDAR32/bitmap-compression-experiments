@@ -4,18 +4,18 @@
 //! values, the variable-length codes the grammar uses: unary, Elias
 //! gamma and truncated binary.
 
-use super::{CHILD_MASK_WIDTH, CODE_WIDTH, DIRECTION_WIDTH, FAR_WIDTH, LEAF_WIDTH, MASK_PRESENT_WIDTH, START_LEVEL_WIDTH, STREAM_MODE_WIDTH};
+use super::{CHILD_MASK_WIDTH, CODE_WIDTH, DIRECTION_WIDTH, FAR_WIDTH, LEAF_WIDTH, MASK_BIT_WIDTH, MASK_PRESENT_WIDTH, START_LEVEL_WIDTH, STREAM_MODE_WIDTH};
 use crate::gct::last_pass::MOST_EXTRA_BITS;
-use crate::gct::tile::{tiles_down_to, CELLS, CELL_LEVEL, FLOOR_LEVEL};
+use crate::gct::tile::{tiles_down_to, CELLS, FLOOR_LEVEL};
 
 /// Bits a word holds.
 const WORD_BITS: usize = u64::BITS as usize;
 
-/// The most bits one node takes, its values aside: a mask bit for each
-/// complex tile it is nested in -- each of its own resolution, so at
-/// most one a level -- and the longest header, a masking copy's: leaf,
+/// The most bits one node takes, its values aside: its mask bit in the
+/// complex tile it is in, if any -- complex tiles never nest, so never
+/// more than one -- and the longest header, a masking copy's: leaf,
 /// code, far, direction, mask-present and a mask bit a child.
-const MOST_NODE_BITS: usize = CELL_LEVEL as usize
+const MOST_NODE_BITS: usize = MASK_BIT_WIDTH as usize
     + (LEAF_WIDTH + CODE_WIDTH + FAR_WIDTH + DIRECTION_WIDTH + MASK_PRESENT_WIDTH) as usize
     + CHILD_MASK_WIDTH as usize;
 

@@ -32,6 +32,11 @@ impl NestedResolutions {
         self.count
     }
 
+    /// Whether a tile is in a complex tile's body at all.
+    pub fn in_body(&self) -> bool {
+        self.count > 0
+    }
+
     /// The resolution of the complex tile at `nesting`.
     pub fn resolution(&self, nesting: u8) -> u8 {
         self.resolutions[nesting as usize]

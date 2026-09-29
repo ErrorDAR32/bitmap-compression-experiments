@@ -111,7 +111,7 @@ pub fn node_bits(
     let leaf_bind = (LEAF_WIDTH + CODE_WIDTH) as u64;
     mask_bits + match here.placed() {
         Some(Placement::Bound { masked_children: 0, .. }) => {
-            leaf_bind + resolution_width(tile.level) as u64 + payload_bits(0)
+            leaf_bind + bind_resolution_width(tile.level, nested.in_body()) as u64 + payload_bits(0)
         }
         Some(bind @ Placement::Bound { .. }) => {
             // Spelled as a divide that masks and flips the value bound above.

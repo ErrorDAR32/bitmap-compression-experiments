@@ -97,9 +97,10 @@ impl Writer<'_> {
                 self.named_children(tile, nested);
             }
             Node::ComplexTile { size_offset, masks } => {
+                debug_assert!(size_offset == 0 || !nested.in_body(), "{tile:?}: a complex tile nested in another");
                 self.stream.push_value(LEAF, LEAF_WIDTH);
                 self.stream.push_value(BIND, CODE_WIDTH);
-                self.stream.push_value(size_offset as u64, resolution_width(tile.level));
+                self.stream.push_value(size_offset as u64, bind_resolution_width(tile.level, nested.in_body()));
                 if complex_tile_may_mask(size_offset) {
                     self.mask_present(masks);
                 }
@@ -132,6 +133,7 @@ impl Writer<'_> {
                 }
             }
             Node::CellList => {
+                debug_assert!(!nested.in_body(), "{tile:?}: a cell list nested in a complex tile");
                 let size_offset = CELL_LEVEL - tile.level;
                 self.stream.push_value(LEAF, LEAF_WIDTH);
                 self.stream.push_value(BIND, CODE_WIDTH);
