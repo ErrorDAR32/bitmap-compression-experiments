@@ -367,16 +367,16 @@ pub(crate) fn price_residual_blocks(bitmap: &Bitmap, residual: &BlockSet, prices
             let index = word_index * u64::BITS as usize + remaining.trailing_zeros() as usize;
             remaining &= remaining - 1;
             let window = Window::around(bitmap, index);
-            let block_run = bitmap.morton_run(index * BLOCK_CELLS, BLOCK_CELLS);
             let mut bits = 0;
             for dy in 0..BLOCK_SIDE as u32 {
                 let columns = window.columns(dy);
+                let row = window.block_row(dy);
                 // The row's cells' odds multiplied -- totals over the
                 // weights of the values they hold -- and one `log2` each.
                 let (mut totals, mut weights) = (1u128, 1u128);
                 for dx in 0..BLOCK_SIDE as u32 {
                     let odds = &mut all_odds[columns.context(dx)];
-                    let set = block_run >> MORTON_PLACES[(dy * BLOCK_SIDE as u32 + dx) as usize] & 1 == 1;
+                    let set = row >> dx & 1 == 1;
                     totals *= (odds.clear + odds.set) as u128;
                     let weight = if set { &mut odds.set } else { &mut odds.clear };
                     weights *= *weight as u128;
@@ -495,6 +495,11 @@ impl Window {
     /// The window's row `y`, one bit a column.
     fn row(&self, y: u32) -> usize {
         (self.0 >> (y * WINDOW_SIDE)) as usize & ((1 << WINDOW_SIDE) - 1)
+    }
+
+    /// The block's own row `dy`, one bit a cell from its left edge.
+    fn block_row(&self, dy: u32) -> usize {
+        self.row(BLOCK_SIDE as u32 + dy) >> BLOCK_SIDE
     }
 
     /// The rows the contexts of the block's row `dy` read -- it and the
