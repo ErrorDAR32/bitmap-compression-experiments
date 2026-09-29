@@ -19,6 +19,22 @@ pub fn tree_representation(complex_tiling: &ComplexTiling, tree: &mut Tree) {
     set_node(complex_tiling, Tile::whole_bitmap(), &mut NestedResolutions::none(), BOUND_AT_THE_TOP, tree);
 }
 
+/// The level the tree of `complex_tiling` starts at, found without
+/// reading the tree off: the coarsest level where some tile does not
+/// divide whole -- as [`Tree::start_level`] finds it in the tree. Above
+/// it every tile divides, so none is nested or under a binding but the
+/// top's.
+pub fn start_level(complex_tiling: &ComplexTiling) -> u8 {
+    let nested = NestedResolutions::none();
+    let divides_whole = |tile: Tile| {
+        node_for(complex_tiling, tile, &nested) == Node::Subdivided
+            && tile.children().into_iter().all(|child| !complex_tiling.left_to_binding_above(child, BOUND_AT_THE_TOP, &nested))
+    };
+    (0..=FLOOR_LEVEL)
+        .find(|&level| Tile::all_of_level(level).any(|tile| !divides_whole(tile)))
+        .expect("the 2x2 floor never subdivides")
+}
+
 /// Sets the node for `tile`, nested in `nested`, `bound_above` the value
 /// bound above it, and every node under it.
 fn set_node(complex_tiling: &ComplexTiling, tile: Tile, nested: &mut NestedResolutions, bound_above: bool, tree: &mut Tree) {

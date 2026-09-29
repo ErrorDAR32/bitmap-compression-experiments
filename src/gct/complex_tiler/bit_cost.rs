@@ -32,6 +32,28 @@ pub fn bits(complex_tiling: &ComplexTiling, bitmap: &Bitmap, tile: Tile, nested:
     bits_with(complex_tiling, bitmap, tile, complex_tiling.fields(tile), nested, bound_above)
 }
 
+/// The bits the whole tree takes, as the tiling stands, starting at
+/// `start_level`: the start level, then every tile of that level.
+pub fn tree_bits(complex_tiling: &ComplexTiling, bitmap: &Bitmap, start_level: u8) -> u64 {
+    START_LEVEL_WIDTH as u64
+        + Tile::all_of_level(start_level)
+            .map(|tile| bits(complex_tiling, bitmap, tile, &mut NestedResolutions::none(), BOUND_AT_THE_TOP))
+            .sum::<u64>()
+}
+
+/// The bits the tree takes that says every cell in a cell list: its
+/// start level the coarsest a cell list can be named at, and every tile
+/// of that level a cell list.
+pub fn cell_lists_tree_bits(complex_tiling: &ComplexTiling, bitmap: &Bitmap) -> u64 {
+    START_LEVEL_WIDTH as u64
+        + Tile::all_of_level(COARSEST_RAW_LEVEL)
+            .map(|tile| {
+                let listed = complex_tiling.fields(tile).as_cell_list(tile.level);
+                bits_with(complex_tiling, bitmap, tile, listed, &mut NestedResolutions::none(), BOUND_AT_THE_TOP)
+            })
+            .sum::<u64>()
+}
+
 /// [`bits`], with `here` as `tile`'s fields.
 pub fn bits_with(
     complex_tiling: &ComplexTiling,

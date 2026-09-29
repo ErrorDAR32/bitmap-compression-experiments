@@ -12,13 +12,13 @@
 //! - the first cell decoding gets wrong, if any.
 
 use crate::gct::pyramids::complex_tiling::ComplexTiling;
-use crate::gct::complex_tiler::bit_cost::bits;
+use crate::gct::complex_tiler::bit_cost::tree_bits;
 use crate::gct::grammar::bit_stream::BitStream;
-use crate::gct::grammar::{count_split, BOUND_AT_THE_TOP, COUNT_SPLIT_STREAM, START_LEVEL_WIDTH, STREAM_MODE_WIDTH};
-use crate::gct::nested_resolutions::NestedResolutions;
+use crate::gct::grammar::{count_split, COUNT_SPLIT_STREAM, STREAM_MODE_WIDTH};
 use crate::gct::pyramids::placements::Placement;
 use crate::gct::pyramids::tree::{Node, Tree};
 use crate::gct::tile::{Tile, CELL_LEVEL, FLOOR_LEVEL};
+use crate::gct::tree_representation::start_level;
 use crate::gct::Workspace;
 use crate::Bitmap;
 
@@ -133,10 +133,9 @@ impl Examination {
                 copied_finer_than_4x4.push(tile);
             }
         }
-        let tree_bits = START_LEVEL_WIDTH as u64
-            + Tile::all_of_level(written.start_level())
-                .map(|tile| bits(complex_tiling, bitmap, tile, &mut NestedResolutions::none(), BOUND_AT_THE_TOP))
-                .sum::<u64>();
+        // The start level found from the tiling, as the encoder finds it:
+        // were it not the tree's, these bits would not be the bits written.
+        let tree_bits = tree_bits(complex_tiling, bitmap, start_level(complex_tiling));
         let tree_written_bits = (stream.len() - STREAM_MODE_WIDTH as usize) as u64;
         workspace.decode(stream, back);
         let tree_read_back = *workspace.tree() == written;

@@ -126,12 +126,12 @@ impl BitStream {
 }
 
 /// The bits of `value` in Elias gamma code, `value` at least 1.
-pub fn gamma_bits(value: u64) -> u64 {
+pub const fn gamma_bits(value: u64) -> u64 {
     2 * value.ilog2() as u64 + 1
 }
 
 /// The bits of `value`, one of `range`, in truncated binary.
-pub fn truncated_binary_bits(value: u64, range: u64) -> u64 {
+pub const fn truncated_binary_bits(value: u64, range: u64) -> u64 {
     match truncated_binary_shape(range) {
         None => 0,
         Some((short_width, short_codes)) => short_width as u64 + (value >= short_codes) as u64,
@@ -141,11 +141,12 @@ pub fn truncated_binary_bits(value: u64, range: u64) -> u64 {
 /// A truncated binary code of `range` values: the short codes' width,
 /// and how many values take a short code; `None` for one value, which
 /// needs no bits.
-fn truncated_binary_shape(range: u64) -> Option<(u8, u64)> {
-    (range > 1).then(|| {
-        let short_width = range.ilog2() as u8;
-        (short_width, (1 << (short_width + 1)) - range)
-    })
+const fn truncated_binary_shape(range: u64) -> Option<(u8, u64)> {
+    if range <= 1 {
+        return None;
+    }
+    let short_width = range.ilog2() as u8;
+    Some((short_width, (1 << (short_width + 1)) - range))
 }
 
 /// Reads a [`BitStream`] back, in order. Past the end, bits read as 0.

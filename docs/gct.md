@@ -18,6 +18,11 @@ output, and step 4 never decides anything.
 | 3. tree representation | `tree_representation.rs` | the tree read off the complex tiling alone: one node code per tile, held as a pyramid (`pyramids/tree.rs`) |
 | 4. encoding | `encode.rs` | the tree's grammar with its payloads, then the residual pass |
 
+Between steps 1 and 2 the encoder picks the stream's mode: the tree,
+or the bitmap's count split, when that takes fewer bits (see "Why the
+count split"). Only the one picked is made: for a count split, steps 2
+and 3 never run.
+
 `decode.rs` reads the bits back and resolves copies into cells. Both
 follow `grammar/`, the one place every rule of the bitstream lives:
 its constants and widths, the bit stream, and the order of a complex
@@ -208,7 +213,7 @@ the one thing it reads off the bitmap is a cell list's cost.
 
 ### 2a. What a raw complex tile would mask
 
-Decided once, before anything else (`complex_tiler/raw_masking.rs`): for
+Decided once, before any pass (`complex_tiler/raw_masking.rs`): for
 every tile, is it cheaper *said by itself* (as the nodes the greedy
 tiler's tiles make of it) or *raw* (one bit a cell) inside a complex
 tile of 1x1 resolution? Bottom-up:
@@ -233,8 +238,10 @@ mask; whether one is worth placing is decided in 2c like any other.
 
 ### 2b. Filling in the tiling
 
-`ComplexTiling::fill_in` sets the raw-masking bits, then the tiling's
-own sweep carries two fields up, finest first, by one rule (`carried`):
+`ComplexTiling::fill_in` runs right after the greedy tiler, since
+choosing the stream's mode reads the tiling filled in; it reads nothing
+2a sets. The tiling's own sweep carries two fields up, finest first, by
+one rule (`carried`):
 
 - a tile's **bound size**: its own size if a whole bind is placed at
   it; none if anything else is placed at it; otherwise its children's
@@ -423,8 +430,8 @@ unmask it: those whose resolution tiles the node covers whole.
      first half -- one of the counts its halves could hold, in
      truncated binary. A run all set or all clear says nothing more,
      and nothing inside it is said. Which of the two a bitmap gets is
-     judged from its patterns pyramid before either is made, and only
-     that one is made: see "Why the count split".
+     judged from the greedy tiler's tiles, before the complex tiler,
+     and only that one is made: see "Why the count split".
 
 3 bits: the start level, the level of the tree's coarsest node that does
 not subdivide into four nodes. Every coarser tile does -- the trunk --
@@ -577,25 +584,32 @@ holds it to.
 copy are the tree's worst case -- every node says its own place, and an
 empty region beside a set cell is a node of its own. The count split
 pays nothing for an empty or full region and a bit a halving for a lone
-cell. Measured (`sparse.csv`): clustered sparse bitmaps take 15-30%
-fewer bits than the tree at every density up to 10%, and scattered ones
-fewer below 0.1%; from there up scattered cells split near evenly, the
-uniform count wastes bits, and the tree is kept.
+cell. Measured (`sparse.csv`): clustered bitmaps take 11-30% fewer bits
+than the tree at every density from a few cells to 15% set, and
+scattered ones fewer below about 0.15% (a hundred cells); from there up
+scattered cells split near evenly, the uniform count wastes bits, and
+the tree is kept. Grown blobs a fifth or half set take 13-16% fewer too
+(`measurement.csv`).
 
-Only one of the two is ever made. The patterns pyramid, built first
-either way, says which: the count split for a bitmap with at most 96
-cells set, which it says in fewer bits however the cells lie --
-scattered cells cross over at about 98 -- or one at most an eighth set
-whose set cells are clustered -- random cells at
-its density would occupy at least a fifth more of its 4x4 tiles than
-its cells do -- and do not repeat -- at least one distinct 4x4 pattern
-for every four occupied tiles; the tree for everything else, built on
-that same pyramid. Scattered cells measure within a few percent of
-random, and bunched groups three to ten times; lines and streets, which
-the tree copies, measure under one distinct pattern for six occupied
-tiles, grown clusters over two for five. On every sample family and
-density sweep the rule saves 3.19% of the tree's bits, where picking
-the shorter of both by making both would save 3.21%.
+Only one of the two is ever made. After the greedy tiler, with its
+tiling filled in, the encoder counts two trees the grammar can always
+write, without making either:
+
+- the **greedy tree**: the greedy tiler's tiles alone, no complex tiles
+  -- the complex tiler only ever commits what takes bits off it;
+- the **cell lists tree**: start level 1, every 128x128 a cell list --
+  what the complex tiler comes to on scattered cells.
+
+The count split is made when it takes fewer bits than both; otherwise
+the complex tiler runs and the tree is made. Counting the count split
+stops once it reaches the greedy tree's bits, and the cell lists tree is
+counted only if it gets under them. There is no threshold: the rule
+compares bits. On every sample family (the tested counts) and the
+sparse sweep -- 948 bitmaps, from none set to three quarters -- it picks the shorter
+encoding every time: 10.37% fewer bits than the tree alone, the same as
+making both and keeping the shorter. The greedy tree alone is not
+enough: on scattered cells it overestimates the tree by the cell lists
+it lacks, and wrongly picks the count split.
 
 **Why the start level header**: a trunk of depth `d` -- every tile
 coarser than level `d` subdivides -- saves `(4^d - 1) / 3` subdivide

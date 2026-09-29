@@ -136,7 +136,7 @@ pub fn complex_tile_may_mask(size_offset: u8) -> bool {
 
 /// How many bits name a complex tile's size offset at `level`: enough
 /// for `0` (a tile) up to a 2x2 resolution.
-pub fn resolution_width(level: u8) -> u8 {
+pub const fn resolution_width(level: u8) -> u8 {
     let largest = levels_to_cells(level) - 1;
     (u8::BITS - largest.leading_zeros()) as u8
 }
@@ -146,6 +146,16 @@ pub fn resolution_width(level: u8) -> u8 {
 /// `level`: where the size offset field has a value to spare for it
 /// (128x128, 64x64, 32x32 and 8x8). It is never worth widening the field
 /// every other tile of that size pays.
-pub fn raw_resolution_fits(level: u8) -> bool {
-    u32::from(levels_to_cells(level)) < 1 << resolution_width(level)
+pub const fn raw_resolution_fits(level: u8) -> bool {
+    (levels_to_cells(level) as u32) < 1 << resolution_width(level)
 }
+
+/// The coarsest level a 1x1 resolution -- and so a cell list -- can be
+/// named at: 128x128.
+pub const COARSEST_RAW_LEVEL: u8 = {
+    let mut level = 0;
+    while !raw_resolution_fits(level) {
+        level += 1;
+    }
+    level
+};

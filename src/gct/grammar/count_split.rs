@@ -1,7 +1,9 @@
 //! The count split: what the stream says instead of the tree for a
-//! bitmap it [suits] -- sparse cells, clustered, with nothing to
-//! copy: the tree's worst case. Only one of the two is ever made: which
-//! is judged from the patterns pyramid, before either.
+//! bitmap whose count split takes fewer bits than its tree would --
+//! sparse cells, clustered, with nothing to copy: the tree's worst case.
+//! Only one of the two is ever made: which is judged from the greedy
+//! tiler's tiles, before the complex tiler
+//! ([`crate::gct::workspace`](mod@crate::gct::workspace)).
 //!
 //! How many cells are set, `k`, in Elias gamma code (of `k + 1`, so zero
 //! can be said); then the bitmap's cells in Morton order, halved again
@@ -15,93 +17,112 @@
 //! the runs are the regions of a binary partition of the plane.
 
 use super::bit_stream::{gamma_bits, truncated_binary_bits, BitReader, BitStream};
-use crate::gct::pyramids::patterns::{Patterns, FINEST_NUMBERED_LEVEL};
-use crate::gct::tile::{cells_in_tile, tiles_in_level, CELLS};
+use crate::gct::tile::CELLS;
 use crate::Bitmap;
 
 /// The counts a run of `cells` cells, `set` of them set, could have in
 /// its first half: the fewest, and how many there are.
-fn first_half_counts(cells: usize, set: u64) -> (u64, u64) {
+const fn first_half_counts(cells: usize, set: u64) -> (u64, u64) {
     let half = (cells / 2) as u64;
     let fewest = set.saturating_sub(half);
-    (fewest, set.min(half) - fewest + 1)
+    let most = if set < half { set } else { half };
+    (fewest, most - fewest + 1)
 }
 
-/// Visits every run of the Morton order from `first`, `cells` long,
-/// `set` of them set, that says something, depth first: `say` gets how
-/// many of its set cells lie in its first half, the fewest that could,
-/// and how many counts could.
-fn walk(bitmap: &Bitmap, first: usize, cells: usize, set: u64, say: &mut impl FnMut(u64, u64, u64)) {
+/// The bits a run of the cells `run` holds, `cells` of them, `set` of
+/// them set, takes inside it: what it says of its halves, and they of
+/// theirs.
+const fn run_bits(run: u64, cells: usize, set: u64) -> u64 {
     if set == 0 || set == cells as u64 {
-        return;
+        return 0;
     }
     let half = cells / 2;
-    let first_half_set = bitmap.count_in_morton_block(first, half);
+    let first_half = run & ((1 << half) - 1);
+    let first_half_set = first_half.count_ones() as u64;
     let (fewest, counts) = first_half_counts(cells, set);
-    say(first_half_set, fewest, counts);
-    walk(bitmap, first, half, first_half_set, say);
-    walk(bitmap, first + half, half, set - first_half_set, say);
+    truncated_binary_bits(first_half_set - fewest, counts)
+        + run_bits(first_half, half, first_half_set)
+        + run_bits(run >> half, half, set - first_half_set)
 }
 
-/// The most cells a bitmap can have set for the count split to suit it:
-/// an eighth. It is the fallback for sparse cells.
-const MOST_SET: u64 = (CELLS / 8) as u64;
+/// Runs this short are counted by looking them up in [`BYTE_BITS`]: a
+/// byte of cells.
+const BYTE_CELLS: usize = u8::BITS as usize;
 
-/// The most cells a bitmap can have set for the count split to suit it
-/// however they lie. So few cells take fewer bits counted and split than
-/// as a tree, scattered or clustered alike; scattered cells cross over at
-/// about this many: at 65 the count split takes 786 bits to the tree's
-/// 802, at 98 the two are even, at 131 the tree wins (`sparse.csv`).
-const MOST_SET_ALWAYS_SUITED: u64 = 96;
+/// The bits every run of a byte of cells takes inside it, by its cells.
+const BYTE_BITS: [u8; 1 << BYTE_CELLS] = {
+    let mut bits = [0; 1 << BYTE_CELLS];
+    let mut run = 0;
+    while run < bits.len() {
+        bits[run] = run_bits(run as u64, BYTE_CELLS, run.count_ones() as u64) as u8;
+        run += 1;
+    }
+    bits
+};
 
-/// How much more clustered than random cells a bitmap's set cells must be
-/// for the count split to suit it: random cells at its density would
-/// occupy a fifth more of its 4x4 tiles than they do. Scattered cells
-/// measure within a few percent of random, and the tree says them in
-/// fewer bits; a few bunched groups measure three to ten times random,
-/// and the count split says them in 9-21% fewer (`sparse.csv`).
-const LEAST_CLUSTERING: f64 = 1.2;
+/// Counting a count split's bits, up to a limit.
+struct Counter<'a> {
+    /// The bitmap counted.
+    bitmap: &'a Bitmap,
+    /// The bits counted so far.
+    bits: u64,
+    /// Where counting stops.
+    limit: u64,
+}
 
-/// The fewest distinct patterns, for each occupied 4x4 tile, a bitmap
-/// must hold for the count split to suit it. Cells that repeat -- lines,
-/// streets -- measure under a sixth: the tree copies them, and says them
-/// in a third to a half of the count split's bits. Grown clusters
-/// measure over two fifths.
-const LEAST_DISTINCT_A_TILE: f64 = 0.25;
+impl Counter<'_> {
+    /// Counts the run from `first`, `cells` long, `set` of them set,
+    /// unless the bits reach the limit first: whether they stayed under
+    /// it.
+    fn run(&mut self, first: usize, cells: usize, set: u64) -> bool {
+        if set == 0 || set == cells as u64 {
+            return true;
+        }
+        if cells == BYTE_CELLS {
+            self.bits += BYTE_BITS[self.bitmap.morton_run(first, cells) as usize] as u64;
+            return self.bits < self.limit;
+        }
+        let half = cells / 2;
+        let first_half_set = self.bitmap.count_in_morton_block(first, half);
+        let (fewest, counts) = first_half_counts(cells, set);
+        self.bits += truncated_binary_bits(first_half_set - fewest, counts);
+        self.bits < self.limit && self.run(first, half, first_half_set) && self.run(first + half, half, set - first_half_set)
+    }
+}
 
-/// Whether the count split suits `bitmap` better than the tree, judged
-/// from its patterns pyramid alone, before either is made: a bitmap with
-/// at most 96 cells set, or one at most an eighth set whose set cells
-/// are clustered and do not repeat.
-pub fn suits(bitmap: &Bitmap, patterns: &Patterns) -> bool {
+/// The bits `bitmap`'s count split takes, if fewer than `limit`:
+/// counting stops as soon as they reach it.
+pub fn bits_under(bitmap: &Bitmap, limit: u64) -> Option<u64> {
     let set = bitmap.count_set() as u64;
-    if set <= MOST_SET_ALWAYS_SUITED {
-        return true;
-    }
-    if set > MOST_SET {
-        return false;
-    }
-    let occupied = patterns.occupied(FINEST_NUMBERED_LEVEL) as f64;
-    let density = set as f64 / CELLS as f64;
-    let cells_a_tile = cells_in_tile(FINEST_NUMBERED_LEVEL) as i32;
-    let occupied_by_random_cells = tiles_in_level(FINEST_NUMBERED_LEVEL) as f64 * (1.0 - (1.0 - density).powi(cells_a_tile));
-    let distinct = patterns.distinct(FINEST_NUMBERED_LEVEL) as f64;
-    occupied * LEAST_CLUSTERING <= occupied_by_random_cells && distinct >= occupied * LEAST_DISTINCT_A_TILE
+    let mut counter = Counter { bitmap, bits: gamma_bits(set + 1), limit };
+    (counter.run(0, CELLS, set) && counter.bits < limit).then_some(counter.bits)
 }
 
 /// The bits `bitmap`'s count split takes.
 pub fn bits(bitmap: &Bitmap) -> u64 {
-    let set = bitmap.count_set() as u64;
-    let mut bits = gamma_bits(set + 1);
-    walk(bitmap, 0, CELLS, set, &mut |first_half_set, fewest, counts| bits += truncated_binary_bits(first_half_set - fewest, counts));
-    bits
+    bits_under(bitmap, u64::MAX).expect("no count split takes every bit there is")
 }
 
 /// Writes `bitmap`'s count split.
 pub fn write(bitmap: &Bitmap, stream: &mut BitStream) {
     let set = bitmap.count_set() as u64;
     stream.push_gamma(set + 1);
-    walk(bitmap, 0, CELLS, set, &mut |first_half_set, fewest, counts| stream.push_truncated_binary(first_half_set - fewest, counts));
+    write_run(bitmap, stream, 0, CELLS, set);
+}
+
+/// Writes the run from `first`, `cells` long, `set` of them set: nothing
+/// if all or none is, else how many lie in its first half and each half
+/// in turn.
+fn write_run(bitmap: &Bitmap, stream: &mut BitStream, first: usize, cells: usize, set: u64) {
+    if set == 0 || set == cells as u64 {
+        return;
+    }
+    let half = cells / 2;
+    let first_half_set = bitmap.count_in_morton_block(first, half);
+    let (fewest, counts) = first_half_counts(cells, set);
+    stream.push_truncated_binary(first_half_set - fewest, counts);
+    write_run(bitmap, stream, first, half, first_half_set);
+    write_run(bitmap, stream, first + half, half, set - first_half_set);
 }
 
 /// Reads a count split, setting its set cells in `cell_values`, which

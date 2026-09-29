@@ -110,7 +110,7 @@ pub fn run(report: &mut Report) {
 }
 
 /// What gct's trees hold, family by family -- every bitmap's tree, even
-/// where the count split suits it: how many streams are count splits,
+/// where the stream is its count split: how many streams are,
 /// complex tiles and masking nodes, and what the complex tiles' bodies
 /// are made of.
 fn add_structure(workspace: &mut Workspace, report: &mut Report) {

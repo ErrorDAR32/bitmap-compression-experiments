@@ -10,6 +10,7 @@
 //! that can never be used.
 
 use crate::gct::pyramids::complex_tiling::ComplexTiling;
+use crate::gct::complex_tiler::bit_cost::{cell_lists_tree_bits, tree_bits};
 use crate::gct::complex_tiler::passes::{complex_tiler, Scratch};
 use crate::gct::decode::{decode, Copies, StreamContents};
 use crate::gct::encode::{write, write_count_split};
@@ -19,7 +20,7 @@ use crate::gct::greedy_tiler::greedy_tiler;
 use crate::gct::pyramids::patterns::Patterns;
 use crate::gct::pyramids::copyable::CopyOffsets;
 use crate::gct::pyramids::tree::Tree;
-use crate::gct::tree_representation::tree_representation;
+use crate::gct::tree_representation::{start_level, tree_representation};
 use crate::Bitmap;
 
 /// Room to encode and decode bitmaps in, one at a time.
@@ -59,16 +60,16 @@ impl Workspace {
         Self { copy_offsets, ..Self::new() }
     }
 
-    /// Encodes `bitmap` into `stream`, whatever it held before: its
-    /// patterns pyramid first, then from it the one encoding that suits
-    /// -- the count split, for sparse clustered cells, or the tree, built
-    /// on that same pyramid.
+    /// Encodes `bitmap` into `stream`, whatever it held before: the
+    /// greedy tiler's tiles first, then from them the one encoding that
+    /// takes fewer bits -- the count split, for sparse clustered cells,
+    /// or the tree, which the complex tiler finishes.
     pub fn encode(&mut self, bitmap: &Bitmap, stream: &mut BitStream) {
-        self.patterns.build(bitmap);
-        if count_split::suits(bitmap, &self.patterns) {
+        self.greedy_tiling(bitmap);
+        if self.count_split_beats_tree(bitmap) {
             write_count_split(bitmap, stream);
         } else {
-            self.build_tree(bitmap);
+            self.complex_tree(bitmap);
             write(&self.tree, bitmap, stream);
         }
     }
@@ -76,15 +77,36 @@ impl Workspace {
     /// Encodes `bitmap` as its tree, whichever encoding suits it: for
     /// looking at the tree of a bitmap the count split suits.
     pub fn encode_tree(&mut self, bitmap: &Bitmap, stream: &mut BitStream) {
-        self.patterns.build(bitmap);
-        self.build_tree(bitmap);
+        self.greedy_tiling(bitmap);
+        self.complex_tree(bitmap);
         write(&self.tree, bitmap, stream);
     }
 
-    /// Builds `bitmap`'s tree from its patterns pyramid, already built:
-    /// the greedy tiler, the complex tiler, the tree read off.
-    fn build_tree(&mut self, bitmap: &Bitmap) {
+    /// Whether `bitmap`'s count split takes fewer bits than its tree
+    /// would, judged from the greedy tiler's tiles, before the complex
+    /// tiler, with two trees the complex tiler can always make: the
+    /// greedy tiler's tiles alone, and the tree of cell lists. The
+    /// complex tiler only ever takes bits off the first, and the second is
+    /// what it comes to on scattered cells, which it says in cell lists.
+    /// So the count split must take fewer bits than both. Counting it
+    /// stops at the first tree's bits, and the second is counted only if
+    /// it gets under them.
+    fn count_split_beats_tree(&self, bitmap: &Bitmap) -> bool {
+        let greedy_tree_bits = tree_bits(&self.complex_tiling, bitmap, start_level(&self.complex_tiling));
+        count_split::bits_under(bitmap, greedy_tree_bits).is_some_and(|bits| bits < cell_lists_tree_bits(&self.complex_tiling, bitmap))
+    }
+
+    /// The greedy tiler's tiles for `bitmap`, filled in: its patterns
+    /// pyramid, then the greedy tiler on it.
+    fn greedy_tiling(&mut self, bitmap: &Bitmap) {
+        self.patterns.build(bitmap);
         greedy_tiler(bitmap, &self.patterns, &self.copy_offsets, &mut self.complex_tiling);
+        self.complex_tiling.fill_in();
+    }
+
+    /// Finishes `bitmap`'s tree from the greedy tiler's tiles: the complex
+    /// tiler, the tree read off.
+    fn complex_tree(&mut self, bitmap: &Bitmap) {
         complex_tiler(&mut self.complex_tiling, bitmap, &mut self.scratch);
         tree_representation(&self.complex_tiling, &mut self.tree);
     }
