@@ -48,6 +48,18 @@ use crate::gct::pyramids::tree::Tree;
 use crate::gct::residual_prices::ResidualPrices;
 use crate::gct::tree_representation::{start_level, tree_representation};
 
+/// How much longer than the tree, in percent, the count split may be
+/// and still be made: it encodes and decodes several times faster than a
+/// tree, and a bitmap may take up to 1% more bits for that speed.
+pub const COUNT_SPLIT_TOLERANCE_PERCENT: u64 = 1;
+
+/// Whether `split_bits`, a count split's, are within
+/// [`COUNT_SPLIT_TOLERANCE_PERCENT`] of `tree_bits`.
+fn within_tolerance(split_bits: u64, tree_bits: u64) -> bool {
+    const PERCENT: u64 = 100;
+    split_bits * PERCENT < tree_bits * (PERCENT + COUNT_SPLIT_TOLERANCE_PERCENT)
+}
+
 /// Encodes `bitmap` with a [`Gct`] of its own. To encode many, keep one
 /// [`Gct`] and a stream, and encode each into them.
 pub fn encode(bitmap: &Bitmap) -> BitStream {
@@ -142,19 +154,19 @@ impl Gct {
         self.last_pass_bits = write(&self.tree, bitmap, stream, &mut self.last_pass);
     }
 
-    /// Whether `bitmap`'s count split takes fewer bits than its tree
-    /// would, judged from the greedy tiler's tiles, before the complex
-    /// tiler, with two trees the complex tiler can always make: the
-    /// greedy tiler's tiles alone, and the tree of cell lists. The
-    /// complex tiler only ever takes bits off the first, as the residual
-    /// blocks' prices count them, and the second is what it comes to on
-    /// scattered cells, which it says in cell lists. So the count split
-    /// must take fewer bits than both. The second is counted only if it
-    /// gets under the first.
+    /// Whether `bitmap` is to be a count split: judged from the greedy
+    /// tiler's tiles, before the complex tiler, with two trees the complex
+    /// tiler can always make: the greedy tiler's tiles alone, and the tree
+    /// of cell lists. The complex tiler only ever takes bits off the
+    /// first, as the residual blocks' prices count them, and the second is
+    /// what it comes to on scattered cells, which it says in cell lists.
+    /// The count split, far the faster to make, is taken unless one of
+    /// them is shorter by more than [`COUNT_SPLIT_TOLERANCE_PERCENT`]. The
+    /// second is counted only if the count split gets past the first.
     fn count_split_beats_tree(&self, bitmap: &Bitmap) -> bool {
         let split_bits = count_split::bits(bitmap);
-        split_bits < tree_bits(self.counting(bitmap), start_level(&self.complex_tiling))
-            && split_bits < cell_lists_tree_bits(self.counting(bitmap))
+        within_tolerance(split_bits, tree_bits(self.counting(bitmap), start_level(&self.complex_tiling)))
+            && within_tolerance(split_bits, cell_lists_tree_bits(self.counting(bitmap)))
     }
 
     /// The greedy tiler's tiles for `bitmap`, filled in -- its patterns

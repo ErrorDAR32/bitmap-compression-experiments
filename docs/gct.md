@@ -666,14 +666,15 @@ the grammar can always write:
 - the **cell lists tree**: start level 1, every 128x128 a cell list --
   what the complex tiler comes to on scattered cells, counted exactly.
 
-The count split is made when it takes fewer bits than both; otherwise
-the complex tiler runs and the tree is made. The cell lists tree is
-counted only if the count split gets under the greedy tree. There is no
-threshold: the rule compares bits. On the tested sample families, a
-sweep of grown bitmaps from none set to half, and the saved bitmaps --
-173 in all -- it picks the shorter encoding for all but 2, which lose
-69 bits between them: 1.335% fewer bits than the tree alone, where
-making both and keeping the shorter would save 1.338%. The greedy tree
+The count split is made unless one of the two trees is more than 1%
+shorter (`COUNT_SPLIT_TOLERANCE_PERCENT`); otherwise the complex tiler
+runs and the tree is made. The count split encodes and decodes several
+times faster than a tree, and a bitmap may take up to 1% more bits for
+that. The cell lists tree is counted only if the count split gets past
+the greedy tree. On the tested sample families, a sweep of grown
+bitmaps from none set to half, and the saved bitmaps -- 173 in all --
+the encodings made take 0.009% more bits than the shorter of each
+bitmap's two, no bitmap more than 0.40%. The greedy tree
 alone is not enough: on scattered cells it overestimates the tree by
 the cell lists it lacks. With residual blocks counted at a bit a cell,
 it once sent a bitmap of horizontal streaks to the count split at 50427
