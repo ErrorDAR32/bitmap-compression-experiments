@@ -583,9 +583,10 @@ fewer below 0.1%; from there up scattered cells split near evenly, the
 uniform count wastes bits, and the tree is kept.
 
 Only one of the two is ever made. The patterns pyramid, built first
-either way, says which: the count split for a bitmap at most a
-thousandth set (64 cells), which it says in fewer bits however the cells
-lie, or one at most an eighth set whose set cells are clustered -- random cells at
+either way, says which: the count split for a bitmap with at most 96
+cells set, which it says in fewer bits however the cells lie --
+scattered cells cross over at about 98 -- or one at most an eighth set
+whose set cells are clustered -- random cells at
 its density would occupy at least a fifth more of its 4x4 tiles than
 its cells do -- and do not repeat -- at least one distinct 4x4 pattern
 for every four occupied tiles; the tree for everything else, built on

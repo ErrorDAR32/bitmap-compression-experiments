@@ -86,6 +86,35 @@ fn all_clear_is_an_empty_count_split_in_two_bits() {
     check(&bitmap, "all clear");
 }
 
+/// One set cell, wherever it is, is a count split of 20 bits, and passes
+/// every check: a cell alone is the count split's best case.
+#[test]
+fn one_cell_is_a_count_split_in_twenty_bits() {
+    for (x, y) in [(0, 0), (255, 255), (0, 255), (131, 77)] {
+        let mut bitmap = Bitmap::new();
+        bitmap.set(x, y);
+        // The stream's mode bit + the count, 1, as 2 in Elias gamma (3
+        // bits) + one bit a halving, 16 of them, for which half holds it.
+        assert_eq!(encode(&bitmap).len(), 20, "the cell at ({x}, {y})");
+        check(&bitmap, &format!("one cell at ({x}, {y})"));
+    }
+}
+
+/// Two set cells in opposite halves of the Morton order are a count
+/// split of 36 bits, and pass every check.
+#[test]
+fn two_cells_apart_are_a_count_split_in_thirty_six_bits() {
+    let mut bitmap = Bitmap::new();
+    bitmap.set(3, 5);
+    bitmap.set(250, 240);
+    // The stream's mode bit + the count, 2, as 3 in Elias gamma (3 bits)
+    // + how many of the 2 are in the first half, 1 of 0..=2 in truncated
+    // binary (2 bits) + 15 halvings under each of the two halves, a bit
+    // each.
+    assert_eq!(encode(&bitmap).len(), 36);
+    check(&bitmap, "two cells apart");
+}
+
 /// A full bitmap is one tile at the top, in 10 bits, and passes every
 /// check.
 #[test]

@@ -99,11 +99,18 @@ pub const SHAPES: [Shape; 9] = [
 /// Sparse bitmaps: a handful of cells to a hundredth of them, grown the
 /// same way, where almost everything is clear and each set cell is what
 /// the bits are spent on.
-pub const SPARSE: [Shape; 4] = [
+pub const SPARSE: [Shape; 11] = [
+    Shape { name: "a cell or two", density: 0.00002, cluster: 0.00, timed: 12, tested: 2 },
+    Shape { name: "a few bunched cells", density: 0.0001, cluster: 0.95, timed: 12, tested: 2 },
     Shape { name: "a few cells", density: 0.0002, cluster: 0.00, timed: 12, tested: 2 },
+    Shape { name: "a tenth of a percent", density: 0.001, cluster: 0.00, timed: 12, tested: 2 },
+    Shape { name: "a tenth of a percent, bunched", density: 0.001, cluster: 0.95, timed: 12, tested: 2 },
     Shape { name: "a hundred cells", density: 0.0015, cluster: 0.00, timed: 12, tested: 2 },
     Shape { name: "sparse clusters", density: 0.005, cluster: 0.70, timed: 12, tested: 2 },
     Shape { name: "one percent", density: 0.01, cluster: 0.00, timed: 12, tested: 2 },
+    Shape { name: "one percent, bunched", density: 0.01, cluster: 0.95, timed: 12, tested: 2 },
+    Shape { name: "two percent", density: 0.02, cluster: 0.00, timed: 12, tested: 2 },
+    Shape { name: "two percent, bunched", density: 0.02, cluster: 0.95, timed: 12, tested: 2 },
 ];
 
 /// A run of grown bitmaps from consecutive seeds, built one at a time,

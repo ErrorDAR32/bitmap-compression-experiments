@@ -1,5 +1,5 @@
 # written by `cargo run --release --bin gct_diagnostics -- census`
-# commit 69fbb7f, with uncommitted changes
+# commit abc2de1, with uncommitted changes
 
 ## gct_against_g4: 53365 bits, start level 4
 node,"level 0

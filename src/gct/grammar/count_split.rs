@@ -48,11 +48,11 @@ fn walk(bitmap: &Bitmap, first: usize, cells: usize, set: u64, say: &mut impl Fn
 const MOST_SET: u64 = (CELLS / 8) as u64;
 
 /// The most cells a bitmap can have set for the count split to suit it
-/// however they lie: a thousandth, 64. So few cells take fewer bits
-/// counted and split than as a tree, scattered or clustered alike: at
-/// 6 scattered cells 94 bits against 124, at 65 about 786 against 802,
-/// and at 196 the tree wins (`sparse.csv`).
-const MOST_SET_ALWAYS_SUITED: u64 = (CELLS / 1024) as u64;
+/// however they lie. So few cells take fewer bits counted and split than
+/// as a tree, scattered or clustered alike; scattered cells cross over at
+/// about this many: at 65 the count split takes 786 bits to the tree's
+/// 802, at 98 the two are even, at 131 the tree wins (`sparse.csv`).
+const MOST_SET_ALWAYS_SUITED: u64 = 96;
 
 /// How much more clustered than random cells a bitmap's set cells must be
 /// for the count split to suit it: random cells at its density would
@@ -70,8 +70,8 @@ const LEAST_CLUSTERING: f64 = 1.2;
 const LEAST_DISTINCT_A_TILE: f64 = 0.25;
 
 /// Whether the count split suits `bitmap` better than the tree, judged
-/// from its patterns pyramid alone, before either is made: a bitmap at
-/// most a thousandth set, or one at most an eighth set whose set cells
+/// from its patterns pyramid alone, before either is made: a bitmap with
+/// at most 96 cells set, or one at most an eighth set whose set cells
 /// are clustered and do not repeat.
 pub fn suits(bitmap: &Bitmap, patterns: &Patterns) -> bool {
     let set = bitmap.count_set() as u64;

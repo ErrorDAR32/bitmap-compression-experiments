@@ -1,6 +1,6 @@
 # written by `cargo run --release --bin gct_diagnostics -- per_shape`
 # seed 1950720362523133367
-# commit 69fbb7f, with uncommitted changes
+# commit abc2de1, with uncommitted changes
 
 ## every shape, plan and line set
 sample,bitmaps,"cells set
@@ -17,10 +17,17 @@ middling blobs,6,13107,29205,2.23,44.6%
 dense scattered,2,32768,65568,2.00,100.0%
 dense ragged,2,32768,65457,2.00,99.9%
 dense blobs,2,32768,45544,1.39,69.5%
+a cell or two,12,1,20,20.00,0.0%
+a few bunched cells,12,6,61,10.25,0.1%
 a few cells,12,13,189,14.55,0.3%
+a tenth of a percent,12,65,788,12.13,1.2%
+"a tenth of a percent, bunched",12,65,291,4.48,0.4%
 a hundred cells,12,98,1128,11.52,1.7%
 sparse clusters,12,327,2117,6.48,3.2%
 one percent,12,655,5396,8.24,8.2%
+"one percent, bunched",12,655,1914,2.92,2.9%
+two percent,12,1310,9391,7.17,14.3%
+"two percent, bunched",12,1310,3565,2.72,5.4%
 "blocks of 28, streets of 4",12,41071,10107,0.25,15.4%
 "blocks of 24, streets of 8",12,28440,12317,0.43,18.8%
 "blocks of 60, streets of 4",12,46149,7585,0.16,11.6%
