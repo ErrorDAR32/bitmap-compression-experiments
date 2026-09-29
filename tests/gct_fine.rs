@@ -1,6 +1,9 @@
-//! Fine tests: one bitmap each, drawn by hand or grown from a fixed
-//! seed, so a failure points at one small, known case. Each also pins
-//! down something specific the bitmap is meant to exercise.
+//! Fine tests: one bitmap each, drawn by hand or grown from the seed
+//! every other run uses -- read without counting a use, as these run far
+//! more often than anything measured -- so a failure points at one
+//! small case, reproduced by pinning the seed it printed
+//! (`GCT_SEED=<seed>`). Each also pins down something specific the
+//! bitmap is meant to exercise.
 //!
 //! `cargo test --test gct_fine`
 
@@ -14,14 +17,16 @@ use tilesim::gct::pyramids::tree::Node;
 use tilesim::diagnostics::tree_stats::TreeStats;
 use tilesim::gct::encode;
 use tilesim::sample_generators::checkerboards::checkerboard;
-use tilesim::sample_generators::{one_grown, one_laid_out, PLANS};
+use tilesim::sample_generators::{one_grown, one_laid_out, seed_uncounted, PLANS};
 use tilesim::Bitmap;
 use tilesim::diagnostics::examination::tree_of;
 use common::check;
 
-/// A seed for the grown and laid-out cases here, fixed so each fine
-/// test always runs on the same one bitmap.
-const FIXED_SEED: u64 = 7;
+/// The seed for the grown and laid-out cases here: every other run's,
+/// not counted as a use.
+fn seed() -> u64 {
+    seed_uncounted("fine tests")
+}
 
 /// A small shape to test the generic pyramid on: three levels, a byte
 /// a tile.
@@ -62,7 +67,7 @@ fn patterns_see_a_filled_quarter() {
 #[test]
 fn patterns_homogeneity_matches_the_cells() {
     let mut patterns = Patterns::default();
-    for bitmap in [one_grown(FIXED_SEED, 0.20, 0.70), checkerboard(3)] {
+    for bitmap in [one_grown(seed(), 0.20, 0.70), checkerboard(3)] {
         patterns.build(&bitmap);
         for level in 0..=FINEST_COPY_LEVEL {
             for tile in Tile::all_of_level(level) {
@@ -133,7 +138,7 @@ fn all_set_is_one_tile_in_eight_bits() {
 /// at a time.
 #[test]
 fn matches_agree_with_the_cells() {
-    for bitmap in [one_grown(FIXED_SEED, 0.20, 0.70), checkerboard(3)] {
+    for bitmap in [one_grown(seed(), 0.20, 0.70), checkerboard(3)] {
         let mut patterns = Patterns::default();
         patterns.build(&bitmap);
         for level in 0..=FINEST_COPY_LEVEL {
@@ -163,7 +168,7 @@ fn matches_agree_with_the_cells() {
 fn patterns_number_cells_across_builds() {
     let mut patterns = Patterns::default();
     patterns.build(&checkerboard(3));
-    let bitmap = one_grown(FIXED_SEED, 0.20, 0.70);
+    let bitmap = one_grown(seed(), 0.20, 0.70);
     patterns.build(&bitmap);
     for level in 0..=FINEST_COPY_LEVEL {
         let tiles: Vec<Tile> = Tile::all_of_level(level).collect();
@@ -233,7 +238,7 @@ fn rectangles_and_circles_round_trip() {
 /// A regular city forms complex tiles, and passes every check.
 #[test]
 fn one_city_round_trips_with_complex_tiles() {
-    let bitmap = one_laid_out(FIXED_SEED, &PLANS[0]);
+    let bitmap = one_laid_out(seed(), &PLANS[0]);
     assert!(TreeStats::of(&tree_of(&bitmap)).complex_tiles > 0, "a city this regular forms complex tiles");
     check(&bitmap, "one city");
 }
@@ -241,7 +246,7 @@ fn one_city_round_trips_with_complex_tiles() {
 /// A middling, ragged bitmap passes every check.
 #[test]
 fn one_ragged_bitmap_round_trips() {
-    check(&one_grown(FIXED_SEED, 0.20, 0.70), "one middling ragged bitmap");
+    check(&one_grown(seed(), 0.20, 0.70), "one middling ragged bitmap");
 }
 
 /// A complex tile never masks: where one block of a regular area holds

@@ -17,11 +17,14 @@ the next run rolls a fresh seed by itself and says so, so no corpus is
 held for longer than a few measure-and-compare cycles, and no one has to
 remember to move it. Setting `GCT_SEED` picks a seed for one run and
 leaves the file alone, its count too, so pinning never holds a seed
-past its uses; `GCT_SEED=fresh` draws a new one for one run, likewise. Every run says which seed each sample
-group used, and which use of it the run is, so a number can always be
-traced to its bitmaps. The fine tests are the exception: they draw
-their bitmaps by hand or from a seed fixed in the test, and never read
-the file. Commit the file with the work it was measured on.
+past its uses; `GCT_SEED=fresh` draws a new one for one run, likewise.
+Every run says which seed each sample group used, and which use of it
+the run is, so a number can always be traced to its bitmaps. The fine tests use the same seed, but a use is
+not counted for them: they run far more often than anything measured,
+and would roll the seed by themselves. The file is kept out of git
+(`.gitignore`): a seed and its count belong to the working copy, and
+checking out or resetting files never moves them. With no file yet, the
+first run rolls one.
 
 ## Tests, diagnostics, tools
 
@@ -43,7 +46,7 @@ known case -- never to measure anything.
 
 | tier | runs on | command |
 |---|---|---|
-| fine | one bitmap per test: drawn by hand, or grown from a fixed seed | `cargo test --test gct_fine` |
+| fine | one bitmap per test: drawn by hand, or grown from the seed, not counted as a use | `cargo test --test gct_fine` |
 | fast | a small sample from the seed: every shape, sparse shape, plan and line set at its `tested` count; and every family and the saved adversarial bitmaps turned a quarter, a half and three quarters, each turn's total bits within 5% of the total as drawn (as few as 6 bitmaps a family) | `cargo test --test gct_fast` |
 | complete | every family at its `timed` count, plus a moderate sample from a second seed base, plus every checkerboard of odd square side 3 to 31; and every family and the saved adversarial bitmaps turned a quarter, a half and three quarters, each turn's total bits within 2% of the total as drawn | `cargo test --release --test gct_complete -- --ignored` |
 

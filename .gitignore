@@ -1,1 +1,4 @@
 target/
+# The seed runs draw their bitmaps from, and how many runs have used it:
+# the working copy's own, never moved by git (src/sample_generators/seed.rs).
+tests/last_seed

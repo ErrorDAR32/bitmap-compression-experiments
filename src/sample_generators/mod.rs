@@ -30,7 +30,7 @@ pub mod seed;
 
 pub use city::{one_laid_out, Cities, Plan, PLANS};
 pub use lines::{one_drawn, Drawings, LineSet, LINE_SETS};
-pub use seed::seed_for_group;
+pub use seed::{seed_for_group, seed_uncounted};
 
 use crate::Bitmap;
 

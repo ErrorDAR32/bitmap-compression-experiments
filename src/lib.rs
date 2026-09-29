@@ -46,7 +46,7 @@
 //! | [`table`] | printing any of it the same way, and keeping measurements in `docs/measurements/` |
 //!
 //! `tests/` holds gct's tests, which judge what [`diagnostics`] gathers,
-//! and `tests/last_seed`, the seed every seeded run uses; `src/bin/` the
+//! and `tests/last_seed`, the seed every seeded run uses, kept out of git; `src/bin/` the
 //! diagnostics tool, which prints it -- timing and the instruction count
 //! among its tools -- and the adversarial search against the raw cells.
 //! `external_benchmarks/` is a crate of its own: gct against existing

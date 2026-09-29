@@ -22,15 +22,20 @@
 //! itself -- no one has to remember to. A run that settles on its seed
 //! says which use of it it is, and a run that rolls says so.
 //!
-//! Only runs that draw their bitmaps from the file count: the fine tests
-//! draw theirs by hand or from a seed fixed in the test, and never read
-//! it.
+//! The fine tests use the same seed as every other run, but a use is
+//! not counted for them: they are a quick check run far more often than
+//! anything measured, and would roll the seed on their own
+//! ([`seed_uncounted`]).
+//!
+//! The file is not tracked by git (`.gitignore`): a seed and its count
+//! belong to the working copy they were used in, and checking out or
+//! resetting files must not move them.
 
 use std::io::Write;
 use std::sync::OnceLock;
 
 /// The file that remembers the last seed a run used, and how many runs
-/// in a row it has gone unmoved.
+/// have used it. Kept out of git.
 pub const WHERE_THE_SEED_IS_KEPT: &str = "tests/last_seed";
 
 /// How many runs may use a seed from the file before the next run rolls
@@ -65,9 +70,31 @@ fn fresh_seed() -> u64 {
 /// it has been used [`USES_BEFORE_THE_SEED_ROLLS`] times, a fresh one
 /// is rolled in its place.
 pub fn seed_for_group(group: &str) -> u64 {
-    let settled = settled();
+    announced(group, settled(Counted::Yes))
+}
+
+/// The seed a sample group starts from, as [`seed_for_group`] gives it,
+/// but not counted as a use: for the fine tests, which run on the same
+/// bitmaps as everything else without using them up. A file used up is
+/// still used; the next counted run rolls it. No file yet: one is
+/// rolled, and kept at no uses.
+pub fn seed_uncounted(group: &str) -> u64 {
+    announced(group, settled(Counted::No))
+}
+
+/// `settled`'s seed, said on its group's line.
+fn announced(group: &str, settled: &Settled) -> u64 {
     let _ = writeln!(std::io::stderr(), "  {group}: seed {}{}", settled.seed, settled.note);
     settled.seed
+}
+
+/// Whether a run counts as a use of the file's seed.
+#[derive(Clone, Copy, PartialEq)]
+enum Counted {
+    /// It does: a measurement, a tool, the fast and complete tests.
+    Yes,
+    /// It does not: the fine tests.
+    No,
 }
 
 /// A run's seed, once settled.
@@ -93,8 +120,9 @@ pub fn seed_in_use() -> Option<(u64, bool)> {
 
 /// The seed itself, read once however many groups ask for it, and --
 /// unless fresh or picked -- written down with how many runs have now
-/// used it, rolled first if the file's has been used up.
-fn settled() -> &'static Settled {
+/// used it, counting this one if `counted`, rolled first if a counted
+/// run finds the file's used up.
+fn settled(counted: Counted) -> &'static Settled {
     SETTLED.get_or_init(|| {
         if std::env::var(SEED_VARIABLE).is_ok_and(|value| value.trim() == FRESH) {
             return Settled { seed: fresh_seed(), fresh: true, note: ", fresh for this run, not kept".to_string() };
@@ -107,15 +135,19 @@ fn settled() -> &'static Settled {
         let last = kept.next().and_then(|line| line.trim().parse::<u64>().ok());
         let uses = kept.next().and_then(|line| line.trim().parse::<u64>().ok()).unwrap_or(0);
 
-        let (seed, uses, note) = match last {
-            Some(last) if uses < USES_BEFORE_THE_SEED_ROLLS => {
+        let (seed, uses, note) = match (last, counted) {
+            (Some(last), Counted::No) => {
+                (last, uses, format!(", the same bitmaps as the last run (not counted: {uses} of {USES_BEFORE_THE_SEED_ROLLS} uses so far)"))
+            }
+            (Some(last), Counted::Yes) if uses < USES_BEFORE_THE_SEED_ROLLS => {
                 (last, uses + 1, format!(", the same bitmaps as the last run (use {} of {USES_BEFORE_THE_SEED_ROLLS})", uses + 1))
             }
             _ => {
                 let seed = fresh_seed();
                 let rolled = last.map_or(String::new(), |last| format!(" -- seed {last} was used {uses} times"));
                 let _ = writeln!(std::io::stderr(), "\n  rolled a fresh seed, {seed}{rolled}\n");
-                (seed, 1, format!(", rolled for this run (use 1 of {USES_BEFORE_THE_SEED_ROLLS})"))
+                let uses = (counted == Counted::Yes) as u64;
+                (seed, uses, format!(", rolled for this run ({uses} of {USES_BEFORE_THE_SEED_ROLLS} uses)"))
             }
         };
 
