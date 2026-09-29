@@ -1,15 +1,15 @@
 //! What the last pass takes for each residual block: the bits its cells
-//! cost, each at the odds its context had -- the complex tiler's price
-//! for leaving a 4x4 to the last pass, in place of a bit a cell.
+//! cost, each at the odds its context had -- the greedy tiler's price for
+//! leaving a 4x4 to the last pass, in place of a bit a cell.
 //!
-//! Measured on the greedy tiler's own tree, before the complex tiler
-//! runs, by a pass that prices without coding (`Pricing`, in the last
-//! pass), as the greedy tiler reaches each block. A residual block costs
-//! about the same whatever else the complex tiler changes: a cell's
-//! context is the cells above and left of it, which hold the same values
-//! whichever node says them -- only the odds each context has learned by
-//! then differ. And every residual block the complex tiler can leave is
-//! one in the greedy tiler's tree: it only ever adds complex tiles.
+//! Measured by a pass that prices without coding (`Pricing`, in the last
+//! pass), as the greedy tiler reaches each block, before it decides the
+//! complex tiles above it. A residual block costs about the same whatever
+//! those change: a cell's context is the cells above and left of it,
+//! which hold the same values whichever node says them -- only the odds
+//! each context has learned by then differ. And every residual block the
+//! tree leaves is one the greedy tiler priced: complex tiles only ever
+//! take residual blocks away.
 
 use crate::gct::last_pass::BLOCKS;
 use crate::gct::tile::{Tile, FLOOR_LEVEL};
@@ -17,7 +17,7 @@ use crate::morton::morton_index;
 
 /// Each residual block's bits in the last pass, by its Morton index
 /// among the 4x4 blocks: rounded to the nearest bit, as the counts the
-/// complex tiler makes are whole bits.
+/// greedy tiler makes are whole bits.
 pub struct ResidualPrices {
     /// The bits, by block.
     bits: Box<[u16; BLOCKS]>,

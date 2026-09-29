@@ -5,7 +5,7 @@
 //!
 //! A stream is its mode, then either the tree -- the start level, the
 //! tree node by node from every tile of that level in Morton order (each
-//! complex tile's payload right after its body), then the
+//! complex tile's payload right after it), then the
 //! [last pass](crate::gct::last_pass) -- or, when it takes fewer bits,
 //! the bitmap's
 //! [count split](count_split): sparse cells, with no whole areas and
@@ -15,8 +15,8 @@ pub mod arithmetic;
 pub mod bit_stream;
 pub mod cell_list;
 pub mod count_split;
-pub mod order;
 
+use bit_stream::{truncated_binary_bits, BitReader, BitStream};
 pub use crate::gct::pyramids::placements::BOUND_AT_THE_TOP;
 use crate::gct::pyramids::placements::FINEST_MASKING_LEVEL;
 use crate::gct::tile::{cells_in_tile, levels_to_cells, CELL_LEVEL, CHILDREN, DIRECTIONS, FLOOR_LEVEL};
@@ -37,12 +37,11 @@ pub const RESIDUAL_BLOCK_BITS: u8 = cells_in_tile(FLOOR_LEVEL) as u8;
 /// every coarser tile subdivides, so none of them is written.
 pub const START_LEVEL_WIDTH: u8 = (u8::BITS - (FLOOR_LEVEL).leading_zeros()) as u8;
 
-/// The mask bit of a node in a complex tile's body that could be
-/// unmasked in it: this one means the node is unmasked -- its value is
-/// in the complex tile's payload, and the node ends here.
+/// A child mask's bit for a child the masking node says itself: left to
+/// the binding above, or copied with it.
 pub const UNMASKED: u64 = 0;
-/// A mask bit meaning the node is masked in the complex tile: the node
-/// itself follows.
+/// A child mask's bit for a child that is a node of its own, which
+/// follows.
 pub const MASKED: u64 = 1;
 /// Bits in one mask bit.
 pub const MASK_BIT_WIDTH: u8 = 1;
@@ -75,9 +74,8 @@ pub const MASKING_DIVIDE_HEADER_WIDTH: u8 = LEAF_WIDTH + MASK_PRESENT_WIDTH + FL
 /// The code bit after a leaf bit for a copy: far, direction and, at
 /// 8x8 and coarser, a mask-present bit follow.
 pub const COPY: u64 = 0;
-/// The code bit after a leaf bit for a bind: a complex tile's size
-/// offset, its mask-present bit where it may mask, its body and its
-/// payload follow.
+/// The code bit after a leaf bit for a bind: its size offset
+/// ([`push_size_offset`]) and its payload follow.
 pub const BIND: u64 = 1;
 /// Bits in the code bit.
 pub const CODE_WIDTH: u8 = 1;
@@ -92,29 +90,28 @@ const _: () = assert!(DIRECTIONS.len().is_power_of_two());
 /// A direction's bits, at the bottom of a word.
 pub const DIRECTION_MASK: u64 = (1 << DIRECTION_WIDTH) - 1;
 
-/// The mask-present bit's value when a node masks nothing at all. The
-/// bit is skipped where nothing may mask: complex tiles at size offsets
-/// 0 and 1 or at a 1x1 resolution, copies and divides finer than 8x8.
+/// The mask-present bit's value when a copy or a divide masks none of
+/// its children. The bit is skipped where nothing may mask: copies and
+/// divides finer than 8x8. Complex tiles never mask.
 pub const NO_MASKING: u64 = 0;
-/// The mask-present bit's value when a node masks some of what it
-/// holds: its child mask, or its children's mask bits, follow.
+/// The mask-present bit's value when a copy or a divide masks some of
+/// its children: its child mask follows.
 pub const MASKING: u64 = 1;
 /// Bits in the mask-present bit.
 pub const MASK_PRESENT_WIDTH: u8 = 1;
 
-/// The payload mode of a complex tile of 1x1 resolution masking nothing:
-/// every cell raw, one bit each...
+/// The payload mode of a complex tile of 1x1 resolution: every cell
+/// raw, one bit each...
 pub const PLAIN_PAYLOAD: u64 = 0;
 /// ...or a [cell list](cell_list) of its set cells.
 pub const CELL_LIST: u64 = 1;
 /// Bits in the payload mode.
 pub const PAYLOAD_MODE_WIDTH: u8 = 1;
 
-/// Whether a complex tile at `level` of `size_offset`, masking or not
-/// as `masks` says, has a payload mode: when it is of 1x1 resolution and
-/// masks nothing. It follows the mask-present bit.
-pub fn has_payload_mode(level: u8, size_offset: u8, masks: bool) -> bool {
-    level + size_offset == CELL_LEVEL && !masks
+/// Whether a complex tile at `level` of `size_offset` has a payload
+/// mode: when it is of 1x1 resolution. It follows the size offset.
+pub fn has_payload_mode(level: u8, size_offset: u8) -> bool {
+    level + size_offset == CELL_LEVEL
 }
 
 /// Whether a copy or a divide at `level` has a mask-present bit: down to
@@ -126,34 +123,65 @@ pub fn copy_or_divide_may_mask(level: u8) -> bool {
     level <= FINEST_MASKING_LEVEL
 }
 
-/// Whether a complex tile of `size_offset` has a mask-present bit: not
-/// at size offsets 0 and 1.
-pub fn complex_tile_may_mask(size_offset: u8) -> bool {
-    size_offset > 1
+/// A bind's size offset starts with this for a tile: size offset 0,
+/// and nothing more...
+pub const TILE: u64 = 0;
+/// ...or with this for a complex tile: its size offset follows, in
+/// truncated binary over the size offsets its level allows, finest
+/// first -- the finest are what complex tiles are mostly made at, 1x1
+/// above all, and they take the short codes. A tile, far the most
+/// common bind, takes one bit.
+pub const COMPLEX: u64 = 1;
+/// Bits in the tile-or-complex bit.
+pub const TILE_OR_COMPLEX_WIDTH: u8 = 1;
+
+/// The largest size offset a complex tile at `level` can have: down to
+/// 2x2, or to 1x1 -- saying every cell under it raw, the escape for what
+/// nothing else compresses -- where a fixed-width field would have had
+/// a value to spare for it (128x128, 64x64, 32x32 and 8x8).
+pub const fn most_size_offset(level: u8) -> u8 {
+    let to_cells = levels_to_cells(level);
+    let to_finest_placed = to_cells - 1;
+    let width = u8::BITS - to_finest_placed.leading_zeros();
+    if (to_cells as u32) < 1 << width { to_cells } else { to_finest_placed }
 }
 
-/// How many bits name a complex tile's size offset at `level`: enough
-/// for `0` (a tile) up to a 2x2 resolution.
-pub const fn resolution_width(level: u8) -> u8 {
-    let largest = levels_to_cells(level) - 1;
-    (u8::BITS - largest.leading_zeros()) as u8
+/// The bits a bind's size offset `size_offset` at `level` takes.
+pub const fn size_offset_bits(level: u8, size_offset: u8) -> u8 {
+    if size_offset == 0 {
+        return TILE_OR_COMPLEX_WIDTH;
+    }
+    TILE_OR_COMPLEX_WIDTH + truncated_binary_bits(finest_first(level, size_offset), most_size_offset(level) as u64) as u8
 }
 
-/// How many bits name a bind's size offset at `level`, `in_body` whether
-/// it lies in a complex tile's body: none there -- complex tiles are
-/// never nested, so a bind in one is always a tile, size offset 0 --
-/// and [`resolution_width`] everywhere else.
-pub const fn bind_resolution_width(level: u8, in_body: bool) -> u8 {
-    if in_body { 0 } else { resolution_width(level) }
+/// Writes a bind's size offset `size_offset` at `level`.
+pub fn push_size_offset(stream: &mut BitStream, level: u8, size_offset: u8) {
+    if size_offset == 0 {
+        stream.push_value(TILE, TILE_OR_COMPLEX_WIDTH);
+        return;
+    }
+    stream.push_value(COMPLEX, TILE_OR_COMPLEX_WIDTH);
+    stream.push_truncated_binary(finest_first(level, size_offset), most_size_offset(level) as u64);
 }
 
-/// Whether a 1x1 resolution -- a complex tile saying every cell under it
-/// raw, the escape for what nothing else compresses -- can be named at
-/// `level`: where the size offset field has a value to spare for it
-/// (128x128, 64x64, 32x32 and 8x8). It is never worth widening the field
-/// every other tile of that size pays.
+/// Reads what [`push_size_offset`] wrote at `level`.
+pub fn read_size_offset(reader: &mut BitReader, level: u8) -> u8 {
+    if reader.value(TILE_OR_COMPLEX_WIDTH) == TILE {
+        return 0;
+    }
+    most_size_offset(level) - reader.truncated_binary(most_size_offset(level) as u64) as u8
+}
+
+/// A complex tile's size offset `size_offset` at `level` as the value
+/// its truncated binary code says: the finest, `0`.
+const fn finest_first(level: u8, size_offset: u8) -> u64 {
+    (most_size_offset(level) - size_offset) as u64
+}
+
+/// Whether a 1x1 resolution -- and so a cell list -- can be named at
+/// `level`.
 pub const fn raw_resolution_fits(level: u8) -> bool {
-    (levels_to_cells(level) as u32) < 1 << resolution_width(level)
+    most_size_offset(level) == levels_to_cells(level)
 }
 
 /// The coarsest level a 1x1 resolution -- and so a cell list -- can be

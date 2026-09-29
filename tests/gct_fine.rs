@@ -76,13 +76,13 @@ fn patterns_homogeneity_matches_the_cells() {
 }
 
 /// An empty bitmap's tree is one tile at the top, but its stream is its
-/// count split, in 2 bits: fewer than the tree's 9.
+/// count split, in 2 bits: fewer than the tree's 8.
 #[test]
 fn all_clear_is_an_empty_count_split_in_two_bits() {
     let bitmap = Bitmap::new();
     // The stream's mode bit + the set cell count, zero, in 1 bit.
     assert_eq!(encode(&bitmap).len(), 2);
-    assert_eq!(tree_of(&bitmap).node(Tile::whole_bitmap()), Node::ComplexTile { size_offset: 0, masks: false });
+    assert_eq!(tree_of(&bitmap).node(Tile::whole_bitmap()), Node::ComplexTile { size_offset: 0 });
     check(&bitmap, "all clear");
 }
 
@@ -115,15 +115,15 @@ fn two_cells_apart_are_a_count_split_in_thirty_six_bits() {
     check(&bitmap, "two cells apart");
 }
 
-/// A full bitmap is one tile at the top, in 10 bits, and passes every
+/// A full bitmap is one tile at the top, in 8 bits, and passes every
 /// check.
 #[test]
-fn all_set_is_one_tile_in_ten_bits() {
+fn all_set_is_one_tile_in_eight_bits() {
     let mut bitmap = Bitmap::new();
     bitmap.set_rect(0, 0, 255, 255);
-    // The stream's mode bit + 3 start level bits (0) + leaf + bind + 3
-    // resolution bits (size offset 0, a tile) + 1 value bit
-    assert_eq!(encode(&bitmap).len(), 10);
+    // The stream's mode bit + 3 start level bits (0) + leaf + bind + the
+    // tile-or-complex bit (a tile) + 1 value bit
+    assert_eq!(encode(&bitmap).len(), 8);
     check(&bitmap, "all set");
 }
 
@@ -234,7 +234,7 @@ fn rectangles_and_circles_round_trip() {
 #[test]
 fn one_city_round_trips_with_complex_tiles() {
     let bitmap = one_laid_out(FIXED_SEED, &PLANS[0]);
-    assert!(TreeStats::of(&tree_of(&bitmap)).complex_tiles() > 0, "a city this regular forms complex tiles");
+    assert!(TreeStats::of(&tree_of(&bitmap)).complex_tiles > 0, "a city this regular forms complex tiles");
     check(&bitmap, "one city");
 }
 
@@ -244,17 +244,17 @@ fn one_ragged_bitmap_round_trips() {
     check(&one_grown(FIXED_SEED, 0.20, 0.70), "one middling ragged bitmap");
 }
 
-/// A complex tile masks down to a residual block where a lone cell
-/// sits.
+/// A complex tile never masks: where one block of a regular area holds
+/// a lone cell, the areas around it are still complex tiles, and the
+/// lone cell is said on its own.
 #[test]
-fn a_complex_tile_masks_a_lone_cell_down_to_its_residual_block() {
+fn a_lone_cell_leaves_the_areas_around_it_complex_tiles() {
     // The top-left 64x64: four 32x32s of 16x16 blocks, one block set in
     // each, a different one each time -- no 32x32 is homogeneous or a
-    // copy of another, so the 64x64 is one complex tile at 16x16
-    // resolution. One clear block holds a lone set cell, which no
-    // resolution can say: that block is masked, down to the lone cell's
-    // 4x4, a residual block the last pass says. Complex tiles are never
-    // nested, so nothing inside the 64x64 is one.
+    // copy of another, so each is one complex tile at 16x16 resolution.
+    // One clear block holds a lone set cell, which no resolution coarser
+    // than 1x1 can say: its 32x32 is no complex tile, and the lone cell's
+    // 8x8 says its cells as a cell list.
     /// The side of one block, in cells.
     const BLOCK: i64 = 16;
     let mut bitmap = Bitmap::new();
@@ -266,12 +266,15 @@ fn a_complex_tile_masks_a_lone_cell_down_to_its_residual_block() {
     bitmap.set(lone_cell.x, lone_cell.y);
 
     let written = tree_of(&bitmap);
-    assert_eq!(written.node(lone_cell.ancestor(2)), Node::ComplexTile { size_offset: 2, masks: true });
-    for level in 3..FLOOR_LEVEL {
+    let lone_cells_32x32 = lone_cell.ancestor(3);
+    for quarter in lone_cell.ancestor(2).children().into_iter().filter(|&quarter| quarter != lone_cells_32x32) {
+        assert_eq!(written.node(quarter), Node::ComplexTile { size_offset: 1 }, "{quarter:?}");
+    }
+    for level in 3..FLOOR_LEVEL - 1 {
         assert_eq!(written.node(lone_cell.ancestor(level)), Node::Subdivided);
     }
-    assert_eq!(written.node(lone_cell.ancestor(FLOOR_LEVEL)), Node::Residual);
-    check(&bitmap, "a complex tile masking a lone cell");
+    assert_eq!(written.node(lone_cell.ancestor(FLOOR_LEVEL - 1)), Node::CellList);
+    check(&bitmap, "a lone cell among complex tiles");
 }
 
 /// A table with every awkward field -- a comma, a quote, a newline, an

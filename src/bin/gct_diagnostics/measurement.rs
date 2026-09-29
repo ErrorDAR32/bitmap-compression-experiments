@@ -110,30 +110,19 @@ pub fn run(report: &mut Report) {
 }
 
 /// What gct's trees hold, family by family -- every bitmap's tree, even
-/// where the stream is its count split: how many streams are,
-/// complex tiles and masking nodes, and what the complex tiles' bodies
-/// are made of.
+/// where the stream is its count split: how many streams are, complex
+/// tiles and masking nodes.
 fn add_structure(gct: &mut Gct, report: &mut Report) {
     let mut structure = Table::new(&[
         "family",
         "streams that\nare count splits",
-        "complex tiles a bitmap,\nby nesting",
-        "complex tiles\nmasking",
+        "complex tiles\na bitmap",
+        "payload values\na complex tile",
         "tiles\na bitmap",
         "masking copies\na bitmap",
         "masking binds\na bitmap",
         "cell lists\na bitmap",
     ]);
-    let mut bodies = Table::new(&[
-        "family",
-        "complex tile\nbody nodes\nunmasked",
-        "masked:\nunmasked in an\nouter complex tile",
-        "masked:\ncopied",
-        "masked:\ntile",
-        "masked:\nnested\ncomplex tile",
-        "masked:\nresidual",
-    ]);
-
     let mut stream = BitStream::default();
     for (family, maps) in families(HowMany::Timed) {
         let (mut stats, mut count_splits) = (TreeStats::default(), 0);
@@ -148,29 +137,17 @@ fn add_structure(gct: &mut Gct, report: &mut Report) {
         let per_bitmap = |count: usize| format!("{:.1}", count as f64 / bitmaps as f64);
         let share = |part: usize, whole: usize| format!("{:.2}%", percent(part, whole));
         let name = format!("{family}, {bitmaps} bitmaps");
-        let by_nesting: Vec<String> = stats.complex_tiles_at_nesting.iter().map(|&count| per_bitmap(count)).collect();
         structure.row(&[
-            name.clone(),
+            name,
             share(count_splits, bitmaps),
-            by_nesting.join(", "),
-            format!("{:.1}%", percent(stats.complex_tiles_that_mask, stats.complex_tiles())),
+            per_bitmap(stats.complex_tiles),
+            format!("{:.1}", stats.payload_values as f64 / stats.complex_tiles.max(1) as f64),
             per_bitmap(stats.tiles),
             per_bitmap(stats.copies_that_mask),
             per_bitmap(stats.binds_that_mask),
             per_bitmap(stats.cell_lists),
         ]);
-        let body_nodes = stats.unmasked + stats.masked();
-        bodies.row(&[
-            name,
-            share(stats.unmasked, body_nodes),
-            share(stats.unmasked_in_outer, body_nodes),
-            share(stats.masked_copied, body_nodes),
-            share(stats.masked_tile, body_nodes),
-            share(stats.masked_nested, body_nodes),
-            share(stats.masked_residual, body_nodes),
-        ]);
     }
 
     report.add("what the trees hold", structure);
-    report.add("what complex tiles' bodies are made of", bodies);
 }

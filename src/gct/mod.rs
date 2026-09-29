@@ -1,15 +1,15 @@
-//! gct, the greedy complex tiler: an encoding of a bitmap in four
+//! gct, the greedy complex tiler: an encoding of a bitmap in three
 //! steps, each its own folder or file, each reading only the one before
 //! it --
 //!
-//! 1. [`greedy_tiler`](mod@greedy_tiler): tiles placed biggest first, each bound to one
-//!    value or copying a same-size area -- the placement bits of the
-//!    complex tiling pyramid.
-//! 2. [`complex_tiler`](mod@complex_tiler): those tiles grouped into complex tiles, in one
-//!    bottom-up search -- a complex tiling pyramid.
-//! 3. [`tree_representation`](mod@tree_representation): the tree read off it, one node per
+//! 1. [`greedy_tiler`](mod@greedy_tiler): one walk over the tiles --
+//!    tiles placed biggest first, each bound to one value or copying a
+//!    same-size area, and on the way back up, where it takes fewer bits,
+//!    a tile made one complex tile instead -- a complex tiling pyramid,
+//!    and the bits its tree takes.
+//! 2. [`tree_representation`](mod@tree_representation): the tree read off it, one node per
 //!    tile -- a [tree pyramid](pyramids::tree) of node codes.
-//! 4. [`encode`](mod@encode): that tree spelled out in bits, by the
+//! 3. [`encode`](mod@encode): that tree spelled out in bits, by the
 //!    [`grammar`]; [`decode`](mod@decode) reads it back by the same
 //!    grammar, and the [`last_pass`] copies blocks and codes the
 //!    residual blocks' cells, each from the cells before it.
@@ -19,28 +19,26 @@
 //! bitmap. The grammar and what each bit costs are in
 //! `docs/gct.md`.
 
-pub mod complex_tiler;
+pub mod bit_cost;
 pub mod decode;
 pub mod encode;
 mod fixed_list;
 pub mod grammar;
 pub mod greedy_tiler;
 pub mod last_pass;
-pub mod nested_resolutions;
 pub mod pyramids;
 pub mod residual_prices;
 pub mod tile;
 pub mod tree_representation;
 
 use crate::Bitmap;
-use crate::gct::complex_tiler::bit_cost::{cell_lists_tree_bits, tree_bits, Counting};
-use crate::gct::complex_tiler::search::{complex_tiler, Scratch};
+use crate::gct::bit_cost::{tree_bits, Counting};
 use crate::gct::decode::StreamContents;
 use crate::gct::last_pass::LastPass;
 use crate::gct::encode::{write, write_count_split};
 use crate::gct::grammar::bit_stream::BitStream;
 use crate::gct::grammar::count_split;
-use crate::gct::greedy_tiler::{greedy_tiler, GreedyTiling, GreedyTreeBits};
+use crate::gct::greedy_tiler::{greedy_tiler, GreedyTiling, TreeBits};
 use crate::gct::pyramids::complex_tiling::ComplexTiling;
 use crate::gct::pyramids::copyable::CopyOffsets;
 use crate::gct::pyramids::patterns::Patterns;
@@ -78,8 +76,7 @@ pub fn decode(stream: &BitStream) -> Bitmap {
 
 /// gct itself: encodes and decodes bitmaps, one at a time, holding every
 /// structure either needs, allocated once and reused for every bitmap
-/// after -- the pyramids and the patterns' tables, the complex tiler's
-/// scratch. Encoding takes the bitmap and where the stream goes;
+/// after -- the pyramids and the patterns' tables. Encoding takes the bitmap and where the stream goes;
 /// decoding takes the stream and where the bitmap goes. Every structure
 /// is sized at the most any bitmap needs -- the pyramids by their
 /// shape, every list at a bound named where it is made (`FixedList`,
@@ -90,13 +87,10 @@ pub fn decode(stream: &BitStream) -> Bitmap {
 pub struct Gct {
     /// The patterns of the bitmap being encoded.
     patterns: Patterns,
-    /// The greedy tiler's placements, then the complex tiling made of
-    /// them.
+    /// The greedy tiler's placements and complex tiles.
     complex_tiling: ComplexTiling,
-    /// The complex tiler's room.
-    scratch: Scratch,
-    /// What the last pass takes for each residual block of the greedy
-    /// tiler's tree: what the complex tiler counts them at.
+    /// What the last pass takes for each residual block the greedy
+    /// tiler leaves: what it counts them at.
     residual_prices: ResidualPrices,
     /// The tree last written or read.
     tree: Tree,
@@ -113,7 +107,6 @@ impl Gct {
         Self {
             patterns: Patterns::default(),
             complex_tiling: ComplexTiling::new(),
-            scratch: Scratch::default(),
             residual_prices: ResidualPrices::new(),
             tree: Tree::new(),
             last_pass: LastPass::new(CopyOffsets::default()),
@@ -128,68 +121,47 @@ impl Gct {
         Self { last_pass: LastPass::new(copy_offsets), ..Self::new() }
     }
 
-    /// Encodes `bitmap` into `stream`, whatever it held before: the
-    /// greedy tiler's tiles first, and its residual blocks priced; then
-    /// from them the one encoding that takes fewer bits -- the count
-    /// split, for sparse clustered cells, or the tree, which the complex
-    /// tiler finishes.
+    /// Encodes `bitmap` into `stream`, whatever it held before: its
+    /// tiling first, and the bits its tree takes; then the one encoding
+    /// that takes fewer bits -- the count split, for sparse clustered
+    /// cells, or the tree.
     pub fn encode(&mut self, bitmap: &Bitmap, stream: &mut BitStream) {
-        let greedy_tree_bits = self.greedy_tiling(bitmap);
-        if self.count_split_beats_tree(bitmap, greedy_tree_bits) {
+        let tree_bits = self.tiling(bitmap);
+        if count_split_beats_tree(bitmap, tree_bits) {
             write_count_split(bitmap, stream);
         } else {
-            self.complex_tree(bitmap);
-            self.last_pass_bits = write(&self.tree, bitmap, stream, &mut self.last_pass);
+            self.write_tree(bitmap, stream);
         }
     }
 
     /// Encodes `bitmap` as its tree, whichever encoding suits it: for
     /// looking at the tree of a bitmap the count split suits.
     pub fn encode_tree(&mut self, bitmap: &Bitmap, stream: &mut BitStream) {
-        self.greedy_tiling(bitmap);
-        self.complex_tree(bitmap);
-        self.last_pass_bits = write(&self.tree, bitmap, stream, &mut self.last_pass);
+        self.tiling(bitmap);
+        self.write_tree(bitmap, stream);
     }
 
-    /// Whether `bitmap` is to be a count split: judged from the greedy
-    /// tiler's tiles, before the complex tiler, with two trees the complex
-    /// tiler can always make: the greedy tiler's tiles alone, and the tree
-    /// of cell lists. The complex tiler only ever takes bits off the
-    /// first, as the residual blocks' prices count them, and the second is
-    /// what it comes to on scattered cells, which it says in cell lists.
-    /// The count split, far the faster to make, is taken unless one of
-    /// them is shorter by more than [`COUNT_SPLIT_TOLERANCE_PERCENT`]. The
-    /// first is counted on the greedy tiler's walk, `greedy_tree`; the
-    /// second only if the count split gets past the first.
-    fn count_split_beats_tree(&self, bitmap: &Bitmap, greedy_tree: GreedyTreeBits) -> bool {
+    /// `bitmap`'s tiling, filled in -- its patterns pyramid, then the
+    /// greedy tiler on it, pricing the residual blocks -- and the bits
+    /// its tree takes.
+    fn tiling(&mut self, bitmap: &Bitmap) -> TreeBits {
+        self.patterns.build(bitmap);
+        let mut tiling = GreedyTiling { complex_tiling: &mut self.complex_tiling, residual_prices: &mut self.residual_prices };
+        let tree = greedy_tiler(bitmap, &self.patterns, self.last_pass.offsets(), &mut tiling);
+        debug_assert_eq!(tree.start_level(), start_level(&self.complex_tiling), "the greedy tiler's start level is not the tree's");
         debug_assert_eq!(
-            greedy_tree.bits(),
-            tree_bits(self.counting(bitmap), start_level(&self.complex_tiling)),
+            tree.bits(),
+            tree_bits(Counting { complex_tiling: &self.complex_tiling, bitmap, residual_prices: &self.residual_prices }, tree.start_level()),
             "the greedy tiler's count of its tree is not the reference count"
         );
-        let split_bits = count_split::bits(bitmap);
-        within_tolerance(split_bits, greedy_tree.bits()) && within_tolerance(split_bits, cell_lists_tree_bits(self.counting(bitmap)))
+        tree
     }
 
-    /// The greedy tiler's tiles for `bitmap`, filled in -- its patterns
-    /// pyramid, then the greedy tiler on it, pricing their residual blocks
-    /// -- and the bits of the tree they make.
-    fn greedy_tiling(&mut self, bitmap: &Bitmap) -> GreedyTreeBits {
-        self.patterns.build(bitmap);
-        let mut tiling = GreedyTiling { placements: &mut self.complex_tiling, residual_prices: &mut self.residual_prices };
-        greedy_tiler(bitmap, &self.patterns, self.last_pass.offsets(), &mut tiling)
-    }
-
-    /// Finishes `bitmap`'s tree from the greedy tiler's tiles: the complex
-    /// tiler, the tree read off.
-    fn complex_tree(&mut self, bitmap: &Bitmap) {
-        complex_tiler(&mut self.complex_tiling, bitmap, &self.residual_prices, &mut self.scratch);
+    /// Reads the tree off the tiling and writes it, then the last pass,
+    /// into `stream`.
+    fn write_tree(&mut self, bitmap: &Bitmap, stream: &mut BitStream) {
         tree_representation(&self.complex_tiling, &mut self.tree);
-    }
-
-    /// What counting `bitmap`'s tiling reads.
-    fn counting<'a>(&'a self, bitmap: &'a Bitmap) -> Counting<'a> {
-        Counting { complex_tiling: &self.complex_tiling, bitmap, residual_prices: &self.residual_prices }
+        self.last_pass_bits = write(&self.tree, bitmap, stream, &mut self.last_pass);
     }
 
     /// Decodes `stream` into `bitmap`, whatever it held before.
@@ -208,8 +180,8 @@ impl Gct {
         &self.tree
     }
 
-    /// What the last pass takes for each residual block of the greedy
-    /// tiler's tree for the bitmap last encoded.
+    /// What the last pass takes for each residual block the greedy tiler
+    /// left for the bitmap last encoded.
     pub fn residual_prices(&self) -> &ResidualPrices {
         &self.residual_prices
     }
@@ -220,11 +192,18 @@ impl Gct {
     }
 
     /// The complex tiling of the bitmap last encoded: the greedy tiler's
-    /// placements in its placement bits, and the complex tiles made of
-    /// them.
+    /// placements and complex tiles.
     pub fn complex_tiling(&self) -> &ComplexTiling {
         &self.complex_tiling
     }
+}
+
+/// Whether `bitmap` is to be a count split rather than its tree, which
+/// takes `tree` bits: the count split, far the faster to make and read,
+/// is taken unless the tree is shorter by more than
+/// [`COUNT_SPLIT_TOLERANCE_PERCENT`].
+fn count_split_beats_tree(bitmap: &Bitmap, tree: TreeBits) -> bool {
+    within_tolerance(count_split::bits(bitmap), tree.bits())
 }
 
 impl Default for Gct {

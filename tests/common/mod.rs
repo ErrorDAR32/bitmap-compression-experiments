@@ -19,7 +19,7 @@ pub const CAP_BITS: usize = RAW_CELLS + RAW_CELLS / 100;
 ///   homogeneous, placed nothing, and is inside a complex tile of 1x1
 ///   resolution or a cell list;
 /// - nothing finer than a 2x2 is placed, nothing finer than 4x4 copied;
-/// - the bit cost the complex tiler scores with is the tree's written
+/// - the reference bit cost the greedy tiler scores with is the tree's written
 ///   bits, and the bits counted for the encoding that suits the bitmap
 ///   -- the tree, or the count split -- are the stream's;
 /// - gct spends at most [`CAP_BITS`], the raw cells and 1%;
@@ -38,7 +38,7 @@ pub fn check(bitmap: &Bitmap, label: &str) {
         assert_eq!(examined.coverage_faults.first(), None, "{label}: a cell said wrongly");
         assert_eq!(examined.placed_finer_than_2x2.first(), None, "{label}: placed finer than a 2x2");
         assert_eq!(examined.copied_finer_than_4x4.first(), None, "{label}: copied finer than 4x4");
-        assert_eq!(examined.tree_bits, examined.tree_written_bits, "{label}: the complex tiler's bit cost is not the tree's written bits");
+        assert_eq!(examined.tree_bits, examined.tree_written_bits, "{label}: the reference bit cost is not the tree's written bits");
         assert_eq!(examined.counted_bits, examined.written_bits as u64, "{label}: the counted bits are not the encoder's count");
         assert!(examined.written_bits <= CAP_BITS, "{label}: {} bits, over the cap of {CAP_BITS}", examined.written_bits);
         assert!(examined.tree_read_back, "{label}: the tree read back is not the tree written");

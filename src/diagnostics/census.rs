@@ -7,15 +7,14 @@ use std::collections::BTreeMap;
 /// The node at `tile`'s kind, named as the grammar spells it.
 pub fn kind(tree: &Tree, tile: Tile, node: Node) -> &'static str {
     match node {
-        Node::ComplexTile { size_offset, .. } if tile.level + size_offset == CELL_LEVEL => "raw",
-        Node::ComplexTile { size_offset: 0, masks: false } => "tile",
-        Node::ComplexTile { size_offset: 0, masks: true } => "masking bind",
+        Node::ComplexTile { size_offset } if tile.level + size_offset == CELL_LEVEL => "raw",
+        Node::ComplexTile { size_offset: 0 } => "tile",
         Node::ComplexTile { .. } => "complex tile",
+        Node::MaskingBind => "masking bind",
         Node::Subdivided if tree.divides_whole(tile) => "divide",
         Node::Subdivided => "masking divide",
         Node::Copied { masks: false, .. } => "copy",
         Node::Copied { masks: true, .. } => "masking copy",
-        Node::Unmasked { .. } => "unmasked",
         Node::Residual => "residual",
         Node::CellList => "cell list",
         Node::Absent => "absent",

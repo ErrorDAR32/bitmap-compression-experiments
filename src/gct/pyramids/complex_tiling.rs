@@ -1,4 +1,4 @@
-//! The complex tiling: the complex tiler's output, and everything the
+//! The complex tiling: the greedy tiler's output, and everything the
 //! tree is read from. One 32-bit element per tile, down to the 2x2
 //! floor -- nothing finer is ever placed:
 //!
@@ -9,33 +9,21 @@
 //!   plus one -- `0` when the tile is not entirely bound at one size;
 //! - bits 12-15: the size offset of the complex tile at the tile -- `0`
 //!   when it is not one;
-//! - bit 16: whether a complex tile of 1x1 resolution masks the tile --
-//!   it is cheaper said by itself than raw. The complex tiler decides
-//!   it, once a bitmap ([`crate::gct::complex_tiler::raw_masking`]);
-//! - bits 17-25: the sizes of the whole binds placed at or under the
-//!   tile, bit `n` for size `n` -- a complex tile has nothing to unmask
-//!   at a resolution none is placed at;
-//! - bit 26: whether the complex tile at the tile, of 1x1 resolution,
+//! - bit 16: whether the complex tile at the tile, of 1x1 resolution,
 //!   says its cells as a cell list ([`crate::gct::grammar::cell_list`])
-//!   rather than raw, masking nothing;
-//! - bit 27: the value bound above the tile -- that of the nearest bind
+//!   rather than raw;
+//! - bit 17: the value bound above the tile -- that of the nearest bind
 //!   that masks above it, or clear -- handed down once from the whole
-//!   bitmap, for the complex tiler to read at any tile.
+//!   bitmap.
 //!
-//! The bound size is carried up in one sweep once the placements are
-//! complete, a level at a time from the finest: a placed `Bound` tile is
+//! The bound size is carried up on the greedy tiler's walk back up, a
+//! tile's once everything under it is placed: a placed `Bound` tile is
 //! bound at its own size, a placed copy or a bind that masks at none,
 //! and any other tile is bound at one size exactly when all four of its
-//! children are bound at that same size; the sizes of the binds under a
-//! tile are its own whole bind's, or all of its children's. Nothing set
-//! later changes either. One sweep, not a recount on every set: the
-//! greedy tiler places depth first, so each ancestor's bound size would
-//! change again with every sibling placed -- measured three times the
-//! work.
+//! children are bound at that same size. Nothing set later changes it.
 
 use super::placements::{placement_code, placement_from_code, Placement, FINEST_MASKING_LEVEL, PLACEMENT_CODE_BITS};
 use super::pyramid::{Pyramid, PyramidShape};
-use crate::gct::nested_resolutions::NestedResolutions;
 use crate::gct::tile::{Tile, CELL_LEVEL, LEVEL_BITS, FINEST_PLACED_LEVEL};
 
 /// A field's value for nothing: no bound size, no size offset.
@@ -56,18 +44,14 @@ const PLACEMENT: Field = Field { shift: 0, width: PLACEMENT_CODE_BITS };
 const BOUND_SIZE: Field = Field { shift: PLACEMENT.shift + PLACEMENT.width, width: LEVEL_BITS as u64 };
 /// A size offset, up to `CELL_LEVEL`.
 const SIZE_OFFSET: Field = Field { shift: BOUND_SIZE.shift + BOUND_SIZE.width, width: LEVEL_BITS as u64 };
-/// Whether a complex tile of 1x1 resolution masks the tile.
-const RAW_MASKS: Field = Field { shift: SIZE_OFFSET.shift + SIZE_OFFSET.width, width: 1 };
-/// One bit a size, `CELL_LEVEL + 1` of them.
-const BOUND_SIZES_UNDER: Field = Field { shift: RAW_MASKS.shift + RAW_MASKS.width, width: CELL_LEVEL as u64 + 1 };
 /// Whether the complex tile here is a cell list.
-const CELL_LIST: Field = Field { shift: BOUND_SIZES_UNDER.shift + BOUND_SIZES_UNDER.width, width: 1 };
+const CELL_LIST: Field = Field { shift: SIZE_OFFSET.shift + SIZE_OFFSET.width, width: 1 };
 /// The value bound above the tile.
 const BOUND_ABOVE: Field = Field { shift: CELL_LIST.shift + CELL_LIST.width, width: 1 };
 /// A one-bit field's value for yes.
 const YES: u64 = 1;
 
-/// Bits an element takes: 32, the fields above take 28.
+/// Bits an element takes: 32, the fields above take 18.
 const ELEMENT_BITS: usize = u32::BITS as usize;
 const _: () = assert!(BOUND_ABOVE.shift + BOUND_ABOVE.width <= ELEMENT_BITS as u64);
 
@@ -119,48 +103,17 @@ impl Fields {
     }
 
     /// Whether every cell under the tile is bound by tiles of exactly
-    /// `size` -- what being unmasked in a complex tile of that
-    /// resolution needs. At 1x1, every cell is a tile of its own, so a
-    /// complex tile of 1x1 resolution says cells raw -- but not a part
-    /// cheaper said by itself: that part it masks.
+    /// `size` -- what a complex tile of that resolution needs to say it.
+    /// At 1x1, every cell is a tile of its own.
     pub fn entirely_bound_at(self, size: u8) -> bool {
-        if size == CELL_LEVEL {
-            return !self.raw_masks();
-        }
-        self.bound_size() == Some(size)
+        size == CELL_LEVEL || self.bound_size() == Some(size)
     }
 
-    /// Whether a complex tile of 1x1 resolution masks the tile.
-    pub fn raw_masks(self) -> bool {
-        field(self.0, RAW_MASKS) == YES
-    }
-
-    /// Whether the tile, `tile`, a child of a divide nested in `nested`,
-    /// is left to the binding above it, of `bound_above`: the divide
-    /// masks (8x8 or coarser), the tile is bound whole to that value, and
-    /// unmasked in no complex tile it is nested in -- which would say it
-    /// for a bit, where the binding above says it for none.
-    pub fn left_to_binding_above(self, tile: Tile, bound_above: bool, nested: &NestedResolutions) -> bool {
-        tile.level <= FINEST_MASKING_LEVEL + 1
-            && field(self.0, PLACEMENT) == placement_code(Placement::bound(bound_above))
-            && nested.unmasking(self, tile).is_none()
-    }
-
-    /// Whether any whole bind of `size` is placed at or under the tile.
-    pub fn any_bound_under(self, size: u8) -> bool {
-        field(self.0, BOUND_SIZES_UNDER) & (1 << size) != 0
-    }
-
-    /// These fields as they would be were the tile a complex tile of
-    /// `size_offset` -- for scoring one without placing it.
-    pub fn as_complex_tile(self, size_offset: u8) -> Fields {
-        Fields(with_field(with_field(self.0, SIZE_OFFSET, size_offset as u64), CELL_LIST, EMPTY_FIELD))
-    }
-
-    /// These fields as they would be were the tile, of `level`, a point
-    /// list.
-    pub fn as_cell_list(self, level: u8) -> Fields {
-        Fields(with_field(self.as_complex_tile(CELL_LEVEL - level).0, CELL_LIST, YES))
+    /// Whether the tile, `tile`, a child of a divide, is left to the
+    /// binding above it, of `bound_above`: the divide masks (8x8 or
+    /// coarser), and the tile is bound whole to that value.
+    pub fn left_to_binding_above(self, tile: Tile, bound_above: bool) -> bool {
+        tile.level <= FINEST_MASKING_LEVEL + 1 && field(self.0, PLACEMENT) == placement_code(Placement::bound(bound_above))
     }
 
     /// The value bound above the tile: the nearest bind that masks above
@@ -194,8 +147,8 @@ impl PyramidShape for ComplexTilingShape {
     const ELEMENT_BITS: usize = ELEMENT_BITS;
 }
 
-/// The complex tiling: what the greedy tiler placed, in its placement
-/// bits, and what the complex tiler decides, in the rest.
+/// The complex tiling: what the greedy tiler placed, and the complex
+/// tiles it made.
 pub type ComplexTiling = Pyramid<ComplexTilingShape, { ComplexTilingShape::WORDS }>;
 
 impl ComplexTiling {
@@ -207,16 +160,16 @@ impl ComplexTiling {
     /// Records what the greedy tiler placed exactly at `tile`, which held
     /// nothing yet, once everything under it is placed: `placed`, if
     /// anything, and `bound_above`, the value bound above it -- with its
-    /// bound size and the sizes bound under it, its own if a whole bind
-    /// is placed at it, else carried up from its four children by the
-    /// rule `carried`. One element, written once.
+    /// bound size, its own if a whole bind is placed at it, else carried
+    /// up from its four children by the rule `carried`. One element,
+    /// written once.
     pub fn record_placed(&mut self, tile: Tile, placed: Option<Placement>, bound_above: bool) {
         let mut element = with_field(0, BOUND_ABOVE, bound_above as u64);
         if let Some(placement) = placed {
             element = with_field(element, PLACEMENT, placement_code(placement));
         }
         let element = if placed.is_some_and(Placement::is_whole_bind) {
-            with_field(with_field(element, BOUND_SIZE, tile.level as u64 + 1), BOUND_SIZES_UNDER, 1 << tile.level)
+            with_field(element, BOUND_SIZE, tile.level as u64 + 1)
         } else {
             carried(element, four_elements(self.children_words(tile)))
         };
@@ -230,8 +183,7 @@ impl ComplexTiling {
         let level = tile.level + 1;
         let elements = values.map(|value| {
             value.map_or(0, |value| {
-                let element = with_field(0, PLACEMENT, placement_code(Placement::bound(value)));
-                with_field(with_field(element, BOUND_SIZE, level as u64 + 1), BOUND_SIZES_UNDER, 1 << level)
+                with_field(with_field(0, PLACEMENT, placement_code(Placement::bound(value))), BOUND_SIZE, level as u64 + 1)
             })
         });
         for (word, pair) in self.children_words_mut(tile).iter_mut().zip(elements.chunks(ELEMENTS_A_WORD)) {
@@ -247,11 +199,6 @@ impl ComplexTiling {
         })
     }
 
-    /// Marks `tile` as masked by a complex tile of 1x1 resolution.
-    pub fn mark_raw_masked(&mut self, tile: Tile) {
-        self.set(tile, with_field(self.get(tile), RAW_MASKS, YES));
-    }
-
     /// `tile`'s fields, for asking several things of it.
     pub fn fields(&self, tile: Tile) -> Fields {
         Fields(self.get(tile))
@@ -265,30 +212,23 @@ impl ComplexTiling {
     }
 
     /// See [`Fields::left_to_binding_above`].
-    pub fn left_to_binding_above(&self, tile: Tile, bound_above: bool, nested: &NestedResolutions) -> bool {
-        self.fields(tile).left_to_binding_above(tile, bound_above, nested)
+    pub fn left_to_binding_above(&self, tile: Tile, bound_above: bool) -> bool {
+        self.fields(tile).left_to_binding_above(tile, bound_above)
     }
 
-    /// Makes `tile` a complex tile of `size_offset`.
-    pub fn make_complex_tile(&mut self, tile: Tile, size_offset: u8) {
+    /// Makes `tile` a complex tile of `size_offset`, saying its cells as
+    /// a cell list if `cell_list`.
+    pub fn make_complex_tile(&mut self, tile: Tile, size_offset: u8, cell_list: bool) {
         assert!(size_offset >= 1, "a complex tile's resolution is finer than itself");
-        let element = self.fields(tile).as_complex_tile(size_offset).0;
-        self.set(tile, element);
-    }
-
-    /// Makes `tile` a complex tile of 1x1 resolution saying its cells as
-    /// a cell list.
-    pub fn make_cell_list(&mut self, tile: Tile) {
-        let element = self.fields(tile).as_cell_list(tile.level).0;
+        let element = with_field(with_field(self.get(tile), SIZE_OFFSET, size_offset as u64), CELL_LIST, cell_list as u64);
         self.set(tile, element);
     }
 }
 
 /// A tile's element given its children's: its bound size is its own when
 /// a whole bind was placed at it, none when anything else was, else its
-/// children's when all four share one, else none; the sizes bound under
-/// it are its own whole bind's, or all of its children's. Its other
-/// fields stay as they are.
+/// children's when all four share one, else none. Its other fields stay
+/// as they are.
 fn carried(element: u64, children: [u64; 4]) -> u64 {
     let placement = placement_from_code(field(element, PLACEMENT));
     if placement.is_some_and(Placement::is_whole_bind) {
@@ -297,6 +237,5 @@ fn carried(element: u64, children: [u64; 4]) -> u64 {
     let first_child_bound_size = field(children[0], BOUND_SIZE);
     let children_share_it = children.iter().all(|&child| field(child, BOUND_SIZE) == first_child_bound_size);
     let bound_size = if placement.is_some() || !children_share_it { EMPTY_FIELD } else { first_child_bound_size };
-    let sizes_bound_under = children.iter().fold(EMPTY_FIELD, |sizes, &child| sizes | field(child, BOUND_SIZES_UNDER));
-    with_field(with_field(element, BOUND_SIZE, bound_size), BOUND_SIZES_UNDER, sizes_bound_under)
+    with_field(element, BOUND_SIZE, bound_size)
 }

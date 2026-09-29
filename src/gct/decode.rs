@@ -4,10 +4,8 @@
 //! copies cover, copied, and the residual blocks' cells.
 
 use crate::gct::grammar::bit_stream::{BitReader, BitStream};
-use crate::gct::grammar::order::payload_parts;
 use crate::gct::grammar::cell_list;
 use crate::gct::grammar::*;
-use crate::gct::nested_resolutions::NestedResolutions;
 use crate::gct::last_pass::LastPass;
 use crate::gct::pyramids::tree::{Node, Tree};
 use crate::gct::tile::{Tile, CELL_LEVEL, FLOOR_LEVEL};
@@ -43,7 +41,7 @@ pub fn decode(stream: &BitStream, read: &mut StreamContents) {
         }
     }
     for tile in Tile::all_of_level(start_level) {
-        read.node(&mut reader, tile, &mut NestedResolutions::none(), BOUND_AT_THE_TOP);
+        read.node(&mut reader, tile, BOUND_AT_THE_TOP);
     }
     read.last_pass.decode(read.tree, read.cell_values, &mut reader);
 }
@@ -51,14 +49,7 @@ pub fn decode(stream: &BitStream, read: &mut StreamContents) {
 impl StreamContents<'_> {
     /// Reads `tile`'s node and everything under it, `bound_above` the
     /// value bound above it.
-    fn node(&mut self, reader: &mut BitReader, tile: Tile, nested: &mut NestedResolutions, bound_above: bool) {
-        for nesting in nested.able_to_unmask(tile) {
-            if reader.value(MASK_BIT_WIDTH) == UNMASKED {
-                self.tree.set_node(tile, Node::Unmasked { nesting });
-                return;
-            }
-        }
-
+    fn node(&mut self, reader: &mut BitReader, tile: Tile, bound_above: bool) {
         let leaf = reader.value(LEAF_WIDTH) == LEAF;
         if !leaf && tile.level == FLOOR_LEVEL {
             self.tree.set_node(tile, Node::Residual);
@@ -68,14 +59,14 @@ impl StreamContents<'_> {
             if !copy_or_divide_may_mask(tile.level) || reader.value(MASK_PRESENT_WIDTH) == NO_MASKING {
                 self.tree.set_node(tile, Node::Subdivided);
                 for child in tile.children() {
-                    self.node(reader, child, nested, bound_above);
+                    self.node(reader, child, bound_above);
                 }
                 return;
             }
             let flips = reader.value(FLIP_WIDTH) == BINDING_FLIPPED;
             let bound_inside = bound_above != flips;
-            self.tree.set_node(tile, if flips { Node::ComplexTile { size_offset: 0, masks: true } } else { Node::Subdivided });
-            self.named_children(reader, tile, nested, bound_inside, |read, child| {
+            self.tree.set_node(tile, if flips { Node::MaskingBind } else { Node::Subdivided });
+            self.named_children(reader, tile, bound_inside, |read, child| {
                 if bound_inside {
                     child.set_in(read.cell_values);
                 }
@@ -88,29 +79,20 @@ impl StreamContents<'_> {
             let masks = copy_or_divide_may_mask(tile.level) && reader.value(MASK_PRESENT_WIDTH) == MASKING;
             self.tree.set_node(tile, Node::Copied { far, direction, masks });
             if masks {
-                self.named_children(reader, tile, nested, bound_above, |read, child| read.last_pass.cover(tile, child, far, direction));
+                self.named_children(reader, tile, bound_above, |read, child| read.last_pass.cover(tile, child, far, direction));
             } else {
                 self.last_pass.cover(tile, tile, far, direction);
             }
             return;
         }
-        let size_offset = reader.value(bind_resolution_width(tile.level, nested.in_body())) as u8;
-        let masks = complex_tile_may_mask(size_offset) && reader.value(MASK_PRESENT_WIDTH) == MASKING;
-        if has_payload_mode(tile.level, size_offset, masks) && reader.value(PAYLOAD_MODE_WIDTH) == CELL_LIST {
+        let size_offset = read_size_offset(reader, tile.level);
+        if has_payload_mode(tile.level, size_offset) && reader.value(PAYLOAD_MODE_WIDTH) == CELL_LIST {
             self.tree.set_node(tile, Node::CellList);
             cell_list::read(reader, tile, self.cell_values);
             return;
         }
-        self.tree.set_node(tile, Node::ComplexTile { size_offset, masks });
-        let nesting = nested.next_nesting();
-        if masks {
-            nested.while_nested(tile.level + size_offset, |inside| {
-                for child in tile.children() {
-                    self.node(reader, child, inside, bound_above);
-                }
-            });
-        }
-        self.payload(reader, tile, nesting, size_offset);
+        self.tree.set_node(tile, Node::ComplexTile { size_offset });
+        read_payload(reader, tile, tile.level + size_offset, self.cell_values);
     }
 
     /// A masking node's child mask, then the children that are nodes, each
@@ -120,7 +102,6 @@ impl StreamContents<'_> {
         &mut self,
         reader: &mut BitReader,
         tile: Tile,
-        nested: &mut NestedResolutions,
         bound_above: bool,
         mut say_unnamed: impl FnMut(&mut Self, Tile),
     ) {
@@ -128,29 +109,21 @@ impl StreamContents<'_> {
         let named = children.map(|_| reader.value(MASK_BIT_WIDTH) == MASKED);
         for (child, is_named) in children.into_iter().zip(named) {
             if is_named {
-                self.node(reader, child, nested, bound_above);
+                self.node(reader, child, bound_above);
             } else {
                 say_unnamed(self, child);
             }
         }
     }
-
-    /// A complex tile's payload, bound into the cells of the tiles it
-    /// names, a part at a time.
-    fn payload(&mut self, reader: &mut BitReader, tile: Tile, nesting: u8, size_offset: u8) {
-        let resolution = tile.level + size_offset;
-        for part in payload_parts(self.tree, tile, nesting) {
-            read_part(reader, part, resolution, self.cell_values);
-        }
-    }
 }
 
-/// One part of a payload, as [`crate::gct::encode`](mod@crate::gct::encode) writes it: at 1x1,
-/// its cells a word at a time; otherwise each tile of `resolution` bound
-/// to its value.
-fn read_part(reader: &mut BitReader, part: Tile, resolution: u8, cells: &mut Bitmap) {
+/// The payload of the complex tile `tile`, of `resolution`, as
+/// [`crate::gct::encode`](mod@crate::gct::encode) writes it, bound into
+/// `cells`: at 1x1, its cells a word at a time; otherwise each tile of
+/// `resolution` bound to its value.
+fn read_payload(reader: &mut BitReader, tile: Tile, resolution: u8, cells: &mut Bitmap) {
     if resolution == CELL_LEVEL {
-        let (corner, side) = (part.top_left_cell(), part.side_in_cells());
+        let (corner, side) = (tile.top_left_cell(), tile.side_in_cells());
         let count = side * side;
         if count < u64::BITS as usize {
             cells.set_in_small_square(corner, side, reader.value(count as u8));
@@ -161,9 +134,9 @@ fn read_part(reader: &mut BitReader, part: Tile, resolution: u8, cells: &mut Bit
         }
         return;
     }
-    for tile in part.tiles_at_size_offset(resolution - part.level) {
+    for resolution_tile in tile.tiles_at_size_offset(resolution - tile.level) {
         if reader.bit() {
-            tile.set_in(cells);
+            resolution_tile.set_in(cells);
         }
     }
 }

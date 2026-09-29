@@ -52,7 +52,7 @@ GCT_SEED=fresh cargo test --release --test gct_fast
  Every tier's check
 (`tests/common`) examines each bitmap (`diagnostics::examination`) and
 fails on anything wrong: a cell said wrongly, a tile placed or copied
-too fine, the complex tiler's bit count off the encoder's, the divides
+too fine, the reference bit count off the encoder's, the divides
 above the top tiles spending other than the grammar says, more than the
 raw cells and 1%, the tree read back not the tree written, a cell
 decoded wrong.

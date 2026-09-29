@@ -6,13 +6,13 @@
 //!   not homogeneous, placed nothing, and is inside a complex tile of 1x1
 //!   resolution or a cell list. Every cell that is not is a fault;
 //! - placed tiles finer than a 2x2, and copies finer than 4x4;
-//! - the bits the complex tiler counts for the tree -- its residual
+//! - the bits the reference count gives the tree -- its residual
 //!   blocks at the bits the last pass took -- and the bits written;
 //! - whether the tree read back from the bits is the tree written;
 //! - the first cell decoding gets wrong, if any.
 
 use crate::gct::pyramids::complex_tiling::ComplexTiling;
-use crate::gct::complex_tiler::bit_cost::{tree_bits, Counting};
+use crate::gct::bit_cost::{tree_bits, Counting};
 use crate::gct::grammar::bit_stream::BitStream;
 use crate::gct::grammar::{count_split, COUNT_SPLIT_STREAM, STREAM_MODE_WIDTH};
 use crate::gct::pyramids::placements::Placement;
@@ -42,13 +42,13 @@ pub enum CoverageFault {
 pub struct Examination {
     /// The bits written, in the encoding that suits the bitmap.
     pub written_bits: usize,
-    /// The bits counted for that encoding: the complex tiler's count of
+    /// The bits counted for that encoding: the reference count of
     /// the tree, with the start level header, or the count split's --
     /// and the stream's mode.
     pub counted_bits: u64,
     /// Whether the encoding that suits the bitmap is its count split.
     pub count_split_stream: bool,
-    /// The bits the complex tiler counts for the tree, with the start
+    /// The bits the reference count gives the tree, with the start
     /// level header, whichever encoding suits.
     pub tree_bits: u64,
     /// The bits the tree was written in, its mode aside.
@@ -111,7 +111,7 @@ fn coverage_fault(bitmap: &Bitmap, placements: &ComplexTiling, tree: &Tree, cell
         return Some(CoverageFault::HomogeneousLeftRaw(square));
     }
     let raw = (0..=FLOOR_LEVEL).any(|level| match tree.node(cell.ancestor(level)) {
-        Node::ComplexTile { size_offset, .. } => level + size_offset == CELL_LEVEL,
+        Node::ComplexTile { size_offset } => level + size_offset == CELL_LEVEL,
         Node::CellList => true,
         _ => false,
     });

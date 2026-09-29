@@ -36,12 +36,6 @@ impl<T: Copy + Default, const N: usize> FixedList<T, N> {
         self.len = self.len.checked_sub(1)?;
         Some(self.items[self.len])
     }
-
-    /// Keeps only the first `len` items.
-    pub(crate) fn truncate(&mut self, len: usize) {
-        self.len = self.len.min(len);
-    }
-
 }
 
 impl<T: Copy + Default, const N: usize> Default for FixedList<T, N> {
