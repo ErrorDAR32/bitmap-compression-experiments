@@ -421,7 +421,8 @@ unmask it: those whose resolution tiles the node covers whole.
      truncated binary. A run all set or all clear says nothing more,
      and nothing inside it is said. A run holding one set cell says a
      bit a halving, its place from the top bit down, each bit flipped:
-     read back at once. Which of the two a bitmap gets is
+     read back at once. A run of 8 cells is read back in one lookup,
+     from its set count and the next 10 bits (the most one takes). Which of the two a bitmap gets is
      judged from the greedy tiler's tiles, before the complex tiler,
      and only that one is made: see "Why the count split".
 

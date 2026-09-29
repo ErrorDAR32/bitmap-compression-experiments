@@ -117,8 +117,8 @@ trait CellCoder {
 struct CellEncoder<'a, S: BitSink> {
     /// The bitmap encoded.
     bitmap: &'a Bitmap,
-    /// The coder, once the first cell is coded.
-    encoder: Option<Encoder>,
+    /// The coder.
+    encoder: Encoder,
     /// Where the bits go.
     sink: &'a mut S,
 }
@@ -126,7 +126,7 @@ struct CellEncoder<'a, S: BitSink> {
 impl<S: BitSink> CellCoder for CellEncoder<'_, S> {
     fn code(&mut self, odds: Odds, cell_index: usize) -> bool {
         let set = self.bitmap.morton_run(cell_index, 1) == 1;
-        self.encoder.get_or_insert_default().encode(set, odds, self.sink);
+        self.encoder.encode(set, odds, self.sink);
         set
     }
 }
@@ -135,16 +135,13 @@ impl<S: BitSink> CellCoder for CellEncoder<'_, S> {
 struct CellDecoder<'r, 'a> {
     /// Where the bits come from.
     reader: &'r mut BitReader<'a>,
-    /// The coder, once the first cell is read.
-    decoder: Option<Decoder>,
+    /// The coder.
+    decoder: Decoder,
 }
 
 impl CellCoder for CellDecoder<'_, '_> {
     fn code(&mut self, odds: Odds, _: usize) -> bool {
-        if self.decoder.is_none() {
-            self.decoder = Some(Decoder::new(self.reader));
-        }
-        self.decoder.as_mut().expect("started").decode(odds, self.reader)
+        self.decoder.decode(odds, self.reader)
     }
 }
 
@@ -235,10 +232,12 @@ impl LastPass {
                 unsaid &= unsaid - 1;
             }
         }
-        let mut coder = CellEncoder { bitmap, encoder: None, sink };
+        // A pass coding no cell writes nothing: not even the coder's end.
+        let codes_any_cell = self.blocks.residual != [0; BLOCK_WORDS];
+        let mut coder = CellEncoder { bitmap, encoder: Encoder::default(), sink };
         self.blocks.run(&mut self.known, &mut coder);
-        if let Some(encoder) = coder.encoder {
-            encoder.finish(coder.sink);
+        if codes_any_cell {
+            coder.encoder.finish(coder.sink);
         }
     }
 
@@ -246,7 +245,10 @@ impl LastPass {
     /// said.
     pub fn decode(&mut self, tree: &Tree, cells: &mut Bitmap, reader: &mut BitReader) {
         self.blocks.note_residual_blocks(tree);
-        self.blocks.run(cells, &mut CellDecoder { reader, decoder: None });
+        // A pass coding no cell has nothing after it: the coder's start
+        // reads past the stream's end, all 0, and nothing more.
+        let decoder = Decoder::new(reader);
+        self.blocks.run(cells, &mut CellDecoder { reader, decoder });
     }
 }
 
@@ -384,6 +386,19 @@ const BLOCK_ROWS: [u64; 1 << (BLOCK_CELLS / 2)] = {
     rows
 };
 
+/// Where each of a block's cells, by its place in the block's rows, is
+/// in its window.
+const WINDOW_PLACES: [u32; BLOCK_CELLS] = {
+    let mut places = [0; BLOCK_CELLS];
+    let mut place = 0;
+    while place < BLOCK_CELLS {
+        let (dx, dy) = ((place % BLOCK_SIDE as usize) as u32, (place / BLOCK_SIDE as usize) as u32);
+        places[place] = (BLOCK_SIDE as u32 + dy) * WINDOW_SIDE + BLOCK_SIDE as u32 + dx;
+        place += 1;
+    }
+    places
+};
+
 /// How far left and up a context reaches, in cells: the square of cells
 /// from that far up and left of a cell to the cell itself -- its
 /// neighbourhood -- holds all of its context.
@@ -447,8 +462,7 @@ impl Window {
 
     /// Where the block's cell at `place`, in its rows, is.
     fn at(place: usize) -> u32 {
-        let (dx, dy) = (place as u32 % BLOCK_SIDE as u32, place as u32 / BLOCK_SIDE as u32);
-        (BLOCK_SIDE as u32 + dy) * WINDOW_SIDE + BLOCK_SIDE as u32 + dx
+        WINDOW_PLACES[place]
     }
 
     /// The context of the block's cell at `place`: its neighbourhood's,

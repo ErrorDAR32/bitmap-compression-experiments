@@ -146,7 +146,7 @@ pub const fn truncated_binary_bits(value: u64, range: u64) -> u64 {
 /// A truncated binary code of `range` values: the short codes' width,
 /// and how many values take a short code; `None` for one value, which
 /// needs no bits.
-const fn truncated_binary_shape(range: u64) -> Option<(u8, u64)> {
+pub(super) const fn truncated_binary_shape(range: u64) -> Option<(u8, u64)> {
     if range <= 1 {
         return None;
     }
@@ -199,6 +199,20 @@ impl BitReader<'_> {
             return first;
         }
         (first << 1 | self.value(1)) - short_codes
+    }
+
+    /// The next `width` bits, at most a word, as [`BitReader::value`]
+    /// would read them, left unread.
+    #[inline]
+    pub fn peek(&self, width: u8) -> u64 {
+        let next_word = self.stream.words.get(self.next_word).copied().unwrap_or(0);
+        (self.buffer | next_word.checked_shl(self.buffered).unwrap_or(0)) & low_bits(width as u32)
+    }
+
+    /// Passes over the next `width` bits, at most a word.
+    #[inline]
+    pub fn skip(&mut self, width: u8) {
+        self.value(width);
     }
 
     /// Reads `width` bits, at most a word, as written by
