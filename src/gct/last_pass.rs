@@ -16,15 +16,18 @@
 //!
 //! Each context's odds are how often its cell was clear and how often
 //! set so far, each starting at a half (the Krichevsky-Trofimov
-//! estimate): a context learns from its bitmap alone, and nothing about
-//! the odds is written.
+//! estimate), both halved whenever either reaches 512 cells: a context
+//! learns from its bitmap alone, and nothing about the odds is written.
+//! Bounded so, a context's weights make its probability with one lookup
+//! and one multiply -- no division -- and a cell's price with two
+//! lookups.
 
 use crate::gct::fixed_list::FixedList;
-use crate::gct::grammar::arithmetic::{BitSink, Decoder, Encoder, Odds, FINISHING_BITS, MOST_WEIGHT};
-use crate::gct::grammar::bit_stream::BitReader;
+use crate::gct::grammar::arithmetic::{ClearProbability, Decoder, Encoder, FINISHING_BITS};
+use crate::gct::grammar::bit_stream::{BitReader, BitStream};
 use crate::gct::pyramids::copyable::{CopyOffsets, FINEST_COPY_LEVEL};
 use crate::gct::pyramids::tree::Tree;
-use crate::gct::residual_prices::{fixed_point_log2, ResidualPrices, FRACTION_BITS};
+use crate::gct::residual_prices::{fixed_point_log2, ResidualPrices};
 use crate::gct::tile::{cells_in_tile, tiles_across, tiles_in_level, Tile, CELLS};
 use crate::morton::{morton_coordinates, morton_index};
 use crate::Bitmap;
@@ -45,21 +48,95 @@ const CONTEXTS: usize = 1 << CONTEXT_CELLS.len();
 
 /// A context's weight for clear and for set before any cell: a half, in
 /// units of half a cell...
-const FIRST_WEIGHT: u32 = 1;
+const FIRST_WEIGHT: u16 = 1;
 /// ...and what each cell coded in it adds to its value's: one cell.
-const CELL_WEIGHT: u32 = 2;
-/// The most a context's two weights add up to: every cell coded in it.
-const MOST_TOTAL: u64 = 2 * FIRST_WEIGHT as u64 + CELL_WEIGHT as u64 * CELLS as u64;
-/// It fits the coder.
-const _: () = assert!(MOST_TOTAL <= MOST_WEIGHT);
+const CELL_WEIGHT: u16 = 2;
+/// The cells either value of a context counts at most: reaching it,
+/// both are halved. Past it the odds barely move, a cell at a time; and
+/// counting further changed the sample's bits by under 0.01%, where 256
+/// cost 0.024% and 128 0.07% (the whole sample, one seed).
+const HALVING_COUNT: u16 = 512;
+/// The weight that, reached, halves both.
+const HALVING_WEIGHT: u16 = FIRST_WEIGHT + CELL_WEIGHT * HALVING_COUNT;
+/// The most a context's two weights add up to when a cell is coded at
+/// them: both just under halving.
+const MOST_TOTAL: usize = 2 * (HALVING_WEIGHT - CELL_WEIGHT) as usize;
+
+/// `2^32` over every total a context's weights can add up to: a weight
+/// times it is that weight's share of `2^32`.
+static RECIPROCALS: [u32; MOST_TOTAL + 1] = {
+    let mut reciprocals = [0; MOST_TOTAL + 1];
+    let mut total = 1;
+    while total <= MOST_TOTAL {
+        reciprocals[total] = ((1u64 << u32::BITS) / total as u64) as u32;
+        total += 1;
+    }
+    reciprocals
+};
+
+/// `log2` of every weight and total, in `FRACTION_BITS` fixed point
+/// (`residual_prices.rs`): a cell's price is its total's less its
+/// value's weight's.
+static LOG2S: [u16; MOST_TOTAL + 1] = {
+    let mut logs = [0; MOST_TOTAL + 1];
+    let mut value = 1;
+    while value <= MOST_TOTAL {
+        logs[value] = fixed_point_log2(value as u64) as u16;
+        value += 1;
+    }
+    logs
+};
+
+/// A context's odds: its weights for clear and for set, by the value.
+#[derive(Clone, Copy)]
+struct ContextOdds([u16; 2]);
+
+impl ContextOdds {
+    /// No cell coded in it: a half each.
+    const FIRST: Self = Self([FIRST_WEIGHT; 2]);
+
+    /// Its two weights added up.
+    #[inline]
+    fn total(self) -> usize {
+        (self.0[0] + self.0[1]) as usize
+    }
+
+    /// The probability a cell in it is clear: clear's share of `2^32`.
+    /// Neither share is under `2^32 / MOST_TOTAL`, a 2048th.
+    #[inline]
+    fn clear_probability(self) -> ClearProbability {
+        ClearProbability(self.0[0] as u32 * RECIPROCALS[self.total()])
+    }
+
+    /// What a cell holding `value` costs in it, in `FRACTION_BITS`
+    /// fixed point.
+    #[inline]
+    fn cost(self, value: usize) -> u32 {
+        (LOG2S[self.total()] - LOG2S[self.0[value] as usize]) as u32
+    }
+
+    /// A cell holding `value` coded in it: its weight grows, and both
+    /// are halved -- counts rounded up -- if it reaches halving.
+    #[inline]
+    fn learn(&mut self, value: usize) {
+        self.0[value] += CELL_WEIGHT;
+        if self.0[value] == HALVING_WEIGHT {
+            self.0 = self.0.map(|weight| FIRST_WEIGHT + CELL_WEIGHT * ((weight - FIRST_WEIGHT) / CELL_WEIGHT).div_ceil(2));
+        }
+    }
+}
 
 /// The most bits the pass takes over one a residual cell: for each
 /// context, what learning its odds costs over the fewest bits its cells
 /// could be said in -- at most half the log2 of the cells coded in it,
-/// and one (the Krichevsky-Trofimov bound) -- then the coder's rounding,
-/// under 2^-12 bits a cell (a part is never under 2^13 of the narrowest
-/// interval's 2^30), and its finishing bits.
-pub const MOST_EXTRA_BITS: usize = CONTEXTS * (CELLS.ilog2() as usize / 2 + 1) + (CELLS >> 12) + FINISHING_BITS;
+/// and one (the Krichevsky-Trofimov bound, which holds until the first
+/// halving), and a bit for every 1024 cells coded in it past that, what
+/// the halvings forget (found by value iteration over every pair of
+/// counts: the most any sequence of cells in one context costs over one
+/// bit a cell is under `log2(n) / 2 + 1 + n / 1024`) -- then the coder's
+/// rounding, under 2^-12 bits a cell (a part is never under 2^13 of the
+/// narrowest interval's 2^24), and its finishing bits.
+pub const MOST_EXTRA_BITS: usize = CONTEXTS * (CELLS.ilog2() as usize / 2 + 1) + (CELLS >> 10) + (CELLS >> 12) + FINISHING_BITS;
 
 /// The level the pass works at: 4x4 blocks. A copy is 4x4 or coarser,
 /// and so is every child a masking copy says itself, so a copy's own
@@ -118,25 +195,25 @@ fn first_block(tile: Tile) -> usize {
 
 /// Codes a residual cell, one way or the other.
 trait CellCoder {
-    /// Codes the cell at Morton index `cell_index` at `odds`, and says
-    /// whether it is set.
-    fn code(&mut self, odds: Odds, cell_index: usize) -> bool;
+    /// Codes the cell at Morton index `cell_index` at `clear`, the
+    /// probability it is clear, and says whether it is set.
+    fn code(&mut self, clear: ClearProbability, cell_index: usize) -> bool;
 }
 
 /// Encoding: each cell read off the bitmap and written.
-struct CellEncoder<'a, S: BitSink> {
+struct CellEncoder<'a> {
     /// The bitmap encoded.
     bitmap: &'a Bitmap,
     /// The coder.
     encoder: Encoder,
     /// Where the bits go.
-    sink: &'a mut S,
+    stream: &'a mut BitStream,
 }
 
-impl<S: BitSink> CellCoder for CellEncoder<'_, S> {
-    fn code(&mut self, odds: Odds, cell_index: usize) -> bool {
+impl CellCoder for CellEncoder<'_> {
+    fn code(&mut self, clear: ClearProbability, cell_index: usize) -> bool {
         let set = self.bitmap.morton_run(cell_index, 1) == 1;
-        self.encoder.encode(set, odds, self.sink);
+        self.encoder.encode(set, clear, self.stream);
         set
     }
 }
@@ -150,8 +227,8 @@ struct CellDecoder<'r, 'a> {
 }
 
 impl CellCoder for CellDecoder<'_, '_> {
-    fn code(&mut self, odds: Odds, _: usize) -> bool {
-        self.decoder.decode(odds, self.reader)
+    fn code(&mut self, clear: ClearProbability, _: usize) -> bool {
+        self.decoder.decode(clear, self.reader)
     }
 }
 
@@ -181,7 +258,7 @@ struct Blocks {
     /// the end.
     pending: FixedList<BlockIndex, BLOCKS>,
     /// Each context's odds.
-    odds: [Odds; CONTEXTS],
+    odds: [ContextOdds; CONTEXTS],
 }
 
 impl LastPass {
@@ -194,7 +271,7 @@ impl LastPass {
             residual: [0; BLOCK_WORDS],
             waiting: FixedList::new(),
             pending: FixedList::new(),
-            odds: [Odds { clear: FIRST_WEIGHT, set: FIRST_WEIGHT }; CONTEXTS],
+            odds: [ContextOdds::FIRST; CONTEXTS],
         };
         Self { blocks, known: Bitmap::new() }
     }
@@ -227,9 +304,9 @@ impl LastPass {
         }
     }
 
-    /// Writes the pass for `bitmap` to `sink`, after its tree, `tree`,
+    /// Writes the pass for `bitmap` to `stream`, after its tree, `tree`,
     /// was walked.
-    pub fn encode(&mut self, tree: &Tree, bitmap: &Bitmap, sink: &mut impl BitSink) {
+    pub fn encode(&mut self, tree: &Tree, bitmap: &Bitmap, stream: &mut BitStream) {
         self.blocks.note_residual_blocks(tree);
         // The cells as decoding has them after the tree: none of a block
         // a copy covers or of a residual block.
@@ -244,10 +321,10 @@ impl LastPass {
         }
         // A pass coding no cell writes nothing: not even the coder's end.
         let codes_any_cell = self.blocks.residual != [0; BLOCK_WORDS];
-        let mut coder = CellEncoder { bitmap, encoder: Encoder::default(), sink };
+        let mut coder = CellEncoder { bitmap, encoder: Encoder::default(), stream };
         self.blocks.run(&mut self.known, &mut coder);
         if codes_any_cell {
-            coder.encoder.finish(coder.sink);
+            coder.encoder.finish(coder.stream);
         }
     }
 
@@ -274,7 +351,7 @@ impl Blocks {
     /// The pass itself, on `cells`: every block copied or coded, in
     /// Morton order, then the copies that waited.
     fn run(&mut self, cells: &mut Bitmap, coder: &mut impl CellCoder) {
-        self.odds = [Odds { clear: FIRST_WEIGHT, set: FIRST_WEIGHT }; CONTEXTS];
+        self.odds = [ContextOdds::FIRST; CONTEXTS];
         self.pending.clear();
         for word_index in 0..BLOCK_WORDS {
             // A block copied as the source of one before it is no longer
@@ -342,14 +419,13 @@ impl Blocks {
             for dx in 0..BLOCK_SIDE as u32 {
                 let odds = &mut self.odds[columns.context(dx)];
                 let morton_place = MORTON_PLACES[(dy * BLOCK_SIDE as u32 + dx) as usize];
-                if coder.code(*odds, first_cell + morton_place) {
+                let set = coder.code(odds.clear_probability(), first_cell + morton_place);
+                if set {
                     window.set(dx, dy);
                     columns.set(dx);
                     block_run |= 1 << morton_place;
-                    odds.set += CELL_WEIGHT;
-                } else {
-                    odds.clear += CELL_WEIGHT;
                 }
+                odds.learn(set as usize);
             }
         }
         cells.set_in_morton_run(first_cell, BLOCK_CELLS, block_run);
@@ -357,93 +433,38 @@ impl Blocks {
 }
 
 /// The pricing pass: what the last pass takes for each residual block
-/// of a tree, without coding it -- each block's cells' `log2` of their
-/// odds' totals over their values' weights: the totals multiplied, the
-/// weights multiplied, and one `log2` of each, every context learning
-/// as the pass's do. Blocks are to be priced in the pass's order, Morton
-/// order. Contexts are read off the bitmap itself: in the pass each
-/// context cell is final when its cell is coded, but for one of a copy
-/// still waiting on its source, which reads as clear there -- rare, and
-/// a price is what a block takes about.
+/// of a tree, without coding it -- each block's cells' costs at their
+/// contexts' odds, every context learning as the pass's do. Blocks are
+/// to be priced in the pass's order, Morton order. Contexts are read off
+/// the bitmap itself: in the pass each context cell is final when its
+/// cell is coded, but for one of a copy still waiting on its source,
+/// which reads as clear there -- rare, and a price is what a block takes
+/// about.
 pub(crate) struct Pricing {
-    /// Each context's weights so far, clear and set, by the value.
-    weights: [[u32; 2]; CONTEXTS],
+    /// Each context's odds, as learned so far.
+    odds: [ContextOdds; CONTEXTS],
 }
 
 impl Pricing {
     /// No block priced yet.
     pub(crate) fn new() -> Self {
-        Self { weights: [[FIRST_WEIGHT; 2]; CONTEXTS] }
+        Self { odds: [ContextOdds::FIRST; CONTEXTS] }
     }
 
     /// Prices the residual block at `index` of a tree for `bitmap` into
     /// `prices`, every residual block before it in Morton order priced.
     pub(crate) fn price(&mut self, bitmap: &Bitmap, index: usize, prices: &mut ResidualPrices) {
         let window = Window::around(bitmap, index);
-        let (mut totals, mut weights) = (Product::ONE, Product::ONE);
+        let mut bits = 0;
         for dy in 0..BLOCK_SIDE as u32 {
             let (columns, row) = (window.columns(dy), window.block_row(dy));
-            // A pair of cells at a time: two factors, then one
-            // renormalizing.
-            for first in (0..BLOCK_SIDE as u32).step_by(PAIR) {
-                let (first_total, first_weight) = self.learn(columns.context(first), row >> first & 1);
-                let (second_total, second_weight) = self.learn(columns.context(first + 1), row >> (first + 1) & 1);
-                totals = totals.times(first_total, second_total);
-                weights = weights.times(first_weight, second_weight);
+            for dx in 0..BLOCK_SIDE as u32 {
+                let (odds, value) = (&mut self.odds[columns.context(dx)], row >> dx & 1);
+                bits += odds.cost(value);
+                odds.learn(value);
             }
         }
-        prices.set(index, totals.log2() - weights.log2());
-    }
-
-    /// A cell holding `value` in `context`: its context's total and its
-    /// value's weight before it, then the cell learned.
-    #[inline]
-    fn learn(&mut self, context: usize, value: usize) -> (u32, u32) {
-        let weights = &mut self.weights[context];
-        let before = (weights[0] + weights[1], weights[value]);
-        weights[value] += CELL_WEIGHT;
-        before
-    }
-}
-
-/// Cells priced between renormalizings.
-const PAIR: usize = 2;
-const _: () = assert!((BLOCK_SIDE as usize).is_multiple_of(PAIR));
-
-/// A product of weights, as a mantissa and a power of two: the mantissa
-/// kept to [`MANTISSA_BITS`] bits, so a pair of factors -- each under
-/// `2^FACTOR_BITS` -- always fits a word. What is shifted out is under a
-/// `2^-(MANTISSA_BITS - 1)` part of it each time: far under the whole bit
-/// a price is rounded to.
-#[derive(Clone, Copy)]
-struct Product {
-    /// The product's top bits.
-    mantissa: u64,
-    /// The power of two the mantissa is multiplied by.
-    exponent: u32,
-}
-
-/// Bits a factor takes at most: a context's total.
-const FACTOR_BITS: u32 = u64::BITS - MOST_TOTAL.leading_zeros();
-/// Bits a product's mantissa is kept to: what two factors leave of a
-/// word.
-const MANTISSA_BITS: u32 = u64::BITS - PAIR as u32 * FACTOR_BITS;
-
-impl Product {
-    /// The empty product.
-    const ONE: Self = Self { mantissa: 1, exponent: 0 };
-
-    /// This times `first` and `second`.
-    #[inline]
-    fn times(self, first: u32, second: u32) -> Self {
-        let exact = self.mantissa * first as u64 * second as u64;
-        let excess = (u64::BITS - exact.leading_zeros()).saturating_sub(MANTISSA_BITS);
-        Self { mantissa: exact >> excess, exponent: self.exponent + excess }
-    }
-
-    /// Its `log2`, in fixed point.
-    fn log2(self) -> u32 {
-        (self.exponent << FRACTION_BITS) + fixed_point_log2(self.mantissa)
+        prices.set(index, bits);
     }
 }
 

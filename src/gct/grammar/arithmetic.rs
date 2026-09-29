@@ -1,197 +1,197 @@
-//! Arithmetic coding of single bits, each at odds the caller gives: a
-//! bit the odds expect costs well under one bit, a surprise more.
+//! Range coding of single bits, each at the probability the caller gives
+//! it: a bit the probability expects costs well under one bit, a surprise
+//! more.
 //!
-//! The coder keeps an interval of the numbers in `[0, 1)`, held as two
-//! 32-bit integers, `low` and `high`, both inclusive. A
-//! bit splits the interval at its odds, clear below the split and set
-//! above it, and keeps the part it is. Whenever the interval lies in one
-//! half, the first bit of every number in it is settled: it is written,
-//! and the interval doubled. When it straddles the middle within the
-//! middle half, the next bit is settled only later, and to the opposite
-//! of the one after it: it is counted as pending and the interval
-//! doubled about the middle. So the interval never gets narrower than a
-//! quarter, and a split never rounds either part away.
+//! The coder keeps an interval of the numbers in `[0, 1)`: its lower end
+//! `low`, and its width `range`, a 32-bit window of a number whose bits
+//! above the window are already written. A bit splits the interval at
+//! its probability, clear below the split and set above it, and keeps
+//! the part it is: one multiply. Whenever the width falls under `2^24`,
+//! the top byte of the window is settled but for a carry, and the window
+//! moves a byte on: the width is never under `2^24`, so a part is never
+//! under `2^13` of it and never rounds away. A byte that a
+//! later carry could still change is held back -- the last one settled,
+//! and any `0xFF` bytes after it, which a carry turns to `0x00` -- and
+//! written once the next byte shows whether it carries.
 //!
-//! The stream is the bits of one number inside the final interval:
-//! enough of them that any bits after them -- the reader reads 0 past
-//! the end -- stay inside it. Decoding replays every split with the
-//! same odds, and reads each bit off which part that number is in.
+//! The stream is the bits of one number inside the final interval,
+//! every byte's highest bit first: enough of them that any bits after
+//! them -- the reader reads 0 past the end -- stay inside it. Decoding
+//! replays every split with the same probabilities, and reads each bit
+//! off which part that number is in.
 
 use super::bit_stream::{BitReader, BitStream};
 
-/// Bits the interval's ends are held to.
-const PRECISION: u32 = 32;
-/// The interval's upper end, open: every number is below it.
-const WHOLE: u64 = 1 << PRECISION;
-/// Half of it...
-const HALF: u64 = WHOLE / 2;
-/// ...and a quarter.
-const QUARTER: u64 = WHOLE / 4;
+/// The width the interval is kept at or over: a byte under the window's.
+const TOP: u32 = 1 << 24;
+/// Bits a byte takes, in the stream.
+const BYTE_BITS: u8 = u8::BITS as u8;
+/// The bits of the window the interval's ends are held in.
+const WINDOW_BITS: u32 = u32::BITS;
+/// A byte a carry turns to `0x00`, carrying on.
+const ALL_ONES: u8 = u8::MAX;
 
-/// The odds of a bit, as how many times it was clear and how many set,
-/// in any unit: the interval is split in that ratio. Neither is ever 0.
+/// Every byte with its bits in the other order: bytes go to the stream
+/// highest bit first, so that the stream can end partway through one.
+const REVERSED: [u8; 1 << u8::BITS] = {
+    let mut reversed = [0; 1 << u8::BITS];
+    let mut byte = 0;
+    while byte < reversed.len() {
+        reversed[byte] = (byte as u8).reverse_bits();
+        byte += 1;
+    }
+    reversed
+};
+
+/// The probability that a bit is clear, as a fraction of `2^32`: neither
+/// it nor its complement is ever under `2^21`, a 2048th -- what the
+/// caller's odds never go past -- so neither part of a split rounds away.
 #[derive(Clone, Copy, Debug)]
-pub struct Odds {
-    /// Weight of clear.
-    pub clear: u32,
-    /// Weight of set.
-    pub set: u32,
-}
+pub struct ClearProbability(pub u32);
 
-/// The most two weights of [`Odds`] may add up to: the interval is
-/// never narrower than a quarter, so a part of weight 1 in this never
-/// rounds away.
-pub const MOST_WEIGHT: u64 = QUARTER;
-
-impl Odds {
-    /// The highest number of the clear part of `low..=high`: clear keeps
-    /// `low..=split`, set `split + 1..=high`.
+impl ClearProbability {
+    /// Where `range` splits: the width of the clear part.
     #[inline]
-    fn split(self, low: u64, high: u64) -> u64 {
-        let total = self.clear as u64 + self.set as u64;
-        debug_assert!(self.clear > 0 && self.set > 0 && total <= MOST_WEIGHT, "{self:?}");
-        low + (high - low + 1) * self.clear as u64 / total - 1
+    fn split(self, range: u32) -> u32 {
+        ((range as u64 * self.0 as u64) >> WINDOW_BITS) as u32
     }
 }
 
-/// Where coded bits go: a stream, or a count of them.
-pub trait BitSink {
-    /// Takes one bit.
-    fn push_bit(&mut self, bit: bool);
-}
-
-impl BitSink for BitStream {
-    fn push_bit(&mut self, bit: bool) {
-        self.push(bit);
-    }
-}
-
-/// Counts bits without keeping them.
-#[derive(Default)]
-pub struct BitCount(pub u64);
-
-impl BitSink for BitCount {
-    fn push_bit(&mut self, _: bool) {
-        self.0 += 1;
-    }
-}
-
-/// Bits [`Encoder::finish`] writes at most beyond the pending ones: the
-/// one settling the last pending bits, and the one after.
+/// Bits [`Encoder::finish`] takes beyond what the bits coded carry: the
+/// fewest that pin one number inside the final interval are at most two
+/// more than its width's `-log2`.
 pub const FINISHING_BITS: usize = 2;
 
-/// Codes bits into a sink.
+/// Codes bits into a stream.
 pub struct Encoder {
-    /// The interval's lower end.
+    /// The interval's lower end, in the window, and a carry above it.
     low: u64,
-    /// Its upper end, inclusive.
-    high: u64,
-    /// Bits settled only once the next one is: each the opposite of it.
-    pending: u64,
+    /// The interval's width.
+    range: u32,
+    /// The last byte settled, held back for a carry, if any is.
+    held: Option<u8>,
+    /// `0xFF` bytes held back after it.
+    held_all_ones: u64,
 }
 
 impl Default for Encoder {
     /// The whole interval, nothing coded.
     fn default() -> Self {
-        Self { low: 0, high: WHOLE - 1, pending: 0 }
+        Self { low: 0, range: u32::MAX, held: None, held_all_ones: 0 }
     }
 }
 
 impl Encoder {
-    /// Codes `bit` at `odds`.
+    /// Codes `bit` at `clear`, the probability it is clear.
     #[inline]
-    pub fn encode(&mut self, bit: bool, odds: Odds, sink: &mut impl BitSink) {
-        let split = odds.split(self.low, self.high);
+    pub fn encode(&mut self, bit: bool, clear: ClearProbability, stream: &mut BitStream) {
+        let split = clear.split(self.range);
         if bit {
-            self.low = split + 1;
+            self.low += split as u64;
+            self.range -= split;
         } else {
-            self.high = split;
+            self.range = split;
         }
-        loop {
-            if self.high < HALF {
-                self.settle(false, sink);
-            } else if self.low >= HALF {
-                self.settle(true, sink);
-                self.low -= HALF;
-                self.high -= HALF;
-            } else if self.low >= QUARTER && self.high < HALF + QUARTER {
-                self.pending += 1;
-                self.low -= QUARTER;
-                self.high -= QUARTER;
-            } else {
-                break;
-            }
-            self.low <<= 1;
-            self.high = self.high << 1 | 1;
+        while self.range < TOP {
+            self.settle_top_byte(stream);
+            self.range <<= BYTE_BITS;
         }
     }
 
-    /// Writes `bit`, then every pending bit, each its opposite.
-    fn settle(&mut self, bit: bool, sink: &mut impl BitSink) {
-        sink.push_bit(bit);
-        for _ in 0..self.pending {
-            sink.push_bit(!bit);
+    /// Settles the window's top byte, and moves the window a byte on:
+    /// held back if a carry could still change it, else written with
+    /// every byte held before it, the carry added to them.
+    fn settle_top_byte(&mut self, stream: &mut BitStream) {
+        let top = (self.low >> (WINDOW_BITS - BYTE_BITS as u32)) as u8;
+        let carry = self.low >> WINDOW_BITS;
+        if top != ALL_ONES || carry != 0 {
+            self.write_held(carry as u8, stream);
+            self.held = Some(top);
+        } else {
+            self.held_all_ones += 1;
         }
-        self.pending = 0;
+        self.low = (self.low << BYTE_BITS) & (u32::MAX as u64);
     }
 
-    /// Ends the stream: the fewest bits that keep any number starting
-    /// with them inside the interval. It straddles the middle, and holds
-    /// a whole quarter on one side of it: the second quarter when it
-    /// starts below it, else the third.
-    pub fn finish(mut self, sink: &mut impl BitSink) {
-        self.pending += 1;
-        self.settle(self.low >= QUARTER, sink);
+    /// Writes the bytes held back, `carry` added to them.
+    fn write_held(&mut self, carry: u8, stream: &mut BitStream) {
+        if let Some(held) = self.held {
+            push_byte(held.wrapping_add(carry), stream);
+        }
+        for _ in 0..self.held_all_ones {
+            push_byte(ALL_ONES.wrapping_add(carry), stream);
+        }
+        self.held_all_ones = 0;
     }
+
+    /// Ends the stream: the number in the final interval with the most
+    /// clear bits at its end -- the bytes held back first, a carry into
+    /// them if it takes one, then the window's bits down to its last set
+    /// one, the rest read as 0.
+    pub fn finish(mut self, stream: &mut BitStream) {
+        let end = self.low + self.range as u64;
+        let pinned = (0..=WINDOW_BITS)
+            .rev()
+            .map(|clear_bits| {
+                let unit = (1u64 << clear_bits) - 1;
+                (self.low + unit) & !unit
+            })
+            .find(|&number| number < end)
+            .expect("a number with no clear bits at its end is the interval's own lower end");
+        self.write_held((pinned >> WINDOW_BITS) as u8, stream);
+        let window = pinned as u32;
+        let significant = WINDOW_BITS - window.trailing_zeros().min(WINDOW_BITS);
+        for bit in 0..significant {
+            stream.push(window >> (WINDOW_BITS - 1 - bit) & 1 == 1);
+        }
+    }
+}
+
+/// Writes `byte`, highest bit first.
+#[inline]
+fn push_byte(byte: u8, stream: &mut BitStream) {
+    stream.push_value(REVERSED[byte as usize] as u64, BYTE_BITS);
+}
+
+/// Reads a byte [`push_byte`] wrote.
+#[inline]
+fn read_byte(reader: &mut BitReader) -> u8 {
+    REVERSED[reader.value(BYTE_BITS) as usize]
 }
 
 /// Reads back bits an [`Encoder`] coded.
 pub struct Decoder {
-    /// The interval's lower end.
-    low: u64,
-    /// Its upper end, inclusive.
-    high: u64,
-    /// The number the stream spells, as far as the interval's precision
-    /// reaches.
-    value: u64,
+    /// The interval's width.
+    range: u32,
+    /// The number the stream spells, less the interval's lower end, in
+    /// the window.
+    offset: u32,
 }
 
 impl Decoder {
     /// Starts reading at `reader`'s next bit.
     pub fn new(reader: &mut BitReader) -> Self {
-        let mut value = 0;
-        for _ in 0..PRECISION {
-            value = value << 1 | reader.bit() as u64;
+        let mut offset = 0;
+        for _ in 0..WINDOW_BITS / BYTE_BITS as u32 {
+            offset = offset << BYTE_BITS | read_byte(reader) as u32;
         }
-        Self { low: 0, high: WHOLE - 1, value }
+        Self { range: u32::MAX, offset }
     }
 
-    /// Reads a bit coded at `odds`.
+    /// Reads a bit coded at `clear`.
     #[inline]
-    pub fn decode(&mut self, odds: Odds, reader: &mut BitReader) -> bool {
-        let split = odds.split(self.low, self.high);
-        let bit = self.value > split;
+    pub fn decode(&mut self, clear: ClearProbability, reader: &mut BitReader) -> bool {
+        let split = clear.split(self.range);
+        let bit = self.offset >= split;
         if bit {
-            self.low = split + 1;
+            self.offset -= split;
+            self.range -= split;
         } else {
-            self.high = split;
+            self.range = split;
         }
-        loop {
-            if self.high < HALF {
-            } else if self.low >= HALF {
-                self.low -= HALF;
-                self.high -= HALF;
-                self.value -= HALF;
-            } else if self.low >= QUARTER && self.high < HALF + QUARTER {
-                self.low -= QUARTER;
-                self.high -= QUARTER;
-                self.value -= QUARTER;
-            } else {
-                break;
-            }
-            self.low <<= 1;
-            self.high = self.high << 1 | 1;
-            self.value = self.value << 1 | reader.bit() as u64;
+        while self.range < TOP {
+            self.range <<= BYTE_BITS;
+            self.offset = self.offset << BYTE_BITS | read_byte(reader) as u32;
         }
         bit
     }
@@ -201,42 +201,63 @@ impl Decoder {
 mod tests {
     use super::*;
 
-    /// Codes `bits`, each at the odds `odds` gives it, and reads them back.
-    fn round_trip(bits: &[bool], odds: impl Fn(usize) -> Odds) -> usize {
+    /// Codes `bits`, each at the probability `clear` gives it, and reads
+    /// them back: how many bits the stream took.
+    fn round_trip(bits: &[bool], clear: impl Fn(usize) -> ClearProbability) -> usize {
         let mut stream = BitStream::default();
         let mut encoder = Encoder::default();
         for (index, &bit) in bits.iter().enumerate() {
-            encoder.encode(bit, odds(index), &mut stream);
+            encoder.encode(bit, clear(index), &mut stream);
         }
         encoder.finish(&mut stream);
         let mut reader = stream.reader();
         let mut decoder = Decoder::new(&mut reader);
         for (index, &bit) in bits.iter().enumerate() {
-            assert_eq!(decoder.decode(odds(index), &mut reader), bit, "bit {index}");
+            assert_eq!(decoder.decode(clear(index), &mut reader), bit, "bit {index}");
         }
         stream.len()
     }
 
+    /// A 2^32 fraction of `clear` in `total`.
+    fn fraction(clear: u64, total: u64) -> ClearProbability {
+        ClearProbability(((clear << WINDOW_BITS) / total) as u32)
+    }
+
+    /// The stream takes what the bits' probabilities say they carry --
+    /// `-log2` of each's -- and no more than [`FINISHING_BITS`] and the
+    /// rounding over it.
     #[test]
-    fn expected_bits_cost_little_and_surprises_round_trip() {
+    fn the_stream_takes_the_bits_information_and_little_more() {
         let bits: Vec<bool> = (0..4000).map(|index| index % 97 == 0).collect();
-        let odds = Odds { clear: 96, set: 1 };
-        let written = round_trip(&bits, |_| odds);
-        // About 4000 bits at 1/97: some 250 bits of information.
-        assert!(written < 400, "{written} bits");
+        let clear = fraction(96, 97);
+        let written = round_trip(&bits, |_| clear);
+        let clear_share = clear.0 as f64 / (1u64 << WINDOW_BITS) as f64;
+        let information: f64 = bits.iter().map(|&bit| -(if bit { 1.0 - clear_share } else { clear_share }).log2()).sum();
+        // The rounding: under 2^-12 bits a bit coded.
+        let most = information + FINISHING_BITS as f64 + bits.len() as f64 / 4096.0;
+        assert!((written as f64) <= most, "{written} bits, the information {information:.1}");
     }
 
     #[test]
-    fn extreme_odds_round_trip() {
+    fn the_most_skewed_probabilities_round_trip() {
         let bits: Vec<bool> = (0..3000).map(|index| (index * 7919) % 13 < 6).collect();
-        let heavy = MOST_WEIGHT as u32 - 1;
-        round_trip(&bits, |index| if index % 3 == 0 { Odds { clear: heavy, set: 1 } } else { Odds { clear: 1, set: heavy } });
+        let (rare, total) = (1, 2048);
+        round_trip(&bits, |index| if index % 3 == 0 { fraction(total - rare, total) } else { fraction(rare, total) });
     }
 
     #[test]
-    fn nothing_coded_but_a_finish_is_two_bits() {
+    fn carries_through_held_bytes_round_trip() {
+        // Long runs of the likelier value push the lower end up against
+        // the window's top, holding 0xFF bytes for a carry.
+        let bits: Vec<bool> = (0..20000).map(|index| index % 1000 != 999).collect();
+        round_trip(&bits, |_| fraction(1, 2048));
+        round_trip(&bits, |index| fraction(1 + (index % 2047) as u64, 2048));
+    }
+
+    #[test]
+    fn nothing_coded_takes_no_bits() {
         let mut stream = BitStream::default();
         Encoder::default().finish(&mut stream);
-        assert_eq!(stream.len(), FINISHING_BITS);
+        assert_eq!(stream.len(), 0);
     }
 }

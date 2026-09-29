@@ -46,7 +46,7 @@ made -- the last pass's waiting and pending copies at the 4x4 blocks.
 The stream is sized at the most bits any stream can take: its mode bit,
 the start level, 10 bits at every tile down to the 4x4 floor (a masking
 copy's header), each cell's value said once, and what the last pass can
-take over a bit a cell (594, see step 4) -- 120744. Encoding and
+take over a bit a cell (658, see step 4) -- 120808. Encoding and
 decoding never allocate, the first bitmap included; pushing past a bound
 would be a bug, and panics rather than growing.
 
@@ -272,11 +272,9 @@ pass takes for it (`residual_prices.rs`). The last pass codes a block's
 cells from the cells around them, so what they take depends on the
 whole pass; a price is what its cells take there, each at its
 context's odds as they have learned by then -- `log2` of the odds'
-total over the value's weight -- rounded to the nearest bit. The
-block's totals are multiplied together, and its weights, each product
-in integers as its top 28 bits and a power of two (two factors, each
-under 2^18, still fit a word), renormalized every two cells: then one
-`log2` of each. Pricing codes nothing: it reads each context
+total over the value's weight, two lookups in a table of `log2`s (see
+"The odds") -- rounded to the nearest bit. Pricing codes nothing: it
+reads each context
 off the bitmap itself, where the last pass reads the cells as decoding
 has them -- the same values, but for a cell of a copy still waiting on
 its source, which reads as clear there. A price stands for what the
@@ -460,21 +458,40 @@ both read the same contexts.
 
 **The odds.** Each context counts how often its cell was clear and how
 often set so far, each starting at a half (the Krichevsky-Trofimov
-estimate): the odds are learned from the bitmap alone, and nothing about
-them is written. A cell the odds expect costs well under a bit; a
-surprise more. Over a whole bitmap the pass takes at most the fewest
-bits its cells could be said in, context by context, plus half the log2
-of the cells coded in each context and one, the coder's rounding (under
-2^-12 bits a cell) and its two finishing bits -- so never more than a
-bit a cell and 594 bits.
+estimate), both halved -- counts rounded up -- whenever either reaches
+512: the odds are learned from the bitmap alone, and nothing about them
+is written. A cell the odds expect costs well under a bit; a surprise
+more. Bounded so, a context's weights -- in half cells, `2n + 1` --
+add up to at most 2046, so its probability of clear is one multiply by a
+table of `2^32` over every total, with no division, and a cell's price
+two lookups in a table of their `log2`s: together 12 KiB, made when
+compiling. Halving at 512 changed the sample's bits by under 0.01%; at
+256 by 0.024%, at 128 by 0.07%, at 32 by 0.5% -- residual cells are much
+the same all over a bitmap, so forgetting costs, and 512 is where it
+stops to. Over a whole bitmap the pass takes at most the fewest bits
+its cells could be said in, context by context, plus half the log2 of
+the cells coded in each context and one (the Krichevsky-Trofimov bound,
+which holds until the first halving), a bit for every 1024 cells coded
+in a context past that (what halving forgets: the most any sequence of
+cells in one context costs over a bit a cell, found by value iteration
+over every pair of counts), the coder's rounding (under 2^-12 bits a
+cell) and its two finishing bits -- so never more than a bit a cell and
+658 bits.
 
-**The coder** holds an interval of `[0, 1)` as two 32-bit ends. A cell
-splits it at its odds, clear below and set above, and keeps its part;
-a settled leading bit is written and the interval doubled, so it never
-narrows below a quarter. The stream is the fewest bits naming a number
-inside the final interval that no bits after it (the reader reads 0 past
-the end) can take out of it. Decoding replays every split with the same
-odds, and reads each cell off which part that number lies in.
+**The coder** (`grammar/arithmetic.rs`) is a range coder: it holds an
+interval of `[0, 1)` as its lower end and its width in a 32-bit window.
+A cell splits the width at its probability of clear -- one multiply,
+the width times the probability's share of `2^32` -- clear below and set
+above, and keeps its part. When the width falls under `2^24`, the
+window's top byte is settled but for a carry, and the window moves a
+byte on, so a part is never under `2^13` of the width. A byte a later
+carry could still change -- the last settled, and any `0xFF` bytes after
+it -- is held back until the next byte shows. Bytes go to the stream
+highest bit first, and the stream ends with the fewest bits naming a
+number inside the final interval that no bits after it (the reader reads
+0 past the end) can take out of it. Decoding replays every split with
+the same probabilities, and reads each cell off which part that number
+lies in.
 
 **Why the 4x4 floor.** With the floor at 2x2, a 2x2 that was not one
 tile cost 5 bits, its leaf bit and four raw cells, and a 4x4 divided

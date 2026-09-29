@@ -86,7 +86,7 @@ const FRACTIONS: [u32; 1 << FRACTION_BITS] = {
 /// value moved up until its leading one is the top bit, then the bits
 /// under it.
 #[inline]
-pub(crate) fn fixed_point_log2(value: u64) -> u32 {
+pub(crate) const fn fixed_point_log2(value: u64) -> u32 {
     let whole = value.ilog2();
     let normalized = value << (u64::BITS - 1 - whole);
     let mantissa_top = (normalized >> (u64::BITS - 1 - FRACTION_BITS)) as usize & ((1 << FRACTION_BITS) - 1);
