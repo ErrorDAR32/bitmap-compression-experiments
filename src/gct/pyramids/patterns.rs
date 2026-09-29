@@ -146,6 +146,9 @@ pub struct Patterns {
     first: Box<[u16; NUMBERS]>,
     /// How many numbers each level has handed out.
     handed_out: [u16; LEVELS],
+    /// For every level and number, whether a second tile has it: a bit
+    /// a number, as `first` counts them.
+    repeated: [u64; NUMBERS.div_ceil(u64::BITS as usize)],
 }
 
 impl Default for Patterns {
@@ -156,6 +159,7 @@ impl Default for Patterns {
             slots: Box::new([EMPTY_SLOT; SLOTS]),
             first: Box::new([0; NUMBERS]),
             handed_out: [FIRST_PATTERN; LEVELS],
+            repeated: [0; NUMBERS.div_ceil(u64::BITS as usize)],
         }
     }
 }
@@ -166,6 +170,7 @@ impl Patterns {
     pub fn build(&mut self, bitmap: &Bitmap) {
         self.slots.fill(EMPTY_SLOT);
         self.handed_out = [FIRST_PATTERN; LEVELS];
+        self.repeated.fill(0);
 
         for level in (0..=FINEST).rev() {
             let tiles = tiles_in_level(level);
@@ -218,6 +223,8 @@ impl Patterns {
                 return number;
             }
             if self.key(bitmap, level, self.first[first_start + number as usize] as usize) == key {
+                let index = first_start + number as usize;
+                self.repeated[index / u64::BITS as usize] |= 1 << (index % u64::BITS as usize);
                 return number;
             }
             probe = (probe + 1) & (slot_count - 1);
@@ -229,6 +236,15 @@ impl Patterns {
     #[inline]
     pub fn number(&self, tile: Tile) -> u16 {
         self.numbers.get(tile) as u16
+    }
+
+    /// Whether another tile of `level` holds the pattern numbered
+    /// `number` -- always, for a homogeneous one: only then can a tile
+    /// with it be a copy.
+    #[inline]
+    pub fn repeats(&self, level: u8, number: u16) -> bool {
+        let index = FIRST_STARTS[level as usize] + number as usize;
+        number < FIRST_PATTERN || self.repeated[index / u64::BITS as usize] >> (index % u64::BITS as usize) & 1 == 1
     }
 
     /// What `tile` holds, if every cell of it agrees: the homogeneous

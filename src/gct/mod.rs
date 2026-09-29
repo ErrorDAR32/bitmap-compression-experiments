@@ -138,12 +138,12 @@ impl Gct {
     /// greedy tiler's tiles alone, and the tree of cell lists. The
     /// complex tiler only ever takes bits off the first, and the second is
     /// what it comes to on scattered cells, which it says in cell lists.
-    /// So the count split must take fewer bits than both. Counting it
-    /// stops at the first tree's bits, and the second is counted only if
-    /// it gets under them.
+    /// So the count split must take fewer bits than both. The second is
+    /// counted only if it gets under the first.
     fn count_split_beats_tree(&self, bitmap: &Bitmap) -> bool {
         let greedy_tree_bits = tree_bits(&self.complex_tiling, bitmap, start_level(&self.complex_tiling));
-        count_split::bits_under(bitmap, greedy_tree_bits).is_some_and(|bits| bits < cell_lists_tree_bits(&self.complex_tiling, bitmap))
+        let bits = count_split::bits(bitmap);
+        bits < greedy_tree_bits && bits < cell_lists_tree_bits(&self.complex_tiling, bitmap)
     }
 
     /// The greedy tiler's tiles for `bitmap`, filled in: its patterns

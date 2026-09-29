@@ -302,33 +302,108 @@ impl Blocks {
     }
 
     /// Codes the cells of the residual `block`, a row at a time, each
-    /// set in `cells` as it is known.
+    /// set in `cells` as it is known. Every context cell lies in the
+    /// block or the blocks left of it, above it and above left, which
+    /// come before it in Morton order and do not change while it is
+    /// coded: the four are read once, as one [`Window`].
     fn code_block(&mut self, block: Tile, cells: &mut Bitmap, coder: &mut impl CellCoder) {
+        let mut window = Window::around(cells, block);
         let (left, top) = block.top_left_cell();
         // Offsets from the corner, not cell ranges: a block on the right
         // or bottom edge ends past the last `u8`.
-        for (x, y) in (0..BLOCK_SIDE).flat_map(|dy| (0..BLOCK_SIDE).map(move |dx| (left + dx, top + dy))) {
-            let odds = &mut self.odds[context(cells, x, y)];
-            let set = coder.code(*odds, x, y);
-            if set {
-                cells.set(x, y);
-                odds.set += CELL_WEIGHT;
-            } else {
-                odds.clear += CELL_WEIGHT;
+        for dy in 0..BLOCK_SIDE {
+            for dx in 0..BLOCK_SIDE {
+                let odds = &mut self.odds[window.context(dx, dy)];
+                let (x, y) = (left + dx, top + dy);
+                let set = coder.code(*odds, x, y);
+                if set {
+                    cells.set(x, y);
+                    window.set(dx, dy);
+                    odds.set += CELL_WEIGHT;
+                } else {
+                    odds.clear += CELL_WEIGHT;
+                }
             }
         }
     }
 }
 
-/// The context of the cell at `(x, y)`: a bit for each of
-/// [`CONTEXT_CELLS`] set in `cells`, one off the bitmap reading as
-/// clear.
-fn context(cells: &Bitmap, x: u8, y: u8) -> usize {
-    let mut context = 0;
-    for (bit, &(dx, dy)) in CONTEXT_CELLS.iter().enumerate() {
-        if let (Some(x), Some(y)) = (x.checked_add_signed(dx), y.checked_add_signed(dy)) {
-            context |= (cells.get(x, y) as usize) << bit;
+/// A block and the three blocks before it -- above left, above, left --
+/// as an 8x8 square of cells, a bit each, row after row: bit `8y + x`,
+/// the block's own cells at `x`, `y` from 4 to 7. A block off the bitmap
+/// is clear.
+struct Window(u64);
+
+/// Cells a window row: two blocks side by side.
+const WINDOW_SIDE: u32 = 2 * BLOCK_SIDE as u32;
+
+/// A block's first eight cells in Morton order -- its top two rows -- by
+/// their values, in a window's rows; the next eight are the same two
+/// rows lower.
+const BLOCK_ROWS: [u64; 1 << (BLOCK_CELLS / 2)] = {
+    let mut rows = [0; 1 << (BLOCK_CELLS / 2)];
+    let mut run = 0;
+    while run < rows.len() {
+        let mut index = 0;
+        while index < BLOCK_CELLS / 2 {
+            if run >> index & 1 == 1 {
+                // Morton order: x in the even bits, y in the odd.
+                let (x, y) = ((index & 1) | (index >> 2 & 1) << 1, index >> 1 & 1);
+                rows[run] |= 1 << (y as u32 * WINDOW_SIDE + x as u32);
+            }
+            index += 1;
         }
+        run += 1;
     }
-    context
+    rows
+};
+
+impl Window {
+    /// The window of `block`, read off `cells`.
+    fn around(cells: &Bitmap, block: Tile) -> Self {
+        let rows_of = |x: Option<u8>, y: Option<u8>| match (x, y) {
+            (Some(x), Some(y)) => {
+                let run = cells.morton_run(block_index(Tile { level: BLOCK_LEVEL, x, y }) * BLOCK_CELLS, BLOCK_CELLS);
+                BLOCK_ROWS[run as usize & 0xFF] | BLOCK_ROWS[run as usize >> (BLOCK_CELLS / 2)] << (2 * WINDOW_SIDE)
+            }
+            _ => 0,
+        };
+        let (x, y) = (block.x, block.y);
+        let block_row = BLOCK_SIDE as u32 * WINDOW_SIDE;
+        Self(
+            rows_of(x.checked_sub(1), y.checked_sub(1))
+                | rows_of(Some(x), y.checked_sub(1)) << BLOCK_SIDE
+                | rows_of(x.checked_sub(1), Some(y)) << block_row
+                | rows_of(Some(x), Some(y)) << (block_row + BLOCK_SIDE as u32),
+        )
+    }
+
+    /// Where the block's cell `dx`, `dy` from its corner is.
+    fn at(dx: u8, dy: u8) -> u32 {
+        (BLOCK_SIDE + dy) as u32 * WINDOW_SIDE + (BLOCK_SIDE + dx) as u32
+    }
+
+    /// The context of the block's cell `dx`, `dy` from its corner: a bit
+    /// for each of [`CONTEXT_CELLS`] set.
+    fn context(&self, dx: u8, dy: u8) -> usize {
+        let at = Self::at(dx, dy) as i32;
+        let mut context = 0;
+        for (bit, &(cx, cy)) in CONTEXT_CELLS.iter().enumerate() {
+            let there = at + cy as i32 * WINDOW_SIDE as i32 + cx as i32;
+            context |= (((self.0 >> there) & 1) as usize) << bit;
+        }
+        context
+    }
+
+    /// Sets the block's cell `dx`, `dy` from its corner.
+    fn set(&mut self, dx: u8, dy: u8) {
+        self.0 |= 1 << Self::at(dx, dy);
+    }
 }
+const _: () = {
+    let mut index = 0;
+    while index < CONTEXT_CELLS.len() {
+        assert!(CONTEXT_CELLS[index].0 >= -(BLOCK_SIDE as i8) && CONTEXT_CELLS[index].1 >= -(BLOCK_SIDE as i8), "every context cell is in the window");
+        index += 1;
+    }
+};

@@ -104,6 +104,9 @@ pub const FINEST_COPY_LEVEL: u8 = CELL_LEVEL - 2;
 /// holds the same cells, if any: none past the edge.
 pub fn matching_direction(patterns: &Patterns, offsets: &CopyOffsets, tile: Tile, far: bool) -> Option<u8> {
     let mine = patterns.number(tile);
+    if !patterns.repeats(tile.level, mine) {
+        return None;
+    }
     directions().find(|&direction| matches_at(patterns, tile, mine, offsets.offset(far, direction)))
 }
 

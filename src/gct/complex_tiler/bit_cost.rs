@@ -18,7 +18,7 @@ use crate::gct::grammar::*;
 use crate::gct::nested_resolutions::NestedResolutions;
 use crate::gct::pyramids::complex_tiling::{ComplexTiling, Fields};
 use crate::gct::pyramids::placements::Placement;
-use crate::gct::tile::{tiles_in_level, Tile, CHILDREN, FLOOR_LEVEL};
+use crate::gct::tile::{tiles_in_level, Tile, CELL_LEVEL, CHILDREN, FLOOR_LEVEL};
 use crate::Bitmap;
 
 /// How many resolution tiles a tile holds `size_offset` levels finer:
@@ -33,6 +33,17 @@ pub fn payload_bits(size_offset: u8) -> u64 {
 /// encoder's.
 pub fn bits(complex_tiling: &ComplexTiling, bitmap: &Bitmap, tile: Tile, nested: &mut NestedResolutions, bound_above: bool) -> u64 {
     bits_with(complex_tiling, bitmap, tile, complex_tiling.fields(tile), nested, bound_above)
+}
+
+/// The bits a cell list at a tile of `level` spends before its list,
+/// its mask bits aside: its leaf and code bits, its size offset, its
+/// mask-present bit and its payload mode.
+pub fn cell_list_header_bits(level: u8) -> u64 {
+    let mut bits = (LEAF_WIDTH + CODE_WIDTH) as u64 + resolution_width(level) as u64 + PAYLOAD_MODE_WIDTH as u64;
+    if complex_tile_may_mask(CELL_LEVEL - level) {
+        bits += MASK_PRESENT_WIDTH as u64;
+    }
+    bits
 }
 
 /// The bits the whole tree takes, as the tiling stands, starting at

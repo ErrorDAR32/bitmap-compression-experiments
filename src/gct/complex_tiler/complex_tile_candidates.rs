@@ -16,7 +16,8 @@
 //! pyramid](super::cost_pyramid). The best size offset saves the most,
 //! and a candidate that saves nothing is none.
 
-use super::bit_cost::{bits_with, node_bits};
+use super::bit_cost::{bits_with, cell_list_header_bits, node_bits};
+use crate::gct::grammar::cell_list;
 use super::cost_pyramid::CostPyramid;
 use crate::gct::grammar::raw_resolution_fits;
 use crate::gct::nested_resolutions::NestedResolutions;
@@ -120,8 +121,11 @@ impl Candidate {
             let size_offset = resolution - tile.level;
             let plain = with(here.as_complex_tile(size_offset), resolution);
             // At 1x1, the cells may go as a cell list instead, when
-            // strictly cheaper.
-            let listed = (resolution == CELL_LEVEL).then(|| with(here.as_cell_list(tile.level), resolution));
+            // strictly cheaper -- counted only when the fewest bits it
+            // could take are.
+            let could_list = resolution == CELL_LEVEL
+                && cell_list_header_bits(tile.level) + cell_list::least_bits(bitmap, tile) < plain;
+            let listed = could_list.then(|| with(here.as_cell_list(tile.level), resolution));
             let (with_bits, cell_list) = match listed {
                 Some(listed) if listed < plain => (listed, true),
                 _ => (plain, false),

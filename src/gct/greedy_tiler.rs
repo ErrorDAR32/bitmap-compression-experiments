@@ -34,7 +34,8 @@ use crate::gct::pyramids::complex_tiling::ComplexTiling;
 use crate::gct::pyramids::copyable::{child_offset, matches_at, matching_direction, CopyOffsets, FINEST_COPY_LEVEL};
 use crate::gct::pyramids::placements::{Placement, BOUND_AT_THE_TOP, FINEST_MASKING_LEVEL};
 use crate::gct::pyramids::patterns::Patterns;
-use crate::gct::tile::{directions, Tile, FINEST_PLACED_LEVEL};
+use crate::gct::tile::{cells_in_tile, directions, Tile, FINEST_PLACED_LEVEL};
+use crate::morton::morton_index;
 use crate::Bitmap;
 
 /// A masking copy costs about 10 bits before its masked children: a
@@ -84,9 +85,8 @@ struct Content<'a> {
 /// above `tile`.
 fn place_at_or_under(content: &Content, tile: Tile, bound_above: bool, placements: &mut ComplexTiling) {
     let Some(placement) = placement(content, tile, bound_above) else {
-        if tile.level == FINEST_PLACED_LEVEL {
-            // A 2x2 that is not one tile: nothing reads a placement finer
-            // than a 2x2.
+        if tile.level + 1 == FINEST_PLACED_LEVEL {
+            place_2x2s(content.bitmap, tile, placements);
             return;
         }
         for child in tile.children() {
@@ -102,6 +102,28 @@ fn place_at_or_under(content: &Content, tile: Tile, bound_above: bool, placement
         }
     }
 }
+
+/// Binds each of the 4x4 `tile`'s 2x2s that is homogeneous, read off
+/// the 4x4's cells, one run of the bitmap whose four quarters are its
+/// 2x2s in reading order. A 2x2 is only ever asked that: nothing finer
+/// than a 2x2 is placed, and no 2x2 copies or masks.
+fn place_2x2s(bitmap: &Bitmap, tile: Tile, placements: &mut ComplexTiling) {
+    let cells = bitmap.morton_run(morton_index(tile.x, tile.y) * TILE_CELLS, TILE_CELLS);
+    for (index, child) in tile.children().into_iter().enumerate() {
+        match cells >> (index * CHILD_CELLS) & CHILD_MASK {
+            0 => placements.place(child, Placement::bound(false)),
+            CHILD_MASK => placements.place(child, Placement::bound(true)),
+            _ => {}
+        }
+    }
+}
+
+/// A 4x4's cells...
+const TILE_CELLS: usize = cells_in_tile(FINEST_PLACED_LEVEL - 1) as usize;
+/// ...and each 2x2's, one quarter of them.
+const CHILD_CELLS: usize = cells_in_tile(FINEST_PLACED_LEVEL) as usize;
+/// A 2x2's cells, all set.
+const CHILD_MASK: u64 = (1 << CHILD_CELLS) - 1;
 
 /// What the rule places at `tile`, if anything.
 fn placement(content: &Content, tile: Tile, bound_above: bool) -> Option<Placement> {
@@ -120,19 +142,10 @@ fn placement(content: &Content, tile: Tile, bound_above: bool) -> Option<Placeme
     masking_copy(content, tile, children_values, bound_above).or_else(|| masking_bind(children_values, bound_above))
 }
 
-/// What `tile` holds, if every cell of it agrees: its pattern number
-/// says, down to 4x4; a 2x2, finer than patterns go, is read off its
-/// four cells.
+/// What `tile`, 4x4 or coarser, holds, if every cell of it agrees: its
+/// pattern number says.
 fn homogeneous_value(content: &Content, tile: Tile) -> Option<bool> {
-    if tile.level <= FINEST_COPY_LEVEL {
-        return content.patterns.homogeneous_value(tile);
-    }
-    let side = tile.side_in_cells();
-    match content.bitmap.small_square(tile.top_left_cell(), side) {
-        0 => Some(false),
-        cells if cells.count_ones() as usize == side * side => Some(true),
-        _ => None,
-    }
+    content.patterns.homogeneous_value(tile)
 }
 
 /// A bind of a tile to the value not bound above, masking the children
@@ -165,10 +178,13 @@ fn masking_bind(children_values: [Option<bool>; 4], bound_above: bool) -> Option
 /// worth it at all.
 fn masking_copy(content: &Content, tile: Tile, children_values: [Option<bool>; 4], bound_above: bool) -> Option<Placement> {
     let children = tile.children();
+    let numbers = content.patterns.children_numbers(tile);
+    // Only a child whose pattern another tile holds can be said.
+    let can_match: [bool; 4] = std::array::from_fn(|index| content.patterns.repeats(children[index].level, numbers[index]));
     // What each child would add, said: to the children said that are not
     // the value bound above, and to those not homogeneous.
-    let adds_unmasked = children_values.map(|value| (value != Some(bound_above)) as u32);
-    let adds_non_homogeneous = children_values.map(|value| value.is_none() as u32);
+    let adds_unmasked: [u32; 4] = std::array::from_fn(|index| (can_match[index] && children_values[index] != Some(bound_above)) as u32);
+    let adds_non_homogeneous: [u32; 4] = std::array::from_fn(|index| (can_match[index] && children_values[index].is_none()) as u32);
     let could_be_worth_it = |unmasked: u32, non_homogeneous: u32| {
         unmasked >= MIN_UNMASKED_CHILDREN || non_homogeneous >= MIN_UNMASKED_NON_HOMOGENEOUS_CHILDREN
     };
@@ -176,7 +192,6 @@ fn masking_copy(content: &Content, tile: Tile, children_values: [Option<bool>; 4
     if !could_be_worth_it(all_unmasked, all_non_homogeneous) {
         return None;
     }
-    let numbers = content.patterns.children_numbers(tile);
     let mut best: Option<(u32, Placement)> = None;
     for far in [false, true] {
         'direction: for direction in directions() {
@@ -191,7 +206,7 @@ fn masking_copy(content: &Content, tile: Tile, children_values: [Option<bool>; 4
             for index in 0..children.len() {
                 unmasked_left -= adds_unmasked[index];
                 non_homogeneous_left -= adds_non_homogeneous[index];
-                if matches_at(content.patterns, children[index], numbers[index], child_offset) {
+                if can_match[index] && matches_at(content.patterns, children[index], numbers[index], child_offset) {
                     unmasked += adds_unmasked[index];
                     non_homogeneous += adds_non_homogeneous[index];
                 } else {

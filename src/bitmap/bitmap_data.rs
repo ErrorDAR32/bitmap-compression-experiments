@@ -69,12 +69,6 @@ impl Bitmap {
         self.words.iter().map(|word| word.count_ones()).sum()
     }
 
-    /// An aligned square of fewer than a word of cells, top left at
-    /// `(x, y)`, `side` cells a side: its one run, in Morton order.
-    pub(crate) fn small_square(&self, (x, y): (u8, u8), side: usize) -> u64 {
-        self.morton_run(morton_index(x, y), side * side)
-    }
-
     /// Sets the cells of an aligned square of fewer than a word of cells,
     /// top left at `(x, y)`, `side` cells a side, whose bits are set in
     /// `run`, in Morton order; its other cells stay as they are.
@@ -164,18 +158,6 @@ impl Bitmap {
             self.words[first_cell_index / BITS_PER_WORD..(first_cell_index + cells) / BITS_PER_WORD].fill(u64::MAX);
         } else {
             self.words[first_cell_index / BITS_PER_WORD] |= low_bits_mask(cells) << (first_cell_index % BITS_PER_WORD);
-        }
-    }
-
-    /// How many of the `cells` cells from Morton index
-    /// `first_cell_index` are set, an aligned block as for
-    /// [`Bitmap::set_morton_block`]: counted a word at a time.
-    pub(crate) fn count_in_morton_block(&self, first_cell_index: usize, cells: usize) -> u64 {
-        if cells >= BITS_PER_WORD {
-            let words = &self.words[first_cell_index / BITS_PER_WORD..(first_cell_index + cells) / BITS_PER_WORD];
-            words.iter().map(|word| word.count_ones() as u64).sum()
-        } else {
-            self.morton_run(first_cell_index, cells).count_ones() as u64
         }
     }
 }

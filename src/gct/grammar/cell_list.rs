@@ -28,6 +28,15 @@ fn set_count(bitmap: &Bitmap, tile: Tile) -> u64 {
     bitmap.square_words(tile.top_left_cell(), tile.side_in_cells()).map(|word| word.count_ones() as u64).sum()
 }
 
+/// The fewest bits `tile`'s cell list could take: its count and every
+/// gap's unary end and low bits, read off how many cells are set --
+/// every gap's high part taken as nothing.
+pub fn least_bits(bitmap: &Bitmap, tile: Tile) -> u64 {
+    let set = set_count(bitmap, tile);
+    let parameter = rice_parameter(cells_in_tile(tile.level), set);
+    gamma_bits(set + 1) + set * (1 + parameter as u64)
+}
+
 /// The bits `tile`'s cell list takes, without writing it.
 pub fn bits(bitmap: &Bitmap, tile: Tile) -> u64 {
     let set = set_count(bitmap, tile);
