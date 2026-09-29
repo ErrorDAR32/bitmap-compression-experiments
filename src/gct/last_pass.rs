@@ -84,6 +84,12 @@ type BlockIndex = u16;
 const NO_SOURCE: BlockIndex = BlockIndex::MAX;
 const _: () = assert!(BLOCKS <= NO_SOURCE as usize, "every block has an index, and none is NO_SOURCE");
 
+/// A block's Morton index's `x` bits -- the even ones -- and its `y`
+/// bits, the odd ones: a neighbour's index is one field stepped in place.
+const BLOCK_X_BITS: usize = 0x5555_5555 & (BLOCKS - 1);
+const BLOCK_Y_BITS: usize = BLOCK_X_BITS << 1;
+const _: () = assert!(BLOCK_X_BITS | BLOCK_Y_BITS == BLOCKS - 1, "the two fields cover a block index");
+
 /// One bit a block, by Morton index.
 pub(crate) type BlockSet = [u64; BLOCK_WORDS];
 
@@ -480,20 +486,23 @@ const NEIGHBOURHOOD_CONTEXTS: [u8; 1 << (NEIGHBOURHOOD_SIDE * NEIGHBOURHOOD_SIDE
 impl Window {
     /// The window of the block at `index`, read off `cells`.
     fn around(cells: &Bitmap, index: usize) -> Self {
-        let rows_of = |x: Option<u8>, y: Option<u8>| match (x, y) {
-            (Some(x), Some(y)) => {
-                let run = cells.morton_run(morton_index(x, y) * BLOCK_CELLS, BLOCK_CELLS);
+        let rows_of = |block: Option<usize>| {
+            block.map_or(0, |block| {
+                let run = cells.morton_run(block * BLOCK_CELLS, BLOCK_CELLS);
                 BLOCK_ROWS[run as usize & 0xFF] | BLOCK_ROWS[run as usize >> (BLOCK_CELLS / 2)] << (2 * WINDOW_SIDE)
-            }
-            _ => 0,
+            })
         };
-        let (x, y) = morton_coordinates(index);
+        // The blocks left and above, one step back in x or y: each a field
+        // of the Morton index, decremented in place.
+        let (x_bits, y_bits) = (index & BLOCK_X_BITS, index & BLOCK_Y_BITS);
+        let (x_before, y_before) = (x_bits.wrapping_sub(1) & BLOCK_X_BITS, y_bits.wrapping_sub(1) & BLOCK_Y_BITS);
+        let (has_left, has_above) = (x_bits != 0, y_bits != 0);
         let block_row = BLOCK_SIDE as u32 * WINDOW_SIDE;
         Self(
-            rows_of(x.checked_sub(1), y.checked_sub(1))
-                | rows_of(Some(x), y.checked_sub(1)) << BLOCK_SIDE
-                | rows_of(x.checked_sub(1), Some(y)) << block_row
-                | rows_of(Some(x), Some(y)) << (block_row + BLOCK_SIDE as u32),
+            rows_of((has_left && has_above).then_some(x_before | y_before))
+                | rows_of(has_above.then_some(x_bits | y_before)) << BLOCK_SIDE
+                | rows_of(has_left.then_some(x_before | y_bits)) << block_row
+                | rows_of(Some(index)) << (block_row + BLOCK_SIDE as u32),
         )
     }
 
