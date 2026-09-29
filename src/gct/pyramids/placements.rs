@@ -86,10 +86,10 @@ impl Placement {
 /// masks: clear.
 pub const BOUND_AT_THE_TOP: bool = false;
 
-/// The finest level a placed tile masks at: 8x8. Masking a 4x4 never
-/// pays -- its children, 2x2s, cost at most 2 bits each, less than the
-/// 4-bit child mask saves. Measured (`docs/gct.md`): allowing copies to
-/// costs every family bits on every seed, blob about 6.6%.
+/// The finest level a placed tile masks at: 8x8, one level above the
+/// tree's 4x4 floor. A 4x4 cannot mask: its children, 2x2s, are finer
+/// than any node the tree holds, so there is nothing to name in its
+/// child mask. Copies and binds still reach the floor, as whole tiles.
 pub const FINEST_MASKING_LEVEL: u8 = CELL_LEVEL - 3;
 
 /// A placement code's bits 0-3 for nothing placed: `0`, so an all-zero

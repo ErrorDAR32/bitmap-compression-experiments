@@ -37,7 +37,7 @@ known case -- never to measure anything.
 |---|---|---|
 | fine | one bitmap per test: drawn by hand, or grown from a fixed seed | `cargo test --test gct_fine` |
 | fast | a small sample from the seed: every shape, sparse shape, plan and line set at its `tested` count | `cargo test --test gct_fast` |
-| complete | every family at its `timed` count, plus a moderate sample from a second seed base, plus every checkerboard of odd square side 3 to 31 | `cargo test --release --test gct_complete -- --ignored` |
+| complete | every family at its `timed` count, plus a moderate sample from a second seed base, plus every checkerboard of odd square side 3 to 31; and every family turned a quarter, a half and three quarters, each turn's total bits within 2% of the family's as drawn | `cargo test --release --test gct_complete -- --ignored` |
 
 Plain `cargo test` runs fine and fast. While the algorithm is being
 optimized, the fine tier's saved adversarial bitmaps stay fixed, and
