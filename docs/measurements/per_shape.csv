@@ -1,6 +1,6 @@
 # written by `cargo run --release --bin gct_diagnostics -- per_shape`
 # seed 1950720362523133367
-# commit b1dc67d, with uncommitted changes
+# commit 358ef71, with uncommitted changes
 
 ## every shape, plan and line set
 sample,bitmaps,"cells set
@@ -8,23 +8,23 @@ a bitmap","gct
 bits a bitmap","gct bits
 a cell set","of the
 raw cells"
-sparse scattered,20,3276,18972,5.79,28.9%
-sparse ragged,20,3276,19050,5.82,29.1%
-sparse blobs,20,3276,9758,2.98,14.9%
-middling scattered,6,13107,48425,3.69,73.9%
-middling ragged,6,13107,48778,3.72,74.4%
-middling blobs,6,13107,29205,2.23,44.6%
+sparse scattered,20,3276,19051,5.82,29.1%
+sparse ragged,20,3276,19049,5.81,29.1%
+sparse blobs,20,3276,9757,2.98,14.9%
+middling scattered,6,13107,48838,3.73,74.5%
+middling ragged,6,13107,48777,3.72,74.4%
+middling blobs,6,13107,29204,2.23,44.6%
 dense scattered,2,32768,65567,2.00,100.0%
-dense ragged,2,32768,65457,2.00,99.9%
-dense blobs,2,32768,45544,1.39,69.5%
-a few cells,12,13,185,14.28,0.3%
-a hundred cells,12,98,1078,11.00,1.6%
-sparse clusters,12,327,2781,8.51,4.2%
-one percent,12,655,5329,8.14,8.1%
-"blocks of 28, streets of 4",12,41071,10107,0.25,15.4%
-"blocks of 24, streets of 8",12,28440,12317,0.43,18.8%
-"blocks of 60, streets of 4",12,46149,7585,0.16,11.6%
-"blocks of 12, streets of 4",12,26428,17014,0.64,26.0%
-a few lines,12,1754,1666,0.95,2.5%
-some lines,12,6216,6710,1.08,10.2%
-many lines,12,19689,25720,1.31,39.2%
+dense ragged,2,32768,65456,2.00,99.9%
+dense blobs,2,32768,45543,1.39,69.5%
+a few cells,12,13,219,16.90,0.3%
+a hundred cells,12,98,1127,11.51,1.7%
+sparse clusters,12,327,2780,8.50,4.2%
+one percent,12,655,5395,8.24,8.2%
+"blocks of 28, streets of 4",12,41071,10106,0.25,15.4%
+"blocks of 24, streets of 8",12,28440,12316,0.43,18.8%
+"blocks of 60, streets of 4",12,46149,7584,0.16,11.6%
+"blocks of 12, streets of 4",12,26428,17013,0.64,26.0%
+a few lines,12,1754,1665,0.95,2.5%
+some lines,12,6216,6709,1.08,10.2%
+many lines,12,19689,25719,1.31,39.2%

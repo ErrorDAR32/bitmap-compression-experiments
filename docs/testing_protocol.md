@@ -70,9 +70,6 @@ diagnostics gather, and each stopping if gct loses a cell:
 | `show` | the kept measurements, read back from `docs/measurements/` |
 | `per_shape` | gct's bits on every shape, plan and line set |
 | `noise` | gct's bits on noise at several densities |
-| `sparse` | the tree against the whole bitmap's cell list on sparse bitmaps, density by density, scattered and clustered, beside the least scattered cells can take |
-| `timing` | encode and decode times over a large sample, family by family |
-| `instruction_count` | encodes and decodes a fixed sample, for callgrind to count; nothing kept |
 | `render` | PNG images of the bitmaps looked at, in `target/gct_diagnostics/` |
 
 The bitmaps looked at are the adversarial records, the saved bitmaps

@@ -36,54 +36,11 @@ fn set_count(bitmap: &Bitmap, tile: Tile) -> u64 {
 
 /// The bits `tile`'s cell list takes, without writing it.
 pub fn bits(bitmap: &Bitmap, tile: Tile) -> u64 {
-    let (_, parameter, fixed_bits) = count_and_fixed_bits(bitmap, tile);
-    fixed_bits + gaps(bitmap, tile).map(|gap| gap >> parameter).sum::<u64>()
-}
-
-/// The bits `tile`'s cell list takes, if fewer than `limit`: counted no
-/// further once it is certain they are not.
-pub fn bits_below(bitmap: &Bitmap, tile: Tile, limit: u64) -> Option<u64> {
-    let (set, parameter, mut bits) = count_and_fixed_bits(bitmap, tile);
-    if bits + least_high_parts(bitmap, tile, set, parameter) >= limit {
-        return None;
-    }
-    for gap in gaps(bitmap, tile) {
-        bits += gap >> parameter;
-        if bits >= limit {
-            return None;
-        }
-    }
-    Some(bits)
-}
-
-/// How many of `tile`'s cells are set, the Rice parameter of their gaps,
-/// and the bits of `tile`'s cell list that do not depend on where they
-/// are: the count, then every gap's unary end and low bits -- all but
-/// each gap's high part.
-fn count_and_fixed_bits(bitmap: &Bitmap, tile: Tile) -> (u64, u8, u64) {
     let set = set_count(bitmap, tile);
     let parameter = rice_parameter(cells_in_tile(tile.level), set);
-    (set, parameter, gamma_bits(set + 1) + set * (1 + parameter as u64))
-}
-
-/// The least the high parts of `tile`'s `set` gaps can add up to, known
-/// without reading each: the gaps add up to the cells before the last
-/// set one that are clear, and each gap's high part is at least what
-/// the gap is past its low part's largest value, shifted down. Exact when
-/// `parameter` is 0.
-fn least_high_parts(bitmap: &Bitmap, tile: Tile, set: u64, parameter: u8) -> u64 {
-    let Some(last_set) = last_set_place(bitmap, tile) else { return 0 };
-    let every_gap = last_set + 1 - set;
-    let largest_low_part = (1 << parameter) - 1;
-    every_gap.saturating_sub(set * largest_low_part) >> parameter
-}
-
-/// The place, in `tile`'s own Morton order, of its last set cell, if any.
-fn last_set_place(bitmap: &Bitmap, tile: Tile) -> Option<u64> {
-    let words = bitmap.square_words(tile.top_left_cell(), tile.side_in_cells());
-    let last = words.enumerate().filter(|&(_, word)| word != 0).last()?;
-    let (word_index, word) = last;
-    Some((word_index * u64::BITS as usize + (u64::BITS - 1 - word.leading_zeros()) as usize) as u64)
+    // Every gap's unary end and low bits, then each gap's high part.
+    let high_parts: u64 = gaps(bitmap, tile).map(|gap| gap >> parameter).sum();
+    gamma_bits(set + 1) + set * (1 + parameter as u64) + high_parts
 }
 
 /// Writes `tile`'s cell list.
