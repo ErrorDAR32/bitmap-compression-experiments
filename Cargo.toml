@@ -1,5 +1,5 @@
 [package]
-name = "bitmap"
+name = "tilesim"
 version = "0.1.0"
 edition = "2021"
 

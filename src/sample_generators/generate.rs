@@ -2,7 +2,7 @@
 //! nothing, keep nothing between calls, and the whole of what they
 //! produce is settled by their arguments.
 //!
-//! Kept apart from [`crate::samples`] so that the shapes worth
+//! Kept apart from [`crate::sample_generators`] so that the shapes worth
 //! measuring on and the machinery that draws them can be read and
 //! changed separately. What a corpus is made of is a decision; how a
 //! bitmap is filled is a mechanism.

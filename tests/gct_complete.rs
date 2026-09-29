@@ -6,8 +6,8 @@
 
 mod common;
 
-use bitmap::samples::checkerboards::checkerboards;
-use bitmap::samples::{families, grown, one_laid_out, sample_seed, HowMany, PLANS, SHAPES};
+use tilesim::sample_generators::checkerboards::checkerboards;
+use tilesim::sample_generators::{families, grown, one_laid_out, sample_seed, HowMany, PLANS, SHAPES};
 use common::check;
 
 /// How far from the measured seeds the second sample starts.

@@ -4,7 +4,7 @@
 
 use super::Codec;
 use crate::rows::{Rows, BYTES};
-use bitmap::Bitmap;
+use tilesim::Bitmap;
 use zstd::bulk::{Compressor, Decompressor};
 
 /// zstd at one level, with its contexts and buffers kept between

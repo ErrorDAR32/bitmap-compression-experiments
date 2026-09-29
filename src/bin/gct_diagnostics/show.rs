@@ -1,8 +1,8 @@
-//! Prints the reports kept in `measurements/` -- every one, or the one
+//! Prints the reports kept in `docs/measurements/` -- every one, or the one
 //! named by the second argument -- read back from their files, without
 //! measuring anything again.
 
-use bitmap::table::report::{kept, Report};
+use tilesim::table::report::{kept, Report};
 
 /// Prints the kept report named by the second argument, or every one.
 pub fn run() {

@@ -1,13 +1,13 @@
 //! What gct's tree is made of: for each bitmap looked at, how many
 //! nodes of each kind at each level, and the bits it comes to.
 
-use bitmap::diagnostics::bitmaps::looked_at;
-use bitmap::diagnostics::census::census;
-use bitmap::gct::grammar::bit_stream::BitStream;
-use bitmap::gct::tile::{tile_side, CELL_LEVEL};
-use bitmap::gct::Workspace;
-use bitmap::table::report::Report;
-use bitmap::table::Table;
+use tilesim::diagnostics::bitmaps::looked_at;
+use tilesim::diagnostics::census::census;
+use tilesim::gct::grammar::bit_stream::BitStream;
+use tilesim::gct::tile::{tile_side, CELL_LEVEL};
+use tilesim::gct::Workspace;
+use tilesim::table::report::Report;
+use tilesim::table::Table;
 
 /// Prints the census of every bitmap looked at.
 pub fn run(report: &mut Report) {

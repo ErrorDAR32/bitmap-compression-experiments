@@ -3,9 +3,9 @@
 
 use super::Codec;
 use crate::rows::{Rows, HEIGHT, WIDTH};
-use bitmap::gct::grammar::bit_stream::BitStream;
-use bitmap::gct::Workspace;
-use bitmap::Bitmap;
+use tilesim::gct::grammar::bit_stream::BitStream;
+use tilesim::gct::Workspace;
+use tilesim::Bitmap;
 
 /// gct, with its workspace, stream and decoded bitmap kept between
 /// bitmaps.

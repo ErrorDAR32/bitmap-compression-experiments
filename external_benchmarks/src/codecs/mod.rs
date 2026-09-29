@@ -7,7 +7,7 @@ pub mod jbig;
 pub mod zstd;
 
 use crate::rows::Rows;
-use bitmap::Bitmap;
+use tilesim::Bitmap;
 
 /// One codec, holding its own room and its last output.
 pub trait Codec {

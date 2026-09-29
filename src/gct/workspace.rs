@@ -4,7 +4,7 @@
 //! bitmap and where the stream goes; decoding takes the stream and where
 //! the bitmap goes. Every structure is sized at the most any bitmap needs
 //! -- the pyramids by their shape, every list at a bound named where it
-//! is made (`FixedList`, `src/fixed_list.rs`) -- so neither ever
+//! is made (`FixedList`, `src/gct/fixed_list.rs`) -- so neither ever
 //! allocates or grows, whatever the bitmap, the first included. Each is
 //! kept as small as that allows: nothing is held for a level or a list
 //! that can never be used.

@@ -2,10 +2,10 @@
 //! one row of `0`/`1` a line, `1` set), readable by any image viewer
 //! and by a diff. Two kinds:
 //!
-//! - records, in `testing/adversarial/`: the worst bitmap found so far
+//! - records, in `external_benchmarks/adversarial/`: the worst bitmap found so far
 //!   for each objective. A run starts from it and replaces it only when
 //!   it beats it, so the search keeps going across runs;
-//! - saved bitmaps, in `testing/adversarial/saved/`: bitmaps taken from
+//! - saved bitmaps, in `external_benchmarks/adversarial/saved/`: bitmaps taken from
 //!   the records once a search has settled, named for what they are and
 //!   never replaced by a search. The benchmarks encode these, so their
 //!   inputs stay fixed while the records move.
@@ -17,7 +17,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 /// Where the records are kept, under the crate's root.
-const FOLDER: &str = "testing/adversarial";
+const FOLDER: &str = "external_benchmarks/adversarial";
 /// Where the saved bitmaps are kept, under the records' folder.
 const SAVED: &str = "saved";
 /// A plain PBM's first word.

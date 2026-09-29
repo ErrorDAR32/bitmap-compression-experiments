@@ -20,15 +20,15 @@
 //! current offsets': every family counts the same, however many bits it
 //! takes. Lower is better.
 
-use bitmap::diagnostics::measured::Measured;
-use bitmap::gct::pyramids::copyable::{precedes, CopyOffsets, NEAR_OFFSETS};
-use bitmap::gct::Workspace;
-use bitmap::rng::Rng;
-use bitmap::samples::seed::seed_in_use;
-use bitmap::samples::{families, HowMany};
-use bitmap::table::report::Report;
-use bitmap::table::Table;
-use bitmap::Bitmap;
+use tilesim::diagnostics::measured::Measured;
+use tilesim::gct::pyramids::copyable::{precedes, CopyOffsets, NEAR_OFFSETS};
+use tilesim::gct::Workspace;
+use tilesim::rng::Rng;
+use tilesim::sample_generators::seed::seed_in_use;
+use tilesim::sample_generators::{families, HowMany};
+use tilesim::table::report::Report;
+use tilesim::table::Table;
+use tilesim::Bitmap;
 use std::thread;
 
 /// How far, in tiles, a candidate offset may reach, across and up.

@@ -1,9 +1,9 @@
 //! Adversarial bitmaps against each external codec: for each of CCITT
 //! G4, JBIG and zstd, four searches at once, one a core, for the bitmap
 //! where gct's bits most exceed that codec's -- the library's search
-//! (`bitmap::adversarial`), scored as gct's bits less the codec's. The
+//! (`tilesim::adversarial`), scored as gct's bits less the codec's. The
 //! worst found for each codec is kept as a PBM image in
-//! `testing/adversarial/`, replaced only when beaten, and carried on
+//! `external_benchmarks/adversarial/`, replaced only when beaten, and carried on
 //! from by the next run; every recorded bitmap is checked to round trip
 //! through both gct and the codec. Then, for each record, both
 //! encoders' times on it.
@@ -11,8 +11,8 @@
 //! From the repository root, in release:
 //!
 //! ```text
-//! cargo run --release --manifest-path comparison/Cargo.toml --bin adversarial
-//! cargo run --release --manifest-path comparison/Cargo.toml --bin adversarial -- 4000
+//! cargo run --release --manifest-path external_benchmarks/Cargo.toml --bin adversarial
+//! cargo run --release --manifest-path external_benchmarks/Cargo.toml --bin adversarial -- 4000
 //! ```
 //!
 //! The argument, if given, is how many changes each search tries on the
@@ -21,16 +21,16 @@
 
 #![warn(missing_docs, clippy::missing_docs_in_private_items)]
 
-use bitmap::adversarial::{record, search_at_once, Effort, Score, SEARCHES_AT_ONCE};
-use bitmap::samples::sample_seed;
-use bitmap::table::Table;
-use bitmap::Bitmap;
-use comparison::codecs::g4::G4;
-use comparison::codecs::gct::Gct;
-use comparison::codecs::jbig::Jbig;
-use comparison::codecs::zstd::Zstd;
-use comparison::codecs::Codec;
-use comparison::rows::Rows;
+use tilesim::adversarial::{record, search_at_once, Effort, Score, SEARCHES_AT_ONCE};
+use tilesim::sample_generators::sample_seed;
+use tilesim::table::Table;
+use tilesim::Bitmap;
+use external_benchmarks::codecs::g4::G4;
+use external_benchmarks::codecs::gct::Gct;
+use external_benchmarks::codecs::jbig::Jbig;
+use external_benchmarks::codecs::zstd::Zstd;
+use external_benchmarks::codecs::Codec;
+use external_benchmarks::rows::Rows;
 use std::time::Instant;
 
 /// Times each record is encoded to time it: the median is kept.

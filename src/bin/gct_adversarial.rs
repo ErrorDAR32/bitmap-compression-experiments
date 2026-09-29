@@ -1,7 +1,7 @@
 //! Adversarial bitmaps against the raw cells: a search for the bitmaps
 //! gct does worst on -- what it costs beyond the raw cells -- four
 //! searches at once, one a core, each from its own seed. The search
-//! itself is the library's (`bitmap::adversarial`); this scores it. See
+//! itself is the library's (`tilesim::adversarial`); this scores it. See
 //! `docs/testing_protocol.md`.
 //!
 //! The worst plane of all four is recorded when it beats the record,
@@ -14,18 +14,44 @@
 //!
 //! The argument, if given, is how many changes each search tries on the
 //! whole plane from each start.
+//!
+//! `save` keeps a record as a named bitmap instead: the record's bitmap
+//! copied to `external_benchmarks/adversarial/saved/`, where no search
+//! replaces it, under a name saying what it is, with a line describing
+//! it and the record's own notes (what it scored) as its comment lines.
+//!
+//! ```text
+//! cargo run --release --bin gct_adversarial -- save \
+//!     gct_against_zstd3 near_repeated_half_vs_zstd3 "bottom half a near repeat of the top, ..."
+//! ```
 
 #![warn(missing_docs, clippy::missing_docs_in_private_items)]
 
-use bitmap::adversarial::{record, search_at_once, Effort, Score};
-use bitmap::diagnostics::examination::Examination;
-use bitmap::gct::encode;
-use bitmap::gct::grammar::bit_stream::BitStream;
-use bitmap::gct::tile::{cells_in_tile, Tile};
-use bitmap::gct::Workspace;
-use bitmap::samples::sample_seed;
-use bitmap::table::Table;
-use bitmap::Bitmap;
+use tilesim::adversarial::{record, search_at_once, Effort, Score};
+use tilesim::diagnostics::examination::Examination;
+use tilesim::gct::encode;
+use tilesim::gct::grammar::bit_stream::BitStream;
+use tilesim::gct::tile::{cells_in_tile, Tile};
+use tilesim::gct::Workspace;
+use tilesim::sample_generators::sample_seed;
+use tilesim::table::Table;
+use tilesim::Bitmap;
+
+/// The command that saves a record as a named bitmap.
+const SAVE: &str = "save";
+
+/// Copies the record named by the first argument to the saved bitmap
+/// named by the second, described by the third.
+fn save(arguments: &[String]) {
+    let [from, name, description] = arguments else {
+        panic!("usage: gct_adversarial save <record> <saved name> <description>");
+    };
+    let bitmap = record::read(from).unwrap_or_else(|| panic!("no record named {from}"));
+    let mut notes = vec![format!("{name}: {description}")];
+    notes.extend(record::notes_from(&record::path(from)).into_iter().map(|note| format!("from record {note}")));
+    record::save(name, &bitmap, &notes);
+    println!("saved {} from {from}", record::saved_path(name).display());
+}
 
 /// What the record is kept under.
 const RECORD: &str = "gct_against_raw";
@@ -41,6 +67,10 @@ fn score(bitmap: &Bitmap, area: Tile) -> Score {
 /// Runs the searches in parallel, prints what each found, and records
 /// the worst bitmap if it beats the one on record.
 fn main() {
+    let arguments: Vec<String> = std::env::args().skip(1).collect();
+    if arguments.first().is_some_and(|command| command == SAVE) {
+        return save(&arguments[1..]);
+    }
     let seed = sample_seed("adversarial search");
     let effort = Effort::from_arguments();
     let recorded = record::read(RECORD);

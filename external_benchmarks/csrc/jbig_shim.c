@@ -29,7 +29,7 @@ static void collect(unsigned char *start, size_t length, void *file) {
 /* Encodes `rows` (`width` by `height`) into `out`, as one stripe with
  * jbigkit's default options; returns the bytes written, or 0 if they
  * did not fit in `capacity`. */
-size_t comparison_jbig_encode(unsigned char *rows, unsigned long width, unsigned long height,
+size_t external_benchmarks_jbig_encode(unsigned char *rows, unsigned long width, unsigned long height,
                               unsigned char *out, size_t capacity) {
     struct jbg_enc_state state;
     unsigned char *planes[1] = {rows};
@@ -43,7 +43,7 @@ size_t comparison_jbig_encode(unsigned char *rows, unsigned long width, unsigned
 
 /* Decodes `length` bytes of `in` into `rows`, `rows_length` bytes;
  * returns 0 on success, else nonzero. */
-int comparison_jbig_decode(unsigned char *in, size_t length, unsigned char *rows, size_t rows_length) {
+int external_benchmarks_jbig_decode(unsigned char *in, size_t length, unsigned char *rows, size_t rows_length) {
     struct jbg_dec_state state;
     size_t read;
     jbg_dec_init(&state);

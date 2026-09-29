@@ -1,8 +1,8 @@
 //! PNG images of the bitmaps looked at, written to
 //! `target/gct_diagnostics/`.
 
-use bitmap::diagnostics::bitmaps::looked_at;
-use bitmap::diagnostics::png::png;
+use tilesim::diagnostics::bitmaps::looked_at;
+use tilesim::diagnostics::png::png;
 use std::fs;
 use std::path::PathBuf;
 

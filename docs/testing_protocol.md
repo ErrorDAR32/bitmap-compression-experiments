@@ -10,7 +10,7 @@ So the protocol is two-phase, and the phases must not be mixed.
 
 ## Where the seed comes from
 
-`testing/last_seed` holds the seed base every seeded run uses; setting
+`tests/last_seed` holds the seed base every seeded run uses; setting
 `GCT_SEED` overrides it for one run, and moves it. `GCT_SEED=fresh`
 draws a new one for one run and moves nothing. Every run says which seed each
 sample group used, so a number can always be traced to its bitmaps.
@@ -19,12 +19,12 @@ sample group used, so a number can always be traced to its bitmaps.
 
 Three parts, kept apart:
 
-- **Diagnostics** (`src/diagnostics/`, `bitmap::diagnostics`) gather
+- **Diagnostics** (`src/diagnostics/`, `tilesim::diagnostics`) gather
   data from gct's steps and output -- one bitmap examined, bits and
   times over many, what a tree holds, what the tree above the top tiles
   costs -- and never judge or print it.
 - **Tests** (`tests/`) judge what the diagnostics gather: pass or fail.
-- **Tools** (`src/bin/`, `examples/`) print what the diagnostics gather,
+- **Tools** (`src/bin/`) print what the diagnostics gather,
   or search for bitmaps.
 
 Every bitmap a test or a tool runs on is grown from a seed, with one
@@ -42,7 +42,7 @@ known case -- never to measure anything.
 Plain `cargo test` runs fine and fast. While the algorithm is being
 optimized, the fine tier's saved adversarial bitmaps stay fixed, and
 the fast tier runs on a fresh seed every time -- `GCT_SEED=fresh` draws
-one for that run alone, prints it, and leaves `testing/last_seed` (the
+one for that run alone, prints it, and leaves `tests/last_seed` (the
 measurement's held seed) alone, so every run checks bitmaps never seen
 and a failure names the seed that reproduces it:
 
@@ -67,7 +67,7 @@ diagnostics gather, and each stopping if gct loses a cell:
 | `measurement` | one table a sample generator (grown, city, lines, checkerboard, and the saved adversarial bitmaps), a row a parameter set with its parameters, bitmaps, cells set, gct's mean, fewest and most bits, share of the raw cells and encode time; then what the trees hold, family by family |
 | `census` | node kinds by level, for each bitmap looked at |
 | `copy_offsets` | a search for better copy offsets, near and far, on the fast sample -- climbs from several starts, single changes then pairs -- the best set against the current offsets on the timed sample |
-| `show` | the kept measurements, read back from `measurements/` |
+| `show` | the kept measurements, read back from `docs/measurements/` |
 | `per_shape` | gct's bits on every shape, plan and line set |
 | `noise` | gct's bits on noise at several densities |
 | `render` | PNG images of the bitmaps looked at, in `target/gct_diagnostics/` |
@@ -79,8 +79,8 @@ and any PBM image named in `GCT_DIAGNOSE`:
 cargo run --release --bin gct_diagnostics -- <tool>
 ```
 
-Every tool that measures -- these, `gct_timing` and the comparison --
-keeps its tables in `measurements/<tool>.csv`, rewritten by every run,
+Every tool that measures -- these and the external benchmarks --
+keeps its tables in `docs/measurements/<tool>.csv`, rewritten by every run,
 with the command, the seed and the commit it was measured on as the
 file's notes (`src/table/report.rs`). The latest numbers live there and
 nowhere else: no document copies them. `show` prints the kept tables
@@ -98,7 +98,7 @@ commit the files measured on the held seed.
 `src/bin/gct_adversarial.rs` looks for the bitmaps gct does worst on
 against the raw cells, by simulated annealing, four searches at once --
 first on one 64x64 window, then on the plane filled with that window's
-variants. The worst bitmap is kept in `testing/adversarial/` as a PBM
+variants. The worst bitmap is kept in `external_benchmarks/adversarial/` as a PBM
 image. It is replaced only when beaten, each run starts from it, and it
 must always round trip. The argument, as for the search against the
 codecs below, is how many changes to try on the plane from each start:
@@ -108,41 +108,41 @@ cargo run --release --bin gct_adversarial -- 4000
 ```
 
 Speed is measured in instructions, not time, by callgrind on a fixed
-sample (`examples/gct_instruction_count.rs`: five bitmaps of every
+sample (the diagnostics tool's `instruction_count`: five bitmaps of every
 generator, weighted as the timed sample is, a checkerboard, the saved
 adversarial bitmaps and noise, encoded and decoded). Callgrind counts every
 instruction executed, the same on every run, and says where they go:
 
 ```
-cargo build --release --example gct_instruction_count
+cargo build --release --bin gct_diagnostics
 valgrind --tool=callgrind --callgrind-out-file=target/callgrind.out \
-    target/release/examples/gct_instruction_count
+    target/release/gct_diagnostics instruction_count
 callgrind_annotate --inclusive=yes target/callgrind.out | head -40
 ```
 
 Time is measured apart, over a large sample of distinct bitmaps
-(`examples/gct_timing.rs`: every generator, 100 bitmaps each unless
+(the diagnostics tool's `timing`: every generator, 100 bitmaps each unless
 told otherwise, each encoded once, then decoded), in a release build
 run on its own -- no profiler, nothing else busy. It prints the encode
 time's mean, median, 90th percentile and worst by family, and the
 decode mean:
 
 ```
-cargo run --release --example gct_timing
-cargo run --release --example gct_timing -- 400
+cargo run --release --bin gct_diagnostics -- timing
+cargo run --release --bin gct_diagnostics -- timing 400
 ```
 
 Against existing bitmap compressors -- CCITT Group 4, JBIG (jbigkit) and
 zstd -- on the same sample, sizes and times side by side, in a crate of
-its own so gct never depends on them (`comparison/README.md`):
+its own so gct never depends on them (`external_benchmarks/README.md`):
 
 ```
-cargo run --release --manifest-path comparison/Cargo.toml
+cargo run --release --manifest-path external_benchmarks/Cargo.toml
 ```
 
 The same crate searches adversarially against each of those codecs --
-the library's search (`bitmap::adversarial`), scored as gct's bits less
-the codec's -- keeping the worst for each in `testing/adversarial/`.
+the library's search (`tilesim::adversarial`), scored as gct's bits less
+the codec's -- keeping the worst for each in `external_benchmarks/adversarial/`.
 Runs carry on from the records; give each run a fresh `GCT_SEED`, or it
 repeats the last run's moves. A search cools over all the changes it
 tries, so one long search settles deeper than many short ones: the
@@ -150,23 +150,23 @@ argument sets how many it tries on the whole plane from each start
 (100 unless told):
 
 ```
-GCT_SEED=<fresh> cargo run --release --manifest-path comparison/Cargo.toml --bin adversarial -- 4000
+GCT_SEED=<fresh> cargo run --release --manifest-path external_benchmarks/Cargo.toml --bin adversarial -- 4000
 ```
 
 Records move whenever a run beats them, so they are not what speed is
 measured on. Once a search has settled, its record is saved as a
-bitmap in `testing/adversarial/saved/`, named for what it is, with a
+bitmap in `external_benchmarks/adversarial/saved/`, named for what it is, with a
 line describing it and the record's scores as comment lines -- never
 replaced by a search, so the benchmarks' inputs stay fixed
-(`testing/adversarial/README.md` lists them):
+(`external_benchmarks/adversarial/README.md` lists them):
 
 ```
-cargo run --release --example save_adversarial -- <record> <name> "<description>"
+cargo run --release --bin gct_adversarial -- save <record> <name> "<description>"
 ```
 
 The fine tier checks every record and saved bitmap
 (`adversarial_bitmaps_pass_every_check`); the instruction count encodes
-and decodes each saved bitmap, `gct_timing` gives them a row of their
+and decodes each saved bitmap, `timing` gives them a row of their
 own, and the diagnostics tool's `measurement` a row each. Saving a new bitmap changes
 the instruction count's sample: count before and after it, apart from
 any code change.

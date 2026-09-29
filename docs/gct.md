@@ -530,7 +530,7 @@ cell.
 ## Measured
 
 No measured number is copied here, where it would go stale. Each
-measuring tool keeps its tables in `measurements/<tool>.csv`, with what
+measuring tool keeps its tables in `docs/measurements/<tool>.csv`, with what
 they were measured on -- the command, the seed, the commit -- as the
 file's notes, and rewrites the file on every run; `show` prints them
 back without measuring (`docs/testing_protocol.md`):
@@ -547,8 +547,8 @@ cargo run --release --bin gct_diagnostics -- show measurement
 | `per_shape.csv` | `gct_diagnostics -- per_shape` | bits a bitmap and a cell set, shape by shape |
 | `noise.csv` | `gct_diagnostics -- noise` | bits on noise at several densities, against the raw cells |
 | `copy_offsets.csv` | `gct_diagnostics -- copy_offsets` | the search for copy offsets, near and far: each climb, its best against the current offsets, and the best drawn |
-| `timing.csv` | `cargo run --release --example gct_timing` | encode and decode times, family by family |
-| `comparison.csv` | `cargo run --release --manifest-path comparison/Cargo.toml` | gct against G4, JBIG and zstd: bits and times, family by family |
+| `timing.csv` | `cargo run --release --bin gct_diagnostics -- timing` | encode and decode times, family by family |
+| `external_benchmarks.csv` | `cargo run --release --manifest-path external_benchmarks/Cargo.toml` | gct against G4, JBIG and zstd: bits and times, family by family |
 
 In `measurement.csv`'s tables of what the trees hold, a complex tile's
 body nodes are counted once each: every resolution tile unmasked in it,

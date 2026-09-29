@@ -1,13 +1,13 @@
 //! gct's bits on every shape, plan and line set on its own -- a
 //! family's total can hide a shape that costs more than it should.
 
-use bitmap::diagnostics::measured::Measured;
-use bitmap::diagnostics::RAW_CELLS;
-use bitmap::gct::Workspace;
-use bitmap::samples::{LINE_SETS, PLANS, SHAPES, SPARSE};
-use bitmap::table::report::Report;
-use bitmap::table::Table;
-use bitmap::Bitmap;
+use tilesim::diagnostics::measured::Measured;
+use tilesim::diagnostics::RAW_CELLS;
+use tilesim::gct::Workspace;
+use tilesim::sample_generators::{LINE_SETS, PLANS, SHAPES, SPARSE};
+use tilesim::table::report::Report;
+use tilesim::table::Table;
+use tilesim::Bitmap;
 
 /// Prints gct's bits on every shape, sparse shape, plan and line set,
 /// each on its own row.

@@ -6,13 +6,13 @@
 
 use super::Codec;
 use crate::rows::{Rows, BYTES, HEIGHT, WIDTH};
-use bitmap::Bitmap;
+use tilesim::Bitmap;
 
 extern "C" {
     /// See `csrc/jbig_shim.c`.
-    fn comparison_jbig_encode(rows: *mut u8, width: u64, height: u64, out: *mut u8, capacity: usize) -> usize;
+    fn external_benchmarks_jbig_encode(rows: *mut u8, width: u64, height: u64, out: *mut u8, capacity: usize) -> usize;
     /// See `csrc/jbig_shim.c`.
-    fn comparison_jbig_decode(input: *mut u8, length: usize, rows: *mut u8, rows_length: usize) -> i32;
+    fn external_benchmarks_jbig_decode(input: *mut u8, length: usize, rows: *mut u8, rows_length: usize) -> i32;
 }
 
 /// Room for any encoding: a bitmap's own bytes twice over, with room
@@ -57,7 +57,7 @@ impl Codec for Jbig {
         // Safety: every pointer is to a buffer of the length passed with
         // it, owned here for the call.
         self.length = unsafe {
-            comparison_jbig_encode(self.input.as_mut_ptr(), WIDTH as u64, HEIGHT as u64, self.encoded.as_mut_ptr(), MOST_ENCODED)
+            external_benchmarks_jbig_encode(self.input.as_mut_ptr(), WIDTH as u64, HEIGHT as u64, self.encoded.as_mut_ptr(), MOST_ENCODED)
         };
         assert!(self.length > 0, "a JBIG stream larger than {MOST_ENCODED} bytes");
     }
@@ -69,7 +69,7 @@ impl Codec for Jbig {
     fn decode(&mut self) {
         // Safety: as for encoding.
         let result = unsafe {
-            comparison_jbig_decode(self.encoded.as_mut_ptr(), self.length, self.decoded.0.as_mut_ptr(), BYTES)
+            external_benchmarks_jbig_decode(self.encoded.as_mut_ptr(), self.length, self.decoded.0.as_mut_ptr(), BYTES)
         };
         assert_eq!(result, 0, "jbigkit could not decode its own stream");
     }

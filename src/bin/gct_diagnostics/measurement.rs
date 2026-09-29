@@ -2,17 +2,17 @@
 //! table a generator and one row a parameter set, then what its trees
 //! are made of, family by family.
 
-use bitmap::adversarial::record;
-use bitmap::diagnostics::measured::Measured;
-use bitmap::diagnostics::tree_stats::TreeStats;
-use bitmap::diagnostics::RAW_CELLS;
-use bitmap::gct::grammar::bit_stream::BitStream;
-use bitmap::gct::Workspace;
-use bitmap::samples::checkerboards::checkerboards;
-use bitmap::samples::{families, HowMany, LINE_SETS, PLANS, SHAPES, SPARSE};
-use bitmap::table::report::Report;
-use bitmap::table::Table;
-use bitmap::Bitmap;
+use tilesim::adversarial::record;
+use tilesim::diagnostics::measured::Measured;
+use tilesim::diagnostics::tree_stats::TreeStats;
+use tilesim::diagnostics::RAW_CELLS;
+use tilesim::gct::grammar::bit_stream::BitStream;
+use tilesim::gct::Workspace;
+use tilesim::sample_generators::checkerboards::checkerboards;
+use tilesim::sample_generators::{families, HowMany, LINE_SETS, PLANS, SHAPES, SPARSE};
+use tilesim::table::report::Report;
+use tilesim::table::Table;
+use tilesim::Bitmap;
 
 /// `part` as a percentage of `whole`; 0 of nothing.
 fn percent(part: usize, whole: usize) -> f64 {

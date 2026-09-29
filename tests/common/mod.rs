@@ -1,11 +1,11 @@
 //! What every gct test checks of a bitmap, shared by the three tiers:
-//! judgements on what `bitmap::diagnostics` gathers.
+//! judgements on what `tilesim::diagnostics` gathers.
 
-use bitmap::diagnostics::examination::Examination;
-use bitmap::diagnostics::RAW_CELLS;
-use bitmap::gct::grammar::bit_stream::BitStream;
-use bitmap::gct::Workspace;
-use bitmap::Bitmap;
+use tilesim::diagnostics::examination::Examination;
+use tilesim::diagnostics::RAW_CELLS;
+use tilesim::gct::grammar::bit_stream::BitStream;
+use tilesim::gct::Workspace;
+use tilesim::Bitmap;
 use std::cell::RefCell;
 
 /// The most gct may ever spend on a bitmap: the raw cells and 1%.

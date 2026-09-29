@@ -4,7 +4,7 @@
 
 use super::Codec;
 use crate::rows::{Rows, BYTES, HEIGHT, ROW_BYTES, WIDTH};
-use bitmap::Bitmap;
+use tilesim::Bitmap;
 use fax::decoder::decode_g4;
 use fax::encoder::Encoder;
 use fax::{Color, VecWriter};

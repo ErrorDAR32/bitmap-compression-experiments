@@ -31,7 +31,7 @@ use std::sync::OnceLock;
 
 /// The file that remembers the last seed a run used, and how many runs
 /// in a row it has gone unmoved.
-pub const WHERE_THE_SEED_IS_KEPT: &str = "testing/last_seed";
+pub const WHERE_THE_SEED_IS_KEPT: &str = "tests/last_seed";
 
 /// How many runs a seed may go unmoved before a run says so loudly
 /// rather than in the one line every other run gets.

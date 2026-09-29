@@ -2,8 +2,8 @@
 //! first, most significant bit leftmost, 1 a set cell -- the raster
 //! layout G4 and JBIG work in.
 
-pub use bitmap::{HEIGHT, WIDTH};
-use bitmap::Bitmap;
+pub use tilesim::{HEIGHT, WIDTH};
+use tilesim::Bitmap;
 
 /// Bytes a row.
 pub const ROW_BYTES: usize = WIDTH / 8;

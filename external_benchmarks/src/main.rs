@@ -1,6 +1,6 @@
 //! gct against existing bitmap compressors -- CCITT Group 4, JBIG
-//! (jbigkit) and zstd -- on the same large sample `gct_timing` uses:
-//! every generator, `samples::TIMING_PER_GENERATOR` distinct bitmaps each. For
+//! (jbigkit) and zstd -- on the same large sample the diagnostics tool's `timing` uses:
+//! every generator, `sample_generators::TIMING_PER_GENERATOR` distinct bitmaps each. For
 //! each family and codec: the mean encoded size, and the mean time to
 //! encode and to decode, each bitmap encoded once and decoded once and
 //! checked. Run in release, on its own -- no profiler, nothing else
@@ -9,8 +9,8 @@
 //! From the repository root, so the seed is the repository's:
 //!
 //! ```text
-//! cargo run --release --manifest-path comparison/Cargo.toml
-//! cargo run --release --manifest-path comparison/Cargo.toml -- 400
+//! cargo run --release --manifest-path external_benchmarks/Cargo.toml
+//! cargo run --release --manifest-path external_benchmarks/Cargo.toml -- 400
 //! ```
 //!
 //! The argument, if given, is how many bitmaps each generator makes.
@@ -18,17 +18,17 @@
 
 #![warn(missing_docs, clippy::missing_docs_in_private_items)]
 
-use bitmap::diagnostics::RAW_CELLS;
-use bitmap::samples::{families, HowMany, TIMING_PER_GENERATOR};
-use bitmap::table::report::Report;
-use bitmap::table::Table;
-use bitmap::Bitmap;
-use comparison::codecs::g4::G4;
-use comparison::codecs::gct::Gct;
-use comparison::codecs::jbig::Jbig;
-use comparison::codecs::zstd::Zstd;
-use comparison::codecs::Codec;
-use comparison::rows::Rows;
+use tilesim::diagnostics::RAW_CELLS;
+use tilesim::sample_generators::{families, HowMany, TIMING_PER_GENERATOR};
+use tilesim::table::report::Report;
+use tilesim::table::Table;
+use tilesim::Bitmap;
+use external_benchmarks::codecs::g4::G4;
+use external_benchmarks::codecs::gct::Gct;
+use external_benchmarks::codecs::jbig::Jbig;
+use external_benchmarks::codecs::zstd::Zstd;
+use external_benchmarks::codecs::Codec;
+use external_benchmarks::rows::Rows;
 use std::time::Instant;
 
 /// zstd's default level, and a high one: how much more a general
@@ -92,7 +92,7 @@ fn main() {
         codec.decode();
     }
 
-    let mut report = Report::new("comparison", "cargo run --release --manifest-path comparison/Cargo.toml");
+    let mut report = Report::new("external_benchmarks", "cargo run --release --manifest-path external_benchmarks/Cargo.toml");
     report.note(format!("{per_generator} bitmaps a generator"));
     let mut overall = vec![Totals::default(); codecs.len()];
     for family in &families {

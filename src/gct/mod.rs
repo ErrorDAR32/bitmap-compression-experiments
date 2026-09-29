@@ -21,6 +21,7 @@
 pub mod complex_tiler;
 pub mod decode;
 pub mod encode;
+mod fixed_list;
 pub mod grammar;
 pub mod greedy_tiler;
 pub mod nested_resolutions;

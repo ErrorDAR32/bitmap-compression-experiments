@@ -1,4 +1,4 @@
-//! A fixed size 256 by 256 bitmap, and an encoding of it.
+//! tilesim: a fixed size 256 by 256 bitmap, and an encoding of it.
 //!
 //! [`gct`] is the greedy complex tiler: the bitmap tiled greedily,
 //! biggest first, by tiles bound to one value or copied from a
@@ -12,9 +12,9 @@
 //! after the first is encoded and decoded without allocating.
 //!
 //! ```
-//! use bitmap::gct::grammar::bit_stream::BitStream;
-//! use bitmap::gct::Workspace;
-//! use bitmap::Bitmap;
+//! use tilesim::gct::grammar::bit_stream::BitStream;
+//! use tilesim::gct::Workspace;
+//! use tilesim::Bitmap;
 //!
 //! let mut bitmap = Bitmap::new();
 //! bitmap.set_rect(10, 10, 40, 30);
@@ -39,17 +39,19 @@
 //! | [`adversarial`] | searches for the bitmaps an encoder does worst on, by any score |
 //! | [`bitmap`] | the 65536 cells, and what can be drawn on them |
 //! | [`diagnostics`] | data gathered from gct's steps and output, for the tests to judge and the tools to print |
-//! | [`gct`] | the greedy complex tiler, the encoding (`docs/gct.md`) |
-//! | `fixed_list` | the one list gct keeps: a fixed capacity, allocated once, never growing |
+//! | [`gct`] | the greedy complex tiler, the encoding (`docs/gct.md`), with the fixed-capacity list it keeps |
 //! | `morton` | the Morton order the bitmap and every pyramid level are laid out in |
-//! | [`rng`] | the one seeded random source, for the samples and the searches |
-//! | [`samples`] | the bitmaps everything is measured on, and where the seed comes from |
-//! | [`table`] | printing any of it the same way, and keeping measurements in `measurements/` |
+//! | [`rng`] | the one seeded random source, for the sample generators and the searches |
+//! | [`sample_generators`] | the bitmaps everything is measured on, and where the seed comes from |
+//! | [`table`] | printing any of it the same way, and keeping measurements in `docs/measurements/` |
 //!
-//! `tests/` holds gct's tests, which judge what [`diagnostics`] gathers;
-//! `src/bin/` the diagnostics tool, which prints it, and the adversarial
-//! search against the raw cells; `examples/` the timing and instruction
-//! count.
+//! `tests/` holds gct's tests, which judge what [`diagnostics`] gathers,
+//! and `tests/last_seed`, the seed every seeded run uses; `src/bin/` the
+//! diagnostics tool, which prints it -- timing and the instruction count
+//! among its tools -- and the adversarial search against the raw cells.
+//! `external_benchmarks/` is a crate of its own: gct against existing
+//! bitmap compressors, the adversarial searches against each, and the
+//! bitmaps those found.
 //!
 //! `docs/design_statements.md` is what every decision here is weighed
 //! against, and `docs/testing_protocol.md` is how a change to any of
@@ -62,11 +64,10 @@
 pub mod adversarial;
 pub mod bitmap;
 pub mod diagnostics;
-mod fixed_list;
 mod morton;
 pub mod gct;
 pub mod rng;
-pub mod samples;
+pub mod sample_generators;
 pub mod table;
 
 pub use bitmap::Bitmap;

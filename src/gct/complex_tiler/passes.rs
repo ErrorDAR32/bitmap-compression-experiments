@@ -20,7 +20,7 @@
 use super::cost_pyramid::CostPyramid;
 use super::complex_tile_candidates::{Candidate, FINEST_CANDIDATE_LEVEL};
 use super::raw_masking::decide_raw_masking;
-use crate::fixed_list::FixedList;
+use crate::gct::fixed_list::FixedList;
 use crate::gct::pyramids::complex_tiling::ComplexTiling;
 use crate::gct::tile::{tiles_in_level, Tile};
 use crate::gct::nested_resolutions::NestedResolutions;

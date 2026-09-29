@@ -20,7 +20,7 @@ use crate::gct::grammar::order::payload_parts;
 use crate::gct::grammar::cell_list;
 use crate::gct::grammar::*;
 use crate::gct::nested_resolutions::NestedResolutions;
-use crate::fixed_list::FixedList;
+use crate::gct::fixed_list::FixedList;
 use crate::gct::pyramids::copyable::CopyOffsets;
 use crate::gct::pyramids::tree::{Node, Tree};
 use crate::gct::tile::{cells_in_tile, tiles_across, Tile, CELL_LEVEL, FLOOR_LEVEL};

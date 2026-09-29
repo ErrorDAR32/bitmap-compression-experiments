@@ -1,16 +1,16 @@
 [package]
-name = "comparison"
+name = "external_benchmarks"
 version = "0.1.0"
 edition = "2021"
 description = "gct against existing bitmap compressors: CCITT Group 4, JBIG (jbigkit) and zstd"
 publish = false
-default-run = "comparison"
+default-run = "external_benchmarks"
 
 # Its own workspace: the external codecs never enter gct's build.
 [workspace]
 
 [dependencies]
-bitmap = { path = ".." }
+tilesim = { path = ".." }
 fax = "0.3.0"
 zstd = "0.13"
 

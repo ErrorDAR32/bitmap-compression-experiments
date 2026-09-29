@@ -2,12 +2,12 @@
 //! densities, against the raw cells: what gct pays where nothing
 //! compresses, or little does.
 
-use bitmap::diagnostics::measured::Measured;
-use bitmap::diagnostics::RAW_CELLS;
-use bitmap::gct::Workspace;
-use bitmap::samples::grown;
-use bitmap::table::report::Report;
-use bitmap::table::Table;
+use tilesim::diagnostics::measured::Measured;
+use tilesim::diagnostics::RAW_CELLS;
+use tilesim::gct::Workspace;
+use tilesim::sample_generators::grown;
+use tilesim::table::report::Report;
+use tilesim::table::Table;
 
 /// The densities looked at, from all but incompressible to half.
 const DENSITIES: [f64; 4] = [0.5, 0.35, 0.2, 0.1];

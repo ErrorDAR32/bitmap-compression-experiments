@@ -38,7 +38,7 @@
 //! tiling as the pass found it.
 
 use super::bit_cost::{node_bits, payload_bits};
-use crate::fixed_list::FixedList;
+use crate::gct::fixed_list::FixedList;
 use crate::gct::grammar::{CHILD_MASK_WIDTH, FLIP_WIDTH, LEAF_WIDTH, MASK_BIT_WIDTH};
 use crate::gct::nested_resolutions::NestedResolutions;
 use crate::gct::pyramids::complex_tiling::{ComplexTiling, Fields};

@@ -1,5 +1,5 @@
 //! A measurement's report: its tables, each titled, and notes on what
-//! they were measured on -- printed, and kept in `measurements/`, one
+//! they were measured on -- printed, and kept in `docs/measurements/`, one
 //! file a measurement, rewritten by every run, so the latest numbers are
 //! always in a file and never copied into a document by hand.
 //!
@@ -9,13 +9,13 @@
 
 use super::csv::{lines, Line, COMMENT};
 use super::Table;
-use crate::samples::seed::seed_in_use;
+use crate::sample_generators::seed::seed_in_use;
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
 
 /// Where the reports are kept, under the crate's root.
-const FOLDER: &str = "measurements";
+const FOLDER: &str = "docs/measurements";
 /// A report file's extension.
 const EXTENSION: &str = "csv";
 

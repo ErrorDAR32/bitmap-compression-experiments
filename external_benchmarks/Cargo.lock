@@ -3,10 +3,6 @@
 version = 4
 
 [[package]]
-name = "bitmap"
-version = "0.1.0"
-
-[[package]]
 name = "cc"
 version = "1.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -25,12 +21,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4e7648175b45a9a48536d676f68d918270699102aa8dab5496df06904c914600"
 
 [[package]]
-name = "comparison"
+name = "external_benchmarks"
 version = "0.1.0"
 dependencies = [
- "bitmap",
  "cc",
  "fax",
+ "tilesim",
  "zstd",
 ]
 
@@ -90,6 +86,10 @@ name = "shlex"
 version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f8fadd59c855ef2080decdef8ff161eb6661b86933c9d82e5ba29dc602a55aba"
+
+[[package]]
+name = "tilesim"
+version = "0.1.0"
 
 [[package]]
 name = "zstd"

@@ -1,11 +1,11 @@
-//! Fast tests: a small sample from the seed in `testing/last_seed` --
+//! Fast tests: a small sample from the seed in `tests/last_seed` --
 //! every shape, sparse shape, plan and line set, at its `tested` count.
 //!
 //! `cargo test --test gct_fast`
 
 mod common;
 
-use bitmap::samples::{LINE_SETS, PLANS, SHAPES, SPARSE};
+use tilesim::sample_generators::{LINE_SETS, PLANS, SHAPES, SPARSE};
 use common::check;
 
 /// Every shape and sparse shape, at its `tested` count, passes every check in

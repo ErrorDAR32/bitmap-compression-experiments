@@ -1,28 +1,29 @@
-//! A fixed sample for counting gct's instructions: `BITMAPS_PER_GENERATOR`
-//! bitmaps of every generator -- grown shapes, sparse ones, city plans and
-//! line sets, weighted as the timed sample (`gct_timing`) is -- a
-//! checkerboard, every saved adversarial bitmap (`testing/adversarial/saved/`) and
-//! noise, encoded, then decoded, all in one workspace. Run it under
+//! A fixed sample for counting gct's instructions:
+//! `BITMAPS_PER_GENERATOR` bitmaps of every generator -- grown shapes,
+//! sparse ones, city plans and line sets, weighted as the `timing` tool's
+//! sample is -- a checkerboard, every saved adversarial bitmap
+//! (`external_benchmarks/adversarial/saved/`) and noise, encoded, then
+//! decoded, all in one workspace. Run it under
 //! callgrind, which counts executed instructions exactly and says where
 //! they go:
 //!
 //! ```text
-//! cargo build --release --example gct_instruction_count
+//! cargo build --release --bin gct_diagnostics
 //! valgrind --tool=callgrind --callgrind-out-file=target/callgrind.out \
-//!     target/release/examples/gct_instruction_count
+//!     target/release/gct_diagnostics instruction_count
 //! callgrind_annotate target/callgrind.out | head -40
 //! ```
 //!
 //! Instructions a bitmap are the total over the bitmap count it prints.
 
-use bitmap::gct::grammar::bit_stream::BitStream;
-use bitmap::adversarial::record;
-use bitmap::gct::Workspace;
-use bitmap::samples::checkerboards::checkerboard;
-use bitmap::diagnostics::examination::first_difference;
-use bitmap::samples::{families, grown, HowMany};
-use bitmap::table::Table;
-use bitmap::Bitmap;
+use tilesim::gct::grammar::bit_stream::BitStream;
+use tilesim::adversarial::record;
+use tilesim::gct::Workspace;
+use tilesim::sample_generators::checkerboards::checkerboard;
+use tilesim::diagnostics::examination::first_difference;
+use tilesim::sample_generators::{families, grown, HowMany};
+use tilesim::table::Table;
+use tilesim::Bitmap;
 
 /// Bitmaps each generator makes: the first of those the timed sample
 /// takes, so the counts weigh each family as the times do.
@@ -38,7 +39,7 @@ const NOISE_SEED: u64 = 1;
 const NOISE_BITMAPS: u64 = 1;
 
 /// Builds the sample, then encodes and decodes every bitmap of it.
-fn main() {
+pub fn run() {
     let mut sample: Vec<Bitmap> = families(HowMany::Each(BITMAPS_PER_GENERATOR)).into_iter().flat_map(|(_, bitmaps)| bitmaps).collect();
     sample.push(checkerboard(CHECKERBOARD_SQUARE));
     sample.extend(record::saved().into_iter().map(|(_, bitmap)| bitmap));

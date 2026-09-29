@@ -1,27 +1,28 @@
 //! Wall-clock time to encode, averaged over a large sample: every
 //! generator's bitmaps -- grown shapes, sparse ones, city plans and line
-//! sets -- `samples::TIMING_PER_GENERATOR` distinct bitmaps each, all
+//! sets -- `sample_generators::TIMING_PER_GENERATOR` distinct bitmaps each, all
 //! built before any is timed, then each encoded once in one workspace.
 //! Decoding is timed apart, after. The saved adversarial bitmaps
-//! (`testing/adversarial/saved/`) get a row of their own, apart from the
-//! sample's. Run it in release, on
-//! its own -- no profiler, nothing else busy:
+//! (`external_benchmarks/adversarial/saved/`) get a row of their own,
+//! apart from the sample's. Run it in release, on its own -- no
+//! profiler, nothing else busy:
 //!
 //! ```text
-//! cargo run --release --example gct_timing
-//! cargo run --release --example gct_timing -- 400
+//! cargo run --release --bin gct_diagnostics -- timing
+//! cargo run --release --bin gct_diagnostics -- timing 400
 //! ```
 //!
-//! The argument, if given, is how many bitmaps each generator makes.
+//! The argument after the tool's name, if given, is how many bitmaps
+//! each generator makes.
 
-use bitmap::adversarial::record;
-use bitmap::diagnostics::examination::first_difference;
-use bitmap::gct::grammar::bit_stream::BitStream;
-use bitmap::gct::Workspace;
-use bitmap::samples::{families, HowMany, TIMING_PER_GENERATOR};
-use bitmap::table::report::Report;
-use bitmap::table::Table;
-use bitmap::Bitmap;
+use tilesim::adversarial::record;
+use tilesim::diagnostics::examination::first_difference;
+use tilesim::gct::grammar::bit_stream::BitStream;
+use tilesim::gct::Workspace;
+use tilesim::sample_generators::{families, HowMany, TIMING_PER_GENERATOR};
+use tilesim::table::report::Report;
+use tilesim::table::Table;
+use tilesim::Bitmap;
 use std::time::{Duration, Instant};
 
 /// Times each saved adversarial bitmap is encoded: they are few, so each
@@ -35,9 +36,9 @@ const TAIL_PERCENT: usize = 90;
 const MEDIAN_PERCENT: usize = 50;
 
 /// Builds the sample, times encoding every bitmap of it once, then
-/// decoding, and prints both a family at a time.
-fn main() {
-    let per_generator = std::env::args().nth(1).map_or(TIMING_PER_GENERATOR, |count| count.parse().expect("a count"));
+/// decoding, and reports both a family at a time.
+pub fn run(report: &mut Report) {
+    let per_generator = std::env::args().nth(2).map_or(TIMING_PER_GENERATOR, |count| count.parse().expect("a count"));
     let families = families(HowMany::Each(per_generator));
 
     let (mut workspace, mut stream, mut back) = (Workspace::new(), BitStream::default(), Bitmap::new());
@@ -65,10 +66,8 @@ fn main() {
     let (mut encodes, decodes) = time(&mut workspace, &mut stream, &mut back, name, &repeated);
     table.rule();
     table.row(&row(name, &mut encodes, &decodes));
-    let mut report = Report::new("timing", "cargo run --release --example gct_timing");
     report.note(format!("{per_generator} bitmaps a generator, the saved adversarial bitmaps {RECORD_REPEATS} times each"));
     report.add("encode and decode times", table);
-    report.publish();
 }
 
 /// Encodes every bitmap of `bitmaps`, the family `name`, once, timing

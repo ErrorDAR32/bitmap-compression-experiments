@@ -6,17 +6,17 @@
 
 mod common;
 
-use bitmap::gct::pyramids::copyable::{child_offset, matches_at, matching_direction, CopyOffsets, FAR_OFFSETS, FINEST_COPY_LEVEL, NEAR_OFFSETS};
-use bitmap::gct::pyramids::patterns::Patterns;
-use bitmap::gct::pyramids::pyramid::{Pyramid, PyramidShape};
-use bitmap::gct::tile::Tile;
-use bitmap::gct::pyramids::tree::Node;
-use bitmap::diagnostics::tree_stats::TreeStats;
-use bitmap::gct::encode;
-use bitmap::samples::checkerboards::checkerboard;
-use bitmap::samples::{one_grown, one_laid_out, PLANS};
-use bitmap::Bitmap;
-use bitmap::diagnostics::examination::tree_of;
+use tilesim::gct::pyramids::copyable::{child_offset, matches_at, matching_direction, CopyOffsets, FAR_OFFSETS, FINEST_COPY_LEVEL, NEAR_OFFSETS};
+use tilesim::gct::pyramids::patterns::Patterns;
+use tilesim::gct::pyramids::pyramid::{Pyramid, PyramidShape};
+use tilesim::gct::tile::Tile;
+use tilesim::gct::pyramids::tree::Node;
+use tilesim::diagnostics::tree_stats::TreeStats;
+use tilesim::gct::encode;
+use tilesim::sample_generators::checkerboards::checkerboard;
+use tilesim::sample_generators::{one_grown, one_laid_out, PLANS};
+use tilesim::Bitmap;
+use tilesim::diagnostics::examination::tree_of;
 use common::check;
 
 /// A seed for the grown and laid-out cases here, fixed so each fine
@@ -161,10 +161,10 @@ fn patterns_number_cells_across_builds() {
 /// working on gct against.
 #[test]
 fn adversarial_bitmaps_pass_every_check() {
-    use bitmap::adversarial::record;
+    use tilesim::adversarial::record;
     let (records, saved) = (record::all(), record::saved());
-    assert!(!records.is_empty(), "no adversarial records in testing/adversarial");
-    assert!(!saved.is_empty(), "no saved adversarial bitmaps in testing/adversarial/saved");
+    assert!(!records.is_empty(), "no adversarial records in external_benchmarks/adversarial");
+    assert!(!saved.is_empty(), "no saved adversarial bitmaps in external_benchmarks/adversarial/saved");
     for (name, bitmap) in records.into_iter().chain(saved) {
         check(&bitmap, &name);
     }
@@ -242,9 +242,9 @@ fn a_complex_tile_masks_a_lone_cell_down_to_a_cell_list() {
 /// from CSV field for field, alone and inside a report.
 #[test]
 fn a_table_round_trips_through_csv() {
-    use bitmap::table::csv::{lines, Line};
-    use bitmap::table::report::Report;
-    use bitmap::table::Table;
+    use tilesim::table::csv::{lines, Line};
+    use tilesim::table::report::Report;
+    use tilesim::table::Table;
     let awkward = ["a, b", "say \"so\"", "two\nlines", "", "# not a note", "---"];
     let mut table = Table::new(&["name", "stacked\nheading"]);
     for field in awkward {

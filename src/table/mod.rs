@@ -13,7 +13,7 @@
 //! A table is also kept as text, so a measurement is written once and
 //! read back rather than copied by hand: `csv.rs` writes and reads one
 //! table as CSV, and `report.rs` keeps a measurement's tables, with
-//! notes on what they were measured on, in one file of `measurements/`.
+//! notes on what they were measured on, in one file of `docs/measurements/`.
 
 pub mod csv;
 pub mod report;
