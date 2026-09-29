@@ -15,7 +15,7 @@
 
 use crate::gct::pyramids::pyramid::{Pyramid, PyramidShape};
 use crate::gct::grammar::{DIRECTION_MASK, DIRECTION_WIDTH, FAR_WIDTH};
-use crate::gct::tile::{Tile, CELL_LEVEL, LEVEL_BITS};
+use crate::gct::tile::{Tile, LEVEL_BITS, FLOOR_LEVEL};
 use crate::morton::morton_coordinates;
 
 /// What the tree holds at one tile.
@@ -65,8 +65,8 @@ pub enum Node {
     /// residual pass.
     Residual,
     /// A complex tile of 1x1 resolution masking nothing, saying its set
-    /// cells as a [point list](crate::gct::grammar::point_list).
-    PointList,
+    /// cells as a [cell list](crate::gct::grammar::cell_list).
+    CellList,
 }
 
 /// Bits a node's kind takes, at the bottom of its code: enough for the
@@ -89,8 +89,8 @@ const COPIED: u64 = 3;
 const COMPLEX_TILE: u64 = 4;
 /// The kind of [`Node::Residual`].
 const RESIDUAL: u64 = 5;
-/// The kind of [`Node::PointList`].
-const POINT_LIST: u64 = 6;
+/// The kind of [`Node::CellList`].
+const CELL_LIST: u64 = 6;
 /// Copied: far in the parameter's bottom bit...
 const FAR: u64 = 1;
 /// ...its direction right above...
@@ -122,7 +122,7 @@ fn to_code(node: Node) -> u64 {
             (COMPLEX_TILE, size_offset as u64 | if masks { COMPLEX_TILE_MASKS } else { 0 })
         }
         Node::Residual => (RESIDUAL, 0),
-        Node::PointList => (POINT_LIST, 0),
+        Node::CellList => (CELL_LIST, 0),
     };
     kind | parameter << PARAMETER_SHIFT
 }
@@ -144,14 +144,14 @@ fn from_code(code: u64) -> Node {
             masks: parameter & COMPLEX_TILE_MASKS != 0,
         },
         RESIDUAL => Node::Residual,
-        POINT_LIST => Node::PointList,
+        CELL_LIST => Node::CellList,
         kind => unreachable!("no node kind {kind}"),
     }
 }
 
 /// One node code a tile, 8 bits, down to the 2x2 floor: nothing finer
 /// is ever a node.
-const SHAPE: PyramidShape = PyramidShape { coarsest_level: 0, finest_level: CELL_LEVEL - 1, element_bits: NODE_BITS };
+const SHAPE: PyramidShape = PyramidShape { coarsest_level: 0, finest_level: FLOOR_LEVEL, element_bits: NODE_BITS };
 
 /// Bits a node's code takes.
 const NODE_BITS: usize = 8;
@@ -205,7 +205,7 @@ impl Tree for Pyramid {
     }
 
     fn residual_squares(&self) -> impl Iterator<Item = Tile> + '_ {
-        let level = CELL_LEVEL - 1;
+        let level = FLOOR_LEVEL;
         self.level_words(level).iter().enumerate().filter(|&(_, &word)| word != 0).flat_map(move |(word_index, &word)| {
             (0..NODES_A_WORD).filter(move |&slot| (word >> (slot * NODE_BITS)) & NODE_MASK == RESIDUAL_CODE).map(move |slot| {
                 let (x, y) = morton_coordinates(word_index * NODES_A_WORD + slot);

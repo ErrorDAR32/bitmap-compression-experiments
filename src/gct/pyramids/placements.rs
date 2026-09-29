@@ -1,5 +1,5 @@
 //! What the greedy tiler placed: one 8-bit code per tile, over every
-//! level down to single cells, held in the complex tiling pyramid --
+//! level down to the 2x2 floor, held in the complex tiling pyramid --
 //! nothing placed exactly here, or what the tile placed here is.
 //!
 //! A copy or a bind may mask some of its children: it says only the

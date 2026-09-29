@@ -1,18 +1,18 @@
 //! The workspace: every structure encoding or decoding needs, allocated
 //! once and reused for every bitmap after -- the pyramids and the
-//! patterns' tables, the complex
-//! tiler's scratch, a payload's parts. Encoding takes the bitmap and where
-//! the stream goes; decoding takes the stream and where the bitmap goes.
-//! Every structure is sized at the most any bitmap needs -- the
-//! pyramids by their shape, every list at a bound named where it is
-//! made (`FixedList`, `src/fixed_list.rs`) -- so neither ever allocates or
-//! grows, whatever the bitmap, the first included.
+//! patterns' tables, the complex tiler's scratch. Encoding takes the
+//! bitmap and where the stream goes; decoding takes the stream and where
+//! the bitmap goes. Every structure is sized at the most any bitmap needs
+//! -- the pyramids by their shape, every list at a bound named where it
+//! is made (`FixedList`, `src/fixed_list.rs`) -- so neither ever
+//! allocates or grows, whatever the bitmap, the first included. Each is
+//! kept as small as that allows: nothing is held for a level or a list
+//! that can never be used.
 
 use crate::gct::complex_tiler::passes::{complex_tiler, Scratch};
 use crate::gct::decode::{decode, Copies, StreamContents};
 use crate::gct::encode::write;
 use crate::gct::grammar::bit_stream::BitStream;
-use crate::gct::grammar::order::PayloadWalk;
 use crate::gct::greedy_tiler::greedy_tiler;
 use crate::gct::pyramids::patterns::Patterns;
 use crate::gct::pyramids::placements::Placements;
@@ -35,8 +35,6 @@ pub struct Workspace {
     tree: Pyramid,
     /// Room to resolve copies in, decoding.
     copies: Copies,
-    /// Room for a payload's parts.
-    payload_walk: PayloadWalk,
     /// Where copies read from, encoding and decoding alike.
     copy_offsets: CopyOffsets,
 }
@@ -50,7 +48,6 @@ impl Workspace {
             scratch: Scratch::default(),
             tree: Pyramid::tree(),
             copies: Copies::default(),
-            payload_walk: PayloadWalk::default(),
             copy_offsets: CopyOffsets::default(),
         }
     }
@@ -68,7 +65,7 @@ impl Workspace {
         greedy_tiler(bitmap, &self.patterns, &self.copy_offsets, &mut self.complex_tiling);
         complex_tiler(&mut self.complex_tiling, bitmap, &mut self.scratch);
         tree_representation(&self.complex_tiling, &mut self.tree);
-        write(&self.tree, bitmap, stream, &mut self.payload_walk);
+        write(&self.tree, bitmap, stream);
     }
 
     /// Decodes `stream` into `bitmap`, whatever it held before.
@@ -78,7 +75,6 @@ impl Workspace {
             cell_values: bitmap,
             copies: &mut self.copies,
             offsets: &self.copy_offsets,
-            payload_walk: &mut self.payload_walk,
         };
         decode(stream, &mut read);
     }

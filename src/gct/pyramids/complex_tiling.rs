@@ -1,5 +1,6 @@
 //! The complex tiling: the complex tiler's output, and everything the
-//! tree is read from. One 32-bit element per tile, down to single cells:
+//! tree is read from. One 32-bit element per tile, down to the 2x2
+//! floor -- nothing finer is ever placed:
 //!
 //! - bits 0-7: what the greedy tiler placed exactly at the tile, in the
 //!   placement code ([`super::placements`]) -- the greedy tiler's
@@ -15,7 +16,7 @@
 //!   tile, bit `n` for size `n` -- a complex tile has nothing to unmask
 //!   at a resolution none is placed at;
 //! - bit 26: whether the complex tile at the tile, of 1x1 resolution,
-//!   says its cells as a point list ([`crate::gct::grammar::point_list`])
+//!   says its cells as a cell list ([`crate::gct::grammar::cell_list`])
 //!   rather than raw, masking nothing;
 //! - bit 27: the value bound above the tile -- that of the nearest bind
 //!   that masks above it, or clear -- handed down once from the whole
@@ -35,7 +36,7 @@
 use super::placements::{placement_code, placement_from_code, Placement, Placements, BOUND_AT_THE_TOP, FINEST_MASKING_LEVEL, PLACEMENT_CODE_BITS};
 use super::pyramid::{Pyramid, PyramidShape};
 use crate::gct::nested_resolutions::NestedResolutions;
-use crate::gct::tile::{tiles_in_level, Tile, CELL_LEVEL, CHILDREN, LEVEL_BITS};
+use crate::gct::tile::{tiles_in_level, Tile, CELL_LEVEL, CHILDREN, LEVEL_BITS, FLOOR_LEVEL};
 
 /// A field's value for nothing: no bound size, no size offset.
 const EMPTY_FIELD: u64 = 0;
@@ -59,15 +60,15 @@ const SIZE_OFFSET: Field = Field { shift: BOUND_SIZE.shift + BOUND_SIZE.width, w
 const RAW_MASKS: Field = Field { shift: SIZE_OFFSET.shift + SIZE_OFFSET.width, width: 1 };
 /// One bit a size, `CELL_LEVEL + 1` of them.
 const BOUND_SIZES_UNDER: Field = Field { shift: RAW_MASKS.shift + RAW_MASKS.width, width: CELL_LEVEL as u64 + 1 };
-/// Whether the complex tile here is a point list.
-const POINT_LIST: Field = Field { shift: BOUND_SIZES_UNDER.shift + BOUND_SIZES_UNDER.width, width: 1 };
+/// Whether the complex tile here is a cell list.
+const CELL_LIST: Field = Field { shift: BOUND_SIZES_UNDER.shift + BOUND_SIZES_UNDER.width, width: 1 };
 /// The value bound above the tile.
-const BOUND_ABOVE: Field = Field { shift: POINT_LIST.shift + POINT_LIST.width, width: 1 };
+const BOUND_ABOVE: Field = Field { shift: CELL_LIST.shift + CELL_LIST.width, width: 1 };
 /// A one-bit field's value for yes.
 const YES: u64 = 1;
 
 /// 32 bits an element: the fields above take 28.
-const SHAPE: PyramidShape = PyramidShape { coarsest_level: 0, finest_level: CELL_LEVEL, element_bits: u32::BITS as usize };
+const SHAPE: PyramidShape = PyramidShape { coarsest_level: 0, finest_level: FLOOR_LEVEL, element_bits: u32::BITS as usize };
 const _: () = assert!(BOUND_ABOVE.shift + BOUND_ABOVE.width <= SHAPE.element_bits as u64);
 
 /// One element's bits.
@@ -163,13 +164,13 @@ impl Fields {
     /// These fields as they would be were the tile a complex tile of
     /// `size_offset` -- for scoring one without placing it.
     pub fn as_complex_tile(self, size_offset: u8) -> Fields {
-        Fields(with_field(with_field(self.0, SIZE_OFFSET, size_offset as u64), POINT_LIST, EMPTY_FIELD))
+        Fields(with_field(with_field(self.0, SIZE_OFFSET, size_offset as u64), CELL_LIST, EMPTY_FIELD))
     }
 
     /// These fields as they would be were the tile, of `level`, a point
     /// list.
-    pub fn as_point_list(self, level: u8) -> Fields {
-        Fields(with_field(self.as_complex_tile(CELL_LEVEL - level).0, POINT_LIST, YES))
+    pub fn as_cell_list(self, level: u8) -> Fields {
+        Fields(with_field(self.as_complex_tile(CELL_LEVEL - level).0, CELL_LIST, YES))
     }
 
     /// The value bound above the tile: the nearest bind that masks above
@@ -179,9 +180,9 @@ impl Fields {
     }
 
     /// Whether the complex tile at exactly the tile says its cells as a
-    /// point list.
-    pub fn is_point_list(self) -> bool {
-        field(self.0, POINT_LIST) == YES
+    /// cell list.
+    pub fn is_cell_list(self) -> bool {
+        field(self.0, CELL_LIST) == YES
     }
 
     /// The size offset of the complex tile at exactly the tile, if it is
@@ -194,11 +195,13 @@ impl Fields {
 
 /// The complex tiling's queries and updates, over its fields.
 pub trait ComplexTiling {
+    /// Marks `tile` as masked by a complex tile of 1x1 resolution.
+    fn mark_raw_masked(&mut self, tile: Tile);
+
     /// Fills in the rest of the greedy tiler's placements, in place: the
-    /// tiles in `raw_masked` masked by a complex tile of 1x1 resolution,
-    /// the bound sizes carried up, and the value bound above every tile
+    /// bound sizes carried up, and the value bound above every tile
     /// handed down. No complex tiles yet.
-    fn fill_in(&mut self, raw_masked: &[Tile]);
+    fn fill_in(&mut self);
 
     /// `tile`'s fields, for asking several things of it.
     fn fields(&self, tile: Tile) -> Fields;
@@ -236,15 +239,16 @@ pub trait ComplexTiling {
     fn make_complex_tile(&mut self, tile: Tile, size_offset: u8);
 
     /// Makes `tile` a complex tile of 1x1 resolution saying its cells as
-    /// a point list.
-    fn make_point_list(&mut self, tile: Tile);
+    /// a cell list.
+    fn make_cell_list(&mut self, tile: Tile);
 }
 
 impl ComplexTiling for Pyramid {
-    fn fill_in(&mut self, raw_masked: &[Tile]) {
-        for &tile in raw_masked {
-            self.set(tile, with_field(self.get(tile), RAW_MASKS, YES));
-        }
+    fn mark_raw_masked(&mut self, tile: Tile) {
+        self.set(tile, with_field(self.get(tile), RAW_MASKS, YES));
+    }
+
+    fn fill_in(&mut self) {
         carry_bound_sizes_up(self);
         hand_bound_above_down(self);
     }
@@ -264,8 +268,8 @@ impl ComplexTiling for Pyramid {
         self.set(tile, element);
     }
 
-    fn make_point_list(&mut self, tile: Tile) {
-        let element = self.fields(tile).as_point_list(tile.level).0;
+    fn make_cell_list(&mut self, tile: Tile) {
+        let element = self.fields(tile).as_cell_list(tile.level).0;
         self.set(tile, element);
     }
 }
@@ -292,7 +296,7 @@ impl Placements for Pyramid {
     }
 
     fn placed_tiles(&self) -> impl Iterator<Item = (Tile, Placement)> + '_ {
-        (0..=CELL_LEVEL).flat_map(move |level| {
+        (0..=FLOOR_LEVEL).flat_map(move |level| {
             Tile::all_of_level(level).filter_map(move |tile| self.placement(tile).map(|placement| (tile, placement)))
         })
     }
@@ -305,7 +309,7 @@ impl Placements for Pyramid {
 /// two. Done once, when the placements are complete: nothing set
 /// afterwards changes either field.
 fn carry_bound_sizes_up(pyramid: &mut Pyramid) {
-    for level in (0..CELL_LEVEL).rev() {
+    for level in (0..FLOOR_LEVEL).rev() {
         let (coarser, finer) = pyramid.level_and_finer_mut(level);
         for tile_index in 0..tiles_in_level(level) {
             let children_words = &finer[CHILDREN_WORDS * tile_index..][..CHILDREN_WORDS];
@@ -330,7 +334,7 @@ fn carry_bound_sizes_up(pyramid: &mut Pyramid) {
 fn hand_bound_above_down(pyramid: &mut Pyramid) {
     let whole_bitmap_element = pyramid.fields(Tile::whole_bitmap()).0;
     pyramid.set(Tile::whole_bitmap(), with_field(whole_bitmap_element, BOUND_ABOVE, BOUND_AT_THE_TOP as u64));
-    for level in 0..CELL_LEVEL - 1 {
+    for level in 0..FLOOR_LEVEL {
         let (coarser, finer) = pyramid.level_and_finer_mut(level);
         for tile_index in 0..tiles_in_level(level) {
             let element = element_at(coarser, tile_index);

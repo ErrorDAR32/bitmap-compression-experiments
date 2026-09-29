@@ -3,7 +3,7 @@
 //! word, bit `i` of the run bit `i % 64` of word `i / 64`.
 
 use super::{CHILD_MASK_WIDTH, CODE_WIDTH, DIRECTION_WIDTH, FAR_WIDTH, LEAF_WIDTH, MASK_PRESENT_WIDTH, START_LEVEL_WIDTH};
-use crate::gct::tile::{tiles_down_to, CELLS, CELL_LEVEL};
+use crate::gct::tile::{tiles_down_to, CELLS, CELL_LEVEL, FLOOR_LEVEL};
 
 /// Bits a word holds.
 const WORD_BITS: usize = u64::BITS as usize;
@@ -18,9 +18,9 @@ const MOST_NODE_BITS: usize = CELL_LEVEL as usize
 
 /// The most bits a stream takes: the start level, a node at every tile
 /// down to the 2x2 floor, and each cell's value said at most once -- in
-/// a payload, a point list (only ever chosen when cheaper than a bit a
+/// a payload, a cell list (only ever chosen when cheaper than a bit a
 /// cell) or the residual pass.
-pub const MOST_BITS: usize = START_LEVEL_WIDTH as usize + tiles_down_to(CELL_LEVEL - 1) * MOST_NODE_BITS + CELLS;
+pub const MOST_BITS: usize = START_LEVEL_WIDTH as usize + tiles_down_to(FLOOR_LEVEL) * MOST_NODE_BITS + CELLS;
 
 /// Words the most bits a stream takes fill.
 const MOST_WORDS: usize = MOST_BITS.div_ceil(WORD_BITS);

@@ -12,6 +12,10 @@ use crate::morton::{morton_coordinates, morton_index};
 /// The level of a single cell, the finest there is.
 pub const CELL_LEVEL: u8 = 8;
 
+/// The 2x2 floor: the finest tile the greedy tiler places or the tree
+/// holds a node at -- a 2x2 that is not one tile has its cells said raw.
+pub const FLOOR_LEVEL: u8 = CELL_LEVEL - 1;
+
 /// Where a tile may copy from: the four same-size neighbours reading
 /// order puts before it -- top left, above, top right, left.
 pub const DIRECTIONS: [(isize, isize); 4] = [(-1, -1), (0, -1), (1, -1), (-1, 0)];

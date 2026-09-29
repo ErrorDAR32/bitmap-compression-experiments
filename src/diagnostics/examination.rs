@@ -4,7 +4,7 @@
 //! - how each cell is said: by exactly one of the greedy tiler's placed
 //!   tiles, or in a 2x2 that is not homogeneous, placed nothing, and is
 //!   said raw -- a residual 2x2, or inside a complex tile of 1x1
-//!   resolution or a point list. Every cell that is not is a fault;
+//!   resolution or a cell list. Every cell that is not is a fault;
 //! - placed tiles finer than a 2x2, and copies finer than 4x4;
 //! - the bits the complex tiler counts for the tree, and the bits
 //!   written;
@@ -18,7 +18,7 @@ use crate::gct::nested_resolutions::NestedResolutions;
 use crate::gct::pyramids::placements::{Placement, Placements};
 use crate::gct::pyramids::pyramid::Pyramid;
 use crate::gct::pyramids::tree::{Node, Tree};
-use crate::gct::tile::{Tile, CELL_LEVEL};
+use crate::gct::tile::{Tile, CELL_LEVEL, FLOOR_LEVEL};
 use crate::gct::Workspace;
 use crate::Bitmap;
 
@@ -32,7 +32,7 @@ pub enum CoverageFault {
     /// In a 2x2 that placed nothing though its cells all agree.
     HomogeneousLeftRaw(Tile),
     /// Said by no placed tile, and neither residual nor in a raw complex
-    /// tile or a point list.
+    /// tile or a cell list.
     SaidNowhere(Tile),
 }
 
@@ -77,13 +77,13 @@ pub fn tree_of(bitmap: &Bitmap) -> Pyramid {
 fn coverage_fault(bitmap: &Bitmap, placements: &Pyramid, tree: &Pyramid, cell: Tile) -> Option<CoverageFault> {
     // Down the cell's path: the first tile placed that does not mask the
     // way on says it, and nothing under that may be placed.
-    let path = (0..=CELL_LEVEL).map(|level| cell.ancestor(level));
+    let path = (0..=FLOOR_LEVEL).map(|level| cell.ancestor(level));
     let placed: Vec<(Tile, Placement)> = path.filter_map(|ancestor| placements.placement(ancestor).map(|placement| (ancestor, placement))).collect();
-    let sayer = placed.iter().position(|&(ancestor, placement)| ancestor.level == CELL_LEVEL || !placement.masks(cell.ancestor(ancestor.level + 1)));
+    let sayer = placed.iter().position(|&(ancestor, placement)| !placement.masks(cell.ancestor(ancestor.level + 1)));
     if let Some(sayer) = sayer {
         return (sayer + 1 != placed.len()).then_some(CoverageFault::SaidTwice(cell));
     }
-    let square = cell.ancestor(CELL_LEVEL - 1);
+    let square = cell.ancestor(FLOOR_LEVEL);
     if placements.placement(square).is_some() {
         return Some(CoverageFault::SaidByNone(cell));
     }
@@ -95,7 +95,7 @@ fn coverage_fault(bitmap: &Bitmap, placements: &Pyramid, tree: &Pyramid, cell: T
     let residual = tree.node(square) == Node::Residual;
     let raw = (0..CELL_LEVEL).any(|level| match tree.node(cell.ancestor(level)) {
         Node::ComplexTile { size_offset, .. } => level + size_offset == CELL_LEVEL,
-        Node::PointList => true,
+        Node::CellList => true,
         _ => false,
     });
     (!residual && !raw).then_some(CoverageFault::SaidNowhere(cell))
@@ -115,7 +115,7 @@ impl Examination {
             if tile.level >= CELL_LEVEL {
                 placed_finer_than_2x2.push(tile);
             }
-            if matches!(placement, Placement::Copied { .. }) && tile.level >= CELL_LEVEL - 1 {
+            if matches!(placement, Placement::Copied { .. }) && tile.level >= FLOOR_LEVEL {
                 copied_finer_than_4x4.push(tile);
             }
         }

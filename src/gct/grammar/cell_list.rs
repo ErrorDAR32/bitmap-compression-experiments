@@ -1,4 +1,4 @@
-//! A point list: a tile's set cells said one by one, for a tile where
+//! A cell list: a tile's set cells said one by one, for a tile where
 //! few are set -- the payload of a complex tile of 1x1 resolution that
 //! masks nothing, when cheaper than saying every cell raw.
 //!
@@ -34,7 +34,7 @@ fn set_count(bitmap: &Bitmap, tile: Tile) -> u64 {
     bitmap.square_words(tile.top_left_cell(), tile.side_in_cells()).map(|word| word.count_ones() as u64).sum()
 }
 
-/// The bits `tile`'s point list takes, without writing it.
+/// The bits `tile`'s cell list takes, without writing it.
 pub fn bits(bitmap: &Bitmap, tile: Tile) -> u64 {
     let set = set_count(bitmap, tile);
     let parameter = rice_parameter(cells_in_tile(tile.level), set);
@@ -43,7 +43,7 @@ pub fn bits(bitmap: &Bitmap, tile: Tile) -> u64 {
     gamma_bits(set + 1) + set * (1 + parameter as u64) + high_parts
 }
 
-/// Writes `tile`'s point list.
+/// Writes `tile`'s cell list.
 pub fn write(bitmap: &Bitmap, tile: Tile, stream: &mut BitStream) {
     let set = set_count(bitmap, tile);
     write_gamma(set + 1, stream);
@@ -54,7 +54,7 @@ pub fn write(bitmap: &Bitmap, tile: Tile, stream: &mut BitStream) {
     }
 }
 
-/// Reads a point list for `tile`, setting its cells in `cell_values`;
+/// Reads a cell list for `tile`, setting its cells in `cell_values`;
 /// every other cell of the tile stays as it is.
 pub fn read(reader: &mut BitReader, tile: Tile, cell_values: &mut Bitmap) {
     let set = read_gamma(reader) - 1;

@@ -18,11 +18,12 @@
 
 use super::bit_cost::{bits_with, node_bits};
 use super::cost_pyramid::CostPyramid;
+use crate::gct::grammar::bit_stream::MOST_BITS;
 use crate::gct::grammar::raw_resolution_fits;
 use crate::gct::nested_resolutions::NestedResolutions;
 use crate::gct::pyramids::complex_tiling::{ComplexTiling, Fields};
 use crate::gct::pyramids::pyramid::Pyramid;
-use crate::gct::tile::{Tile, CELL_LEVEL};
+use crate::gct::tile::{Tile, CELL_LEVEL, FLOOR_LEVEL};
 use crate::Bitmap;
 
 /// The smallest tile a complex tile can be: 4x4, so its resolution is
@@ -37,13 +38,16 @@ pub struct Candidate {
     pub tile: Tile,
     /// How many levels finer than the tile its resolution would be.
     pub size_offset: u8,
-    /// Whether, of 1x1 resolution, it would say its cells as a point list.
-    pub point_list: bool,
+    /// Whether, of 1x1 resolution, it would say its cells as a cell list.
+    pub cell_list: bool,
     /// The bits it saves, as the tiling stood when it was counted.
-    pub saving: u64,
+    pub saving: u32,
     /// The resolutions of the complex tiles `tile` is nested in.
     pub nested: NestedResolutions,
 }
+
+/// A saving is at most a stream's bits, which fit a candidate's 32.
+const _: () = assert!(MOST_BITS <= u32::MAX as usize);
 
 /// The finest candidates, 16x16 and finer, whose counts debug builds
 /// check against the reference count: coarser ones would count too much
@@ -81,7 +85,7 @@ fn debug_assert_matches_reference(
 /// entirely bound there (the grammar gives size offset `1` no way to
 /// mask).
 pub fn tried_resolutions(here: Fields, level: u8, nested: &NestedResolutions) -> impl Iterator<Item = u8> + '_ {
-    let finest = if raw_resolution_fits(level) { CELL_LEVEL } else { CELL_LEVEL - 1 };
+    let finest = if raw_resolution_fits(level) { CELL_LEVEL } else { FLOOR_LEVEL };
     (level + 1..=finest).filter(move |&resolution| {
         !nested.has_resolution(resolution)
             && (resolution == CELL_LEVEL || here.any_bound_under(resolution))
@@ -117,16 +121,16 @@ impl Candidate {
         for resolution in tried_resolutions(here, tile.level, nested) {
             let size_offset = resolution - tile.level;
             let plain = with(here.as_complex_tile(size_offset), resolution);
-            // At 1x1, the cells may go as a point list instead, when
+            // At 1x1, the cells may go as a cell list instead, when
             // strictly cheaper.
-            let listed = (resolution == CELL_LEVEL).then(|| with(here.as_point_list(tile.level), resolution));
-            let (with_bits, point_list) = match listed {
+            let listed = (resolution == CELL_LEVEL).then(|| with(here.as_cell_list(tile.level), resolution));
+            let (with_bits, cell_list) = match listed {
                 Some(listed) if listed < plain => (listed, true),
                 _ => (plain, false),
             };
             let Some(saving) = without.checked_sub(with_bits).filter(|&saving| saving > 0) else { continue };
-            if best.as_ref().is_none_or(|current| saving > current.saving) {
-                best = Some(Candidate { tile, size_offset, point_list, saving, nested: *nested });
+            if best.as_ref().is_none_or(|current| saving > current.saving as u64) {
+                best = Some(Candidate { tile, size_offset, cell_list, saving: saving as u32, nested: *nested });
             }
         }
         best

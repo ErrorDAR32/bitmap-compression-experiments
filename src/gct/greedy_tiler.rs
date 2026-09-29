@@ -33,7 +33,7 @@ use crate::gct::pyramids::copyable::{child_offset, matches_at, matching_directio
 use crate::gct::pyramids::placements::{Placement, Placements, BOUND_AT_THE_TOP, FINEST_MASKING_LEVEL};
 use crate::gct::pyramids::pyramid::Pyramid;
 use crate::gct::pyramids::patterns::Patterns;
-use crate::gct::tile::{directions, Tile, CELL_LEVEL};
+use crate::gct::tile::{directions, Tile, FLOOR_LEVEL};
 use crate::Bitmap;
 
 /// A masking copy costs about 10 bits before its masked children: a
@@ -83,7 +83,7 @@ struct Content<'a> {
 /// above `tile`.
 fn place_at_or_under(content: &Content, tile: Tile, bound_above: bool, placements: &mut Pyramid) {
     let Some(placement) = placement(content, tile, bound_above) else {
-        if tile.level == CELL_LEVEL - 1 {
+        if tile.level == FLOOR_LEVEL {
             // A 2x2 that is not one tile: its cells are said raw, and
             // nothing reads a placement finer than a 2x2.
             return;

@@ -12,7 +12,7 @@ use crate::gct::pyramids::complex_tiling::ComplexTiling;
 use crate::gct::pyramids::placements::{Placement, BOUND_AT_THE_TOP};
 use crate::gct::pyramids::pyramid::Pyramid;
 use crate::gct::pyramids::tree::{Node, Tree};
-use crate::gct::tile::{Tile, CELL_LEVEL};
+use crate::gct::tile::{Tile, FLOOR_LEVEL};
 
 /// The whole bitmap's tree, into `tree`, whatever it held before.
 pub fn tree_representation(complex_tiling: &Pyramid, tree: &mut Pyramid) {
@@ -58,7 +58,7 @@ fn node_for(complex_tiling: &Pyramid, tile: Tile, nested: &NestedResolutions) ->
     }
     let tile_node = Node::ComplexTile { size_offset: 0, masks: false };
     let placed = here.placed();
-    if tile.level == CELL_LEVEL - 1 {
+    if tile.level == FLOOR_LEVEL {
         // The 2x2 floor: a homogeneous 2x2 is a tile; anything else
         // placed nothing, its cells left to the residual pass.
         return match placed {
@@ -74,7 +74,7 @@ fn node_for(complex_tiling: &Pyramid, tile: Tile, nested: &NestedResolutions) ->
             Node::Copied { far, direction, masks: masked_children != 0 }
         }
         None => match here.complex_tile_size_offset() {
-            Some(_) if here.is_point_list() => Node::PointList,
+            Some(_) if here.is_cell_list() => Node::CellList,
             Some(size_offset) => {
                 let masks = !here.entirely_bound_at(tile.level + size_offset);
                 Node::ComplexTile { size_offset, masks }

@@ -45,20 +45,17 @@ use crate::gct::pyramids::complex_tiling::{ComplexTiling, Fields};
 use crate::gct::pyramids::costs::{Changes, Costs, FINEST_HELD, NO_CANDIDATE, RESOLUTIONS};
 use crate::gct::pyramids::placements::Placement;
 use crate::gct::pyramids::pyramid::Pyramid;
-use crate::gct::tile::{cells_in_tile, tiles_in_level, Tile, ALL_CHILDREN, CELL_LEVEL};
+use crate::gct::tile::{cells_in_tile, tiles_down_to, Tile, ALL_CHILDREN, CELL_LEVEL, FLOOR_LEVEL};
 use crate::Bitmap;
 
-/// The most tiles of one level a count can reach: every tile of the
-/// finest level held.
-const MOST_REACHED: usize = tiles_in_level(FINEST_HELD);
+/// The most tiles a count can reach: every tile held, whole bitmap to
+/// the finest level.
+const MOST_REACHED: usize = tiles_down_to(FINEST_HELD);
 
 /// The mask bits a divide spends on a child mask, and the flip bit:
 /// what one that leaves children to the binding above spends, and one
 /// that leaves none does not.
 const LEAVING_BITS: i32 = (FLIP_WIDTH + CHILD_MASK_WIDTH) as i32;
-
-/// The 2x2 floor's level.
-const FLOOR: u8 = CELL_LEVEL - 1;
 
 /// Set in a 2x2's kind when it is one tile, not four raw cells.
 const WHOLE_KIND: usize = 1;
@@ -77,7 +74,7 @@ fn floor_kind(here: Fields) -> usize {
 
 /// Candidates a 2x2's bits can differ under: none, and the two
 /// resolutions that reach inside a 2x2 -- itself, and 1x1.
-const FLOOR_CANDIDATES: [u8; 3] = [NO_CANDIDATE, FLOOR, CELL_LEVEL];
+const FLOOR_CANDIDATES: [u8; 3] = [NO_CANDIDATE, FLOOR_LEVEL, CELL_LEVEL];
 /// Where no candidate is in [`FLOOR_CANDIDATES`]...
 const UNDER_NO_CANDIDATE: usize = 0;
 /// ...one of 2x2 resolution...
@@ -86,7 +83,7 @@ const UNDER_FLOOR_CANDIDATE: usize = 1;
 const UNDER_CELL_CANDIDATE: usize = 2;
 const _: () = assert!(
     FLOOR_CANDIDATES[UNDER_NO_CANDIDATE] == NO_CANDIDATE
-        && FLOOR_CANDIDATES[UNDER_FLOOR_CANDIDATE] == FLOOR
+        && FLOOR_CANDIDATES[UNDER_FLOOR_CANDIDATE] == FLOOR_LEVEL
         && FLOOR_CANDIDATES[UNDER_CELL_CANDIDATE] == CELL_LEVEL
 );
 
@@ -94,7 +91,7 @@ const _: () = assert!(
 /// for a 2x2: none, if it is coarser.
 fn floor_candidate(resolution: u8) -> usize {
     match resolution {
-        FLOOR => UNDER_FLOOR_CANDIDATE,
+        FLOOR_LEVEL => UNDER_FLOOR_CANDIDATE,
         CELL_LEVEL => UNDER_CELL_CANDIDATE,
         _ => UNDER_NO_CANDIDATE,
     }
@@ -107,7 +104,7 @@ fn floor_candidate(resolution: u8) -> usize {
 /// Nothing else of a 2x2 or its nesting counts, so the area's twelve
 /// counts are made once, and every 2x2's is read off.
 fn floor_bits(base: &NestedResolutions) -> [[u64; FLOOR_CANDIDATES.len()]; FLOOR_KINDS] {
-    let floor = Tile { level: FLOOR, x: 0, y: 0 };
+    let floor = Tile { level: FLOOR_LEVEL, x: 0, y: 0 };
     std::array::from_fn(|kind| {
         let (whole, raw_masked) = (kind & WHOLE_KIND != 0, kind & RAW_MASKED_KIND != 0);
         FLOOR_CANDIDATES.map(|candidate| {
@@ -116,12 +113,12 @@ fn floor_bits(base: &NestedResolutions) -> [[u64; FLOOR_CANDIDATES.len()]; FLOOR
             for nesting in nested.able_to_unmask(floor) {
                 mask_bits += MASK_BIT_WIDTH as u64;
                 let resolution = nested.resolution(nesting);
-                let unmasked = if resolution == CELL_LEVEL { !raw_masked } else { whole && resolution == FLOOR };
+                let unmasked = if resolution == CELL_LEVEL { !raw_masked } else { whole && resolution == FLOOR_LEVEL };
                 if unmasked {
-                    return mask_bits + payload_bits(resolution - FLOOR);
+                    return mask_bits + payload_bits(resolution - FLOOR_LEVEL);
                 }
             }
-            mask_bits + LEAF_WIDTH as u64 + if whole { payload_bits(0) } else { cells_in_tile(FLOOR) }
+            mask_bits + LEAF_WIDTH as u64 + if whole { payload_bits(0) } else { cells_in_tile(FLOOR_LEVEL) }
         })
     })
 }
@@ -132,8 +129,8 @@ pub struct CostPyramid {
     /// Each tile's bits with no candidate, and its changes: a [costs
     /// pyramid](crate::gct::pyramids::costs).
     counts: Pyramid,
-    /// The tiles a count can reach, by level.
-    reached: [FixedList<Tile, MOST_REACHED>; FINEST_HELD as usize + 1],
+    /// The tiles a count can reach, each after its parent.
+    reached: FixedList<Tile, MOST_REACHED>,
     /// Every 2x2's bits in the area, by its kind and candidate.
     floor: [[u64; FLOOR_CANDIDATES.len()]; FLOOR_KINDS],
 }
@@ -143,7 +140,7 @@ impl Default for CostPyramid {
     fn default() -> Self {
         Self {
             counts: Pyramid::costs(),
-            reached: std::array::from_fn(|_| FixedList::new()),
+            reached: FixedList::new(),
             floor: [[0; FLOOR_CANDIDATES.len()]; FLOOR_KINDS],
         }
     }
@@ -176,61 +173,58 @@ fn changes_of(tile: Tile, here: Fields, without: u64, under: &Changes, left: i32
 }
 
 impl CostPyramid {
-    /// Counts, for every tile a count can reach from `roots`, its bits
-    /// and its changes under every candidate resolution, in a search area
-    /// nested in `base`.
-    pub fn fill(&mut self, complex_tiling: &Pyramid, bitmap: &Bitmap, roots: impl Iterator<Item = Tile>, base: &NestedResolutions) {
-        for level in self.reached.iter_mut() {
-            level.clear();
-        }
+    /// Counts, for every tile a count can reach from `roots`, all of one
+    /// level, its bits and its changes under every candidate resolution,
+    /// in a search area nested in `base`.
+    pub fn fill(&mut self, complex_tiling: &Pyramid, bitmap: &Bitmap, roots: &[Tile], base: &NestedResolutions) {
+        debug_assert!(roots.iter().all(|root| root.level == roots[0].level), "roots of one level");
         self.floor = floor_bits(base);
-        let mut coarsest = FINEST_HELD + 1;
-        for root in roots {
-            if root.level <= FINEST_HELD {
-                coarsest = coarsest.min(root.level);
-                self.reached[root.level as usize].push(root);
+        self.reached.clear();
+        self.reached.extend(roots.iter().copied().filter(|root| root.level <= FINEST_HELD));
+        // Down, breadth first, so a level at a time: every tile reached is
+        // added after its parent, and nothing is under the finest level.
+        let mut next_to_visit = 0;
+        while next_to_visit < self.reached.len() {
+            let tile = self.reached[next_to_visit];
+            next_to_visit += 1;
+            if tile.level == FINEST_HELD {
+                break;
             }
-        }
-        for level in coarsest..FINEST_HELD {
-            let (these, finer) = self.reached.split_at_mut(level as usize + 1);
-            for &tile in &these[level as usize] {
-                let here = complex_tiling.fields(tile);
-                let reached = match here.placed() {
-                    None if base.unmasking(here, tile).is_none() => ALL_CHILDREN,
-                    None => 0,
-                    Some(Placement::Bound { masked_children, .. } | Placement::Copied { masked_children, .. }) => masked_children,
-                };
-                for child in tile.children() {
-                    if reached & 1 << child.child_index() != 0 {
-                        finer[0].push(child);
-                    }
+            let here = complex_tiling.fields(tile);
+            let reached_children = match here.placed() {
+                None if base.unmasking(here, tile).is_none() => ALL_CHILDREN,
+                None => 0,
+                Some(Placement::Bound { masked_children, .. } | Placement::Copied { masked_children, .. }) => masked_children,
+            };
+            for child in tile.children() {
+                if reached_children & 1 << child.child_index() != 0 {
+                    self.reached.push(child);
                 }
             }
         }
-        for level in (coarsest..=FINEST_HELD).rev() {
-            for index_in_level in 0..self.reached[level as usize].len() {
-                let tile = self.reached[level as usize][index_in_level];
-                let here = complex_tiling.fields(tile);
-                debug_assert!(here.complex_tile_size_offset().is_none(), "{tile:?}: a complex tile under a search area's roots");
-                let mut under = [0; RESOLUTIONS];
-                let without = node_bits(complex_tiling, bitmap, tile, here, &mut base.clone(), here.bound_above(), &mut |child, fields, _, _| {
-                    let (bits, changes) = self.without_and_changes(child, fields);
-                    for (sum, change) in under.iter_mut().zip(changes) {
-                        *sum += change;
-                    }
-                    bits
-                });
-                // How many children a divide leaves to the binding above.
-                let mut left = 0;
-                if here.placed().is_none() && base.unmasking(here, tile).is_none() {
-                    let children = complex_tiling.children_fields(tile);
-                    for (child, fields) in tile.children().into_iter().zip(children) {
-                        left += fields.left_to_binding_above(child, here.bound_above(), base) as i32;
-                    }
+        // Back up, in reverse: every tile counted after its children.
+        for reached_index in (0..self.reached.len()).rev() {
+            let tile = self.reached[reached_index];
+            let here = complex_tiling.fields(tile);
+            debug_assert!(here.complex_tile_size_offset().is_none(), "{tile:?}: a complex tile under a search area's roots");
+            let mut under = [0; RESOLUTIONS];
+            let without = node_bits(complex_tiling, bitmap, tile, here, &mut base.clone(), here.bound_above(), &mut |child, fields, _, _| {
+                let (bits, changes) = self.without_and_changes(child, fields);
+                for (sum, change) in under.iter_mut().zip(changes) {
+                    *sum += change;
                 }
-                let changes = changes_of(tile, here, without, &under, left);
-                self.counts.set_counts(tile, without, &changes);
+                bits
+            });
+            // How many children a divide leaves to the binding above.
+            let mut left = 0;
+            if here.placed().is_none() && base.unmasking(here, tile).is_none() {
+                let children = complex_tiling.children_fields(tile);
+                for (child, fields) in tile.children().into_iter().zip(children) {
+                    left += fields.left_to_binding_above(child, here.bound_above(), base) as i32;
+                }
             }
+            let changes = changes_of(tile, here, without, &under, left);
+            self.counts.set_counts(tile, without, &changes);
         }
     }
 
@@ -242,7 +236,7 @@ impl CostPyramid {
             let bits = &self.floor[floor_kind(here)];
             let without = bits[UNDER_NO_CANDIDATE];
             let mut changes = [0; RESOLUTIONS];
-            changes[FLOOR as usize - 1] = without as i32 - bits[UNDER_FLOOR_CANDIDATE] as i32;
+            changes[FLOOR_LEVEL as usize - 1] = without as i32 - bits[UNDER_FLOOR_CANDIDATE] as i32;
             changes[CELL_LEVEL as usize - 1] = without as i32 - bits[UNDER_CELL_CANDIDATE] as i32;
             return (without, changes);
         }

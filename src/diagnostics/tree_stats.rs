@@ -33,12 +33,12 @@ pub struct TreeStats {
     pub masked_copied: usize,
     /// ...whole binds...
     pub masked_tile: usize,
-    /// ...nested complex tiles, point lists included...
+    /// ...nested complex tiles, cell lists included...
     pub masked_nested: usize,
     /// ...and residual 2x2s.
     pub masked_residual: usize,
-    /// Point lists, anywhere.
-    pub point_lists: usize,
+    /// Cell lists, anywhere.
+    pub cell_lists: usize,
 }
 
 impl TreeStats {
@@ -77,7 +77,7 @@ impl TreeStats {
         self.masked_tile += other.masked_tile;
         self.masked_nested += other.masked_nested;
         self.masked_residual += other.masked_residual;
-        self.point_lists += other.point_lists;
+        self.cell_lists += other.cell_lists;
     }
 
     /// Counts `tile`'s node and everything under it; `inside` the
@@ -139,8 +139,8 @@ impl TreeStats {
                     self.count(tree, child, inside, nested);
                 }
             }
-            Node::PointList => {
-                self.point_lists += 1;
+            Node::CellList => {
+                self.cell_lists += 1;
                 if inside.is_some() {
                     self.masked_nested += 1;
                 }

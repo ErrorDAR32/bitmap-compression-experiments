@@ -9,20 +9,20 @@
 
 pub mod bit_stream;
 pub mod order;
-pub mod point_list;
+pub mod cell_list;
 
 pub use crate::gct::pyramids::placements::BOUND_AT_THE_TOP;
 use crate::gct::pyramids::placements::FINEST_MASKING_LEVEL;
-use crate::gct::tile::{cells_in_tile, levels_to_cells, CELL_LEVEL, CHILDREN, DIRECTIONS};
+use crate::gct::tile::{cells_in_tile, levels_to_cells, CELL_LEVEL, CHILDREN, DIRECTIONS, FLOOR_LEVEL};
 
 /// A residual 2x2's bits in the residual pass: one a cell, in Morton
 /// order -- as its cells lie in the bitmap, so read or written as one
 /// value.
-pub const RESIDUAL_SQUARE_BITS: u8 = cells_in_tile(CELL_LEVEL - 1) as u8;
+pub const RESIDUAL_SQUARE_BITS: u8 = cells_in_tile(FLOOR_LEVEL) as u8;
 
 /// The level the tree starts at, whole bitmap (0) to the 2x2 floor:
 /// every coarser tile subdivides, so none of them is written.
-pub const START_LEVEL_WIDTH: u8 = (u8::BITS - (CELL_LEVEL - 1).leading_zeros()) as u8;
+pub const START_LEVEL_WIDTH: u8 = (u8::BITS - (FLOOR_LEVEL).leading_zeros()) as u8;
 
 /// One mask bit per complex tile a node is nested in that could unmask
 /// it, nearest first: this one means the node is unmasked in that
@@ -95,8 +95,8 @@ pub const MASK_PRESENT_WIDTH: u8 = 1;
 /// The payload mode of a complex tile of 1x1 resolution masking nothing:
 /// every cell raw, one bit each...
 pub const PLAIN_PAYLOAD: u64 = 0;
-/// ...or a [point list](point_list) of its set cells.
-pub const POINT_LIST: u64 = 1;
+/// ...or a [cell list](cell_list) of its set cells.
+pub const CELL_LIST: u64 = 1;
 /// Bits in the payload mode.
 pub const PAYLOAD_MODE_WIDTH: u8 = 1;
 

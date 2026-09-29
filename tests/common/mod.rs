@@ -17,7 +17,7 @@ pub const CAP_BITS: usize = RAW_CELLS + RAW_CELLS / 100;
 /// - every cell is said by exactly one of the greedy tiler's placed
 ///   tiles, or lies in a 2x2 that is not homogeneous, placed nothing, and
 ///   is said raw: a residual 2x2, or inside a complex tile of 1x1
-///   resolution or a point list;
+///   resolution or a cell list;
 /// - nothing finer than a 2x2 is placed, nothing finer than 4x4 copied;
 /// - the bit cost the complex tiler scores with is the encoder's count;
 /// - gct spends at most [`CAP_BITS`], the raw cells and 1%;

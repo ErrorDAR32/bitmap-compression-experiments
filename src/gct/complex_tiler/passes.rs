@@ -4,7 +4,7 @@
 //! placements, each tile's single bound size, and which tiles are
 //! complex tiles at what size offset -- all the tree is read from.
 //! Every decision is made from the tiles the greedy tiler placed, but
-//! for one: what a point list costs, read off the tile's cells.
+//! for one: what a cell list costs, read off the tile's cells.
 //!
 //! One pass per nesting level. The first pass searches the whole bitmap
 //! for the outermost complex tiles, which capture the coarse structure.
@@ -19,48 +19,27 @@
 
 use super::cost_pyramid::CostPyramid;
 use super::complex_tile_candidates::{Candidate, FINEST_CANDIDATE_LEVEL};
-use super::raw_masking::{decide_raw_masking, MOST_RAW_MASKED};
+use super::raw_masking::decide_raw_masking;
 use crate::fixed_list::FixedList;
 use crate::gct::pyramids::complex_tiling::ComplexTiling;
 use crate::gct::pyramids::pyramid::Pyramid;
-use crate::gct::tile::{tiles_down_to, Tile, CHILDREN};
+use crate::gct::tile::{tiles_in_level, Tile};
 use crate::gct::nested_resolutions::NestedResolutions;
 use crate::Bitmap;
 
-/// Where one pass searches: an area, the coarsest level a candidate in
-/// it may be, and the resolutions of the complex tiles it is nested in.
-#[derive(Clone, Copy, Default)]
-struct SearchArea {
-    /// The tile searched in.
-    area: Tile,
-    /// The coarsest level a candidate in it may be.
-    coarsest_level: u8,
-    /// The resolutions of the complex tiles `area` is nested in.
-    nested: NestedResolutions,
-}
-
-/// The most candidates a pass can commit, or search inside: one a tile,
-/// from the whole bitmap down to 4x4.
-const MOST_CANDIDATES: usize = tiles_down_to(FINEST_CANDIDATE_LEVEL);
-
-/// The most roots a search area has: a complex tile's children.
-const MOST_ROOTS: usize = CHILDREN as usize;
+/// The most candidates a pass can commit: they never overlap, and none
+/// is finer than 4x4, so no more than there are 4x4s.
+const MOST_CANDIDATES: usize = tiles_in_level(FINEST_CANDIDATE_LEVEL);
 
 /// Room the complex tiler works in, allocated once at the most any
 /// bitmap needs.
 #[derive(Default)]
 pub struct Scratch {
-    /// The tiles a complex tile of 1x1 resolution masks.
-    raw_masked: FixedList<Tile, MOST_RAW_MASKED>,
     /// Every count a search area's candidates ask for.
     costs: CostPyramid,
-    /// A search area's roots: the whole bitmap, or the four children of
-    /// a complex tile.
-    roots: FixedList<Tile, MOST_ROOTS>,
-    /// Where this pass searches.
-    searched: FixedList<SearchArea, MOST_CANDIDATES>,
-    /// Where the next pass searches.
-    next: FixedList<SearchArea, MOST_CANDIDATES>,
+    /// The candidates the pass before committed: this pass searches
+    /// inside each.
+    committed: FixedList<Candidate, MOST_CANDIDATES>,
     /// The candidates this pass commits.
     chosen: FixedList<Candidate, MOST_CANDIDATES>,
 }
@@ -70,25 +49,39 @@ pub struct Scratch {
 /// in place: the placements, with every committed complex tile's size
 /// offset added.
 pub fn complex_tiler(complex_tiling: &mut Pyramid, bitmap: &Bitmap, scratch: &mut Scratch) {
-    let Scratch { raw_masked, costs, roots, searched, next, chosen } = scratch;
-    decide_raw_masking(complex_tiling, raw_masked);
-    complex_tiling.fill_in(raw_masked);
+    let Scratch { costs, committed, chosen } = scratch;
+    decide_raw_masking(complex_tiling);
+    complex_tiling.fill_in();
 
-    searched.clear();
-    searched.push(SearchArea { area: Tile::whole_bitmap(), coarsest_level: 0, nested: NestedResolutions::none() });
-    while !searched.is_empty() {
+    chosen.clear();
+    search(complex_tiling, bitmap, costs, &[Tile::whole_bitmap()], &NestedResolutions::none(), chosen);
+    while !chosen.is_empty() {
+        commit(chosen, complex_tiling);
+        std::mem::swap(committed, chosen);
         chosen.clear();
-        for search in searched.iter() {
-            roots.clear();
-            roots.extend(search.area.tiles_at_size_offset(search.coarsest_level - search.area.level));
-            costs.fill(complex_tiling, bitmap, roots.iter().copied(), &search.nested);
-            for &tile in roots.iter() {
-                best_at_or_under(complex_tiling, bitmap, costs, tile, &search.nested, chosen);
-            }
+        // Inside every complex tile committed, but a cell list: it says
+        // every cell under it itself.
+        for candidate in committed.iter().filter(|candidate| !candidate.cell_list) {
+            let nested = candidate.nested.with_nested(candidate.tile.level + candidate.size_offset);
+            search(complex_tiling, bitmap, costs, &candidate.tile.children(), &nested, chosen);
         }
-        next.clear();
-        commit(chosen, complex_tiling, next);
-        std::mem::swap(searched, next);
+    }
+}
+
+/// Adds to `chosen` the candidates at or under `roots`, all nested in
+/// `nested`, that save the most bits between them, none overlapping --
+/// every count read from `costs`, filled for them first.
+fn search(
+    complex_tiling: &Pyramid,
+    bitmap: &Bitmap,
+    costs: &mut CostPyramid,
+    roots: &[Tile],
+    nested: &NestedResolutions,
+    chosen: &mut FixedList<Candidate, MOST_CANDIDATES>,
+) {
+    costs.fill(complex_tiling, bitmap, roots, nested);
+    for &root in roots {
+        best_at_or_under(complex_tiling, bitmap, costs, root, nested, chosen);
     }
 }
 
@@ -104,7 +97,7 @@ fn best_at_or_under(
     tile: Tile,
     nested: &NestedResolutions,
     chosen: &mut FixedList<Candidate, MOST_CANDIDATES>,
-) -> u64 {
+) -> u32 {
     if tile.level > FINEST_CANDIDATE_LEVEL || nested.unmasking(complex_tiling.fields(tile), tile).is_some() {
         return 0;
     }
@@ -118,7 +111,7 @@ fn best_at_or_under(
     // The best under the children go on `chosen` first, to be taken off
     // again if the tile's own does better.
     let under_from = chosen.len();
-    let under_saving: u64 = tile
+    let under_saving: u32 = tile
         .children()
         .into_iter()
         .filter(|&child| placed.is_none_or(|placement| placement.masks(child)))
@@ -134,20 +127,13 @@ fn best_at_or_under(
     }
 }
 
-/// Commits `chosen`, adding to `next` where the next pass searches --
-/// inside each one committed, but a point list: it says every cell
-/// under it itself.
-fn commit(chosen: &[Candidate], complex_tiling: &mut Pyramid, next: &mut FixedList<SearchArea, MOST_CANDIDATES>) {
+/// Makes every candidate in `chosen` a complex tile, or a cell list.
+fn commit(chosen: &[Candidate], complex_tiling: &mut Pyramid) {
     for candidate in chosen {
-        if candidate.point_list {
-            complex_tiling.make_point_list(candidate.tile);
-            continue;
+        if candidate.cell_list {
+            complex_tiling.make_cell_list(candidate.tile);
+        } else {
+            complex_tiling.make_complex_tile(candidate.tile, candidate.size_offset);
         }
-        complex_tiling.make_complex_tile(candidate.tile, candidate.size_offset);
-        next.push(SearchArea {
-            area: candidate.tile,
-            coarsest_level: candidate.tile.level + 1,
-            nested: candidate.nested.with_nested(candidate.tile.level + candidate.size_offset),
-        });
     }
 }

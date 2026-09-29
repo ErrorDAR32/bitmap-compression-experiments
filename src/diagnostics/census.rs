@@ -18,7 +18,7 @@ pub fn kind(tree: &Pyramid, tile: Tile, node: Node) -> &'static str {
         Node::Copied { masks: true, .. } => "masking copy",
         Node::Unmasked { .. } => "unmasked",
         Node::Residual => "residual",
-        Node::PointList => "point list",
+        Node::CellList => "cell list",
         Node::Absent => "absent",
     }
 }

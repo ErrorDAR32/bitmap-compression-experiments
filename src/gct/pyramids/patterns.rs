@@ -21,8 +21,9 @@
 //! bitmap's words, each coarser level's from the level below. The
 //! reverse lookup is a fixed table of slots per level, twice as many as
 //! the level has tiles, probed in order from where the pattern's hash
-//! lands. Nothing clears it between bitmaps: a slot counts only when it
-//! was filled by the current build.
+//! lands, emptied at every build. A slot holds only a number, two bytes:
+//! the pattern it stands for is read back off the tile that number first
+//! appeared at.
 
 use super::copyable::FINEST_COPY_LEVEL;
 use super::pyramid::{Pyramid, PyramidShape};
@@ -91,23 +92,19 @@ const NUMBERS: usize = tiles_down_to(FINEST) + LEVELS * FIRST_PATTERN as usize;
 /// ratio's fraction of 2^64, odd, so no two keys collide on it alone.
 const HASH_MULTIPLIER: u64 = 0x9E37_79B9_7F4A_7C15;
 
-/// One slot of a reverse lookup.
-#[derive(Clone, Copy, Default)]
-struct Slot {
-    /// The pattern.
-    key: u64,
-    /// Its number.
-    number: u16,
-    /// The build that filled it: a slot of any other build is empty.
-    build: u32,
-}
+/// A reverse lookup's empty slot: no pattern that is not homogeneous
+/// has number 0.
+const EMPTY_SLOT: u16 = ALL_CLEAR;
+const _: () = assert!(EMPTY_SLOT < FIRST_PATTERN);
 
 /// The patterns pyramid and its tables, allocated once.
 pub struct Patterns {
     /// Every tile's number.
     numbers: Pyramid,
-    /// Every level's reverse lookup, one after another.
-    slots: Box<[Slot]>,
+    /// Every level's reverse lookup, one after another: each slot a
+    /// pattern's number, its key read back off the tile it first
+    /// appeared at.
+    slots: Box<[u16]>,
     /// Where each level's slots start, and how many it has.
     slot_ranges: [(usize, usize); LEVELS],
     /// For every level and number, the Morton index of the tile it first
@@ -117,8 +114,6 @@ pub struct Patterns {
     first_starts: [usize; LEVELS],
     /// How many numbers each level has handed out.
     handed_out: [u16; LEVELS],
-    /// The current build, never 0: slots start filled by build 0.
-    build: u32,
 }
 
 impl Default for Patterns {
@@ -137,12 +132,11 @@ impl Default for Patterns {
         debug_assert_eq!(first_start, NUMBERS);
         Self {
             numbers: Pyramid::new(SHAPE),
-            slots: std::iter::repeat_n(Slot::default(), slot_start).collect(),
+            slots: std::iter::repeat_n(EMPTY_SLOT, slot_start).collect(),
             slot_ranges,
             first: std::iter::repeat_n(0, first_start).collect(),
             first_starts,
             handed_out: [FIRST_PATTERN; LEVELS],
-            build: 0,
         }
     }
 }
@@ -151,12 +145,7 @@ impl Patterns {
     /// Numbers every tile of `bitmap`, whatever was built before: the
     /// sweep, finest level first.
     pub fn build(&mut self, bitmap: &Bitmap) {
-        self.build = self.build.wrapping_add(1);
-        if self.build == 0 {
-            // Every build number has been used: empty every slot once.
-            self.slots.fill(Slot::default());
-            self.build = 1;
-        }
+        self.slots.fill(EMPTY_SLOT);
         self.handed_out = [FIRST_PATTERN; LEVELS];
 
         for level in (0..=FINEST).rev() {
@@ -166,7 +155,7 @@ impl Patterns {
                 for quarter in 0..NUMBERS_A_WORD.min(tiles) {
                     let tile_index = word_index * NUMBERS_A_WORD + quarter;
                     let key = self.key(bitmap, level, tile_index);
-                    numbers |= (self.intern(level, key, tile_index) as u64) << (quarter * NUMBER_BITS);
+                    numbers |= (self.intern(bitmap, level, key, tile_index) as u64) << (quarter * NUMBER_BITS);
                 }
                 self.numbers.level_words_mut(level)[word_index] = numbers;
             }
@@ -189,7 +178,7 @@ impl Patterns {
     /// whose Morton index is `tile_index`: a homogeneous one's own, one
     /// already handed out, or the next.
     #[inline]
-    fn intern(&mut self, level: u8, key: u64, tile_index: usize) -> u16 {
+    fn intern(&mut self, bitmap: &Bitmap, level: u8, key: u64, tile_index: usize) -> u16 {
         let (all_clear, all_set) = if level == FINEST { (CELLS_ALL_CLEAR, CELLS_ALL_SET) } else { (CHILDREN_ALL_CLEAR, CHILDREN_ALL_SET) };
         if key == all_clear {
             return ALL_CLEAR;
@@ -199,17 +188,18 @@ impl Patterns {
         }
         let (first_slot, slot_count) = self.slot_ranges[level as usize];
         let mut probe = (key.wrapping_mul(HASH_MULTIPLIER) >> (u64::BITS - slot_count.trailing_zeros())) as usize;
+        let first_start = self.first_starts[level as usize];
         loop {
-            let slot = &mut self.slots[first_slot + probe];
-            if slot.build != self.build {
+            let number = self.slots[first_slot + probe];
+            if number == EMPTY_SLOT {
                 let number = self.handed_out[level as usize];
                 self.handed_out[level as usize] += 1;
-                *slot = Slot { key, number, build: self.build };
-                self.first[self.first_starts[level as usize] + number as usize] = tile_index as u16;
+                self.slots[first_slot + probe] = number;
+                self.first[first_start + number as usize] = tile_index as u16;
                 return number;
             }
-            if slot.key == key {
-                return slot.number;
+            if self.key(bitmap, level, self.first[first_start + number as usize] as usize) == key {
+                return number;
             }
             probe = (probe + 1) & (slot_count - 1);
         }

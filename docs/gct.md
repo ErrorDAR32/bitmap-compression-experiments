@@ -83,10 +83,10 @@ its elements but through them -- and its sweep if any.
 
 | pyramid | bits | levels | holds | sweep |
 |---|---|---|---|---|
-| `complex_tiling` | 32 | 0-8 | the placement the greedy tiler made here, if any, and the children it masks -- the greedy tiler writes these bits, the complex tiler the rest; the one size every cell under the tile is bound at, if any; the complex tile's size offset, if it is one; whether a raw complex tile masks it; the sizes of the whole binds under it | its own, once the placements are complete, two words of children at a time: a tile's bound size is its children's when all four share one; the sizes under it are all of its children's |
+| `complex_tiling` | 32 | 0-7 | the placement the greedy tiler made here, if any, and the children it masks -- the greedy tiler writes these bits, the complex tiler the rest; the one size every cell under the tile is bound at, if any; the complex tile's size offset, if it is one; whether a raw complex tile masks it; the sizes of the whole binds under it | its own, once the placements are complete, two words of children at a time: a tile's bound size is its children's when all four share one; the sizes under it are all of its children's |
 | `tree` | 8 | 0-7 | the tree's node at a tile | none |
 | `costs` | 320 | 0-6 | a tile's bits with no candidate above it, then for each candidate resolution how much that candidate takes off them, eight 32-bit changes (the complex tiler's, a search area at a time) | none; every count set by the complex tiler's walk up |
-| `patterns` | 16 | 0-6 | the tile's pattern number: equal for two tiles of one size exactly when they hold the same cells; handed out in order of first appearance, 0 all clear and 1 all set, beside two tables a level -- a reverse lookup from a pattern (a 4x4's 16 cells, or a tile's four children's numbers, one word) to its number, and each number's first tile | its own, once a bitmap: the 4x4s' numbers from the bitmap's words, each coarser level's from the level below, one lookup a tile |
+| `patterns` | 16 | 0-6 | the tile's pattern number: equal for two tiles of one size exactly when they hold the same cells; handed out in order of first appearance, 0 all clear and 1 all set, beside two tables a level -- a reverse lookup from a pattern (a 4x4's 16 cells, or a tile's four children's numbers, one word) to its number, each slot two bytes holding only the number (the pattern is read back off its first tile), and each number's first tile | its own, once a bitmap: the 4x4s' numbers from the bitmap's words, each coarser level's from the level below, one lookup a tile |
 | `copy_sources` | 16 | 6 | for each 4x4 block a copy covers, the block it is copied from, until it is (decoding) | none |
 
 ## Step 1: the greedy tiler
@@ -192,14 +192,14 @@ complex tile becomes a complex tile of its own size (size offset 0): a
 **tile**. A **1x1 resolution** says cells raw -- every cell a tile of its
 own -- the raw escape, offered at 128x128, 64x64, 32x32 and 8x8, where
 the size offset field has a value to spare; a complex tile of 1x1
-resolution that masks nothing may say its cells as a **point list**
+resolution that masks nothing may say its cells as a **cell list**
 instead.
 
 **What it decides:** which tiles become complex tiles, at which
-resolution, nested how, and which 1x1 ones are point lists -- the
+resolution, nested how, and which 1x1 ones are cell lists -- the
 fewest bits the grammar can spend on the greedy tiler's tiling. It
 reads the placements and the bits the grammar would spend on each node;
-the one thing it reads off the bitmap is a point list's cost.
+the one thing it reads off the bitmap is a cell list's cost.
 
 ### 2a. What a raw complex tile would mask
 
@@ -254,7 +254,7 @@ repeat while areas is not empty:
         for each root of the area:
             best_at_or_under(root)                            (2e)
     commit every chosen candidate; the next areas are the
-    committed complex tiles that are not point lists, each
+    committed complex tiles that are not cell lists, each
     searched below itself, nested in what it was plus its
     own resolution
 ```
@@ -352,7 +352,7 @@ best_for(t):                                  (complex_tile_candidates.rs)
                its header, then each child's without - change_r
                (or, entirely bound at r, header + payload)
         if r is 1x1 and it masks nothing:
-            listed = bits of t as a point list
+            listed = bits of t as a cell list
             with = listed if listed < with          (strictly cheaper)
         saving = without(t) - with
         if saving > 0 and saving > best's: best = (r, saving)
@@ -438,7 +438,7 @@ Any coarser level:
                             nodes follow, this complex tile now the
                             nearest one they are nested in
         at a 1x1 resolution, masking nothing: the payload mode
-                            0: plain | 1: point list -- the count of
+                            0: plain | 1: cell list -- the count of
                             set cells k in Elias gamma code (of k+1),
                             then the gap before each set cell, in the
                             tile's own Morton order, in Rice code with
@@ -465,9 +465,9 @@ value to spare -- levels 1, 2, 3 and 5 -- the next size offset names a
 1x1 resolution, the raw escape. A tile's own level is known from its
 place in the tree, so this costs nothing to use. The
 payload walk order is written once (`grammar/order.rs`) and used in
-both directions, as is the point list (`grammar/point_list.rs`).
+both directions, as is the cell list (`grammar/cell_list.rs`).
 
-A point list says a tile of scattered cells near what scattered cells
+A cell list says a tile of scattered cells near what scattered cells
 need at least -- `log2(N choose k)`, about `k * (log2(N / k) + 1.44)`
 -- where a tree of divides pays about 7 bits a level for every lone
 cell. The complex tiler weighs it against the plain payload by its
@@ -482,7 +482,7 @@ tiler reads the bitmap.
 | tile (size offset 0) | `1+1+r+1` |
 | complex tile, size offset 1 | `1+1+r+4` |
 | complex tile, size offset > 1, no masking | `1+1+r+1+N`, `+1` at a 1x1 resolution |
-| point list (1x1 resolution, masking nothing) | `1+1+r+1+1`, then about `k * (log2(N / k) + 1.5)` |
+| cell list (1x1 resolution, masking nothing) | `1+1+r+1+1`, then about `k * (log2(N / k) + 1.5)` |
 | complex tile, size offset > 1, masking | `1+1+r+1`, four child nodes, then its payload |
 | subdivide | `1`, `+1` at 8x8 or coarser |
 | masking subdivide, or masking bind | `1+1+1+4 = 7`, then its named children |

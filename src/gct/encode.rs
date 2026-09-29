@@ -4,22 +4,21 @@
 //! residual pass.
 
 use crate::gct::grammar::bit_stream::BitStream;
-use crate::gct::grammar::order::PayloadWalk;
-use crate::gct::grammar::point_list;
+use crate::gct::grammar::order::payload_parts;
+use crate::gct::grammar::cell_list;
 use crate::gct::grammar::*;
 use crate::gct::nested_resolutions::NestedResolutions;
 use crate::gct::pyramids::pyramid::Pyramid;
 use crate::gct::pyramids::tree::{Node, Tree};
-use crate::gct::tile::{cells_in_tile, Tile, CELL_LEVEL};
+use crate::gct::tile::{cells_in_tile, Tile, CELL_LEVEL, FLOOR_LEVEL};
 use crate::Bitmap;
 
-/// Spells out `tree` for `bitmap` into `stream`, whatever it held before;
-/// `payload_walk` is room for a payload's parts.
-pub fn write(tree: &Pyramid, bitmap: &Bitmap, stream: &mut BitStream, payload_walk: &mut PayloadWalk) {
+/// Spells out `tree` for `bitmap` into `stream`, whatever it held before.
+pub fn write(tree: &Pyramid, bitmap: &Bitmap, stream: &mut BitStream) {
     stream.clear();
     let start_level = tree.start_level();
     stream.push_value(start_level as u64, START_LEVEL_WIDTH);
-    let mut writer = Writer { tree, bitmap, stream, payload_walk };
+    let mut writer = Writer { tree, bitmap, stream };
     for tile in Tile::all_of_level(start_level) {
         writer.node(tile, &mut NestedResolutions::none());
     }
@@ -36,8 +35,6 @@ struct Writer<'a> {
     bitmap: &'a Bitmap,
     /// Where the bits go.
     stream: &'a mut BitStream,
-    /// Room for a payload's parts.
-    payload_walk: &'a mut PayloadWalk,
 }
 
 impl Writer<'_> {
@@ -52,7 +49,7 @@ impl Writer<'_> {
             self.stream.push_value(MASKED, MASK_BIT_WIDTH);
         }
 
-        if tile.level == CELL_LEVEL - 1 {
+        if tile.level == FLOOR_LEVEL {
             match node {
                 Node::ComplexTile { size_offset: 0, .. } => {
                     self.stream.push_value(LEAF, LEAF_WIDTH);
@@ -120,14 +117,14 @@ impl Writer<'_> {
                     self.named_children(tile, nested);
                 }
             }
-            Node::PointList => {
+            Node::CellList => {
                 let size_offset = CELL_LEVEL - tile.level;
                 self.stream.push_value(LEAF, LEAF_WIDTH);
                 self.stream.push_value(BIND, CODE_WIDTH);
                 self.stream.push_value(size_offset as u64, resolution_width(tile.level));
                 self.stream.push_value(NO_MASKING, MASK_PRESENT_WIDTH);
-                self.stream.push_value(POINT_LIST, PAYLOAD_MODE_WIDTH);
-                point_list::write(self.bitmap, tile, self.stream);
+                self.stream.push_value(CELL_LIST, PAYLOAD_MODE_WIDTH);
+                cell_list::write(self.bitmap, tile, self.stream);
             }
             Node::Unmasked { .. } | Node::Residual | Node::Absent => unreachable!("{node:?} is never written here"),
         }
@@ -158,7 +155,7 @@ impl Writer<'_> {
     /// unmasked in it, a part at a time.
     fn payload(&mut self, tile: Tile, nesting: u8, size_offset: u8) {
         let resolution = tile.level + size_offset;
-        for &part in self.payload_walk.parts(self.tree, tile, nesting) {
+        for part in payload_parts(self.tree, tile, nesting) {
             write_part(self.bitmap, part, resolution, self.stream);
         }
     }

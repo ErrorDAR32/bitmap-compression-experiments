@@ -10,13 +10,13 @@
 //! (`crate::diagnostics::examination` gathers both), on every bitmap
 //! tested.
 
-use crate::gct::grammar::point_list;
+use crate::gct::grammar::cell_list;
 use crate::gct::grammar::*;
 use crate::gct::nested_resolutions::NestedResolutions;
 use crate::gct::pyramids::complex_tiling::{ComplexTiling, Fields};
 use crate::gct::pyramids::placements::Placement;
 use crate::gct::pyramids::pyramid::Pyramid;
-use crate::gct::tile::{cells_in_tile, tiles_in_level, Tile, CELL_LEVEL, CHILDREN};
+use crate::gct::tile::{cells_in_tile, tiles_in_level, Tile, CHILDREN, FLOOR_LEVEL};
 use crate::Bitmap;
 
 /// How many resolution tiles a tile holds `size_offset` levels finer:
@@ -74,7 +74,7 @@ pub fn node_bits(
     }
 
     let leaf_bind = (LEAF_WIDTH + CODE_WIDTH) as u64;
-    if tile.level == CELL_LEVEL - 1 {
+    if tile.level == FLOOR_LEVEL {
         // The 2x2 floor: a tile and its value, or a residual and its cells
         // in the residual pass.
         return mask_bits
@@ -109,8 +109,8 @@ pub fn node_bits(
                     complex_bits += MASK_PRESENT_WIDTH as u64;
                 }
                 let resolution = tile.level + size_offset;
-                if here.is_point_list() {
-                    complex_bits + PAYLOAD_MODE_WIDTH as u64 + point_list::bits(bitmap, tile)
+                if here.is_cell_list() {
+                    complex_bits + PAYLOAD_MODE_WIDTH as u64 + cell_list::bits(bitmap, tile)
                 } else if here.entirely_bound_at(resolution) {
                     if has_payload_mode(tile.level, size_offset, false) {
                         complex_bits += PAYLOAD_MODE_WIDTH as u64;

@@ -16,15 +16,15 @@
 //! so a chain always ends.
 
 use crate::gct::grammar::bit_stream::{BitReader, BitStream};
-use crate::gct::grammar::order::PayloadWalk;
-use crate::gct::grammar::point_list;
+use crate::gct::grammar::order::payload_parts;
+use crate::gct::grammar::cell_list;
 use crate::gct::grammar::*;
 use crate::gct::nested_resolutions::NestedResolutions;
 use crate::fixed_list::FixedList;
 use crate::gct::pyramids::copyable::CopyOffsets;
 use crate::gct::pyramids::pyramid::Pyramid;
 use crate::gct::pyramids::tree::{Node, Tree};
-use crate::gct::tile::{cells_in_tile, tiles_across, Tile, CELL_LEVEL};
+use crate::gct::tile::{cells_in_tile, tiles_across, Tile, CELL_LEVEL, FLOOR_LEVEL};
 use crate::gct::pyramids::copy_sources::{CopySources, BLOCKS, BLOCK_LEVEL};
 use crate::morton::morton_index;
 use crate::Bitmap;
@@ -41,8 +41,6 @@ pub struct StreamContents<'a> {
     pub copies: &'a mut Copies,
     /// Where copies read from: the offsets the stream was encoded with.
     pub offsets: &'a CopyOffsets,
-    /// Room for a payload's parts.
-    pub payload_walk: &'a mut PayloadWalk,
 }
 
 /// Reads back what [`crate::gct::encode::write`] wrote, into `read`,
@@ -78,7 +76,7 @@ impl StreamContents<'_> {
         }
 
         let leaf = reader.value(LEAF_WIDTH) == LEAF;
-        if tile.level == CELL_LEVEL - 1 {
+        if tile.level == FLOOR_LEVEL {
             if !leaf {
                 self.tree.set_node(tile, Node::Residual);
                 return;
@@ -120,9 +118,9 @@ impl StreamContents<'_> {
         }
         let size_offset = reader.value(resolution_width(tile.level)) as u8;
         let masks = complex_tile_may_mask(size_offset) && reader.value(MASK_PRESENT_WIDTH) == MASKING;
-        if has_payload_mode(tile.level, size_offset, masks) && reader.value(PAYLOAD_MODE_WIDTH) == POINT_LIST {
-            self.tree.set_node(tile, Node::PointList);
-            point_list::read(reader, tile, self.cell_values);
+        if has_payload_mode(tile.level, size_offset, masks) && reader.value(PAYLOAD_MODE_WIDTH) == CELL_LIST {
+            self.tree.set_node(tile, Node::CellList);
+            cell_list::read(reader, tile, self.cell_values);
             return;
         }
         self.tree.set_node(tile, Node::ComplexTile { size_offset, masks });
@@ -163,7 +161,7 @@ impl StreamContents<'_> {
     /// names, a part at a time.
     fn payload(&mut self, reader: &mut BitReader, tile: Tile, nesting: u8, size_offset: u8) {
         let resolution = tile.level + size_offset;
-        for &part in self.payload_walk.parts(self.tree, tile, nesting) {
+        for part in payload_parts(self.tree, tile, nesting) {
             read_part(reader, part, resolution, self.cell_values);
         }
     }
