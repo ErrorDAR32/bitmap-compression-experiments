@@ -1,18 +1,23 @@
 //! Bitmaps drawn with lines: straight strokes of random length, run
 //! horizontally, vertically or along either diagonal, at random widths
-//! -- a width of one most often, and each wider one half as likely as
-//! the one before. Like every sample, settled by a seed.
+//! -- a width of one most often, each wider one less likely, as the line
+//! set says. Like every sample, settled by a seed.
 
 use crate::rng::Rng;
 use crate::{Bitmap, WIDTH};
 
-/// A kind of drawing: how many lines a bitmap is given, and how many to
-/// measure over and to test.
+/// A kind of drawing: how many lines a bitmap is given, how wide they
+/// get, and how many to measure over and to test.
 pub struct LineSet {
     /// What a measurement calls it.
     pub name: &'static str,
     /// How many lines each bitmap is given.
     pub lines: u64,
+    /// The widest a line is drawn, in cells.
+    pub widest: i64,
+    /// How likely a line is to be one wider again, in a hundred: at 50,
+    /// each width is half as likely as the one before.
+    pub wider_in_a_hundred: u64,
     /// How many to measure over.
     pub timed: u64,
     /// How many a test takes.
@@ -38,19 +43,10 @@ impl LineSet {
 
 /// From a few strokes to a tangle.
 pub const LINE_SETS: [LineSet; 3] = [
-    LineSet { name: "a few lines", lines: 8, timed: 12, tested: 2 },
-    LineSet { name: "some lines", lines: 32, timed: 12, tested: 2 },
-    LineSet { name: "many lines", lines: 128, timed: 12, tested: 2 },
+    LineSet { name: "a few lines", lines: 8, widest: 16, wider_in_a_hundred: 50, timed: 12, tested: 2 },
+    LineSet { name: "some lines", lines: 32, widest: 16, wider_in_a_hundred: 50, timed: 12, tested: 2 },
+    LineSet { name: "many lines", lines: 128, widest: 16, wider_in_a_hundred: 50, timed: 12, tested: 2 },
 ];
-
-/// The widest a line is drawn: a sixteenth of the bitmap. Wider is a
-/// block, not a line -- and at half as likely a step, never reached in
-/// practice anyway.
-const WIDEST: i64 = 16;
-
-/// How likely a line is to be one wider again, in a hundred: each width
-/// half as likely as the one before.
-const WIDER_IN_A_HUNDRED: u64 = 50;
 
 /// The four ways a line runs: across, down, and down either diagonal.
 const ORIENTATIONS: [(i64, i64); 4] = [(1, 0), (0, 1), (1, 1), (1, -1)];
@@ -90,7 +86,7 @@ pub fn one_drawn(seed: u64, set: &LineSet) -> Bitmap {
         let (dx, dy) = ORIENTATIONS[rng.below(ORIENTATIONS.len() as u64) as usize];
         let length = 1 + rng.below(side) as i64;
         let mut width = 1;
-        while width < WIDEST && rng.percent_chance(WIDER_IN_A_HUNDRED) {
+        while width < set.widest && rng.percent_chance(set.wider_in_a_hundred) {
             width += 1;
         }
         for step in 0..length {

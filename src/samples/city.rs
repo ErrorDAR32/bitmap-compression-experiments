@@ -17,7 +17,8 @@ use crate::rng::Rng;
 use crate::Bitmap;
 
 /// How a city is laid out: how far apart the streets run, how wide
-/// they are, and how many courtyards a block is given.
+/// they are, how many courtyards a block is given and how big, and how
+/// often a block is a park.
 ///
 /// The grid is shifted by a random offset in each city, so however the
 /// pitch divides the bitmap, the blocks do not land on tile corners.
@@ -30,6 +31,10 @@ pub struct Plan {
     pub street: i64,
     /// How many courtyards are cut out of each block.
     pub courtyards: u64,
+    /// The sides a courtyard can have, in cells, each as likely.
+    pub courtyard_sides: &'static [i64],
+    /// How often, in a hundred blocks, one is left clear: a park.
+    pub parks_in_a_hundred: u64,
     /// How many to measure over...
     pub timed: u64,
     /// ...and how many a test takes.
@@ -61,10 +66,46 @@ impl Plan {
 /// The layouts worth measuring on: blocks from a twelfth of the
 /// bitmap down to a twentieth, and streets narrow and wide.
 pub const PLANS: [Plan; 4] = [
-    Plan { name: "blocks of 28, streets of 4", pitch: 32, street: 4, courtyards: 2, timed: 12, tested: 2 },
-    Plan { name: "blocks of 24, streets of 8", pitch: 32, street: 8, courtyards: 3, timed: 12, tested: 2 },
-    Plan { name: "blocks of 60, streets of 4", pitch: 64, street: 4, courtyards: 6, timed: 12, tested: 2 },
-    Plan { name: "blocks of 12, streets of 4", pitch: 16, street: 4, courtyards: 1, timed: 12, tested: 2 },
+    Plan {
+        name: "blocks of 28, streets of 4",
+        pitch: 32,
+        street: 4,
+        courtyards: 2,
+        courtyard_sides: &[2, 4, 8],
+        parks_in_a_hundred: 12,
+        timed: 12,
+        tested: 2,
+    },
+    Plan {
+        name: "blocks of 24, streets of 8",
+        pitch: 32,
+        street: 8,
+        courtyards: 3,
+        courtyard_sides: &[2, 4, 8],
+        parks_in_a_hundred: 12,
+        timed: 12,
+        tested: 2,
+    },
+    Plan {
+        name: "blocks of 60, streets of 4",
+        pitch: 64,
+        street: 4,
+        courtyards: 6,
+        courtyard_sides: &[2, 4, 8],
+        parks_in_a_hundred: 12,
+        timed: 12,
+        tested: 2,
+    },
+    Plan {
+        name: "blocks of 12, streets of 4",
+        pitch: 16,
+        street: 4,
+        courtyards: 1,
+        courtyard_sides: &[2, 4, 8],
+        parks_in_a_hundred: 12,
+        timed: 12,
+        tested: 2,
+    },
 ];
 
 /// A run of cities from consecutive seeds, built one at a time.
@@ -96,14 +137,13 @@ impl Iterator for Cities {
 pub fn one_laid_out(seed: u64, plan: &Plan) -> Bitmap {
     let mut bitmap = Bitmap::new();
     let mut rng = Rng::new(seed);
-    let side = plan.block();
     let (offset_x, offset_y) = (rng.below(plan.pitch as u64) as i64, rng.below(plan.pitch as u64) as i64);
 
     let mut y = offset_y - plan.pitch;
     while y < crate::HEIGHT as i64 {
         let mut x = offset_x - plan.pitch;
         while x < crate::WIDTH as i64 {
-            block(&mut bitmap, x, y, side, plan.courtyards, &mut rng);
+            block(&mut bitmap, x, y, plan, &mut rng);
             x += plan.pitch;
         }
         y += plan.pitch;
@@ -111,21 +151,16 @@ pub fn one_laid_out(seed: u64, plan: &Plan) -> Bitmap {
     bitmap
 }
 
-/// How often, in a hundred blocks, one is left clear: a park.
-const PARKS_IN_A_HUNDRED: u64 = 12;
-
-/// The sides a courtyard can have, in cells.
-const COURTYARD_SIDES: [i64; 3] = [2, 4, 8];
-
-/// One block, filled, with courtyards cut out of it -- or left clear
-/// altogether, which is a park.
-fn block(bitmap: &mut Bitmap, x: i64, y: i64, side: i64, courtyards: u64, rng: &mut Rng) {
-    if rng.percent_chance(PARKS_IN_A_HUNDRED) {
+/// One block of `plan`, top left at `(x, y)`, filled, with courtyards
+/// cut out of it -- or left clear altogether, which is a park.
+fn block(bitmap: &mut Bitmap, x: i64, y: i64, plan: &Plan, rng: &mut Rng) {
+    if rng.percent_chance(plan.parks_in_a_hundred) {
         return;
     }
+    let side = plan.block();
     bitmap.set_rect(x, y, x + side - 1, y + side - 1);
-    for _ in 0..courtyards {
-        let courtyard_side = COURTYARD_SIDES[rng.below(COURTYARD_SIDES.len() as u64) as usize];
+    for _ in 0..plan.courtyards {
+        let courtyard_side = plan.courtyard_sides[rng.below(plan.courtyard_sides.len() as u64) as usize];
         if courtyard_side >= side {
             continue;
         }
