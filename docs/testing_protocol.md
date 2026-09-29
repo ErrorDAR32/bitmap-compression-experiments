@@ -10,10 +10,18 @@ So the protocol is two-phase, and the phases must not be mixed.
 
 ## Where the seed comes from
 
-`tests/last_seed` holds the seed base every seeded run uses; setting
-`GCT_SEED` overrides it for one run, and moves it. `GCT_SEED=fresh`
-draws a new one for one run and moves nothing. Every run says which seed each
-sample group used, so a number can always be traced to its bitmaps.
+`tests/last_seed` holds the seed base every seeded run uses, and how
+many runs have used it. Each run that draws from it counts one use;
+after 5 (`USES_BEFORE_THE_SEED_ROLLS`, `src/sample_generators/seed.rs`)
+the next run rolls a fresh seed by itself and says so, so no corpus is
+held for longer than a few measure-and-compare cycles, and no one has to
+remember to move it. Setting `GCT_SEED` picks a seed for one run, and
+moves the file's to it, its first use. `GCT_SEED=fresh` draws a new one
+for one run and moves nothing. Every run says which seed each sample
+group used, and which use of it the run is, so a number can always be
+traced to its bitmaps. The fine tests are the exception: they draw
+their bitmaps by hand or from a seed fixed in the test, and never read
+the file. Commit the file with the work it was measured on.
 
 ## Tests, diagnostics, tools
 
@@ -176,21 +184,23 @@ any code change.
 
 ## Phase one: fix, with the seed held still
 
-Pick a seed base and leave it alone. While it is held:
+A seed base holds for 5 runs, then rolls. While it is held:
 
 - Find what the algorithm does badly on that corpus, and change things,
   measuring each change against the same bitmaps.
 - Iterate as much as the problem takes. Comparing two versions on the
   same seed is exactly what the seed is for: it is the only way to know
-  a difference came from the code.
+  a difference came from the code. A comparison must not straddle a
+  roll: run both sides on one seed -- pinned with `GCT_SEED=<seed>` if
+  it would -- and read the seed each side printed.
 
 Everything in this phase is a *hypothesis*. A change that helps here has
 helped on one corpus and nothing more has been shown.
 
 ## Phase two: check, on a seed never seen
 
-When the problems that corpus showed are solved, move the seed and
-re-run the measurement:
+When the problems that corpus showed are solved, move the seed -- or
+let it roll -- and re-run the measurement:
 
 ```
 GCT_SEED=$(head -c8 /dev/urandom | od -An -tu8 | tr -d ' ') \
@@ -202,8 +212,9 @@ change that shrinks or reverses was fitted to the first corpus, and
 belongs in the commit message as a thing that did not work rather than
 in the algorithm.
 
-Only once a change has survived phase two does the seed base move on for
-good and the next round of problems get looked for.
+Only once a change has survived phase two does the next round of
+problems get looked for -- on whatever seed the file has rolled to by
+then.
 
 ## What that looks like when it works
 
