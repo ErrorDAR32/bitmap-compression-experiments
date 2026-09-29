@@ -3,7 +3,7 @@
 //! sparse cells, clustered, with nothing to copy: the tree's worst case.
 //! Only one of the two is ever made: which is judged from the greedy
 //! tiler's tiles, before the complex tiler
-//! ([`crate::gct::workspace`](mod@crate::gct::workspace)).
+//! ([`Gct::encode`](crate::gct::Gct::encode)).
 //!
 //! How many cells are set, `k`, in Elias gamma code (of `k + 1`, so zero
 //! can be said); then the bitmap's cells in Morton order, halved again

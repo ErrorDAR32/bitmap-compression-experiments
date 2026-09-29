@@ -1,9 +1,9 @@
 //! Bits, cells set and encode time, over many bitmaps, each encoded and
-//! decoded in one workspace.
+//! decoded by one `Gct`.
 
 use super::examination::first_difference;
 use crate::gct::grammar::bit_stream::BitStream;
-use crate::gct::Workspace;
+use crate::gct::Gct;
 use crate::Bitmap;
 use std::time::Instant;
 
@@ -28,16 +28,16 @@ pub struct Measured {
 }
 
 impl Measured {
-    /// Encodes and decodes every bitmap of `bitmaps` in `workspace`, and
+    /// Encodes and decodes every bitmap of `bitmaps` with `gct`, and
     /// gathers what they came to.
-    pub fn of(workspace: &mut Workspace, bitmaps: impl IntoIterator<Item = Bitmap>) -> Self {
+    pub fn of(gct: &mut Gct, bitmaps: impl IntoIterator<Item = Bitmap>) -> Self {
         let (mut stream, mut back) = (BitStream::default(), Bitmap::new());
         let mut measured = Measured::default();
         for (case, bitmap) in bitmaps.into_iter().enumerate() {
             let start = Instant::now();
-            workspace.encode(&bitmap, &mut stream);
+            gct.encode(&bitmap, &mut stream);
             measured.encode_micros += start.elapsed().as_micros();
-            workspace.decode(&stream, &mut back);
+            gct.decode(&stream, &mut back);
             if first_difference(&bitmap, &back).is_some() {
                 measured.lost.push(case);
             }

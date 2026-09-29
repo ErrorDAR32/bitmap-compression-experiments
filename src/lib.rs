@@ -7,28 +7,28 @@
 //!
 //! # Using it
 //!
-//! A [`gct::Workspace`] holds everything encoding and decoding need,
+//! A [`gct::Gct`] holds everything encoding and decoding need,
 //! allocated once; keep one, a stream and a bitmap, and every bitmap
 //! after the first is encoded and decoded without allocating.
 //!
 //! ```
 //! use tilesim::gct::grammar::bit_stream::BitStream;
-//! use tilesim::gct::Workspace;
+//! use tilesim::gct::Gct;
 //! use tilesim::Bitmap;
 //!
 //! let mut bitmap = Bitmap::new();
 //! bitmap.set_rect(10, 10, 40, 30);
 //! bitmap.set_circle(180, 180, 25);
 //!
-//! let (mut workspace, mut stream, mut back) = (Workspace::new(), BitStream::default(), Bitmap::new());
-//! workspace.encode(&bitmap, &mut stream);
-//! workspace.decode(&stream, &mut back);
+//! let (mut gct, mut stream, mut back) = (Gct::new(), BitStream::default(), Bitmap::new());
+//! gct.encode(&bitmap, &mut stream);
+//! gct.decode(&stream, &mut back);
 //! assert_eq!(back.count_set(), bitmap.count_set());
 //! ```
 //!
 //! For a single bitmap, [`gct::encode`](fn@gct::encode) and
 //! [`gct::decode`](fn@gct::decode) do the same
-//! in a workspace of their own.
+//! with a `Gct` of their own.
 //!
 //! # How the crate is laid out
 //!
@@ -73,7 +73,7 @@ pub mod table;
 pub use bitmap::Bitmap;
 
 /// The bitmap is always this wide... Nothing is sized at run time,
-/// which is what lets a workspace be built once and reused.
+/// which is what lets a `Gct` be built once and reused.
 pub const WIDTH: usize = 256;
 /// ...and this tall.
 pub const HEIGHT: usize = 256;

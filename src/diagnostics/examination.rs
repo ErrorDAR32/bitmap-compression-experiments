@@ -1,4 +1,4 @@
-//! One bitmap examined: encoded and decoded in a workspace, and
+//! One bitmap examined: encoded and decoded by a `Gct`, and
 //! everything the result can be held to, gathered:
 //!
 //! - how each cell is said: by exactly one of the greedy tiler's placed
@@ -19,7 +19,7 @@ use crate::gct::pyramids::placements::Placement;
 use crate::gct::pyramids::tree::{Node, Tree};
 use crate::gct::tile::{Tile, CELL_LEVEL, FLOOR_LEVEL};
 use crate::gct::tree_representation::start_level;
-use crate::gct::Workspace;
+use crate::gct::Gct;
 use crate::Bitmap;
 
 /// A cell said wrongly.
@@ -77,11 +77,11 @@ pub fn first_difference(a: &Bitmap, b: &Bitmap) -> Option<(u8, u8)> {
     (0..=u8::MAX).flat_map(|y| (0..=u8::MAX).map(move |x| (x, y))).find(|&(x, y)| a.get(x, y) != b.get(x, y))
 }
 
-/// The tree gct makes of `bitmap`, from a workspace of its own.
+/// The tree gct makes of `bitmap`, from a `Gct` of its own.
 pub fn tree_of(bitmap: &Bitmap) -> Tree {
-    let mut workspace = Workspace::new();
-    workspace.encode_tree(bitmap, &mut BitStream::default());
-    workspace.tree().clone()
+    let mut gct = Gct::new();
+    gct.encode_tree(bitmap, &mut BitStream::default());
+    gct.tree().clone()
 }
 
 /// How `cell` is said, if wrongly: `placements` what the greedy tiler
@@ -114,14 +114,14 @@ fn coverage_fault(bitmap: &Bitmap, placements: &ComplexTiling, tree: &Tree, cell
 }
 
 impl Examination {
-    /// Encodes `bitmap` in `workspace` into `stream` as its tree and
+    /// Encodes `bitmap` with `gct` into `stream` as its tree and
     /// decodes that, then encodes it as the encoding that suits it and
     /// decodes that, gathering what came of both: the tree is checked
     /// whichever encoding suits.
-    pub fn of(workspace: &mut Workspace, stream: &mut BitStream, back: &mut Bitmap, bitmap: &Bitmap) -> Self {
-        workspace.encode_tree(bitmap, stream);
-        let complex_tiling = workspace.complex_tiling();
-        let written = workspace.tree().clone();
+    pub fn of(gct: &mut Gct, stream: &mut BitStream, back: &mut Bitmap, bitmap: &Bitmap) -> Self {
+        gct.encode_tree(bitmap, stream);
+        let complex_tiling = gct.complex_tiling();
+        let written = gct.tree().clone();
 
         let coverage_faults = Tile::all_cells().filter_map(|cell| coverage_fault(bitmap, complex_tiling, &written, cell)).collect();
         let (mut placed_finer_than_2x2, mut copied_finer_than_4x4) = (Vec::new(), Vec::new());
@@ -137,14 +137,14 @@ impl Examination {
         // were it not the tree's, these bits would not be the bits written.
         let tree_bits = tree_bits(complex_tiling, bitmap, start_level(complex_tiling));
         let tree_written_bits = (stream.len() - STREAM_MODE_WIDTH as usize) as u64;
-        workspace.decode(stream, back);
-        let tree_read_back = *workspace.tree() == written;
+        gct.decode(stream, back);
+        let tree_read_back = *gct.tree() == written;
         let tree_first_difference = first_difference(bitmap, back);
 
-        workspace.encode(bitmap, stream);
+        gct.encode(bitmap, stream);
         let count_split_stream = stream.reader().value(STREAM_MODE_WIDTH) == COUNT_SPLIT_STREAM;
         let counted_bits = STREAM_MODE_WIDTH as u64 + if count_split_stream { count_split::bits(bitmap) } else { tree_bits };
-        workspace.decode(stream, back);
+        gct.decode(stream, back);
         Self {
             written_bits: stream.len(),
             counted_bits,

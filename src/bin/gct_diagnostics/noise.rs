@@ -4,7 +4,7 @@
 
 use tilesim::diagnostics::measured::Measured;
 use tilesim::diagnostics::RAW_CELLS;
-use tilesim::gct::Workspace;
+use tilesim::gct::Gct;
 use tilesim::sample_generators::grown;
 use tilesim::table::report::Report;
 use tilesim::table::Table;
@@ -19,10 +19,10 @@ const SEED: u64 = 1;
 
 /// Prints gct's bits on noise at every density, against the raw cells.
 pub fn run(report: &mut Report) {
-    let mut workspace = Workspace::new();
+    let mut gct = Gct::new();
     let mut table = Table::new(&["density", "gct\nbits a bitmap", "gct\nover raw cells"]);
     for density in DENSITIES {
-        let measured = Measured::of(&mut workspace, grown(SEED, density, 0.0, EACH));
+        let measured = Measured::of(&mut gct, grown(SEED, density, 0.0, EACH));
         assert!(measured.lost.is_empty(), "noise at {density}: gct lost cells of cases {:?}", measured.lost);
         let gct_bits = measured.bits / measured.bitmaps;
         table.row(&[

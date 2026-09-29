@@ -31,9 +31,9 @@ residual, read off the tree's 2x2 level in Morton order, four raw bits
 each.
 
 Every structure the steps use -- the pyramids, the complex tiler's
-scratch, a payload's parts -- lives in one `Workspace` (`workspace.rs`),
-allocated once. `workspace.encode(&bitmap, &mut stream)` and
-`workspace.decode(&stream, &mut bitmap)` write into what they are given,
+scratch, a payload's parts -- lives in one `Gct` (`src/gct/mod.rs`),
+allocated once. `gct.encode(&bitmap, &mut stream)` and
+`gct.decode(&stream, &mut bitmap)` write into what they are given,
 and each step clears or overwrites what the last bitmap left.
 
 Nothing grows. Every structure has an upper bound, and is allocated at
@@ -167,7 +167,7 @@ neighbour before the tile in reading order: (-1,-1), (0,-1), (1,-1),
 (4,-4) or (-4,0): above and left four tiles away, top left two
 diagonally, top right four.
 Any eight distinct offsets before the tile in reading order decode; a
-workspace can be made with others (`Workspace::with_copy_offsets`,
+`Gct` can be made with others (`Gct::with_copy_offsets`,
 `CopyOffsets::new`), and the diagnostics tool's `copy_offsets`
 searches for better ones, near and far together (`copy_offsets.csv`).
 

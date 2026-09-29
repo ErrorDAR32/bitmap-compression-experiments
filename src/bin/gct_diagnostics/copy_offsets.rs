@@ -22,7 +22,7 @@
 
 use tilesim::diagnostics::measured::Measured;
 use tilesim::gct::pyramids::copyable::{precedes, CopyOffsets, NEAR_OFFSETS};
-use tilesim::gct::Workspace;
+use tilesim::gct::Gct;
 use tilesim::rng::Rng;
 use tilesim::sample_generators::seed::seed_in_use;
 use tilesim::sample_generators::{families, HowMany};
@@ -55,7 +55,7 @@ type Families = Vec<(String, Vec<Bitmap>)>;
 /// The far offsets gct started with: the near ones, twice as far.
 const ORIGINAL_FAR: [(isize, isize); 4] = [(-2, -2), (0, -2), (2, -2), (-2, 0)];
 
-/// `offsets` as the workspace takes them.
+/// `offsets` as a `Gct` takes them.
 fn copy_offsets(offsets: &Offsets) -> CopyOffsets {
     let (near, far) = offsets.split_at(FAR_START);
     CopyOffsets::new(near.try_into().expect("four"), far.try_into().expect("four")).expect("distinct offsets, each before the copy")
@@ -78,11 +78,11 @@ fn candidates() -> Vec<(isize, isize)> {
 /// Each family's bits, all its bitmaps together, with copies reading
 /// from `offsets`; stops if a bitmap does not come back.
 fn bits(families: &Families, offsets: &Offsets) -> Vec<usize> {
-    let mut workspace = Workspace::with_copy_offsets(copy_offsets(offsets));
+    let mut gct = Gct::with_copy_offsets(copy_offsets(offsets));
     families
         .iter()
         .map(|(name, bitmaps)| {
-            let measured = Measured::of(&mut workspace, bitmaps.iter().cloned());
+            let measured = Measured::of(&mut gct, bitmaps.iter().cloned());
             assert!(measured.lost.is_empty(), "{name}, offsets {offsets:?}: gct lost cells of cases {:?}", measured.lost);
             measured.bits
         })

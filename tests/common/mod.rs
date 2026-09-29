@@ -4,7 +4,7 @@
 use tilesim::diagnostics::examination::Examination;
 use tilesim::diagnostics::RAW_CELLS;
 use tilesim::gct::grammar::bit_stream::BitStream;
-use tilesim::gct::Workspace;
+use tilesim::gct::Gct;
 use tilesim::Bitmap;
 use std::cell::RefCell;
 
@@ -27,14 +27,14 @@ pub const CAP_BITS: usize = RAW_CELLS + RAW_CELLS / 100;
 ///   both the tree's bits and the stream's decode to every cell.
 pub fn check(bitmap: &Bitmap, label: &str) {
     thread_local! {
-        /// One workspace for every check a thread makes, so every test
+        /// One `Gct` for every check a thread makes, so every test
         /// also checks that nothing one bitmap leaves in it leaks into
         /// the next.
-        static WORKSPACE: RefCell<(Workspace, BitStream, Bitmap)> =
-            RefCell::new((Workspace::new(), BitStream::default(), Bitmap::new()));
+        static GCT: RefCell<(Gct, BitStream, Bitmap)> =
+            RefCell::new((Gct::new(), BitStream::default(), Bitmap::new()));
     }
-    WORKSPACE.with_borrow_mut(|(workspace, stream, back)| {
-        let examined = Examination::of(workspace, stream, back, bitmap);
+    GCT.with_borrow_mut(|(gct, stream, back)| {
+        let examined = Examination::of(gct, stream, back, bitmap);
         assert_eq!(examined.coverage_faults.first(), None, "{label}: a cell said wrongly");
         assert_eq!(examined.placed_finer_than_2x2.first(), None, "{label}: placed finer than a 2x2");
         assert_eq!(examined.copied_finer_than_4x4.first(), None, "{label}: copied finer than 4x4");

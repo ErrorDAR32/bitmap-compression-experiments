@@ -3,7 +3,7 @@
 //! sparse ones, city plans and line sets, weighted as the `timing` tool's
 //! sample is -- a checkerboard, every saved adversarial bitmap
 //! (`external_benchmarks/adversarial/saved/`) and noise, encoded, then
-//! decoded, all in one workspace. Run it under
+//! decoded, all in one gct. Run it under
 //! callgrind, which counts executed instructions exactly and says where
 //! they go:
 //!
@@ -18,7 +18,7 @@
 
 use tilesim::gct::grammar::bit_stream::BitStream;
 use tilesim::adversarial::record;
-use tilesim::gct::Workspace;
+use tilesim::gct::Gct;
 use tilesim::sample_generators::checkerboards::checkerboard;
 use tilesim::diagnostics::examination::first_difference;
 use tilesim::sample_generators::{families, grown, HowMany};
@@ -45,14 +45,14 @@ pub fn run() {
     sample.extend(record::saved().into_iter().map(|(_, bitmap)| bitmap));
     sample.extend(grown(NOISE_SEED, NOISE_DENSITY, 0.0, NOISE_BITMAPS));
 
-    // One workspace, stream and bitmap for the whole sample, as a caller
+    // One `Gct`, stream and bitmap for the whole sample, as a caller
     // encoding many would keep them.
-    let (mut workspace, mut stream, mut back) = (Workspace::new(), BitStream::default(), Bitmap::new());
+    let (mut gct, mut stream, mut back) = (Gct::new(), BitStream::default(), Bitmap::new());
     let mut bits = 0;
     for bitmap in &sample {
-        workspace.encode(bitmap, &mut stream);
+        gct.encode(bitmap, &mut stream);
         bits += stream.len();
-        workspace.decode(&stream, &mut back);
+        gct.decode(&stream, &mut back);
         assert_eq!(first_difference(bitmap, &back), None, "a bitmap did not round trip");
     }
     let mut table = Table::new(&["bitmaps", "bits"]);

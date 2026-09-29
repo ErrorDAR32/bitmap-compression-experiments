@@ -1,7 +1,7 @@
 //! Wall-clock time to encode, averaged over a large sample: every
 //! generator's bitmaps -- grown shapes, sparse ones, city plans and line
 //! sets -- `sample_generators::TIMING_PER_GENERATOR` distinct bitmaps each, all
-//! built before any is timed, then each encoded once in one workspace.
+//! built before any is timed, then each encoded once in one gct.
 //! Decoding is timed apart, after. The saved adversarial bitmaps
 //! (`external_benchmarks/adversarial/saved/`) get a row of their own,
 //! apart from the sample's. Run it in release, on its own -- no
@@ -18,7 +18,7 @@
 use tilesim::adversarial::record;
 use tilesim::diagnostics::examination::first_difference;
 use tilesim::gct::grammar::bit_stream::BitStream;
-use tilesim::gct::Workspace;
+use tilesim::gct::Gct;
 use tilesim::sample_generators::{families, HowMany, TIMING_PER_GENERATOR};
 use tilesim::table::report::Report;
 use tilesim::table::Table;
@@ -41,15 +41,15 @@ pub fn run(report: &mut Report) {
     let per_generator = std::env::args().nth(2).map_or(TIMING_PER_GENERATOR, |count| count.parse().expect("a count"));
     let families = families(HowMany::Each(per_generator));
 
-    let (mut workspace, mut stream, mut back) = (Workspace::new(), BitStream::default(), Bitmap::new());
+    let (mut gct, mut stream, mut back) = (Gct::new(), BitStream::default(), Bitmap::new());
     // One encode first, so the first timed one pays for nothing extra.
-    workspace.encode(&families[0].1[0], &mut stream);
+    gct.encode(&families[0].1[0], &mut stream);
 
     let tail = format!("p{TAIL_PERCENT} us");
     let mut table = Table::new(&["family", "bitmaps", "mean us", "median us", &tail, "max us", "decode us"]);
     let (mut every_encode, mut every_decode) = (Vec::new(), Vec::new());
     for (name, bitmaps) in &families {
-        let (mut encodes, decodes) = time(&mut workspace, &mut stream, &mut back, name, bitmaps);
+        let (mut encodes, decodes) = time(&mut gct, &mut stream, &mut back, name, bitmaps);
         table.row(&row(name, &mut encodes, &decodes));
         every_encode.extend(encodes);
         every_decode.extend(decodes);
@@ -63,7 +63,7 @@ pub fn run(report: &mut Report) {
     let saved = record::saved();
     let repeated: Vec<Bitmap> = (0..RECORD_REPEATS).flat_map(|_| saved.iter().map(|(_, bitmap)| bitmap.clone())).collect();
     let name = "adversarial, saved";
-    let (mut encodes, decodes) = time(&mut workspace, &mut stream, &mut back, name, &repeated);
+    let (mut encodes, decodes) = time(&mut gct, &mut stream, &mut back, name, &repeated);
     table.rule();
     table.row(&row(name, &mut encodes, &decodes));
     report.note(format!("{per_generator} bitmaps a generator, the saved adversarial bitmaps {RECORD_REPEATS} times each"));
@@ -73,19 +73,19 @@ pub fn run(report: &mut Report) {
 /// Encodes every bitmap of `bitmaps`, the family `name`, once, timing
 /// each, then decodes each stream, timing each and checking it round
 /// trips: the encode times and the decode times.
-fn time(workspace: &mut Workspace, stream: &mut BitStream, back: &mut Bitmap, name: &str, bitmaps: &[Bitmap]) -> (Vec<Duration>, Vec<Duration>) {
+fn time(gct: &mut Gct, stream: &mut BitStream, back: &mut Bitmap, name: &str, bitmaps: &[Bitmap]) -> (Vec<Duration>, Vec<Duration>) {
     let mut encodes = Vec::with_capacity(bitmaps.len());
     let mut streams = Vec::with_capacity(bitmaps.len());
     for bitmap in bitmaps {
         let start = Instant::now();
-        workspace.encode(bitmap, stream);
+        gct.encode(bitmap, stream);
         encodes.push(start.elapsed());
         streams.push(stream.clone());
     }
     let mut decodes = Vec::with_capacity(streams.len());
     for (encoded, bitmap) in streams.iter().zip(bitmaps) {
         let start = Instant::now();
-        workspace.decode(encoded, back);
+        gct.decode(encoded, back);
         decodes.push(start.elapsed());
         assert_eq!(first_difference(back, bitmap), None, "{name} did not round trip");
     }

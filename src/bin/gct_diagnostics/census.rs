@@ -5,16 +5,16 @@ use tilesim::diagnostics::bitmaps::looked_at;
 use tilesim::diagnostics::census::census;
 use tilesim::gct::grammar::bit_stream::BitStream;
 use tilesim::gct::tile::{tile_side, CELL_LEVEL};
-use tilesim::gct::Workspace;
+use tilesim::gct::Gct;
 use tilesim::table::report::Report;
 use tilesim::table::Table;
 
 /// Prints the census of every bitmap looked at.
 pub fn run(report: &mut Report) {
-    let (mut workspace, mut stream) = (Workspace::new(), BitStream::default());
+    let (mut gct, mut stream) = (Gct::new(), BitStream::default());
     for (name, bitmap) in looked_at() {
-        workspace.encode_tree(&bitmap, &mut stream);
-        let tree = workspace.tree();
+        gct.encode_tree(&bitmap, &mut stream);
+        let tree = gct.tree();
         let headings: Vec<String> = std::iter::once("node".to_string())
             .chain((0..CELL_LEVEL).map(|level| format!("level {level}\n{0}x{0}", tile_side(level))))
             .collect();

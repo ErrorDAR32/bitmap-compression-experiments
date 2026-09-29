@@ -3,7 +3,7 @@
 
 use tilesim::diagnostics::measured::Measured;
 use tilesim::diagnostics::RAW_CELLS;
-use tilesim::gct::Workspace;
+use tilesim::gct::Gct;
 use tilesim::sample_generators::{LINE_SETS, PLANS, SHAPES, SPARSE};
 use tilesim::table::report::Report;
 use tilesim::table::Table;
@@ -12,10 +12,10 @@ use tilesim::Bitmap;
 /// Prints gct's bits on every shape, sparse shape, plan and line set,
 /// each on its own row.
 pub fn run(report: &mut Report) {
-    let mut workspace = Workspace::new();
+    let mut gct = Gct::new();
     let mut table = Table::new(&["sample", "bitmaps", "cells set\na bitmap", "gct\nbits a bitmap", "gct bits\na cell set", "of the\nraw cells"]);
     let mut measure = |name: &str, bitmaps: Vec<Bitmap>| {
-        let measured = Measured::of(&mut workspace, bitmaps);
+        let measured = Measured::of(&mut gct, bitmaps);
         assert!(measured.lost.is_empty(), "{name}: gct lost cells of cases {:?}", measured.lost);
         let bitmaps = measured.bitmaps;
         table.row(&[

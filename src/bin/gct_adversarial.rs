@@ -32,7 +32,7 @@ use tilesim::diagnostics::examination::Examination;
 use tilesim::gct::encode;
 use tilesim::gct::grammar::bit_stream::BitStream;
 use tilesim::gct::tile::{cells_in_tile, Tile};
-use tilesim::gct::Workspace;
+use tilesim::gct::Gct;
 use tilesim::sample_generators::sample_seed;
 use tilesim::table::Table;
 use tilesim::Bitmap;
@@ -106,6 +106,6 @@ fn main() {
         println!("  record kept: {} bits over raw", record_gap.unwrap());
     }
     let bitmap = record::read(RECORD).expect("recorded");
-    let examined = Examination::of(&mut Workspace::new(), &mut BitStream::default(), &mut Bitmap::new(), &bitmap);
+    let examined = Examination::of(&mut Gct::new(), &mut BitStream::default(), &mut Bitmap::new(), &bitmap);
     assert_eq!(examined.first_difference, None, "{RECORD} does not round trip");
 }

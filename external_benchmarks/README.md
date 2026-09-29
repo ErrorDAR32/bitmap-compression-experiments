@@ -10,7 +10,7 @@ in `docs/measurements/external_benchmarks.csv`, rewritten every run.
 
 | codec | what it is | by |
 |---|---|---|
-| gct | this repository | `tilesim::gct::Workspace` |
+| gct | this repository | `tilesim::gct::Gct` |
 | CCITT Group 4 (T.6) | the fax standard TIFF and PDF use for bitmaps: each row's colour changes coded against the row above's | the pure-Rust `fax` crate (pdf-rs) |
 | JBIG (T.82) | the lossless bitmap standard: each pixel arithmetic-coded on the context of the pixels around it; one stripe, default options; its stream carries a 20-byte header | jbigkit, the reference C implementation, through `csrc/jbig_shim.c` |
 | zstd, levels 3 and 19 | a general-purpose compressor on the raw rows, knowing nothing of images | the `zstd` crate |

@@ -8,7 +8,7 @@ use tilesim::diagnostics::tree_stats::TreeStats;
 use tilesim::diagnostics::RAW_CELLS;
 use tilesim::gct::grammar::bit_stream::BitStream;
 use tilesim::gct::grammar::{COUNT_SPLIT_STREAM, STREAM_MODE_WIDTH};
-use tilesim::gct::Workspace;
+use tilesim::gct::Gct;
 use tilesim::sample_generators::checkerboards::checkerboards;
 use tilesim::sample_generators::{families, HowMany, LINE_SETS, PLANS, SHAPES, SPARSE};
 use tilesim::table::report::Report;
@@ -43,7 +43,7 @@ fn row(measured: &Measured, name: &str, parameters: &str) -> Vec<String> {
 /// One generator's table, added to `report` under its name: a row a
 /// parameter set, then their total.
 fn generator_table(
-    workspace: &mut Workspace,
+    gct: &mut Gct,
     report: &mut Report,
     generator: &str,
     parameter_names: &str,
@@ -62,7 +62,7 @@ fn generator_table(
     ]);
     let mut total = Measured::default();
     for (name, parameters, bitmaps) in sets {
-        let measured = Measured::of(workspace, bitmaps);
+        let measured = Measured::of(gct, bitmaps);
         assert!(measured.lost.is_empty(), "{name}: gct lost cells of cases {:?}", measured.lost);
         table.row(&row(&measured, &name, &parameters));
         total.add(&measured);
@@ -77,7 +77,7 @@ fn generator_table(
 /// row for each saved adversarial bitmap, then what gct's trees hold,
 /// family by family.
 pub fn run(report: &mut Report) {
-    let mut workspace = Workspace::new();
+    let mut gct = Gct::new();
     let grown = SHAPES
         .iter()
         .chain(&SPARSE)
@@ -101,19 +101,19 @@ pub fn run(report: &mut Report) {
         .map(|(side, bitmap)| (format!("{side}x{side} squares"), format!("side {side}"), vec![bitmap]))
         .collect();
     let adversarial = record::saved().into_iter().map(|(name, bitmap)| (name, "saved".to_string(), vec![bitmap])).collect();
-    generator_table(&mut workspace, report, "grown", "density, cluster", grown);
-    generator_table(&mut workspace, report, "laid out like a city", "pitch, street, courtyards", cities);
-    generator_table(&mut workspace, report, "drawn with lines", "lines", lines);
-    generator_table(&mut workspace, report, "checkerboard", "square side", boards);
-    generator_table(&mut workspace, report, "adversarial, saved", "", adversarial);
-    add_structure(&mut workspace, report);
+    generator_table(&mut gct, report, "grown", "density, cluster", grown);
+    generator_table(&mut gct, report, "laid out like a city", "pitch, street, courtyards", cities);
+    generator_table(&mut gct, report, "drawn with lines", "lines", lines);
+    generator_table(&mut gct, report, "checkerboard", "square side", boards);
+    generator_table(&mut gct, report, "adversarial, saved", "", adversarial);
+    add_structure(&mut gct, report);
 }
 
 /// What gct's trees hold, family by family -- every bitmap's tree, even
 /// where the stream is its count split: how many streams are,
 /// complex tiles and masking nodes, and what the complex tiles' bodies
 /// are made of.
-fn add_structure(workspace: &mut Workspace, report: &mut Report) {
+fn add_structure(gct: &mut Gct, report: &mut Report) {
     let mut structure = Table::new(&[
         "family",
         "streams that\nare count splits",
@@ -138,10 +138,10 @@ fn add_structure(workspace: &mut Workspace, report: &mut Report) {
     for (family, maps) in families(HowMany::Timed) {
         let (mut stats, mut count_splits) = (TreeStats::default(), 0);
         for bitmap in &maps {
-            workspace.encode(bitmap, &mut stream);
+            gct.encode(bitmap, &mut stream);
             count_splits += (stream.reader().value(STREAM_MODE_WIDTH) == COUNT_SPLIT_STREAM) as usize;
-            workspace.encode_tree(bitmap, &mut stream);
-            stats.add(&TreeStats::of(workspace.tree()));
+            gct.encode_tree(bitmap, &mut stream);
+            stats.add(&TreeStats::of(gct.tree()));
         }
 
         let bitmaps = maps.len();

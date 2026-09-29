@@ -9,7 +9,7 @@
 use tilesim::diagnostics::examination::Examination;
 use tilesim::gct::grammar::bit_stream::BitStream;
 use tilesim::gct::grammar::count_split;
-use tilesim::gct::Workspace;
+use tilesim::gct::Gct;
 use tilesim::sample_generators::grown;
 use tilesim::table::report::Report;
 use tilesim::table::Table;
@@ -46,7 +46,7 @@ fn percent_label(density: f64) -> String {
 /// Reports every density and clustering: the tree's bits, the count
 /// split's, the stream's, and the bound for scattered cells.
 pub fn run(report: &mut Report) {
-    let (mut workspace, mut stream, mut back) = (Workspace::new(), BitStream::default(), Bitmap::new());
+    let (mut gct, mut stream, mut back) = (Gct::new(), BitStream::default(), Bitmap::new());
     let mut table = Table::new(&[
         "cluster",
         "density",
@@ -61,7 +61,7 @@ pub fn run(report: &mut Report) {
         for density in DENSITIES {
             let (mut set, mut tree, mut split, mut written, mut splits, mut bound) = (0, 0, 0, 0, 0, 0.0);
             for bitmap in grown(SEED, density, cluster, EACH) {
-                let examined = Examination::of(&mut workspace, &mut stream, &mut back, &bitmap);
+                let examined = Examination::of(&mut gct, &mut stream, &mut back, &bitmap);
                 assert_eq!(examined.first_difference, None, "cluster {cluster}, density {density}: a bitmap did not round trip");
                 let set_cells = bitmap.count_set() as u64;
                 set += set_cells;
