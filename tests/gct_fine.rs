@@ -75,23 +75,26 @@ fn patterns_homogeneity_matches_the_cells() {
     }
 }
 
-/// An empty bitmap is one tile at the top, in 9 bits.
+/// An empty bitmap's tree is one tile at the top, but its stream is the
+/// whole bitmap's cell list, in 2 bits: fewer than the tree's 9.
 #[test]
-fn all_clear_is_one_tile_in_nine_bits() {
+fn all_clear_is_an_empty_cell_list_in_two_bits() {
     let bitmap = Bitmap::new();
-    // 3 start level bits (0) + leaf + bind + 3 resolution bits (size
-    // offset 0, a tile) + 1 value bit
-    assert_eq!(encode(&bitmap).len(), 9);
+    // The stream's mode bit + the set cell count, zero, in 1 bit.
+    assert_eq!(encode(&bitmap).len(), 2);
     assert_eq!(tree_of(&bitmap).node(Tile::whole_bitmap()), Node::ComplexTile { size_offset: 0, masks: false });
     check(&bitmap, "all clear");
 }
 
-/// A full bitmap is 9 bits too, and passes every check.
+/// A full bitmap is one tile at the top, in 10 bits, and passes every
+/// check.
 #[test]
-fn all_set_round_trips() {
+fn all_set_is_one_tile_in_ten_bits() {
     let mut bitmap = Bitmap::new();
     bitmap.set_rect(0, 0, 255, 255);
-    assert_eq!(encode(&bitmap).len(), 9);
+    // The stream's mode bit + 3 start level bits (0) + leaf + bind + 3
+    // resolution bits (size offset 0, a tile) + 1 value bit
+    assert_eq!(encode(&bitmap).len(), 10);
     check(&bitmap, "all set");
 }
 

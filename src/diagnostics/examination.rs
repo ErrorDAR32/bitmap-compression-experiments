@@ -14,7 +14,7 @@
 use crate::gct::pyramids::complex_tiling::ComplexTiling;
 use crate::gct::complex_tiler::bit_cost::bits;
 use crate::gct::grammar::bit_stream::BitStream;
-use crate::gct::grammar::{BOUND_AT_THE_TOP, START_LEVEL_WIDTH};
+use crate::gct::grammar::{cell_list, cell_list_stream, BOUND_AT_THE_TOP, START_LEVEL_WIDTH, STREAM_MODE_WIDTH};
 use crate::gct::nested_resolutions::NestedResolutions;
 use crate::gct::pyramids::placements::Placement;
 use crate::gct::pyramids::tree::{Node, Tree};
@@ -41,16 +41,23 @@ pub enum CoverageFault {
 pub struct Examination {
     /// The bits written.
     pub written_bits: usize,
-    /// The bits the complex tiler counts for the tree, and the start
-    /// level header.
+    /// The bits the complex tiler counts for the tree, with the start
+    /// level header -- or the whole bitmap's cell list, when fewer --
+    /// and the stream's mode.
     pub counted_bits: u64,
+    /// Whether the stream is the whole bitmap's cell list, not its tree.
+    pub cell_list_stream: bool,
+    /// The bits the complex tiler counts for the tree alone, with the
+    /// start level header, whichever the stream is.
+    pub tree_bits: u64,
     /// Every cell said wrongly, in Morton order.
     pub coverage_faults: Vec<CoverageFault>,
     /// Placed tiles finer than a 2x2.
     pub placed_finer_than_2x2: Vec<Tile>,
     /// Copies finer than 4x4.
     pub copied_finer_than_4x4: Vec<Tile>,
-    /// Whether the tree read back from the bits is the tree written.
+    /// Whether the tree read back from the bits is the tree written:
+    /// always, for a stream that is no tree.
     pub tree_read_back: bool,
     /// The first cell, in reading order, that decodes wrong, if any.
     pub first_difference: Option<(u8, u8)>,
@@ -119,19 +126,24 @@ impl Examination {
                 copied_finer_than_4x4.push(tile);
             }
         }
-        let counted_bits = START_LEVEL_WIDTH as u64
+        let tree_bits = START_LEVEL_WIDTH as u64
             + Tile::all_of_level(written.start_level())
                 .map(|tile| bits(complex_tiling, bitmap, tile, &mut NestedResolutions::none(), BOUND_AT_THE_TOP))
                 .sum::<u64>();
+        let cell_list_bits = cell_list::bits_below(bitmap, Tile::whole_bitmap(), tree_bits);
+        let cell_list_stream = cell_list_stream(tree_bits, cell_list_bits);
+        let counted_bits = STREAM_MODE_WIDTH as u64 + cell_list_bits.filter(|_| cell_list_stream).unwrap_or(tree_bits);
 
         workspace.decode(stream, back);
         Self {
             written_bits: stream.len(),
             counted_bits,
+            cell_list_stream,
+            tree_bits,
             coverage_faults,
             placed_finer_than_2x2,
             copied_finer_than_4x4,
-            tree_read_back: *workspace.tree() == written,
+            tree_read_back: cell_list_stream || *workspace.tree() == written,
             first_difference: first_difference(bitmap, back),
         }
     }

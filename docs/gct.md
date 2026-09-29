@@ -37,9 +37,9 @@ boxed array of fixed capacity and a length) at a bound named where it is
 made -- a run's tiles at the cells, residual 2x2s at the 2x2s, copied
 rows at a quarter of the cells (copies are 4x4 or bigger), candidates at
 the tiles down to 4x4, and so on. The stream is sized at the most bits
-any stream can take: the start level, 18 bits at every tile down to the
-2x2 floor (8 nesting mask bits and a masking copy's 10-bit header) and
-each cell's value said once -- 458749. Encoding and decoding never
+any stream can take: its mode bit, the start level, 18 bits at every
+tile down to the 2x2 floor (8 nesting mask bits and a masking copy's
+10-bit header) and each cell's value said once -- 458750. Encoding and decoding never
 allocate, the first bitmap included; pushing past a bound would be a
 bug, and panics rather than growing.
 
@@ -414,6 +414,14 @@ unmask it: those whose resolution tiles the node covers whole.
 ## Step 4: the grammar
 
 ```text
+1 bit: the stream's mode --
+  0: the tree follows, as below;
+  1: the whole bitmap's cell list follows instead, and nothing after it:
+     its set cells as a count and the gaps between them (the cell list
+     below), for a bitmap whose set cells are sparse and scattered,
+     which no tree says as cheaply. The encoder writes whichever takes
+     fewer bits, the tree on a tie.
+
 3 bits: the start level, the level of the tree's coarsest node that does
 not subdivide into four nodes. Every coarser tile does -- the trunk --
 so none of them is written; the tree is written from every tile of the start level,
@@ -548,6 +556,7 @@ cargo run --release --bin gct_diagnostics -- show measurement
 | `noise.csv` | `gct_diagnostics -- noise` | bits on noise at several densities, against the raw cells |
 | `copy_offsets.csv` | `gct_diagnostics -- copy_offsets` | the search for copy offsets, near and far: each climb, its best against the current offsets, and the best drawn |
 | `timing.csv` | `cargo run --release --bin gct_diagnostics -- timing` | encode and decode times, family by family |
+| `sparse.csv` | `cargo run --release --bin gct_diagnostics -- sparse` | the tree against the whole bitmap's cell list on sparse bitmaps, beside the least scattered cells can take |
 | `external_benchmarks.csv` | `cargo run --release --manifest-path external_benchmarks/Cargo.toml` | gct against G4, JBIG and zstd: bits and times, family by family |
 
 In `measurement.csv`'s tables of what the trees hold, a complex tile's
@@ -559,6 +568,13 @@ On noise gct spends four raw 128x128 complex tiles, each with its
 payload mode bit, and the start level header: a few bits over the raw
 cells, and never more than the raw cells and 1%, which every check
 holds it to.
+
+**Why the stream's mode bit**: no density alone says whether a tree or a
+list of the set cells is shorter. Clustered cells favour the tree at any
+density -- blobs at 1% take half the list's bits -- and scattered ones
+the list at every density measured, up to 15%, within a few percent of
+the least scattered cells can take (`sparse.csv`). So each bitmap takes
+whichever is shorter, for one bit.
 
 **Why the start level header**: a trunk of depth `d` -- every tile
 coarser than level `d` subdivides -- saves `(4^d - 1) / 3` subdivide

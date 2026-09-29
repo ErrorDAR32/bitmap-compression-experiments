@@ -3,9 +3,12 @@
 //! writes it and [`crate::gct::decode`](mod@crate::gct::decode) reads it; neither holds a rule
 //! of its own. The full grammar, with its costs, is in `docs/gct.md`.
 //!
-//! A stream is the start level, then the tree, node by node from every
-//! tile of that level in Morton order (each complex tile's payload
-//! right after its body), then the residual pass.
+//! A stream is its mode, then either the tree -- the start level, the
+//! tree node by node from every tile of that level in Morton order (each
+//! complex tile's payload right after its body), then the residual pass
+//! -- or, when fewer bits, the whole bitmap's set cells as one
+//! [cell list](cell_list): scattered sparse cells, which no tree says as
+//! cheaply.
 
 pub mod bit_stream;
 pub mod order;
@@ -14,6 +17,20 @@ pub mod cell_list;
 pub use crate::gct::pyramids::placements::BOUND_AT_THE_TOP;
 use crate::gct::pyramids::placements::FINEST_MASKING_LEVEL;
 use crate::gct::tile::{cells_in_tile, levels_to_cells, CELL_LEVEL, CHILDREN, DIRECTIONS, FLOOR_LEVEL};
+
+/// The stream's mode when the tree follows...
+pub const TREE_STREAM: u64 = 0;
+/// ...and when the whole bitmap's cell list follows instead.
+pub const CELL_LIST_STREAM: u64 = 1;
+/// Bits in the stream's mode.
+pub const STREAM_MODE_WIDTH: u8 = 1;
+
+/// Whether a bitmap's stream is its whole cell list rather than its
+/// tree, the tree taking `tree_bits` and the cell list `cell_list_bits`,
+/// if it takes fewer than the tree at all: only when strictly fewer.
+pub fn cell_list_stream(tree_bits: u64, cell_list_bits: Option<u64>) -> bool {
+    cell_list_bits.is_some_and(|cell_list_bits| cell_list_bits < tree_bits)
+}
 
 /// A residual 2x2's bits in the residual pass: one a cell, in Morton
 /// order -- as its cells lie in the bitmap, so read or written as one

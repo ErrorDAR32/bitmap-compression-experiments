@@ -43,11 +43,16 @@ pub struct StreamContents<'a> {
 }
 
 /// Reads back what [`crate::gct::encode::write`] wrote, into `read`,
-/// whatever it held before.
+/// whatever it held before: the tree, or, for a stream that is the whole
+/// bitmap's cell list, no tree and every cell.
 pub fn read(stream: &BitStream, read: &mut StreamContents) {
     read.tree.clear();
     read.cell_values.reset();
     let mut reader = stream.reader();
+    if reader.value(STREAM_MODE_WIDTH) == CELL_LIST_STREAM {
+        cell_list::read(&mut reader, Tile::whole_bitmap(), read.cell_values);
+        return;
+    }
     let start_level = reader.value(START_LEVEL_WIDTH) as u8;
     for level in 0..start_level {
         for tile in Tile::all_of_level(level) {
