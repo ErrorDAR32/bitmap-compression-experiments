@@ -77,16 +77,52 @@ const CHILDREN_ALL_CLEAR: u64 = ALL_CLEAR as u64 * ONE_IN_EVERY_NUMBER;
 const CHILDREN_ALL_SET: u64 = ALL_SET as u64 * ONE_IN_EVERY_NUMBER;
 
 /// Every tile's number, 16 bits a tile, whole bitmap to 4x4.
-const SHAPE: PyramidShape = PyramidShape { coarsest_level: 0, finest_level: FINEST, element_bits: NUMBER_BITS };
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct NumbersShape;
+
+impl PyramidShape for NumbersShape {
+    const COARSEST_LEVEL: u8 = 0;
+    const FINEST_LEVEL: u8 = FINEST;
+    const ELEMENT_BITS: usize = NUMBER_BITS;
+}
+
+/// Every tile's pattern number.
+type Numbers = Pyramid<NumbersShape, { NumbersShape::WORDS }>;
 
 /// Levels held.
 const LEVELS: usize = FINEST as usize + 1;
 /// Slots a level's reverse lookup has for each of its tiles: half full at
 /// most, so a probe ends soon.
 const SLOTS_A_TILE: usize = 2;
-/// Every level's numbers together: each level's tiles, and the two
-/// homogeneous patterns.
-const NUMBERS: usize = tiles_down_to(FINEST) + LEVELS * FIRST_PATTERN as usize;
+/// Where each level's slots start, by level, and where the finest one's
+/// end: a power of two for each level, at least twice its tiles.
+const SLOT_STARTS: [usize; LEVELS + 1] = {
+    let mut starts = [0; LEVELS + 1];
+    let mut level = 0;
+    while level < LEVELS {
+        starts[level + 1] = starts[level] + (SLOTS_A_TILE * tiles_in_level(level as u8)).next_power_of_two();
+        level += 1;
+    }
+    starts
+};
+/// Slots in every level's reverse lookup together.
+const SLOTS: usize = SLOT_STARTS[LEVELS];
+
+/// Where each level's first tiles start, by level, and where the finest
+/// one's end: a number for each of its tiles, and the two homogeneous
+/// patterns.
+const FIRST_STARTS: [usize; LEVELS + 1] = {
+    let mut starts = [0; LEVELS + 1];
+    let mut level = 0;
+    while level < LEVELS {
+        starts[level + 1] = starts[level] + tiles_in_level(level as u8) + FIRST_PATTERN as usize;
+        level += 1;
+    }
+    starts
+};
+/// Every level's numbers together.
+const NUMBERS: usize = FIRST_STARTS[LEVELS];
+const _: () = assert!(NUMBERS == tiles_down_to(FINEST) + LEVELS * FIRST_PATTERN as usize);
 
 /// Spreads a key's bits before its top bits pick a slot: the golden
 /// ratio's fraction of 2^64, odd, so no two keys collide on it alone.
@@ -100,18 +136,14 @@ const _: () = assert!(EMPTY_SLOT < FIRST_PATTERN);
 /// The patterns pyramid and its tables, allocated once.
 pub struct Patterns {
     /// Every tile's number.
-    numbers: Pyramid,
+    numbers: Numbers,
     /// Every level's reverse lookup, one after another: each slot a
     /// pattern's number, its key read back off the tile it first
     /// appeared at.
-    slots: Box<[u16]>,
-    /// Where each level's slots start, and how many it has.
-    slot_ranges: [(usize, usize); LEVELS],
+    slots: Box<[u16; SLOTS]>,
     /// For every level and number, the Morton index of the tile it first
     /// appeared at.
-    first: Box<[u16]>,
-    /// Where each level's first tiles start.
-    first_starts: [usize; LEVELS],
+    first: Box<[u16; NUMBERS]>,
     /// How many numbers each level has handed out.
     handed_out: [u16; LEVELS],
 }
@@ -119,23 +151,10 @@ pub struct Patterns {
 impl Default for Patterns {
     /// Every table allocated, nothing built.
     fn default() -> Self {
-        let (mut slot_ranges, mut first_starts) = ([(0, 0); LEVELS], [0; LEVELS]);
-        let (mut slot_start, mut first_start) = (0, 0);
-        for level in 0..=FINEST {
-            let tiles = tiles_in_level(level);
-            let count = (SLOTS_A_TILE * tiles).next_power_of_two();
-            slot_ranges[level as usize] = (slot_start, count);
-            slot_start += count;
-            first_starts[level as usize] = first_start;
-            first_start += tiles + FIRST_PATTERN as usize;
-        }
-        debug_assert_eq!(first_start, NUMBERS);
         Self {
-            numbers: Pyramid::new(SHAPE),
-            slots: std::iter::repeat_n(EMPTY_SLOT, slot_start).collect(),
-            slot_ranges,
-            first: std::iter::repeat_n(0, first_start).collect(),
-            first_starts,
+            numbers: Numbers::new(),
+            slots: Box::new([EMPTY_SLOT; SLOTS]),
+            first: Box::new([0; NUMBERS]),
             handed_out: [FIRST_PATTERN; LEVELS],
         }
     }
@@ -186,9 +205,9 @@ impl Patterns {
         if key == all_set {
             return ALL_SET;
         }
-        let (first_slot, slot_count) = self.slot_ranges[level as usize];
+        let (first_slot, slot_count) = (SLOT_STARTS[level as usize], SLOT_STARTS[level as usize + 1] - SLOT_STARTS[level as usize]);
         let mut probe = (key.wrapping_mul(HASH_MULTIPLIER) >> (u64::BITS - slot_count.trailing_zeros())) as usize;
-        let first_start = self.first_starts[level as usize];
+        let first_start = FIRST_STARTS[level as usize];
         loop {
             let number = self.slots[first_slot + probe];
             if number == EMPTY_SLOT {
@@ -237,7 +256,7 @@ impl Patterns {
     /// homogeneous pattern's.
     pub fn first_tile(&self, level: u8, number: u16) -> Option<Tile> {
         (FIRST_PATTERN..self.handed_out[level as usize]).contains(&number).then(|| {
-            let (x, y) = morton_coordinates(self.first[self.first_starts[level as usize] + number as usize] as usize);
+            let (x, y) = morton_coordinates(self.first[FIRST_STARTS[level as usize] + number as usize] as usize);
             Tile { level, x, y }
         })
     }

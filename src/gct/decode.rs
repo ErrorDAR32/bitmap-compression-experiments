@@ -22,7 +22,6 @@ use crate::gct::grammar::*;
 use crate::gct::nested_resolutions::NestedResolutions;
 use crate::fixed_list::FixedList;
 use crate::gct::pyramids::copyable::CopyOffsets;
-use crate::gct::pyramids::pyramid::Pyramid;
 use crate::gct::pyramids::tree::{Node, Tree};
 use crate::gct::tile::{cells_in_tile, tiles_across, Tile, CELL_LEVEL, FLOOR_LEVEL};
 use crate::gct::pyramids::copy_sources::{CopySources, BLOCKS, BLOCK_LEVEL};
@@ -33,7 +32,7 @@ use crate::Bitmap;
 /// value the stream binds outright -- all but the cells copies cover.
 pub struct StreamContents<'a> {
     /// The tree the stream spells out.
-    pub tree: &'a mut Pyramid,
+    pub tree: &'a mut Tree,
     /// Every cell's value, where the stream binds it outright; clear
     /// where a copy covers it, until copies are resolved.
     pub cell_values: &'a mut Bitmap,
@@ -197,7 +196,7 @@ const BLOCK_CELLS: usize = cells_in_tile(BLOCK_LEVEL) as usize;
 pub struct Copies {
     /// Each block's source: a [copy sources
     /// pyramid](crate::gct::pyramids::copy_sources).
-    sources: Pyramid,
+    sources: CopySources,
     /// The blocks copies cover, in the order the tree names them --
     /// Morton order.
     covered: FixedList<Tile, BLOCKS>,
@@ -209,7 +208,7 @@ pub struct Copies {
 impl Default for Copies {
     /// Nothing covered.
     fn default() -> Self {
-        Self { sources: Pyramid::copy_sources(), covered: FixedList::new(), waiting: FixedList::new() }
+        Self { sources: CopySources::new(), covered: FixedList::new(), waiting: FixedList::new() }
     }
 }
 

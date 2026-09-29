@@ -44,7 +44,6 @@ use crate::gct::nested_resolutions::NestedResolutions;
 use crate::gct::pyramids::complex_tiling::{ComplexTiling, Fields};
 use crate::gct::pyramids::costs::{Changes, Costs, FINEST_HELD, NO_CANDIDATE, RESOLUTIONS};
 use crate::gct::pyramids::placements::Placement;
-use crate::gct::pyramids::pyramid::Pyramid;
 use crate::gct::tile::{cells_in_tile, tiles_down_to, Tile, ALL_CHILDREN, CELL_LEVEL, FLOOR_LEVEL};
 use crate::Bitmap;
 
@@ -128,7 +127,7 @@ fn floor_bits(base: &NestedResolutions) -> [[u64; FLOOR_CANDIDATES.len()]; FLOOR
 pub struct CostPyramid {
     /// Each tile's bits with no candidate, and its changes: a [costs
     /// pyramid](crate::gct::pyramids::costs).
-    counts: Pyramid,
+    counts: Costs,
     /// The tiles a count can reach, each after its parent.
     reached: FixedList<Tile, MOST_REACHED>,
     /// Every 2x2's bits in the area, by its kind and candidate.
@@ -139,7 +138,7 @@ impl Default for CostPyramid {
     /// The pyramid allocated, nothing counted.
     fn default() -> Self {
         Self {
-            counts: Pyramid::costs(),
+            counts: Costs::new(),
             reached: FixedList::new(),
             floor: [[0; FLOOR_CANDIDATES.len()]; FLOOR_KINDS],
         }
@@ -150,33 +149,43 @@ impl Default for CostPyramid {
 /// `without` with no candidate: `under` its counted children's changes
 /// summed, `left` how many children it leaves to the binding above.
 fn changes_of(tile: Tile, here: Fields, without: u64, under: &Changes, left: i32) -> Changes {
+    std::array::from_fn(|change_index| change(tile, here, without, change_index as u8 + 1, under[change_index], left))
+}
+
+/// A tile's change under a candidate of `resolution`, the tile at `tile`
+/// with fields `here` and bits `without` with no candidate: `under` its
+/// counted children's changes for that resolution summed, `left` how
+/// many children it leaves to the binding above.
+fn change(tile: Tile, here: Fields, without: u64, resolution: u8, under: i32, left: i32) -> i32 {
     let mask = MASK_BIT_WIDTH as i32;
-    let mut changes = [0; RESOLUTIONS];
-    for (change_index, change) in changes.iter_mut().enumerate() {
-        let resolution = change_index as u8 + 1;
-        if tile.level > resolution {
-            continue;
-        }
-        *change = if here.entirely_bound_at(resolution) {
-            // Unmasked by the candidate: its mask bit and payload.
-            without as i32 - mask - payload_bits(resolution - tile.level) as i32
-        } else if resolution == tile.level + 1 && left > 0 {
-            // A divide leaving children to the binding above, each bound
-            // whole at the candidate's resolution: unmasked, a mask bit and
-            // a payload bit each, and no flip bit or child mask.
-            -mask + under[change_index] + LEAVING_BITS - left * (mask + payload_bits(0) as i32)
-        } else {
-            -mask + under[change_index]
-        };
+    if tile.level > resolution {
+        0
+    } else if here.entirely_bound_at(resolution) {
+        // Unmasked by the candidate: its mask bit and payload.
+        without as i32 - mask - payload_bits(resolution - tile.level) as i32
+    } else if resolution == tile.level + 1 && left > 0 {
+        // A divide leaving children to the binding above, each bound
+        // whole at the candidate's resolution: unmasked, a mask bit and
+        // a payload bit each, and no flip bit or child mask.
+        -mask + under + LEAVING_BITS - left * (mask + payload_bits(0) as i32)
+    } else {
+        -mask + under
     }
-    changes
+}
+
+/// A held tile's change under a candidate of its own level's
+/// resolution, which the costs pyramid does not hold: its children,
+/// finer, change nothing there, and it leaves none to the binding above
+/// then.
+fn own_level_change(tile: Tile, here: Fields, without: u64) -> i32 {
+    change(tile, here, without, tile.level, 0, 0)
 }
 
 impl CostPyramid {
     /// Counts, for every tile a count can reach from `roots`, all of one
     /// level, its bits and its changes under every candidate resolution,
     /// in a search area nested in `base`.
-    pub fn fill(&mut self, complex_tiling: &Pyramid, bitmap: &Bitmap, roots: &[Tile], base: &NestedResolutions) {
+    pub fn fill(&mut self, complex_tiling: &ComplexTiling, bitmap: &Bitmap, roots: &[Tile], base: &NestedResolutions) {
         debug_assert!(roots.iter().all(|root| root.level == roots[0].level), "roots of one level");
         self.floor = floor_bits(base);
         self.reached.clear();
@@ -240,7 +249,10 @@ impl CostPyramid {
             changes[CELL_LEVEL as usize - 1] = without as i32 - bits[UNDER_CELL_CANDIDATE] as i32;
             return (without, changes);
         }
-        (self.counts.without(tile), self.counts.changes(tile))
+        let without = self.counts.without(tile);
+        let mut changes = self.counts.finer_changes(tile);
+        changes[tile.level as usize - 1] = own_level_change(tile, here, without);
+        (without, changes)
     }
 
     /// `tile`'s bits under a candidate of `resolution` in the area: held,
@@ -251,10 +263,13 @@ impl CostPyramid {
             return self.floor[floor_kind(here)][floor_candidate(resolution)];
         }
         let without = self.counts.without(tile);
-        if resolution == NO_CANDIDATE {
-            return without;
-        }
-        (without as i64 - self.counts.change(tile, resolution) as i64) as u64
+        let change = match resolution {
+            NO_CANDIDATE => 0,
+            own if own == tile.level => own_level_change(tile, here, without),
+            coarser if coarser < tile.level => 0,
+            finer => self.counts.change(tile, finer),
+        };
+        (without as i64 - change as i64) as u64
     }
 
     /// `tile`'s bits with no candidate above it, nested in the area's

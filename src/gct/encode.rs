@@ -8,13 +8,12 @@ use crate::gct::grammar::order::payload_parts;
 use crate::gct::grammar::cell_list;
 use crate::gct::grammar::*;
 use crate::gct::nested_resolutions::NestedResolutions;
-use crate::gct::pyramids::pyramid::Pyramid;
 use crate::gct::pyramids::tree::{Node, Tree};
 use crate::gct::tile::{cells_in_tile, Tile, CELL_LEVEL, FLOOR_LEVEL};
 use crate::Bitmap;
 
 /// Spells out `tree` for `bitmap` into `stream`, whatever it held before.
-pub fn write(tree: &Pyramid, bitmap: &Bitmap, stream: &mut BitStream) {
+pub fn write(tree: &Tree, bitmap: &Bitmap, stream: &mut BitStream) {
     stream.clear();
     let start_level = tree.start_level();
     stream.push_value(start_level as u64, START_LEVEL_WIDTH);
@@ -30,7 +29,7 @@ pub fn write(tree: &Pyramid, bitmap: &Bitmap, stream: &mut BitStream) {
 /// What writing reads, and where it writes.
 struct Writer<'a> {
     /// The tree spelled out.
-    tree: &'a Pyramid,
+    tree: &'a Tree,
     /// The bitmap whose values payloads say.
     bitmap: &'a Bitmap,
     /// Where the bits go.

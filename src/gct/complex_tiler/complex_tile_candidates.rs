@@ -22,7 +22,6 @@ use crate::gct::grammar::bit_stream::MOST_BITS;
 use crate::gct::grammar::raw_resolution_fits;
 use crate::gct::nested_resolutions::NestedResolutions;
 use crate::gct::pyramids::complex_tiling::{ComplexTiling, Fields};
-use crate::gct::pyramids::pyramid::Pyramid;
 use crate::gct::tile::{Tile, CELL_LEVEL, FLOOR_LEVEL};
 use crate::Bitmap;
 
@@ -61,7 +60,7 @@ const FINEST_CHECKED_LEVEL: u8 = CELL_LEVEL - 4;
 /// value bound above down itself, where the cost pyramid reads each
 /// tile's own field.
 fn debug_assert_matches_reference(
-    complex_tiling: &Pyramid,
+    complex_tiling: &ComplexTiling,
     bitmap: &Bitmap,
     tile: Tile,
     fields: Fields,
@@ -99,7 +98,7 @@ impl Candidate {
     /// nothing: each size offset is scored as the complex tile it would
     /// be.
     pub fn best_for(
-        complex_tiling: &Pyramid,
+        complex_tiling: &ComplexTiling,
         bitmap: &Bitmap,
         costs: &CostPyramid,
         tile: Tile,

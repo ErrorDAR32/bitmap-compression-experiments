@@ -5,7 +5,6 @@
 //! counted once, whatever its size, and belongs to the complex tile
 //! whose body directly holds it.
 
-use crate::gct::pyramids::pyramid::Pyramid;
 use crate::gct::tile::Tile;
 use crate::gct::nested_resolutions::NestedResolutions;
 use crate::gct::pyramids::tree::{Node, Tree};
@@ -43,7 +42,7 @@ pub struct TreeStats {
 
 impl TreeStats {
     /// The counts of one tree.
-    pub fn of(tree: &Pyramid) -> Self {
+    pub fn of(tree: &Tree) -> Self {
         let mut stats = Self::default();
         stats.count(tree, Tile::whole_bitmap(), None, &mut NestedResolutions::none());
         stats
@@ -83,7 +82,7 @@ impl TreeStats {
     /// Counts `tile`'s node and everything under it; `inside` the
     /// nesting of the complex tile whose body directly holds `tile`, if
     /// any, and `nested` the resolutions of those it is nested in.
-    fn count(&mut self, tree: &Pyramid, tile: Tile, inside: Option<u8>, nested: &mut NestedResolutions) {
+    fn count(&mut self, tree: &Tree, tile: Tile, inside: Option<u8>, nested: &mut NestedResolutions) {
         match tree.node(tile) {
             Node::Unmasked { nesting } if inside == Some(nesting) => {
                 self.unmasked += 1 << (2 * (nested.resolution(nesting) - tile.level));

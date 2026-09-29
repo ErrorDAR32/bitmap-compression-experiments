@@ -9,15 +9,14 @@
 //! kept as small as that allows: nothing is held for a level or a list
 //! that can never be used.
 
+use crate::gct::pyramids::complex_tiling::ComplexTiling;
 use crate::gct::complex_tiler::passes::{complex_tiler, Scratch};
 use crate::gct::decode::{decode, Copies, StreamContents};
 use crate::gct::encode::write;
 use crate::gct::grammar::bit_stream::BitStream;
 use crate::gct::greedy_tiler::greedy_tiler;
 use crate::gct::pyramids::patterns::Patterns;
-use crate::gct::pyramids::placements::Placements;
 use crate::gct::pyramids::copyable::CopyOffsets;
-use crate::gct::pyramids::pyramid::Pyramid;
 use crate::gct::pyramids::tree::Tree;
 use crate::gct::tree_representation::tree_representation;
 use crate::Bitmap;
@@ -28,11 +27,11 @@ pub struct Workspace {
     patterns: Patterns,
     /// The greedy tiler's placements, then the complex tiling made of
     /// them.
-    complex_tiling: Pyramid,
+    complex_tiling: ComplexTiling,
     /// The complex tiler's room.
     scratch: Scratch,
     /// The tree last written or read.
-    tree: Pyramid,
+    tree: Tree,
     /// Room to resolve copies in, decoding.
     copies: Copies,
     /// Where copies read from, encoding and decoding alike.
@@ -44,9 +43,9 @@ impl Workspace {
     pub fn new() -> Self {
         Self {
             patterns: Patterns::default(),
-            complex_tiling: Pyramid::placements(),
+            complex_tiling: ComplexTiling::new(),
             scratch: Scratch::default(),
-            tree: Pyramid::tree(),
+            tree: Tree::new(),
             copies: Copies::default(),
             copy_offsets: CopyOffsets::default(),
         }
@@ -81,14 +80,14 @@ impl Workspace {
 
     /// The tree of the bitmap last encoded, or of the stream last
     /// decoded.
-    pub fn tree(&self) -> &Pyramid {
+    pub fn tree(&self) -> &Tree {
         &self.tree
     }
 
     /// The complex tiling of the bitmap last encoded: the greedy tiler's
     /// placements in its placement bits, and the complex tiles made of
     /// them.
-    pub fn complex_tiling(&self) -> &Pyramid {
+    pub fn complex_tiling(&self) -> &ComplexTiling {
         &self.complex_tiling
     }
 }

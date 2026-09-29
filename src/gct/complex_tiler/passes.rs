@@ -22,7 +22,6 @@ use super::complex_tile_candidates::{Candidate, FINEST_CANDIDATE_LEVEL};
 use super::raw_masking::decide_raw_masking;
 use crate::fixed_list::FixedList;
 use crate::gct::pyramids::complex_tiling::ComplexTiling;
-use crate::gct::pyramids::pyramid::Pyramid;
 use crate::gct::tile::{tiles_in_level, Tile};
 use crate::gct::nested_resolutions::NestedResolutions;
 use crate::Bitmap;
@@ -48,7 +47,7 @@ pub struct Scratch {
 /// tiling pyramid with only its placement bits set -- and completes it
 /// in place: the placements, with every committed complex tile's size
 /// offset added.
-pub fn complex_tiler(complex_tiling: &mut Pyramid, bitmap: &Bitmap, scratch: &mut Scratch) {
+pub fn complex_tiler(complex_tiling: &mut ComplexTiling, bitmap: &Bitmap, scratch: &mut Scratch) {
     let Scratch { costs, committed, chosen } = scratch;
     decide_raw_masking(complex_tiling);
     complex_tiling.fill_in();
@@ -72,7 +71,7 @@ pub fn complex_tiler(complex_tiling: &mut Pyramid, bitmap: &Bitmap, scratch: &mu
 /// `nested`, that save the most bits between them, none overlapping --
 /// every count read from `costs`, filled for them first.
 fn search(
-    complex_tiling: &Pyramid,
+    complex_tiling: &ComplexTiling,
     bitmap: &Bitmap,
     costs: &mut CostPyramid,
     roots: &[Tile],
@@ -91,7 +90,7 @@ fn search(
 /// whichever saves more -- `tile`'s own on a tie. Every count is read
 /// from `costs`.
 fn best_at_or_under(
-    complex_tiling: &Pyramid,
+    complex_tiling: &ComplexTiling,
     bitmap: &Bitmap,
     costs: &CostPyramid,
     tile: Tile,
@@ -128,7 +127,7 @@ fn best_at_or_under(
 }
 
 /// Makes every candidate in `chosen` a complex tile, or a cell list.
-fn commit(chosen: &[Candidate], complex_tiling: &mut Pyramid) {
+fn commit(chosen: &[Candidate], complex_tiling: &mut ComplexTiling) {
     for candidate in chosen {
         if candidate.cell_list {
             complex_tiling.make_cell_list(candidate.tile);

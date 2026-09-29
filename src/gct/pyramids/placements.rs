@@ -136,21 +136,3 @@ pub(super) fn placement_from_code(code: u64) -> Option<Placement> {
         _ => unreachable!("no placement has code {code}"),
     }
 }
-
-/// What the greedy tiler placed, held in the placement bits of the
-/// complex tiling pyramid ([`super::complex_tiling`]), whose other bits
-/// the complex tiler fills in later.
-pub trait Placements {
-    /// Nothing placed anywhere yet.
-    fn placements() -> Self;
-
-    /// The tile placed exactly at `tile`, if any.
-    fn placement(&self, tile: Tile) -> Option<Placement>;
-
-    /// Records `placement` as placed exactly at `tile`.
-    fn place(&mut self, tile: Tile, placement: Placement);
-
-    /// Every placed tile, coarsest level first, Morton order within
-    /// each level.
-    fn placed_tiles(&self) -> impl Iterator<Item = (Tile, Placement)> + '_;
-}

@@ -11,12 +11,12 @@
 //! - whether the tree read back from the bits is the tree written;
 //! - the first cell decoding gets wrong, if any.
 
+use crate::gct::pyramids::complex_tiling::ComplexTiling;
 use crate::gct::complex_tiler::bit_cost::bits;
 use crate::gct::grammar::bit_stream::BitStream;
 use crate::gct::grammar::{BOUND_AT_THE_TOP, START_LEVEL_WIDTH};
 use crate::gct::nested_resolutions::NestedResolutions;
-use crate::gct::pyramids::placements::{Placement, Placements};
-use crate::gct::pyramids::pyramid::Pyramid;
+use crate::gct::pyramids::placements::Placement;
 use crate::gct::pyramids::tree::{Node, Tree};
 use crate::gct::tile::{Tile, CELL_LEVEL, FLOOR_LEVEL};
 use crate::gct::Workspace;
@@ -66,7 +66,7 @@ pub fn first_difference(a: &Bitmap, b: &Bitmap) -> Option<(u8, u8)> {
 }
 
 /// The tree gct makes of `bitmap`, from a workspace of its own.
-pub fn tree_of(bitmap: &Bitmap) -> Pyramid {
+pub fn tree_of(bitmap: &Bitmap) -> Tree {
     let mut workspace = Workspace::new();
     workspace.encode(bitmap, &mut BitStream::default());
     workspace.tree().clone()
@@ -74,17 +74,17 @@ pub fn tree_of(bitmap: &Bitmap) -> Pyramid {
 
 /// How `cell` is said, if wrongly: `placements` what the greedy tiler
 /// placed, `tree` the tree written.
-fn coverage_fault(bitmap: &Bitmap, placements: &Pyramid, tree: &Pyramid, cell: Tile) -> Option<CoverageFault> {
+fn coverage_fault(bitmap: &Bitmap, placements: &ComplexTiling, tree: &Tree, cell: Tile) -> Option<CoverageFault> {
     // Down the cell's path: the first tile placed that does not mask the
     // way on says it, and nothing under that may be placed.
     let path = (0..=FLOOR_LEVEL).map(|level| cell.ancestor(level));
-    let placed: Vec<(Tile, Placement)> = path.filter_map(|ancestor| placements.placement(ancestor).map(|placement| (ancestor, placement))).collect();
+    let placed: Vec<(Tile, Placement)> = path.filter_map(|ancestor| placements.placed_at(ancestor).map(|placement| (ancestor, placement))).collect();
     let sayer = placed.iter().position(|&(ancestor, placement)| !placement.masks(cell.ancestor(ancestor.level + 1)));
     if let Some(sayer) = sayer {
         return (sayer + 1 != placed.len()).then_some(CoverageFault::SaidTwice(cell));
     }
     let square = cell.ancestor(FLOOR_LEVEL);
-    if placements.placement(square).is_some() {
+    if placements.placed_at(square).is_some() {
         return Some(CoverageFault::SaidByNone(cell));
     }
     let (left, top, ..) = square.cell_rect();

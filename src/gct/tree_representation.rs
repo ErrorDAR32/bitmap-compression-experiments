@@ -10,19 +10,18 @@
 use crate::gct::nested_resolutions::NestedResolutions;
 use crate::gct::pyramids::complex_tiling::ComplexTiling;
 use crate::gct::pyramids::placements::{Placement, BOUND_AT_THE_TOP};
-use crate::gct::pyramids::pyramid::Pyramid;
 use crate::gct::pyramids::tree::{Node, Tree};
 use crate::gct::tile::{Tile, FLOOR_LEVEL};
 
 /// The whole bitmap's tree, into `tree`, whatever it held before.
-pub fn tree_representation(complex_tiling: &Pyramid, tree: &mut Pyramid) {
+pub fn tree_representation(complex_tiling: &ComplexTiling, tree: &mut Tree) {
     tree.clear();
     set_node(complex_tiling, Tile::whole_bitmap(), &mut NestedResolutions::none(), BOUND_AT_THE_TOP, tree);
 }
 
 /// Sets the node for `tile`, nested in `nested`, `bound_above` the value
 /// bound above it, and every node under it.
-fn set_node(complex_tiling: &Pyramid, tile: Tile, nested: &mut NestedResolutions, bound_above: bool, tree: &mut Pyramid) {
+fn set_node(complex_tiling: &ComplexTiling, tile: Tile, nested: &mut NestedResolutions, bound_above: bool, tree: &mut Tree) {
     let node = node_for(complex_tiling, tile, nested);
     tree.set_node(tile, node);
     match node {
@@ -51,7 +50,7 @@ fn set_node(complex_tiling: &Pyramid, tile: Tile, nested: &mut NestedResolutions
 }
 
 /// What `tile` is, nested in `nested`.
-fn node_for(complex_tiling: &Pyramid, tile: Tile, nested: &NestedResolutions) -> Node {
+fn node_for(complex_tiling: &ComplexTiling, tile: Tile, nested: &NestedResolutions) -> Node {
     let here = complex_tiling.fields(tile);
     if let Some(nesting) = nested.unmasking(here, tile) {
         return Node::Unmasked { nesting };

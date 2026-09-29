@@ -33,7 +33,7 @@
 //! change again with every sibling placed -- measured three times the
 //! work.
 
-use super::placements::{placement_code, placement_from_code, Placement, Placements, BOUND_AT_THE_TOP, FINEST_MASKING_LEVEL, PLACEMENT_CODE_BITS};
+use super::placements::{placement_code, placement_from_code, Placement, BOUND_AT_THE_TOP, FINEST_MASKING_LEVEL, PLACEMENT_CODE_BITS};
 use super::pyramid::{Pyramid, PyramidShape};
 use crate::gct::nested_resolutions::NestedResolutions;
 use crate::gct::tile::{tiles_in_level, Tile, CELL_LEVEL, CHILDREN, LEVEL_BITS, FLOOR_LEVEL};
@@ -67,19 +67,19 @@ const BOUND_ABOVE: Field = Field { shift: CELL_LIST.shift + CELL_LIST.width, wid
 /// A one-bit field's value for yes.
 const YES: u64 = 1;
 
-/// 32 bits an element: the fields above take 28.
-const SHAPE: PyramidShape = PyramidShape { coarsest_level: 0, finest_level: FLOOR_LEVEL, element_bits: u32::BITS as usize };
-const _: () = assert!(BOUND_ABOVE.shift + BOUND_ABOVE.width <= SHAPE.element_bits as u64);
+/// Bits an element takes: 32, the fields above take 28.
+const ELEMENT_BITS: usize = u32::BITS as usize;
+const _: () = assert!(BOUND_ABOVE.shift + BOUND_ABOVE.width <= ELEMENT_BITS as u64);
 
 /// One element's bits.
-const ELEMENT_MASK: u64 = (1 << SHAPE.element_bits) - 1;
+const ELEMENT_MASK: u64 = (1 << ELEMENT_BITS) - 1;
 /// Elements a word: two, so a tile's four children are two whole words.
-const ELEMENTS_A_WORD: usize = u64::BITS as usize / SHAPE.element_bits;
+const ELEMENTS_A_WORD: usize = u64::BITS as usize / ELEMENT_BITS;
 const _: () = assert!(ELEMENTS_A_WORD == 2);
 /// Words a tile's four children take: two whole words.
 const CHILDREN_WORDS: usize = CHILDREN as usize / ELEMENTS_A_WORD;
 /// The bound-above bit of both elements of a word.
-const BOUND_ABOVE_OF_BOTH: u64 = 1 << BOUND_ABOVE.shift | 1 << (BOUND_ABOVE.shift + SHAPE.element_bits as u64);
+const BOUND_ABOVE_OF_BOTH: u64 = 1 << BOUND_ABOVE.shift | 1 << (BOUND_ABOVE.shift + ELEMENT_BITS as u64);
 
 /// `field`'s value in `element`.
 fn field(element: u64, field: Field) -> u64 {
@@ -99,12 +99,12 @@ fn four_elements(children_words: &[u64]) -> [u64; 4] {
 
 /// The element at `index` of a level's `words`.
 fn element_at(words: &[u64], index: usize) -> u64 {
-    words[index / ELEMENTS_A_WORD] >> (index % ELEMENTS_A_WORD * SHAPE.element_bits) & ELEMENT_MASK
+    words[index / ELEMENTS_A_WORD] >> (index % ELEMENTS_A_WORD * ELEMENT_BITS) & ELEMENT_MASK
 }
 
 /// Replaces the element at `index` of a level's `words` with `element`.
 fn set_element_at(words: &mut [u64], index: usize, element: u64) {
-    let (word, shift) = (index / ELEMENTS_A_WORD, index % ELEMENTS_A_WORD * SHAPE.element_bits);
+    let (word, shift) = (index / ELEMENTS_A_WORD, index % ELEMENTS_A_WORD * ELEMENT_BITS);
     words[word] = words[word] & !(ELEMENT_MASK << shift) | element << shift;
 }
 
@@ -193,100 +193,30 @@ impl Fields {
     }
 }
 
-/// The complex tiling's queries and updates, over its fields.
-pub trait ComplexTiling {
-    /// Marks `tile` as masked by a complex tile of 1x1 resolution.
-    fn mark_raw_masked(&mut self, tile: Tile);
+/// 32 bits a tile, whole bitmap to the 2x2 floor: the fields above.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct ComplexTilingShape;
 
-    /// Fills in the rest of the greedy tiler's placements, in place: the
-    /// bound sizes carried up, and the value bound above every tile
-    /// handed down. No complex tiles yet.
-    fn fill_in(&mut self);
+impl PyramidShape for ComplexTilingShape {
+    const COARSEST_LEVEL: u8 = 0;
+    const FINEST_LEVEL: u8 = FLOOR_LEVEL;
+    const ELEMENT_BITS: usize = ELEMENT_BITS;
+}
 
-    /// `tile`'s fields, for asking several things of it.
-    fn fields(&self, tile: Tile) -> Fields;
+/// The complex tiling: what the greedy tiler placed, in its placement
+/// bits, and what the complex tiler decides, in the rest.
+pub type ComplexTiling = Pyramid<ComplexTilingShape, { ComplexTilingShape::WORDS }>;
 
+impl ComplexTiling {
     /// The tile placed exactly at `tile`, if any.
-    fn placed_at(&self, tile: Tile) -> Option<Placement> {
+    pub fn placed_at(&self, tile: Tile) -> Option<Placement> {
         self.fields(tile).placed()
     }
 
-    /// See [`Fields::entirely_bound_at`].
-    fn entirely_bound_at(&self, tile: Tile, size: u8) -> bool {
-        self.fields(tile).entirely_bound_at(size)
-    }
-
-    /// See [`Fields::any_bound_under`].
-    fn any_bound_under(&self, tile: Tile, size: u8) -> bool {
-        self.fields(tile).any_bound_under(size)
-    }
-
-    /// See [`Fields::left_to_binding_above`].
-    fn left_to_binding_above(&self, tile: Tile, bound_above: bool, nested: &NestedResolutions) -> bool {
-        self.fields(tile).left_to_binding_above(tile, bound_above, nested)
-    }
-
-    /// A tile's four children's fields, in reading order, found with one
-    /// lookup.
-    fn children_fields(&self, tile: Tile) -> [Fields; 4];
-
-    /// See [`Fields::complex_tile_size_offset`].
-    fn complex_tile_size_offset(&self, tile: Tile) -> Option<u8> {
-        self.fields(tile).complex_tile_size_offset()
-    }
-
-    /// Makes `tile` a complex tile of `size_offset`.
-    fn make_complex_tile(&mut self, tile: Tile, size_offset: u8);
-
-    /// Makes `tile` a complex tile of 1x1 resolution saying its cells as
-    /// a cell list.
-    fn make_cell_list(&mut self, tile: Tile);
-}
-
-impl ComplexTiling for Pyramid {
-    fn mark_raw_masked(&mut self, tile: Tile) {
-        self.set(tile, with_field(self.get(tile), RAW_MASKS, YES));
-    }
-
-    fn fill_in(&mut self) {
-        carry_bound_sizes_up(self);
-        hand_bound_above_down(self);
-    }
-
-    fn fields(&self, tile: Tile) -> Fields {
-        Fields(self.get(tile))
-    }
-
-    #[inline]
-    fn children_fields(&self, tile: Tile) -> [Fields; 4] {
-        four_elements(self.children_words(tile)).map(Fields)
-    }
-
-    fn make_complex_tile(&mut self, tile: Tile, size_offset: u8) {
-        assert!(size_offset >= 1, "a complex tile's resolution is finer than itself");
-        let element = self.fields(tile).as_complex_tile(size_offset).0;
-        self.set(tile, element);
-    }
-
-    fn make_cell_list(&mut self, tile: Tile) {
-        let element = self.fields(tile).as_cell_list(tile.level).0;
-        self.set(tile, element);
-    }
-}
-
-/// The placements are the placement bits of this same pyramid, before
-/// the rest is filled in: placing a whole bind also records its own
-/// bound size and size, which the complex tiling then carries up.
-impl Placements for Pyramid {
-    fn placements() -> Self {
-        Pyramid::new(SHAPE)
-    }
-
-    fn placement(&self, tile: Tile) -> Option<Placement> {
-        placement_from_code(field(self.get(tile), PLACEMENT))
-    }
-
-    fn place(&mut self, tile: Tile, placement: Placement) {
+    /// Records `placement` as placed exactly at `tile`: placing a whole
+    /// bind also records its own bound size and size, which
+    /// [`ComplexTiling::fill_in`] then carries up.
+    pub fn place(&mut self, tile: Tile, placement: Placement) {
         let mut element = with_field(self.get(tile), PLACEMENT, placement_code(placement));
         if placement.is_whole_bind() {
             element = with_field(element, BOUND_SIZE, tile.level as u64 + 1);
@@ -295,10 +225,56 @@ impl Placements for Pyramid {
         self.set(tile, element);
     }
 
-    fn placed_tiles(&self) -> impl Iterator<Item = (Tile, Placement)> + '_ {
+    /// Every placed tile, coarsest level first, Morton order within
+    /// each level.
+    pub fn placed_tiles(&self) -> impl Iterator<Item = (Tile, Placement)> + '_ {
         (0..=FLOOR_LEVEL).flat_map(move |level| {
-            Tile::all_of_level(level).filter_map(move |tile| self.placement(tile).map(|placement| (tile, placement)))
+            Tile::all_of_level(level).filter_map(move |tile| self.placed_at(tile).map(|placement| (tile, placement)))
         })
+    }
+
+    /// Marks `tile` as masked by a complex tile of 1x1 resolution.
+    pub fn mark_raw_masked(&mut self, tile: Tile) {
+        self.set(tile, with_field(self.get(tile), RAW_MASKS, YES));
+    }
+
+    /// Fills in the rest of the greedy tiler's placements, in place: the
+    /// bound sizes carried up, and the value bound above every tile
+    /// handed down. No complex tiles yet.
+    pub fn fill_in(&mut self) {
+        carry_bound_sizes_up(self);
+        hand_bound_above_down(self);
+    }
+
+    /// `tile`'s fields, for asking several things of it.
+    pub fn fields(&self, tile: Tile) -> Fields {
+        Fields(self.get(tile))
+    }
+
+    /// A tile's four children's fields, in reading order, found with one
+    /// lookup.
+    #[inline]
+    pub fn children_fields(&self, tile: Tile) -> [Fields; 4] {
+        four_elements(self.children_words(tile)).map(Fields)
+    }
+
+    /// See [`Fields::left_to_binding_above`].
+    pub fn left_to_binding_above(&self, tile: Tile, bound_above: bool, nested: &NestedResolutions) -> bool {
+        self.fields(tile).left_to_binding_above(tile, bound_above, nested)
+    }
+
+    /// Makes `tile` a complex tile of `size_offset`.
+    pub fn make_complex_tile(&mut self, tile: Tile, size_offset: u8) {
+        assert!(size_offset >= 1, "a complex tile's resolution is finer than itself");
+        let element = self.fields(tile).as_complex_tile(size_offset).0;
+        self.set(tile, element);
+    }
+
+    /// Makes `tile` a complex tile of 1x1 resolution saying its cells as
+    /// a cell list.
+    pub fn make_cell_list(&mut self, tile: Tile) {
+        let element = self.fields(tile).as_cell_list(tile.level).0;
+        self.set(tile, element);
     }
 }
 
@@ -308,7 +284,7 @@ impl Placements for Pyramid {
 /// a tile's four children the two whole words at its own index times
 /// two. Done once, when the placements are complete: nothing set
 /// afterwards changes either field.
-fn carry_bound_sizes_up(pyramid: &mut Pyramid) {
+fn carry_bound_sizes_up(pyramid: &mut ComplexTiling) {
     for level in (0..FLOOR_LEVEL).rev() {
         let (coarser, finer) = pyramid.level_and_finer_mut(level);
         for tile_index in 0..tiles_in_level(level) {
@@ -331,7 +307,7 @@ fn carry_bound_sizes_up(pyramid: &mut Pyramid) {
 /// that masks is placed at it, else the value bound above it -- all four
 /// consecutive elements, two words, set at once. After the bound sizes
 /// are carried up, which reads children that must hold nothing else.
-fn hand_bound_above_down(pyramid: &mut Pyramid) {
+fn hand_bound_above_down(pyramid: &mut ComplexTiling) {
     let whole_bitmap_element = pyramid.fields(Tile::whole_bitmap()).0;
     pyramid.set(Tile::whole_bitmap(), with_field(whole_bitmap_element, BOUND_ABOVE, BOUND_AT_THE_TOP as u64));
     for level in 0..FLOOR_LEVEL {

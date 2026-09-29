@@ -38,8 +38,7 @@ pub struct BitStream {
 impl Default for BitStream {
     /// An empty stream, all its room allocated.
     fn default() -> Self {
-        let words: Box<[u64]> = std::iter::repeat_n(0, MOST_WORDS).collect();
-        Self { words: words.try_into().unwrap_or_else(|_| unreachable!("exactly MOST_WORDS words")), len: 0 }
+        Self { words: Box::new([0; MOST_WORDS]), len: 0 }
     }
 }
 

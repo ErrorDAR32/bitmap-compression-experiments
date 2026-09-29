@@ -149,10 +149,6 @@ fn from_code(code: u64) -> Node {
     }
 }
 
-/// One node code a tile, 8 bits, down to the 2x2 floor: nothing finer
-/// is ever a node.
-const SHAPE: PyramidShape = PyramidShape { coarsest_level: 0, finest_level: FLOOR_LEVEL, element_bits: NODE_BITS };
-
 /// Bits a node's code takes.
 const NODE_BITS: usize = 8;
 /// One node code, at the bottom of a word.
@@ -162,49 +158,40 @@ const NODES_A_WORD: usize = u64::BITS as usize / NODE_BITS;
 /// A residual 2x2's code: its kind, with no parameter.
 const RESIDUAL_CODE: u64 = RESIDUAL;
 
-/// The tree's queries and updates, over the node codes.
-pub trait Tree {
-    /// A tree with no nodes yet.
-    fn tree() -> Self;
+/// One node code a tile, 8 bits, down to the 2x2 floor: nothing finer
+/// is ever a node.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct TreeShape;
 
-    /// The node at `tile`.
-    fn node(&self, tile: Tile) -> Node;
-
-    /// Makes `node` the node at `tile`.
-    fn set_node(&mut self, tile: Tile, node: Node);
-
-    /// Whether `tile` is `Subdivided` with every child a node of its own:
-    /// a divide leaving nothing to the binding above.
-    fn divides_whole(&self, tile: Tile) -> bool;
-
-    /// The level the tree starts at: that of its coarsest node that does
-    /// not divide whole. Every tile coarser than it does -- the trunk,
-    /// which the stream never spells out.
-    fn start_level(&self) -> u8;
-
-    /// The residual 2x2s, in Morton order: the 2x2 level's node codes
-    /// read a word at a time, a word of no node skipped whole.
-    fn residual_squares(&self) -> impl Iterator<Item = Tile> + '_;
+impl PyramidShape for TreeShape {
+    const COARSEST_LEVEL: u8 = 0;
+    const FINEST_LEVEL: u8 = FLOOR_LEVEL;
+    const ELEMENT_BITS: usize = NODE_BITS;
 }
 
-impl Tree for Pyramid {
-    fn tree() -> Self {
-        Pyramid::new(SHAPE)
-    }
+/// The tree: a node code a tile.
+pub type Tree = Pyramid<TreeShape, { TreeShape::WORDS }>;
 
-    fn node(&self, tile: Tile) -> Node {
+impl Tree {
+    /// The node at `tile`.
+    pub fn node(&self, tile: Tile) -> Node {
         from_code(self.get(tile))
     }
 
-    fn set_node(&mut self, tile: Tile, node: Node) {
+    /// Makes `node` the node at `tile`.
+    pub fn set_node(&mut self, tile: Tile, node: Node) {
         self.set(tile, to_code(node));
     }
 
-    fn divides_whole(&self, tile: Tile) -> bool {
+    /// Whether `tile` is `Subdivided` with every child a node of its own:
+    /// a divide leaving nothing to the binding above.
+    pub fn divides_whole(&self, tile: Tile) -> bool {
         self.node(tile) == Node::Subdivided && tile.children().into_iter().all(|child| self.node(child) != Node::Absent)
     }
 
-    fn residual_squares(&self) -> impl Iterator<Item = Tile> + '_ {
+    /// The residual 2x2s, in Morton order: the 2x2 level's node codes
+    /// read a word at a time, a word of no node skipped whole.
+    pub fn residual_squares(&self) -> impl Iterator<Item = Tile> + '_ {
         let level = FLOOR_LEVEL;
         self.level_words(level).iter().enumerate().filter(|&(_, &word)| word != 0).flat_map(move |(word_index, &word)| {
             (0..NODES_A_WORD).filter(move |&slot| (word >> (slot * NODE_BITS)) & NODE_MASK == RESIDUAL_CODE).map(move |slot| {
@@ -214,8 +201,11 @@ impl Tree for Pyramid {
         })
     }
 
-    fn start_level(&self) -> u8 {
-        (0..=SHAPE.finest_level)
+    /// The level the tree starts at: that of its coarsest node that does
+    /// not divide whole. Every tile coarser than it does -- the trunk,
+    /// which the stream never spells out.
+    pub fn start_level(&self) -> u8 {
+        (0..=FLOOR_LEVEL)
             .find(|&level| Tile::all_of_level(level).any(|tile| !self.divides_whole(tile)))
             .expect("the 2x2 floor never subdivides")
     }

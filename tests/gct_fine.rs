@@ -10,7 +10,7 @@ use bitmap::gct::pyramids::copyable::{child_offset, matches_at, matching_directi
 use bitmap::gct::pyramids::patterns::Patterns;
 use bitmap::gct::pyramids::pyramid::{Pyramid, PyramidShape};
 use bitmap::gct::tile::Tile;
-use bitmap::gct::pyramids::tree::{Node, Tree};
+use bitmap::gct::pyramids::tree::Node;
 use bitmap::diagnostics::tree_stats::TreeStats;
 use bitmap::gct::encode;
 use bitmap::samples::checkerboards::checkerboard;
@@ -23,11 +23,20 @@ use common::check;
 /// test always runs on the same one bitmap.
 const FIXED_SEED: u64 = 7;
 
+/// A small shape to test the generic pyramid on: three levels, a byte
+/// a tile.
+struct ThreeLevelsOfBytes;
+
+impl PyramidShape for ThreeLevelsOfBytes {
+    const COARSEST_LEVEL: u8 = 0;
+    const FINEST_LEVEL: u8 = 2;
+    const ELEMENT_BITS: usize = u8::BITS as usize;
+}
+
 /// Setting an element of a generic pyramid changes no other.
 #[test]
 fn generic_pyramid_sets_one_element() {
-    let shape = PyramidShape { coarsest_level: 0, finest_level: 2, element_bits: 8 };
-    let mut pyramid = Pyramid::new(shape);
+    let mut pyramid = Pyramid::<ThreeLevelsOfBytes, { ThreeLevelsOfBytes::WORDS }>::new();
     pyramid.set(Tile { level: 2, x: 3, y: 3 }, 1);
     assert_eq!(pyramid.get(Tile { level: 2, x: 3, y: 3 }), 1);
     assert_eq!(pyramid.get(Tile { level: 1, x: 1, y: 1 }), 0);

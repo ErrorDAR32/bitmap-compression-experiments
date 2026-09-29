@@ -77,15 +77,20 @@ propagates.
 
 The generic pyramid is basic reads and writes: an element, a tile's
 four children's elements, a level's words. Every per-tile structure is
-a specialization: a trait over `Pyramid` fixing the shape and adding
-its own access methods -- nothing outside its own file reads or writes
-its elements but through them -- and its sweep if any.
+a specialization: a `PyramidShape` naming its coarsest level, its
+finest level and its element's bits as constants, and a type alias for
+the pyramid of that shape, with its own access methods -- nothing
+outside its own file reads or writes its elements but through them --
+and its sweep if any. Every size follows from those constants when
+compiling: each pyramid is one array of words of a known length,
+allocated once. An element's bits are a power of two, so every element
+is aligned naturally, at a multiple of its own size.
 
 | pyramid | bits | levels | holds | sweep |
 |---|---|---|---|---|
 | `complex_tiling` | 32 | 0-7 | the placement the greedy tiler made here, if any, and the children it masks -- the greedy tiler writes these bits, the complex tiler the rest; the one size every cell under the tile is bound at, if any; the complex tile's size offset, if it is one; whether a raw complex tile masks it; the sizes of the whole binds under it | its own, once the placements are complete, two words of children at a time: a tile's bound size is its children's when all four share one; the sizes under it are all of its children's |
 | `tree` | 8 | 0-7 | the tree's node at a tile | none |
-| `costs` | 320 | 0-6 | a tile's bits with no candidate above it, then for each candidate resolution how much that candidate takes off them, eight 32-bit changes (the complex tiler's, a search area at a time) | none; every count set by the complex tiler's walk up |
+| `costs` | 256 | 0-6 | eight 32-bit slots: a tile's bits with no candidate above it, then for each candidate resolution finer than the tile how much that candidate takes off them, up to seven changes -- a coarser one changes nothing, and the tile's own level's follows from the tile (the complex tiler's, a search area at a time) | none; every count set by the complex tiler's walk up |
 | `patterns` | 16 | 0-6 | the tile's pattern number: equal for two tiles of one size exactly when they hold the same cells; handed out in order of first appearance, 0 all clear and 1 all set, beside two tables a level -- a reverse lookup from a pattern (a 4x4's 16 cells, or a tile's four children's numbers, one word) to its number, each slot two bytes holding only the number (the pattern is read back off its first tile), and each number's first tile | its own, once a bitmap: the 4x4s' numbers from the bitmap's words, each coarser level's from the level below, one lookup a tile |
 | `copy_sources` | 16 | 6 | for each 4x4 block a copy covers, the block it is copied from, until it is (decoding) | none |
 

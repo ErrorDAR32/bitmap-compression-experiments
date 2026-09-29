@@ -29,9 +29,9 @@
 //! or a complex tile of 1x1 resolution -- so nothing finer than a 2x2 is
 //! ever placed.
 
+use crate::gct::pyramids::complex_tiling::ComplexTiling;
 use crate::gct::pyramids::copyable::{child_offset, matches_at, matching_direction, CopyOffsets, FINEST_COPY_LEVEL};
-use crate::gct::pyramids::placements::{Placement, Placements, BOUND_AT_THE_TOP, FINEST_MASKING_LEVEL};
-use crate::gct::pyramids::pyramid::Pyramid;
+use crate::gct::pyramids::placements::{Placement, BOUND_AT_THE_TOP, FINEST_MASKING_LEVEL};
 use crate::gct::pyramids::patterns::Patterns;
 use crate::gct::tile::{directions, Tile, FLOOR_LEVEL};
 use crate::Bitmap;
@@ -61,7 +61,7 @@ pub const MIN_UNMASKED_CHILDREN_OF_A_MASKING_BIND: u32 = 2;
 /// only the bitmap's content: which tiles are homogeneous and which
 /// match which, from its patterns -- copies reading from `offsets` -- and
 /// a 2x2's cells, finer than patterns go.
-pub fn greedy_tiler(bitmap: &Bitmap, patterns: &Patterns, offsets: &CopyOffsets, placements: &mut Pyramid) {
+pub fn greedy_tiler(bitmap: &Bitmap, patterns: &Patterns, offsets: &CopyOffsets, placements: &mut ComplexTiling) {
     placements.clear();
     let content = Content { bitmap, patterns, offsets };
     place_at_or_under(&content, Tile::whole_bitmap(), BOUND_AT_THE_TOP, placements);
@@ -81,7 +81,7 @@ struct Content<'a> {
 /// Places `tile`, or leaves it to its children, then does the same for
 /// every child nothing placed here says; `bound_above` the value bound
 /// above `tile`.
-fn place_at_or_under(content: &Content, tile: Tile, bound_above: bool, placements: &mut Pyramid) {
+fn place_at_or_under(content: &Content, tile: Tile, bound_above: bool, placements: &mut ComplexTiling) {
     let Some(placement) = placement(content, tile, bound_above) else {
         if tile.level == FLOOR_LEVEL {
             // A 2x2 that is not one tile: its cells are said raw, and

@@ -16,8 +16,7 @@ pub(crate) struct FixedList<T, const N: usize> {
 impl<T: Copy + Default, const N: usize> FixedList<T, N> {
     /// An empty list, all its room allocated.
     pub(crate) fn new() -> Self {
-        let items: Box<[T]> = std::iter::repeat_n(T::default(), N).collect();
-        Self { items: items.try_into().unwrap_or_else(|_| unreachable!("exactly N items")), len: 0 }
+        Self { items: Box::new([T::default(); N]), len: 0 }
     }
 
     /// Empties the list, keeping its room.

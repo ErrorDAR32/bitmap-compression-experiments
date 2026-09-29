@@ -15,7 +15,6 @@ use crate::gct::grammar::*;
 use crate::gct::nested_resolutions::NestedResolutions;
 use crate::gct::pyramids::complex_tiling::{ComplexTiling, Fields};
 use crate::gct::pyramids::placements::Placement;
-use crate::gct::pyramids::pyramid::Pyramid;
 use crate::gct::tile::{cells_in_tile, tiles_in_level, Tile, CHILDREN, FLOOR_LEVEL};
 use crate::Bitmap;
 
@@ -29,13 +28,13 @@ pub fn payload_bits(size_offset: u8) -> u64 {
 /// bound above it, and everything under it, as the tiling stands: the
 /// reference count, each tile counted once, which the tests hold to the
 /// encoder's.
-pub fn bits(complex_tiling: &Pyramid, bitmap: &Bitmap, tile: Tile, nested: &mut NestedResolutions, bound_above: bool) -> u64 {
+pub fn bits(complex_tiling: &ComplexTiling, bitmap: &Bitmap, tile: Tile, nested: &mut NestedResolutions, bound_above: bool) -> u64 {
     bits_with(complex_tiling, bitmap, tile, complex_tiling.fields(tile), nested, bound_above)
 }
 
 /// [`bits`], with `here` as `tile`'s fields.
 pub fn bits_with(
-    complex_tiling: &Pyramid,
+    complex_tiling: &ComplexTiling,
     bitmap: &Bitmap,
     tile: Tile,
     here: Fields,
@@ -54,7 +53,7 @@ pub fn bits_with(
 /// `child_bits(child, its fields, nested, bound_above)` gives them --
 /// the four children's fields read together, once.
 pub fn node_bits(
-    complex_tiling: &Pyramid,
+    complex_tiling: &ComplexTiling,
     bitmap: &Bitmap,
     tile: Tile,
     here: Fields,
@@ -154,7 +153,7 @@ pub fn node_bits(
 /// `child_bits` gives it, `bound_above` the value bound above the
 /// placement.
 fn masked_children_bits(
-    complex_tiling: &Pyramid,
+    complex_tiling: &ComplexTiling,
     tile: Tile,
     placed: Placement,
     nested: &mut NestedResolutions,

@@ -16,38 +16,33 @@ pub const BLOCK_LEVEL: u8 = FINEST_COPY_LEVEL;
 /// Blocks in the bitmap.
 pub const BLOCKS: usize = tiles_in_level(BLOCK_LEVEL);
 
-/// One level, the blocks', 16 bits a block.
-const SHAPE: PyramidShape = PyramidShape { coarsest_level: BLOCK_LEVEL, finest_level: BLOCK_LEVEL, element_bits: 16 };
-const _: () = assert!(BLOCKS < 1 << SHAPE.element_bits);
 /// A block no copy covers, or one already copied.
 const NO_SOURCE: u64 = 0;
 
-/// The copy sources pyramid's queries and updates.
-pub trait CopySources {
-    /// No block covered.
-    fn copy_sources() -> Self;
+/// One level, the blocks', 16 bits a block: a source's Morton index plus
+/// one.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct CopySourcesShape;
 
-    /// Notes that `block` is copied from `source`.
-    fn set_source(&mut self, block: Tile, source: Tile);
-
-    /// Where `block` is still to be copied from, if anywhere.
-    fn source_of(&self, block: Tile) -> Option<Tile>;
-
-    /// Notes that `block` has been copied.
-    fn mark_copied(&mut self, block: Tile);
+impl PyramidShape for CopySourcesShape {
+    const COARSEST_LEVEL: u8 = BLOCK_LEVEL;
+    const FINEST_LEVEL: u8 = BLOCK_LEVEL;
+    const ELEMENT_BITS: usize = u16::BITS as usize;
 }
+const _: () = assert!(BLOCKS < 1 << CopySourcesShape::ELEMENT_BITS);
 
-impl CopySources for Pyramid {
-    fn copy_sources() -> Self {
-        Pyramid::new(SHAPE)
-    }
+/// The copy sources pyramid: each block's source, while decoding.
+pub type CopySources = Pyramid<CopySourcesShape, { CopySourcesShape::WORDS }>;
 
-    fn set_source(&mut self, block: Tile, source: Tile) {
+impl CopySources {
+    /// Notes that `block` is copied from `source`.
+    pub fn set_source(&mut self, block: Tile, source: Tile) {
         self.set(block, morton_index(source.x, source.y) as u64 + 1);
     }
 
+    /// Where `block` is still to be copied from, if anywhere.
     #[inline]
-    fn source_of(&self, block: Tile) -> Option<Tile> {
+    pub fn source_of(&self, block: Tile) -> Option<Tile> {
         let source = self.get(block);
         (source != NO_SOURCE).then(|| {
             let (x, y) = morton_coordinates(source as usize - 1);
@@ -55,7 +50,8 @@ impl CopySources for Pyramid {
         })
     }
 
-    fn mark_copied(&mut self, block: Tile) {
+    /// Notes that `block` has been copied.
+    pub fn mark_copied(&mut self, block: Tile) {
         self.set(block, NO_SOURCE);
     }
 }

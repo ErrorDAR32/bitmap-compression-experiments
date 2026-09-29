@@ -4,7 +4,6 @@
 use bitmap::diagnostics::bitmaps::looked_at;
 use bitmap::diagnostics::census::census;
 use bitmap::gct::grammar::bit_stream::BitStream;
-use bitmap::gct::pyramids::tree::Tree;
 use bitmap::gct::tile::{tile_side, CELL_LEVEL};
 use bitmap::gct::Workspace;
 use bitmap::table::report::Report;

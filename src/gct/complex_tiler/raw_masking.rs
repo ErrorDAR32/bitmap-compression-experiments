@@ -14,8 +14,7 @@
 use super::bit_cost::payload_bits;
 use crate::gct::grammar::*;
 use crate::gct::pyramids::complex_tiling::ComplexTiling;
-use crate::gct::pyramids::placements::{Placement, Placements};
-use crate::gct::pyramids::pyramid::Pyramid;
+use crate::gct::pyramids::placements::Placement;
 use crate::gct::tile::{cells_in_tile, Tile, CELL_LEVEL, FLOOR_LEVEL};
 
 /// Marks, in the complex tiling, the tiles a complex tile of 1x1
@@ -23,20 +22,20 @@ use crate::gct::tile::{cells_in_tile, Tile, CELL_LEVEL, FLOOR_LEVEL};
 /// Decided top-down, from the whole bitmap, only where a tile's cost
 /// depends on what is under it: under a tile placed whole nothing is
 /// ever asked.
-pub(crate) fn decide_raw_masking(complex_tiling: &mut Pyramid) {
+pub(crate) fn decide_raw_masking(complex_tiling: &mut ComplexTiling) {
     cost_in_raw(complex_tiling, Tile::whole_bitmap());
 }
 
 /// What `tile` costs in a raw complex tile, its mask bit included: the
 /// cheaper of its raw cells and itself, its parts each costed the same
 /// way. Marks `tile` raw masked when itself is cheaper.
-fn cost_in_raw(complex_tiling: &mut Pyramid, tile: Tile) -> u64 {
+fn cost_in_raw(complex_tiling: &mut ComplexTiling, tile: Tile) -> u64 {
     let raw = cells_in_tile(tile.level);
     if tile.level == CELL_LEVEL {
         // A cell is only ever raw.
         return MASK_BIT_WIDTH as u64 + raw;
     }
-    let placement = complex_tiling.placement(tile);
+    let placement = complex_tiling.placed_at(tile);
     let by_itself = said_by_itself(placement, tile, |part| cost_in_raw(complex_tiling, part));
     if by_itself < raw {
         complex_tiling.mark_raw_masked(tile);

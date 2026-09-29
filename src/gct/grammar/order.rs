@@ -4,7 +4,6 @@
 //! 2x2s are read off the tree in Morton order,
 //! `Tree::residual_squares`.)
 
-use crate::gct::pyramids::pyramid::Pyramid;
 use crate::gct::pyramids::tree::{Node, Tree};
 use crate::gct::tile::{Tile, CELL_LEVEL};
 
@@ -18,7 +17,7 @@ const MOST_WAITING: usize = 3 * CELL_LEVEL as usize + 4;
 /// order -- including nodes inside complex tiles nested in it. The
 /// payload is one value for each tile of its resolution in each part, a
 /// part's in Morton order.
-pub fn payload_parts(tree: &Pyramid, tile: Tile, nesting: u8) -> PayloadParts<'_> {
+pub fn payload_parts(tree: &Tree, tile: Tile, nesting: u8) -> PayloadParts<'_> {
     let mut parts = PayloadParts { tree, nesting, whole: None, waiting: [Tile::default(); MOST_WAITING], waiting_count: 0 };
     match tree.node(tile) {
         Node::ComplexTile { masks: true, .. } => parts.wait_for_children(tile),
@@ -31,7 +30,7 @@ pub fn payload_parts(tree: &Pyramid, tile: Tile, nesting: u8) -> PayloadParts<'_
 /// to visit are held, inline, never more than a walk waits on at once.
 pub struct PayloadParts<'a> {
     /// The tree walked.
-    tree: &'a Pyramid,
+    tree: &'a Tree,
     /// The nesting of the complex tile whose payload this is.
     nesting: u8,
     /// The complex tile itself, when it masks nothing: its one part.
