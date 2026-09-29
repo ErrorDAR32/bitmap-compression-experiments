@@ -116,7 +116,13 @@ It is not yet the fewest bits: that is step 2's job.
 same cells exactly when their pattern numbers are equal -- one number
 comparison, whatever their size; `copyable.rs` -- and a tile is
 homogeneous exactly when its number is 0 (all clear) or 1 (all set).
-A 2x2, finer than patterns go, is read off its four cells.
+Each tile's number is read with its three siblings', one lookup of
+four consecutive elements, by its parent. A tile whose pattern no
+other tile of its size holds (the pyramid notes which do) is never
+searched for a copy, nor a child of it for a masking copy; a masking
+copy reads its source's four children's numbers at once. A 4x4's four
+2x2s, finer than patterns go, are the four quarters of its 16 cells,
+one run of the bitmap.
 
 **The algorithm**, walking down depth first from the whole bitmap, with
 `bound` the value bound above the tile (clear at the top):
@@ -243,10 +249,12 @@ mask; whether one is worth placing is decided in 2c like any other.
 
 ### 2b. Filling in the tiling
 
-`ComplexTiling::fill_in` runs right after the greedy tiler, since
-choosing the stream's mode reads the tiling filled in; it reads nothing
-2a sets. The tiling's own sweep carries two fields up, finest first, by
-one rule (`carried`):
+The greedy tiler fills in the rest of each tile's fields as it walks,
+since choosing the stream's mode reads them: on its way down, the
+**value bound above** each tile it visits -- a tile's children have its
+value if a masking bind is placed at it, else the value bound above it;
+on its way back up, once everything under a tile is placed, two fields
+carried up from its four children by one rule (`carried`):
 
 - a tile's **bound size**: its own size if a whole bind is placed at
   it; none if anything else is placed at it; otherwise its children's
@@ -256,9 +264,9 @@ one rule (`carried`):
 - the **sizes bound under** it: its own whole bind's size, or every
   child's sizes together.
 
-Then the **value bound above** each tile is handed down once from the
-whole bitmap: a tile's children have its value if a masking bind is
-placed at it, else the value bound above it.
+Each visited tile's element is written once, all its fields at once. A
+tile the walk never visits -- under a tile placed whole, or a child a
+masking tile says itself -- holds nothing, and nothing reads it.
 
 ### 2c. The search: one pass, counting and choosing
 

@@ -31,10 +31,10 @@
 //! by a complex tile of 2x2 resolution that unmasks it.
 
 use crate::gct::pyramids::complex_tiling::ComplexTiling;
-use crate::gct::pyramids::copyable::{child_offset, matches_at, matching_direction, CopyOffsets, FINEST_COPY_LEVEL};
+use crate::gct::pyramids::copyable::{matches_at, CopyOffsets, FINEST_COPY_LEVEL};
 use crate::gct::pyramids::placements::{Placement, BOUND_AT_THE_TOP, FINEST_MASKING_LEVEL};
-use crate::gct::pyramids::patterns::Patterns;
-use crate::gct::tile::{cells_in_tile, directions, Tile, FINEST_PLACED_LEVEL};
+use crate::gct::pyramids::patterns::{value_of, Patterns};
+use crate::gct::tile::{cells_in_tile, directions, Tile, FINEST_PLACED_LEVEL, FLOOR_LEVEL};
 use crate::morton::morton_index;
 use crate::Bitmap;
 
@@ -66,7 +66,8 @@ pub const MIN_UNMASKED_CHILDREN_OF_A_MASKING_BIND: u32 = 2;
 pub fn greedy_tiler(bitmap: &Bitmap, patterns: &Patterns, offsets: &CopyOffsets, placements: &mut ComplexTiling) {
     placements.clear();
     let content = Content { bitmap, patterns, offsets };
-    place_at_or_under(&content, Tile::whole_bitmap(), BOUND_AT_THE_TOP, placements);
+    let whole_bitmap = Tile::whole_bitmap();
+    place_at_or_under(&content, Visit { tile: whole_bitmap, number: patterns.number(whole_bitmap), bound_above: BOUND_AT_THE_TOP }, placements);
 }
 
 /// What the greedy tiler reads of a bitmap: its cells and its patterns
@@ -80,27 +81,46 @@ struct Content<'a> {
     offsets: &'a CopyOffsets,
 }
 
-/// Places `tile`, or leaves it to its children, then does the same for
-/// every child nothing placed here says; `bound_above` the value bound
-/// above `tile`.
-fn place_at_or_under(content: &Content, tile: Tile, bound_above: bool, placements: &mut ComplexTiling) {
-    let Some(placement) = placement(content, tile, bound_above) else {
-        if tile.level + 1 == FINEST_PLACED_LEVEL {
+/// The walk visits the 4x4 floor apart: copies reach down to it, and
+/// masking stops just above it, so a 4x4 is only ever bound whole or
+/// copied, and every coarser tile may be anything.
+const _: () = assert!(FINEST_COPY_LEVEL == FLOOR_LEVEL && FINEST_MASKING_LEVEL + 1 == FLOOR_LEVEL && FLOOR_LEVEL + 1 == FINEST_PLACED_LEVEL);
+
+/// A tile the greedy tiler visits, and what it knows of it on the way
+/// down: its pattern number, read with its siblings' by its parent, and
+/// the value bound above it.
+#[derive(Clone, Copy)]
+struct Visit {
+    /// The tile.
+    tile: Tile,
+    /// Its pattern number.
+    number: u16,
+    /// The value bound above it.
+    bound_above: bool,
+}
+
+/// Places at the visited tile, or leaves it to its children, then does
+/// the same for every child nothing placed here says.
+fn place_at_or_under(content: &Content, visit: Visit, placements: &mut ComplexTiling) {
+    let tile = visit.tile;
+    if tile.level == FLOOR_LEVEL {
+        let placed = floor_placement(content, visit);
+        if placed.is_none() {
             place_2x2s(content.bitmap, tile, placements);
-            return;
         }
-        for child in tile.children() {
-            place_at_or_under(content, child, bound_above, placements);
-        }
+        placements.record_placed(tile, placed, visit.bound_above);
         return;
-    };
-    placements.place(tile, placement);
-    let bound_inside = placement.bound_inside(bound_above);
-    for child in tile.children() {
-        if placement.masks(child) {
-            place_at_or_under(content, child, bound_inside, placements);
+    }
+    // Every child's number, one lookup: four consecutive elements.
+    let children_numbers = content.patterns.children_numbers(tile);
+    let placed = placement(content, visit, children_numbers);
+    let bound_inside = placed.map_or(visit.bound_above, |placement| placement.bound_inside(visit.bound_above));
+    for (index, child) in tile.children().into_iter().enumerate() {
+        if placed.is_none_or(|placement| placement.masks(child)) {
+            place_at_or_under(content, Visit { tile: child, number: children_numbers[index], bound_above: bound_inside }, placements);
         }
     }
+    placements.record_placed(tile, placed, visit.bound_above);
 }
 
 /// Binds each of the 4x4 `tile`'s 2x2s that is homogeneous, read off
@@ -109,13 +129,14 @@ fn place_at_or_under(content: &Content, tile: Tile, bound_above: bool, placement
 /// than a 2x2 is placed, and no 2x2 copies or masks.
 fn place_2x2s(bitmap: &Bitmap, tile: Tile, placements: &mut ComplexTiling) {
     let cells = bitmap.morton_run(morton_index(tile.x, tile.y) * TILE_CELLS, TILE_CELLS);
-    for (index, child) in tile.children().into_iter().enumerate() {
-        match cells >> (index * CHILD_CELLS) & CHILD_MASK {
-            0 => placements.place(child, Placement::bound(false)),
-            CHILD_MASK => placements.place(child, Placement::bound(true)),
-            _ => {}
-        }
-    }
+    placements.bind_children(
+        tile,
+        std::array::from_fn(|index| match cells >> (index * CHILD_CELLS) & CHILD_MASK {
+            0 => Some(false),
+            CHILD_MASK => Some(true),
+            _ => None,
+        }),
+    );
 }
 
 /// A 4x4's cells...
@@ -125,34 +146,33 @@ const CHILD_CELLS: usize = cells_in_tile(FINEST_PLACED_LEVEL) as usize;
 /// A 2x2's cells, all set.
 const CHILD_MASK: u64 = (1 << CHILD_CELLS) - 1;
 
-/// What the rule places at `tile`, if anything.
-fn placement(content: &Content, tile: Tile, bound_above: bool) -> Option<Placement> {
-    if let Some(value) = homogeneous_value(content, tile) {
+/// What the rule places at the visited 4x4, if anything: a whole bind or
+/// a copy -- nothing masks at 4x4.
+fn floor_placement(content: &Content, visit: Visit) -> Option<Placement> {
+    if let Some(value) = value_of(visit.number) {
         return Some(Placement::bound(value));
     }
-    if tile.level <= FINEST_COPY_LEVEL {
-        if let Some((far, direction)) = copy_direction(content, tile) {
-            return Some(Placement::Copied { far, direction, masked_children: 0 });
-        }
-    }
-    if tile.level > FINEST_MASKING_LEVEL {
-        return None;
-    }
-    let children_values = content.patterns.children_values(tile);
-    masking_copy(content, tile, children_values, bound_above).or_else(|| masking_bind(children_values, bound_above))
+    copy_direction(content, visit).map(|(far, direction)| Placement::Copied { far, direction, masked_children: 0 })
 }
 
-/// What `tile`, 4x4 or coarser, holds, if every cell of it agrees: its
-/// pattern number says.
-fn homogeneous_value(content: &Content, tile: Tile) -> Option<bool> {
-    content.patterns.homogeneous_value(tile)
+/// What the rule places at the visited tile, coarser than 4x4, if
+/// anything; `children_numbers` its children's pattern numbers.
+fn placement(content: &Content, visit: Visit, children_numbers: [u16; 4]) -> Option<Placement> {
+    if let Some(value) = value_of(visit.number) {
+        return Some(Placement::bound(value));
+    }
+    if let Some((far, direction)) = copy_direction(content, visit) {
+        return Some(Placement::Copied { far, direction, masked_children: 0 });
+    }
+    masking_copy(content, visit, children_numbers).or_else(|| masking_bind(children_numbers, visit.bound_above))
 }
 
 /// A bind of a tile to the value not bound above, masking the children
 /// not homogeneous with it, if it says at least
-/// [`MIN_UNMASKED_CHILDREN_OF_A_MASKING_BIND`] of them; `children_values`
-/// what each child holds, in reading order, if every cell of it agrees.
-fn masking_bind(children_values: [Option<bool>; 4], bound_above: bool) -> Option<Placement> {
+/// [`MIN_UNMASKED_CHILDREN_OF_A_MASKING_BIND`] of them; `children_numbers`
+/// its children's pattern numbers, in reading order.
+fn masking_bind(children_numbers: [u16; 4], bound_above: bool) -> Option<Placement> {
+    let children_values = children_numbers.map(value_of);
     let value = !bound_above;
     let mut masked_children = 0u8;
     for (index, &child_value) in children_values.iter().enumerate() {
@@ -167,67 +187,57 @@ fn masking_bind(children_values: [Option<bool>; 4], bound_above: bool) -> Option
 /// The copy of `tile` that says the most of its children, masking the
 /// rest, if it says enough of them to be worth it: near before far,
 /// then in direction order, on a tie. A child is said when it holds the
-/// same cells as the same child of the copy's source. `children_values`
-/// is what each child holds, in reading order, if every cell of it
-/// agrees.
-///
-/// A copy is checked a child at a time, and dropped as soon as the
-/// children left could no longer make it worth it, or make it say more
-/// than the best so far -- what they could add is known before any is
-/// checked, from which are homogeneous. So is whether any copy could be
-/// worth it at all.
-fn masking_copy(content: &Content, tile: Tile, children_values: [Option<bool>; 4], bound_above: bool) -> Option<Placement> {
-    let children = tile.children();
-    let numbers = content.patterns.children_numbers(tile);
+/// same cells as the same child of the copy's source -- read, for all
+/// four at once, off the source's children's numbers, four consecutive
+/// elements in Morton order. `numbers` are the visited tile's
+/// children's pattern numbers, in reading order.
+fn masking_copy(content: &Content, visit: Visit, numbers: [u16; 4]) -> Option<Placement> {
+    let (tile, bound_above) = (visit.tile, visit.bound_above);
+    let children_values = numbers.map(value_of);
+    let child_level = tile.level + 1;
     // Only a child whose pattern another tile holds can be said.
-    let can_match: [bool; 4] = std::array::from_fn(|index| content.patterns.repeats(children[index].level, numbers[index]));
-    // What each child would add, said: to the children said that are not
-    // the value bound above, and to those not homogeneous.
+    let can_match: [bool; 4] = std::array::from_fn(|index| content.patterns.repeats(child_level, numbers[index]));
+    // What each child adds, said: to the children said that are not the
+    // value bound above, and to those not homogeneous.
     let adds_unmasked: [u32; 4] = std::array::from_fn(|index| (can_match[index] && children_values[index] != Some(bound_above)) as u32);
     let adds_non_homogeneous: [u32; 4] = std::array::from_fn(|index| (can_match[index] && children_values[index].is_none()) as u32);
-    let could_be_worth_it = |unmasked: u32, non_homogeneous: u32| {
+    let worth_it = |unmasked: u32, non_homogeneous: u32| {
         unmasked >= MIN_UNMASKED_CHILDREN || non_homogeneous >= MIN_UNMASKED_NON_HOMOGENEOUS_CHILDREN
     };
-    let (all_unmasked, all_non_homogeneous) = (adds_unmasked.iter().sum(), adds_non_homogeneous.iter().sum());
-    if !could_be_worth_it(all_unmasked, all_non_homogeneous) {
+    if !worth_it(adds_unmasked.iter().sum(), adds_non_homogeneous.iter().sum()) {
         return None;
     }
     let mut best: Option<(u32, Placement)> = None;
     for far in [false, true] {
-        'direction: for direction in directions() {
-            let offset = content.offsets.offset(far, direction);
-            if tile.offset_by(offset).is_none() {
-                continue;
-            }
-            // A child's source is its same child in the source tile.
-            let child_offset = child_offset(offset);
+        for direction in directions() {
+            let Some(source) = tile.offset_by(content.offsets.offset(far, direction)) else { continue };
+            let source_numbers = content.patterns.children_numbers(source);
             let (mut masked_children, mut unmasked, mut non_homogeneous) = (0u8, 0, 0);
-            let (mut unmasked_left, mut non_homogeneous_left) = (all_unmasked, all_non_homogeneous);
-            for index in 0..children.len() {
-                unmasked_left -= adds_unmasked[index];
-                non_homogeneous_left -= adds_non_homogeneous[index];
-                if can_match[index] && matches_at(content.patterns, children[index], numbers[index], child_offset) {
+            for index in 0..numbers.len() {
+                if can_match[index] && source_numbers[index] == numbers[index] {
                     unmasked += adds_unmasked[index];
                     non_homogeneous += adds_non_homogeneous[index];
                 } else {
                     masked_children |= 1 << index;
                 }
-                let most_possible = unmasked + unmasked_left;
-                let beats_best = best.is_none_or(|(most, _)| most_possible > most);
-                if !beats_best || !could_be_worth_it(most_possible, non_homogeneous + non_homogeneous_left) {
-                    continue 'direction;
-                }
             }
-            // Every child checked and still possible: worth it, and more
-            // than the best so far.
-            best = Some((unmasked, Placement::Copied { far, direction, masked_children }));
+            if worth_it(unmasked, non_homogeneous) && best.is_none_or(|(most, _)| unmasked > most) {
+                best = Some((unmasked, Placement::Copied { far, direction, masked_children }));
+            }
         }
     }
     best.map(|(_, placement)| placement)
 }
 
-/// Which direction a tile copies from, if any, and whether it reads
-/// from the far offsets rather than the near ones: near first.
-fn copy_direction(content: &Content, tile: Tile) -> Option<(bool, u8)> {
-    [false, true].into_iter().find_map(|far| matching_direction(content.patterns, content.offsets, tile, far).map(|direction| (far, direction)))
+/// Which direction the visited tile copies from, if any, and whether it
+/// reads from the far offsets rather than the near ones: near first.
+fn copy_direction(content: &Content, visit: Visit) -> Option<(bool, u8)> {
+    if !content.patterns.repeats(visit.tile.level, visit.number) {
+        return None;
+    }
+    [false, true].into_iter().find_map(|far| {
+        directions()
+            .find(|&direction| matches_at(content.patterns, visit.tile, visit.number, content.offsets.offset(far, direction)))
+            .map(|direction| (far, direction))
+    })
 }

@@ -33,10 +33,10 @@
 //! change again with every sibling placed -- measured three times the
 //! work.
 
-use super::placements::{placement_code, placement_from_code, Placement, BOUND_AT_THE_TOP, FINEST_MASKING_LEVEL, PLACEMENT_CODE_BITS};
+use super::placements::{placement_code, placement_from_code, Placement, FINEST_MASKING_LEVEL, PLACEMENT_CODE_BITS};
 use super::pyramid::{Pyramid, PyramidShape};
 use crate::gct::nested_resolutions::NestedResolutions;
-use crate::gct::tile::{tiles_in_level, Tile, CELL_LEVEL, CHILDREN, LEVEL_BITS, FINEST_PLACED_LEVEL};
+use crate::gct::tile::{Tile, CELL_LEVEL, LEVEL_BITS, FINEST_PLACED_LEVEL};
 
 /// A field's value for nothing: no bound size, no size offset.
 const EMPTY_FIELD: u64 = 0;
@@ -76,10 +76,6 @@ const ELEMENT_MASK: u64 = (1 << ELEMENT_BITS) - 1;
 /// Elements a word: two, so a tile's four children are two whole words.
 const ELEMENTS_A_WORD: usize = u64::BITS as usize / ELEMENT_BITS;
 const _: () = assert!(ELEMENTS_A_WORD == 2);
-/// Words a tile's four children take: two whole words.
-const CHILDREN_WORDS: usize = CHILDREN as usize / ELEMENTS_A_WORD;
-/// The bound-above bit of both elements of a word.
-const BOUND_ABOVE_OF_BOTH: u64 = 1 << BOUND_ABOVE.shift | 1 << (BOUND_ABOVE.shift + ELEMENT_BITS as u64);
 
 /// `field`'s value in `element`.
 fn field(element: u64, field: Field) -> u64 {
@@ -100,12 +96,6 @@ fn four_elements(children_words: &[u64]) -> [u64; 4] {
 /// The element at `index` of a level's `words`.
 fn element_at(words: &[u64], index: usize) -> u64 {
     words[index / ELEMENTS_A_WORD] >> (index % ELEMENTS_A_WORD * ELEMENT_BITS) & ELEMENT_MASK
-}
-
-/// Replaces the element at `index` of a level's `words` with `element`.
-fn set_element_at(words: &mut [u64], index: usize, element: u64) {
-    let (word, shift) = (index / ELEMENTS_A_WORD, index % ELEMENTS_A_WORD * ELEMENT_BITS);
-    words[word] = words[word] & !(ELEMENT_MASK << shift) | element << shift;
 }
 
 /// One tile's fields in the complex tiling, read once: every query about
@@ -214,16 +204,39 @@ impl ComplexTiling {
         self.fields(tile).placed()
     }
 
-    /// Records `placement` as placed exactly at `tile`: placing a whole
-    /// bind also records its own bound size and size, which
-    /// [`ComplexTiling::fill_in`] then carries up.
-    pub fn place(&mut self, tile: Tile, placement: Placement) {
-        let mut element = with_field(self.get(tile), PLACEMENT, placement_code(placement));
-        if placement.is_whole_bind() {
-            element = with_field(element, BOUND_SIZE, tile.level as u64 + 1);
-            element = with_field(element, BOUND_SIZES_UNDER, 1 << tile.level);
+    /// Records what the greedy tiler placed exactly at `tile`, which held
+    /// nothing yet, once everything under it is placed: `placed`, if
+    /// anything, and `bound_above`, the value bound above it -- with its
+    /// bound size and the sizes bound under it, its own if a whole bind
+    /// is placed at it, else carried up from its four children by the
+    /// rule `carried`. One element, written once.
+    pub fn record_placed(&mut self, tile: Tile, placed: Option<Placement>, bound_above: bool) {
+        let mut element = with_field(0, BOUND_ABOVE, bound_above as u64);
+        if let Some(placement) = placed {
+            element = with_field(element, PLACEMENT, placement_code(placement));
         }
+        let element = if placed.is_some_and(Placement::is_whole_bind) {
+            with_field(with_field(element, BOUND_SIZE, tile.level as u64 + 1), BOUND_SIZES_UNDER, 1 << tile.level)
+        } else {
+            carried(element, four_elements(self.children_words(tile)))
+        };
         self.set(tile, element);
+    }
+
+    /// Binds each of `tile`'s children whole to the value `values` gives
+    /// it, in reading order, if any -- the children holding nothing yet:
+    /// their four elements written at once.
+    pub fn bind_children(&mut self, tile: Tile, values: [Option<bool>; 4]) {
+        let level = tile.level + 1;
+        let elements = values.map(|value| {
+            value.map_or(0, |value| {
+                let element = with_field(0, PLACEMENT, placement_code(Placement::bound(value)));
+                with_field(with_field(element, BOUND_SIZE, level as u64 + 1), BOUND_SIZES_UNDER, 1 << level)
+            })
+        });
+        for (word, pair) in self.children_words_mut(tile).iter_mut().zip(elements.chunks(ELEMENTS_A_WORD)) {
+            *word = pair[0] | pair[1] << ELEMENT_BITS;
+        }
     }
 
     /// Every placed tile, coarsest level first, Morton order within
@@ -237,14 +250,6 @@ impl ComplexTiling {
     /// Marks `tile` as masked by a complex tile of 1x1 resolution.
     pub fn mark_raw_masked(&mut self, tile: Tile) {
         self.set(tile, with_field(self.get(tile), RAW_MASKS, YES));
-    }
-
-    /// Fills in the rest of the greedy tiler's placements, in place: the
-    /// bound sizes carried up, and the value bound above every tile
-    /// handed down. No complex tiles yet.
-    pub fn fill_in(&mut self) {
-        carry_bound_sizes_up(self);
-        hand_bound_above_down(self);
     }
 
     /// `tile`'s fields, for asking several things of it.
@@ -276,54 +281,6 @@ impl ComplexTiling {
     pub fn make_cell_list(&mut self, tile: Tile) {
         let element = self.fields(tile).as_cell_list(tile.level).0;
         self.set(tile, element);
-    }
-}
-
-/// The complex tiling's sweep: carries every coarser tile's bound size
-/// and the sizes bound under it up from its four children, by the rule
-/// [`carried`], finest level first, a level at a time in Morton order --
-/// a tile's four children the two whole words at its own index times
-/// two. Done once, when the placements are complete: nothing set
-/// afterwards changes either field.
-fn carry_bound_sizes_up(pyramid: &mut ComplexTiling) {
-    for level in (0..FINEST_PLACED_LEVEL).rev() {
-        let (coarser, finer) = pyramid.level_and_finer_mut(level);
-        for tile_index in 0..tiles_in_level(level) {
-            let children_words = &finer[CHILDREN_WORDS * tile_index..][..CHILDREN_WORDS];
-            if children_words.iter().all(|&word| word == 0) {
-                // Nothing placed or carried under it, as under a tile
-                // placed whole: carrying would leave its element as it
-                // is, since only a whole bind sets its own bound fields --
-                // most tiles, passed over on one look.
-                continue;
-            }
-            let element = carried(element_at(coarser, tile_index), four_elements(children_words));
-            set_element_at(coarser, tile_index, element);
-        }
-    }
-}
-
-/// Hands the value bound above down from the whole bitmap, a level at a
-/// time, to the finest placed tile: a tile's children have its value if a bind
-/// that masks is placed at it, else the value bound above it -- all four
-/// consecutive elements, two words, set at once. After the bound sizes
-/// are carried up, which reads children that must hold nothing else.
-fn hand_bound_above_down(pyramid: &mut ComplexTiling) {
-    let whole_bitmap_element = pyramid.fields(Tile::whole_bitmap()).0;
-    pyramid.set(Tile::whole_bitmap(), with_field(whole_bitmap_element, BOUND_ABOVE, BOUND_AT_THE_TOP as u64));
-    for level in 0..FINEST_PLACED_LEVEL {
-        let (coarser, finer) = pyramid.level_and_finer_mut(level);
-        for tile_index in 0..tiles_in_level(level) {
-            let element = element_at(coarser, tile_index);
-            let bound_above_children = match placement_from_code(field(element, PLACEMENT)) {
-                Some(Placement::Bound { value, masked_children }) if masked_children != 0 => value,
-                _ => field(element, BOUND_ABOVE) == YES,
-            };
-            let bound_above_bits = if bound_above_children { BOUND_ABOVE_OF_BOTH } else { 0 };
-            for word in &mut finer[CHILDREN_WORDS * tile_index..][..CHILDREN_WORDS] {
-                *word = *word & !BOUND_ABOVE_OF_BOTH | bound_above_bits;
-            }
-        }
     }
 }
 

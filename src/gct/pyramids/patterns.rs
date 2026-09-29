@@ -34,7 +34,7 @@ use crate::Bitmap;
 /// What a tile whose pattern number is `number` holds, if every cell of
 /// it agrees.
 #[inline]
-fn value_of(number: u16) -> Option<bool> {
+pub fn value_of(number: u16) -> Option<bool> {
     match number {
         ALL_CLEAR => Some(false),
         ALL_SET => Some(true),

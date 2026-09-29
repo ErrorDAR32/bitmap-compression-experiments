@@ -151,7 +151,6 @@ impl Gct {
     fn greedy_tiling(&mut self, bitmap: &Bitmap) {
         self.patterns.build(bitmap);
         greedy_tiler(bitmap, &self.patterns, self.last_pass.offsets(), &mut self.complex_tiling);
-        self.complex_tiling.fill_in();
     }
 
     /// Finishes `bitmap`'s tree from the greedy tiler's tiles: the complex

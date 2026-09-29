@@ -61,9 +61,9 @@ pub struct Scratch {
 }
 
 /// Creates complex tiles from the greedy tiler's output -- the complex
-/// tiling pyramid with its placements [filled in](ComplexTiling::fill_in)
-/// -- and completes it in place: every chosen complex tile's size offset
-/// added.
+/// tiling pyramid with its placements, the value bound above each tile
+/// and the sizes bound under it -- and completes it in place: every
+/// chosen complex tile's size offset added.
 pub fn complex_tiler(complex_tiling: &mut ComplexTiling, bitmap: &Bitmap, scratch: &mut Scratch) {
     decide_raw_masking(complex_tiling);
     scratch.chosen.clear();

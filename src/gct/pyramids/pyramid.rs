@@ -158,6 +158,16 @@ impl<S: PyramidShape, const WORDS: usize> Pyramid<S, WORDS> {
         &self.words[first_word..first_word + words]
     }
 
+    /// The words a tile's four children fill between them, to write, for
+    /// elements of 16 bits or more.
+    #[inline]
+    pub fn children_words_mut(&mut self, tile: Tile) -> &mut [u64] {
+        debug_assert!(S::ELEMENT_BITS * 4 >= WORD_BITS, "four children fill whole words");
+        let words = S::ELEMENT_BITS * 4 / WORD_BITS;
+        let first_word = Self::LEVEL_STARTS[tile.level as usize + 1] + morton_index(tile.x, tile.y) * words;
+        &mut self.words[first_word..first_word + words]
+    }
+
     /// Replaces a tile's element, of a word or narrower, nothing else.
     #[inline]
     pub fn set(&mut self, tile: Tile, value: u64) {
