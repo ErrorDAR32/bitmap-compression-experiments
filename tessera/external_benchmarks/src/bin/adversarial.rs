@@ -3,11 +3,11 @@
 //! where Tessera's bits most exceed that codec's -- the library's search
 //! (`tessera::adversarial`), scored as Tessera's bits less the codec's. The
 //! worst found for each codec is kept as a PBM image in
-//! `external_benchmarks/adversarial/`, replaced only when beaten, and carried on
+//! `transient_data/records/`, replaced only when beaten, and carried on
 //! from by the next run; every recorded bitmap is checked to round trip
 //! through both Tessera and the codec. Then, for each record, both
 //! encoders' times on it. The table -- a row a codec -- is printed and
-//! kept in `docs/measurements/external_adversarial.csv`.
+//! kept in `transient_data/measurements/external_adversarial.csv`.
 //!
 //! From `tessera/`, which the manifest path is relative to, in release:
 //!
@@ -24,7 +24,7 @@
 
 use tessera::adversarial::{record, search_at_once, Effort, Score, SEARCHES_AT_ONCE};
 use tessera::sample_generators::sample_seed;
-use tessera::measurements;
+use tessera::transient_data;
 use utilities::table::report::Report;
 use utilities::table::Table;
 use bitmap::Bitmap;
@@ -149,5 +149,5 @@ fn main() {
     ));
     report.note(format!("times: the median of {TIMINGS} encodings of the record"));
     report.add("the records, each round tripping through both", table);
-    measurements::publish(report);
+    transient_data::publish(report);
 }

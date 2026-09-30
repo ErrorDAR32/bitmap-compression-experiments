@@ -6,7 +6,7 @@ sample the diagnostics tool's `timing` uses -- every generator, 100 distinct
 bitmaps each (2000 in all) -- with each codec, checks every bitmap
 comes back whole, and prints, a family at a time, each codec's mean
 encoded bits and mean encode and decode time -- and keeps those tables
-in `docs/measurements/external_benchmarks.csv`, rewritten every run.
+in `transient_data/measurements/external_benchmarks.csv`, rewritten every run.
 
 | codec | what it is | by |
 |---|---|---|
@@ -28,7 +28,7 @@ apt-get install libjbig-dev
 
 Then, from `tessera/` -- the manifest path is relative to it -- in
 release, with nothing else busy. The samples use the seed held in
-`tests/last_seed`, as every other measurement does:
+`transient_data/seed`, as every other measurement does:
 
 ```
 cargo run --release --manifest-path external_benchmarks/Cargo.toml
@@ -44,7 +44,7 @@ The argument, if given, is how many bitmaps each generator makes.
 runs against the raw cells) against each codec here: four searches at
 once for each of G4, JBIG, zstd 3 and zstd 19, maximizing Tessera's bits
 less the codec's. The worst found for each is kept in
-`external_benchmarks/adversarial/against_<codec>.pbm`, replaced only when
+`transient_data/records/against_<codec>.pbm`, replaced only when
 beaten, and each run carries on from it; every record must round trip
 through both encoders, and both are timed on it (the median of 21
 encodes). From `tessera/`, in release:

@@ -13,7 +13,7 @@ command, run from `tessera/`; "Every command" lists them all, and
 
 ## Where the seed comes from
 
-`tests/last_seed` holds the seed base every seeded run uses, and how
+`transient_data/seed` holds the seed base every seeded run uses, and how
 many runs have used it. Each run that draws from it counts one use;
 after 5 (`USES_BEFORE_THE_SEED_ROLLS`, `src/sample_generators/seed.rs`)
 the next run rolls a fresh seed by itself and says so, so no corpus is
@@ -54,7 +54,7 @@ Three parts, kept apart:
   the diagnostics gather, or search for bitmaps. Every tool prints its
   results as tables, through the one table printer (`../utilities/src/table/`), and
   a tool that measures or searches keeps them
-  (`docs/measurements/<tool>.csv`).
+  (`transient_data/measurements/<tool>.csv`).
 
 ### Three tiers of test
 
@@ -104,8 +104,8 @@ cargo run --release --bin diagnostics -- <tool> [<argument>]
 | `timing` | encode and decode times over a large sample, family by family | bitmaps a generator (100) |
 | `instruction_count` | instructions to encode and to decode a sample, counted by callgrind | |
 | `instruction_sample` | encodes and decodes that sample alone, uncounted: what callgrind runs; keeps nothing | |
-| `render` | PNG images of the bitmaps looked at, in `target/diagnostics/`; keeps nothing | |
-| `show` | the kept measurements, read back from `docs/measurements/` without measuring | a tool's name, for its alone |
+| `render` | PNG images of the bitmaps looked at, in `transient_data/renders/`; keeps no measurement | |
+| `show` | the kept measurements, read back from `transient_data/measurements/` without measuring | a tool's name, for its alone |
 
 Run with no tool, or one not there, it prints this list as a table --
 each tool, what it prints, its argument and the file it keeps -- from
@@ -118,12 +118,13 @@ any PBM image named in `TESSERA_DIAGNOSE` (`TESSERA_DIAGNOSE=<path.pbm>`).
 
 Every tool that measures -- these, the external benchmarks and the
 adversarial searches -- keeps
-its tables in `docs/measurements/<tool>.csv`, rewritten by every run,
+its tables in `transient_data/measurements/<tool>.csv`, rewritten by every run,
 with the command, the seed and the commit it was measured on as the
 file's notes (`../utilities/src/table/report.rs`, published by
-`src/measurements.rs`). The latest numbers live there and
-nowhere else. A run on a fresh seed rewrites the file too, and its notes
-say so; commit the files measured on the file's seed.
+`src/transient_data.rs`). The latest numbers live there and
+nowhere else, and never in git: a measurement belongs to the working
+copy it was made in. A run on a fresh seed rewrites the file too, and
+its notes say so.
 
 ### Speed: instructions and time
 
@@ -136,12 +137,12 @@ run settled. Its sample: 5 bitmaps of every generator, weighted as the
 timed sample is, a bitmap of noise at half density, from the seed; a
 checkerboard of 7-cell squares and the saved adversarial bitmaps,
 fixed. It needs valgrind installed (`apt-get install valgrind`). Each
-run's callgrind output is left in `target/diagnostics/`, to see
+run's callgrind output is left in `transient_data/callgrind/`, to see
 where the instructions go:
 
 ```
 cargo run --release --bin diagnostics -- instruction_count
-callgrind_annotate --inclusive=yes target/diagnostics/callgrind.encode.out | head -40
+callgrind_annotate --inclusive=yes transient_data/callgrind/callgrind.encode.out | head -40
 ```
 
 Counts are compared on one seed: pin it (`TESSERA_SEED=<seed>`) when a
@@ -181,7 +182,7 @@ The argument, if given, is how many bitmaps each generator makes (100).
 raw cells, by simulated annealing, four searches at once, one a core --
 first on one 64x64 window, then on the plane filled with that window's
 16 variants (4 turns, mirrored or not, inverted or not). The worst
-bitmap is kept in `external_benchmarks/adversarial/` as a PBM image. It
+bitmap is kept in `transient_data/records/` as a PBM image. It
 is replaced only when beaten, each run starts from it, and it must
 always round trip.
 
@@ -193,10 +194,10 @@ median kept.
 Each search prints, and keeps, its report: `adversarial` a table of
 what each of its searches found -- the worst window and plane, the
 start each came from -- and one of the record, before and after, and
-whether it was replaced (`docs/measurements/adversarial.csv`); the
+whether it was replaced (`transient_data/measurements/adversarial.csv`); the
 codecs' search a row a codec, with its record's gap before and after,
 both encoders' bits and times on it
-(`docs/measurements/external_adversarial.csv`).
+(`transient_data/measurements/external_adversarial.csv`).
 
 A search cools over all the changes it tries, so one long search
 settles deeper than many short ones. It tries 400 changes on the window
@@ -330,7 +331,7 @@ overstated that cost several times over, while some of the other shapes
 got cheaper.
 
 **Numbers live in the measurement files, nowhere else.** Every tool that
-measures keeps its tables in `docs/measurements/`, with what they were
+measures keeps its tables in `transient_data/measurements/`, out of git, with what they were
 measured on -- the command, the seed, the commit -- as their notes, and
 prints them as tables. The code and the docs say why, never how much: a
 number copied into either goes stale without anybody noticing.

@@ -1,4 +1,5 @@
 target/
-# The seed runs draw their bitmaps from, and how many runs have used it:
-# the working copy's own, never moved by git (tessera/src/sample_generators/seed.rs).
-tessera/tests/last_seed
+# What Tessera's runs leave behind -- the seed and its uses, measurements,
+# adversarial records, renders, callgrind output: the working copy's own,
+# never moved by git (tessera/src/transient_data.rs).
+tessera/transient_data/

@@ -1,9 +1,0 @@
-# written by `cargo run --release --bin tessera_diagnostics -- instruction_count`
-# 5 bitmaps a generator, a checkerboard, the saved adversarial bitmaps and noise; counted by callgrind, output in target/tessera_diagnostics/
-# seed 17400261585918632413
-# commit 98096ce, with uncommitted changes
-
-## instructions
-part,bitmaps,instructions,a bitmap,a cell
-encode,142,688453780,4848266,74.0
-decode,142,122989625,866124,13.2

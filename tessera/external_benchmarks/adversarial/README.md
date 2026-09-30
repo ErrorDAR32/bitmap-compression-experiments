@@ -3,9 +3,10 @@
 Two kinds, both plain PBM images (`P1`, `1` set), 256x256, with notes as
 `#` comment lines:
 
-- **Records**, here: the worst bitmap found so far for each search, one
-  a codec Tessera is scored against. A search starts from its record and
-  replaces it only when it beats it, so records move.
+- **Records**, in `transient_data/records/`, out of git: the worst bitmap
+  found so far for each search, one a codec Tessera is scored against. A
+  search starts from its record and replaces it only when it beats it,
+  so records move, and belong to the working copy that found them.
 - **Saved bitmaps**, in `saved/`: records copied once their search had
   settled, named for what they are, never replaced by a search. The fine
   tier checks them, and the diagnostics tool's `instruction_count`,
@@ -14,8 +15,8 @@ Two kinds, both plain PBM images (`P1`, `1` set), 256x256, with notes as
 
 Searching and saving are described in `docs/testing_protocol.md`. The
 last search's report -- what it found, and each record before and after
--- is kept in `docs/measurements/adversarial.csv` (against the raw
-cells) and `docs/measurements/external_adversarial.csv` (against the
+-- is kept in `transient_data/measurements/adversarial.csv` (against the raw
+cells) and `transient_data/measurements/external_adversarial.csv` (against the
 codecs).
 
 ## Saved bitmaps
@@ -28,8 +29,8 @@ and JBIG records, so they had settled; G4's still moved, so it may yet
 be beaten.
 
 What Tessera and the codecs make of them now is measured, not written here:
-`docs/measurements/measurement.csv` (the `adversarial, saved` table),
-`docs/measurements/census.csv` and `docs/measurements/external_benchmarks.csv`.
+`transient_data/measurements/measurement.csv` (the `adversarial, saved` table),
+`transient_data/measurements/census.csv` and `transient_data/measurements/external_benchmarks.csv`.
 
 What each is, measured on the image:
 

@@ -1,7 +1,7 @@
 //! The diagnostics tool: prints what `tessera::diagnostics` gathers from
 //! Tessera, one tool a file, named by the first argument. A tool that
 //! measures also keeps its tables, and what they were measured on, in
-//! `docs/measurements/<tool>.csv`, replacing the last run's -- the latest
+//! `transient_data/measurements/<tool>.csv`, replacing the last run's -- the latest
 //! numbers are always there, and nowhere copied by hand.
 //!
 //! Every tool, what it prints, and the argument it takes, are in
@@ -9,7 +9,8 @@
 //! as a table.
 //!
 //! The bitmaps looked at are the adversarial records and saved bitmaps
-//! (`external_benchmarks/adversarial/`), plus any PBM image named in `TESSERA_DIAGNOSE`.
+//! (`transient_data/records/`, `external_benchmarks/adversarial/saved/`), plus
+//! any PBM image named in `TESSERA_DIAGNOSE`.
 //! Every tool stops if Tessera loses a cell.
 //!
 //! ```text
@@ -30,7 +31,7 @@ mod show;
 mod sparse;
 mod timing;
 
-use tessera::measurements;
+use tessera::transient_data;
 use utilities::table::report::Report;
 use utilities::table::Table;
 
@@ -114,7 +115,7 @@ const TOOLS: [Tool; 11] = [
     },
     Tool {
         name: "render",
-        prints: "the bitmaps looked at, each written as a PNG image in target/diagnostics/",
+        prints: "the bitmaps looked at, each written as a PNG image in transient_data/renders/",
         argument: "",
         run: Run::Other(render::run),
     },
@@ -136,11 +137,11 @@ fn main() {
         Some(Tool { name, run: Run::Measuring(run), .. }) => {
             let mut report = Report::new(name, &format!("cargo run --release --bin diagnostics -- {name}"));
             run(&mut report);
-            measurements::publish(report);
+            transient_data::publish(report);
         }
         Some(Tool { run: Run::Other(run), .. }) => run(),
         None => {
-            let kept_in = "kept in\ndocs/measurements/";
+            let kept_in = "kept in\ntransient_data/measurements/";
             let mut table = Table::new(&["tool", "prints", "argument", kept_in]).left_aligned(&["prints", "argument", kept_in]);
             for tool in &TOOLS {
                 let kept = if matches!(tool.run, Run::Measuring(_)) { format!("{}.csv", tool.name) } else { String::new() };

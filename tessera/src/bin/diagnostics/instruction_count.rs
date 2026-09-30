@@ -20,11 +20,11 @@
 //! cargo run --release --bin diagnostics -- instruction_count
 //! ```
 //!
-//! Each run's callgrind output is left in `target/diagnostics/`, to
+//! Each run's callgrind output is left in `transient_data/callgrind/`, to
 //! see where the instructions go:
 //!
 //! ```text
-//! callgrind_annotate --inclusive=yes target/diagnostics/callgrind.encode.out | head -40
+//! callgrind_annotate --inclusive=yes transient_data/callgrind/callgrind.encode.out | head -40
 //! ```
 //!
 //! `instruction_sample` runs the sample alone, uncounted: what callgrind
@@ -35,6 +35,7 @@ use std::process::Command;
 use tessera::adversarial::record;
 use tessera::diagnostics::examination::first_difference;
 use tessera::diagnostics::RAW_CELLS;
+use tessera::transient_data;
 use tessera::grammar::bit_stream::BitStream;
 use tessera::Tessera;
 use tessera::sample_generators::checkerboards::checkerboard;
@@ -57,9 +58,6 @@ const NOISE_BITMAPS: u64 = 1;
 
 /// The tool that runs the sample alone, for callgrind to count.
 pub const SAMPLE_TOOL: &str = "instruction_sample";
-
-/// Where each callgrind run's output is left, under the crate's root.
-const FOLDER: &str = "target/diagnostics";
 
 /// The variable the sample's seed is pinned by, for both runs.
 const SEED_VARIABLE: &str = "TESSERA_SEED";
@@ -98,7 +96,7 @@ pub fn run(report: &mut Report) {
     // both callgrind runs are pinned to it.
     let bitmaps = sample().len();
     let (seed, _) = seed_in_use().expect("the sample settled a seed");
-    let folder = Path::new(env!("CARGO_MANIFEST_DIR")).join(FOLDER);
+    let folder = transient_data::callgrind();
     std::fs::create_dir_all(&folder).expect("the output folder made");
     let tool = std::env::current_exe().expect("this tool's own path");
 
@@ -117,7 +115,7 @@ pub fn run(report: &mut Report) {
     }
     report.note(format!(
         "{BITMAPS_PER_GENERATOR} bitmaps a generator, a checkerboard, the saved adversarial bitmaps and noise; \
-         counted by callgrind, output in {FOLDER}/"
+         counted by callgrind, output in transient_data/callgrind/"
     ));
     report.add("instructions", table);
 }

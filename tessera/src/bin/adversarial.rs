@@ -7,7 +7,7 @@
 //! The worst plane of all four is recorded when it beats the record,
 //! and the recorded bitmap must still round trip. What each search found,
 //! and the record, are printed and kept in
-//! `docs/measurements/adversarial.csv`.
+//! `transient_data/measurements/adversarial.csv`.
 //!
 //! ```text
 //! cargo run --release --bin adversarial
@@ -36,7 +36,7 @@ use tessera::grammar::bit_stream::BitStream;
 use tessera::tile::{cells_in_tile, Tile};
 use tessera::Tessera;
 use tessera::sample_generators::sample_seed;
-use tessera::measurements;
+use tessera::transient_data;
 use utilities::table::report::Report;
 use utilities::table::Table;
 use bitmap::Bitmap;
@@ -132,5 +132,5 @@ fn main() {
         if beaten { "yes" } else { "no" }.to_string(),
     ]);
     report.add("the record, which round trips", table);
-    measurements::publish(report);
+    transient_data::publish(report);
 }

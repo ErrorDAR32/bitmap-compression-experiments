@@ -33,8 +33,8 @@ folder. Every command below runs from here, `tessera/`.
   code does not enforce it. The stream's hard bound is looser: the most
   bits the grammar can spell out (`MOST_BITS`).
 - **Measured, not claimed.** No number is written into a document here.
-  The tools keep every measurement in `docs/measurements/`, with the
-  command, seed and commit it came from.
+  The tools keep every measurement in `transient_data/measurements/`,
+  out of git, with the command, seed and commit it came from.
 
 ## Using it
 
@@ -107,7 +107,7 @@ covers the same ground:
 - the tree read back is the tree written;
 - every cell decodes back.
 
-Sampled bitmaps come from a seed kept in `tests/last_seed`, outside git.
+Sampled bitmaps come from a seed kept in `transient_data/seed`, outside git.
 It rolls by itself every five runs, so no corpus is measured against for
 long. `TESSERA_SEED=<seed>` pins a run, and `TESSERA_SEED=fresh` draws a
 new seed for one run. [`docs/testing_protocol.md`](docs/testing_protocol.md)
@@ -116,7 +116,7 @@ is the whole protocol, with every command and every parameter.
 ## Tools
 
 Every tool prints its results as tables. A tool that measures also keeps
-them in [`docs/measurements/`](docs/measurements/).
+them in `transient_data/measurements/`.
 
 | command | does |
 |---|---|
@@ -136,12 +136,13 @@ libjbig-dev`), and the instruction count needs valgrind.
 tessera/
   src/                  the crate: the encoding, and what measures it
     bin/                the diagnostics tool and the adversarial search
-  tests/                the three tiers, and the seed file
+  tests/                the three tiers
   docs/
     tessera.md          every step and every bit
     testing_protocol.md how a change gets measured
-    measurements/       every tool's latest tables, as CSV
-  external_benchmarks/  against G4, JBIG and zstd; the adversarial bitmaps
+  external_benchmarks/  against G4, JBIG and zstd; the saved adversarial bitmaps
+  transient_data/       out of git: what runs leave behind -- the seed,
+                        measurements, adversarial records, renders, callgrind output
 ```
 
 [`src/lib.rs`](src/lib.rs) maps every module to its step. The

@@ -2,9 +2,9 @@
 //! one row of `0`/`1` a line, `1` set), readable by any image viewer
 //! and by a diff. Two kinds:
 //!
-//! - records, in `external_benchmarks/adversarial/`: the worst bitmap found so far
-//!   for each objective. A run starts from it and replaces it only when
-//!   it beats it, so the search keeps going across runs;
+//! - records, in `transient_data/records/`, out of git: the worst bitmap
+//!   found so far for each objective. A run starts from it and replaces
+//!   it only when it beats it, so the search keeps going across runs;
 //! - saved bitmaps, in `external_benchmarks/adversarial/saved/`: bitmaps taken from
 //!   the records once a search has settled, named for what they are and
 //!   never replaced by a search. The benchmarks encode these, so their
@@ -16,21 +16,19 @@ use bitmap::{Bitmap, HEIGHT, WIDTH};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-/// Where the records are kept, under the crate's root.
-const FOLDER: &str = "external_benchmarks/adversarial";
-/// Where the saved bitmaps are kept, under the records' folder.
-const SAVED: &str = "saved";
+/// Where the saved bitmaps are kept, under the crate's folder.
+const SAVED: &str = "external_benchmarks/adversarial/saved";
 /// A plain PBM's first word.
 const MAGIC: &str = "P1";
 
 /// The records' folder.
 fn records_folder() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(FOLDER)
+    crate::transient_data::records()
 }
 
 /// The saved bitmaps' folder.
 fn saved_folder() -> PathBuf {
-    records_folder().join(SAVED)
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(SAVED)
 }
 
 /// The record named `name`'s file.

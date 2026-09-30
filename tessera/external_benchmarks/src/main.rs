@@ -7,7 +7,7 @@
 //! busy:
 //!
 //! From `tessera/`, which the manifest path is relative to; the samples
-//! use the seed every other run does (`tests/last_seed`):
+//! use the seed every other run does (`transient_data/seed`):
 //!
 //! ```text
 //! cargo run --release --manifest-path external_benchmarks/Cargo.toml
@@ -21,7 +21,7 @@
 
 use tessera::diagnostics::RAW_CELLS;
 use tessera::sample_generators::{families, HowMany, TIMING_PER_GENERATOR};
-use tessera::measurements;
+use tessera::transient_data;
 use utilities::table::report::Report;
 use utilities::table::Table;
 use bitmap::Bitmap;
@@ -105,7 +105,7 @@ fn main() {
         }
     }
     add_table(&mut report, "all", &codecs, &overall);
-    measurements::publish(report);
+    transient_data::publish(report);
 }
 
 /// Encodes and decodes every bitmap of `family` with `codec`, checking

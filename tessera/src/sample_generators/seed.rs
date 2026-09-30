@@ -39,12 +39,13 @@ use std::io::Write;
 use std::sync::OnceLock;
 
 /// The file that remembers the last seed a run used, and how many runs
-/// have used it, under the crate's root. Kept out of git.
-pub const WHERE_THE_SEED_IS_KEPT: &str = "tests/last_seed";
+/// have used it, as the tables say it: under the crate's folder, kept
+/// out of git ([`crate::transient_data`]).
+pub const WHERE_THE_SEED_IS_KEPT: &str = "transient_data/seed";
 
 /// [`WHERE_THE_SEED_IS_KEPT`], wherever a run starts from.
 fn seed_file() -> std::path::PathBuf {
-    std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(WHERE_THE_SEED_IS_KEPT)
+    crate::transient_data::seed_file()
 }
 
 /// How many runs may use a seed from the file before the next run rolls

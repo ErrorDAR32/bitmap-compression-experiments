@@ -536,7 +536,8 @@ cell.
 ## Measured
 
 No measured number is copied here, where it would go stale. Each
-measuring tool keeps its tables in `docs/measurements/<tool>.csv`, with what
+measuring tool keeps its tables in `transient_data/measurements/<tool>.csv`,
+out of git, with what
 they were measured on -- the command, the seed, the commit -- as the
 file's notes, and rewrites the file on every run; `show` prints them
 back without measuring (`docs/testing_protocol.md`):

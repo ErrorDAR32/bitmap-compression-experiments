@@ -1,4 +1,4 @@
-//! Fast tests: a small sample from the seed in `tests/last_seed` --
+//! Fast tests: a small sample from the seed in `transient_data/seed` --
 //! every shape, sparse shape, plan and line set, at its `tested` count;
 //! and each family, and the saved bitmaps, turned every way round.
 //!

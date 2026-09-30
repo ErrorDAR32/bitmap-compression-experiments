@@ -82,11 +82,11 @@
 //! |---|---|
 //! | [`adversarial`] | searches for the bitmaps an encoder does worst on, by any score |
 //! | [`diagnostics`] | data gathered from Tessera's steps and output, for the tests to judge and the tools to print |
-//! | [`measurements`] | where measurements are kept, `docs/measurements/`, and publishing one there |
+//! | [`transient_data`] | what runs leave behind, out of git -- the seed, measurements, adversarial records, renders, callgrind output -- and publishing a measurement there |
 //! | [`sample_generators`] | the bitmaps everything is measured on, and where the seed comes from |
 //!
 //! `tests/` holds Tessera's tests, which judge what [`diagnostics`]
-//! gathers, and `tests/last_seed`, the seed every seeded run uses, kept
+//! gathers, and `transient_data/seed`, the seed every seeded run uses, kept
 //! out of git; `src/bin/` the diagnostics tool, which prints it -- timing
 //! and the instruction count among its tools -- and the adversarial
 //! search against the raw cells. `external_benchmarks/` is a crate of
@@ -118,7 +118,7 @@ pub mod tree_representation;
 // What measures and tests it.
 pub mod adversarial;
 pub mod diagnostics;
-pub mod measurements;
+pub mod transient_data;
 pub mod sample_generators;
 
 use bitmap::Bitmap;
