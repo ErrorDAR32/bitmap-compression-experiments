@@ -28,6 +28,12 @@ unnoticed, nudging their decisions towards survival and progress.
 A disk superchunk is read and written whole, and terrain is generated a
 superchunk at a time.
 
+Coordinates are non-negative integers, counted from the world's top
+left, and resolve by cascade: a superchunk (`u32` each way), then a
+chunk in it (0 to 15), then a cell in that chunk (0 to 255). The world
+starts roughly in the middle of both axes, so there is room in every
+direction.
+
 ### A disk chunk
 
 - **A height map**: one `u8` height per cell, stored raw for now. It

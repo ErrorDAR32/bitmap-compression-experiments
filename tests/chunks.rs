@@ -16,6 +16,9 @@ const CELL: CellPlace = CellPlace { x: 3, y: 200 };
 /// The superchunk the arena tests work in.
 const ORIGIN: SuperChunkPosition = SuperChunkPosition { x: 0, y: 0 };
 
+/// A superchunk roughly in the middle of the world, where it starts.
+const MIDDLE: SuperChunkPosition = SuperChunkPosition { x: u32::MAX / 2, y: u32::MAX / 2 };
+
 /// A bitmap's cells, with a rectangle and a circle drawn.
 fn drawn() -> CellWords {
     let mut bitmap = Bitmap::new();
@@ -88,7 +91,7 @@ fn every_cell_has_its_own_height() {
 /// place in it or their position in the world.
 #[test]
 fn a_superchunk_holds_every_chunk_once() {
-    let position = SuperChunkPosition { x: -3, y: 8 };
+    let position = MIDDLE;
     let mut superchunk = DiskSuperChunk::new(position);
     assert_eq!(superchunk.chunks().count(), CHUNKS_IN_SUPERCHUNK);
     let places: Vec<usize> = superchunk.chunks().map(|(place, _)| place.index()).collect();
@@ -111,14 +114,15 @@ fn a_chunk_place_outside_a_superchunk_panics() {
     ChunkPlace::new(16, 0);
 }
 
-/// Every cell near the edges between superchunks and chunks, on both
-/// sides of the origin, comes back from its address, and its address is
-/// the one expected.
+/// Every cell near the edges between superchunks and chunks, at the
+/// world's edge and in its middle, comes back from its address, and its
+/// address is the one expected.
 #[test]
 fn world_cells_and_addresses_convert_both_ways() {
-    let chunk_side = CHUNK_SIDE as i64;
+    let chunk_side = CHUNK_SIDE as u64;
+    let middle = MIDDLE.x as u64 * SUPERCHUNK_SIDE_CELLS;
     let edges = [0, 1, chunk_side - 1, chunk_side, SUPERCHUNK_SIDE_CELLS - 1, SUPERCHUNK_SIDE_CELLS, 5 * SUPERCHUNK_SIDE_CELLS + 1234];
-    let coordinates: Vec<i64> = edges.iter().flat_map(|&edge| [edge, -edge, -edge - 1]).collect();
+    let coordinates: Vec<u64> = edges.iter().flat_map(|&edge| [edge, middle + edge, middle - edge - 1]).collect();
     for &x in &coordinates {
         for &y in &coordinates {
             let cell = WorldCell { x, y };
@@ -128,19 +132,19 @@ fn world_cells_and_addresses_convert_both_ways() {
             assert_eq!(CellAddress { superchunk, chunk: chunk_place, cell: place }, cell.address());
         }
     }
-    // The cell just up and left of the origin is the last of everything
-    // in superchunk (-1, -1).
+    // The cell just up and left of the middle superchunk is the last of
+    // everything in the superchunk up and left of it.
     assert_eq!(
-        WorldCell { x: -1, y: -1 }.address(),
+        WorldCell { x: middle - 1, y: middle - 1 }.address(),
         CellAddress {
-            superchunk: SuperChunkPosition { x: -1, y: -1 },
+            superchunk: SuperChunkPosition { x: MIDDLE.x - 1, y: MIDDLE.y - 1 },
             chunk: ChunkPlace::new(15, 15),
             cell: CellPlace { x: 255, y: 255 },
         }
     );
-    let superchunk = DiskSuperChunk::new(SuperChunkPosition { x: -1, y: 0 });
-    assert!(superchunk.address_of(WorldCell { x: -1, y: 0 }).is_some());
-    assert!(superchunk.address_of(WorldCell { x: 0, y: 0 }).is_none());
+    let superchunk = DiskSuperChunk::new(MIDDLE);
+    assert!(superchunk.address_of(WorldCell { x: middle, y: middle + SUPERCHUNK_SIDE_CELLS - 1 }).is_some());
+    assert!(superchunk.address_of(WorldCell { x: middle - 1, y: middle }).is_none());
 }
 
 /// A superchunk's chunks go in Morton order, as a bitmap's cells do:
@@ -157,14 +161,15 @@ fn chunks_in_a_superchunk_go_in_morton_order() {
 
 /// Superchunks' Morton keys interleave their coordinates, x in the low
 /// bit: the first four of a 2x2 block run top left, top right, bottom
-/// left, bottom right, and every negative superchunk comes before every
-/// positive one.
+/// left, bottom right, at the world's corner and in its middle alike.
 #[test]
 fn superchunks_sort_in_morton_order() {
     let key = |x, y| SuperChunkPosition { x, y }.morton_key();
     assert!(key(0, 0) < key(1, 0) && key(1, 0) < key(0, 1) && key(0, 1) < key(1, 1));
     assert!(key(1, 1) < key(2, 0));
-    assert!(key(-1, -1) < key(0, 0) && key(i32::MIN, 0) < key(-1, 0));
+    let (x, y) = (MIDDLE.x & !1, MIDDLE.y & !1);
+    assert!(key(x, y) < key(x + 1, y) && key(x + 1, y) < key(x, y + 1) && key(x, y + 1) < key(x + 1, y + 1));
+    assert_eq!(key(u32::MAX, u32::MAX), u64::MAX);
 }
 
 /// A bitmap turns hot decoded from its chunk's layer, or empty if the
@@ -202,7 +207,7 @@ fn hot_bitmaps_hold_their_chunks_cells() {
 #[test]
 fn buckets_come_by_type_then_superchunk_then_chunk() {
     let (mut codec, mut arena) = (LayerCodec::new(), BitmapArena::new());
-    let superchunks = [SuperChunkPosition { x: 1, y: 0 }, SuperChunkPosition { x: -1, y: 0 }, ORIGIN];
+    let superchunks = [SuperChunkPosition { x: 2, y: 0 }, ORIGIN, SuperChunkPosition { x: 1, y: 0 }];
     let places = [ChunkPlace::new(1, 1), ChunkPlace::new(0, 1), ChunkPlace::new(1, 0), ChunkPlace::new(0, 0)];
     for layer_type in [LayerType(9), LayerType(4)] {
         for superchunk in superchunks {
@@ -211,7 +216,7 @@ fn buckets_come_by_type_then_superchunk_then_chunk() {
             }
         }
     }
-    let superchunks_in_order = [SuperChunkPosition { x: -1, y: 0 }, ORIGIN, SuperChunkPosition { x: 1, y: 0 }];
+    let superchunks_in_order = [ORIGIN, SuperChunkPosition { x: 1, y: 0 }, SuperChunkPosition { x: 2, y: 0 }];
     let places_in_order = [ChunkPlace::new(0, 0), ChunkPlace::new(1, 0), ChunkPlace::new(0, 1), ChunkPlace::new(1, 1)];
     let chunks_in_order: Vec<ChunkPosition> = superchunks_in_order
         .into_iter()
@@ -306,7 +311,7 @@ fn only_the_types_asked_for_turn_hot() {
     for layer_type in [LayerType(1), LayerType(2), LayerType(3)] {
         chunk.replace_layer(layer_type, codec.encode(&drawn()));
     }
-    let position = ChunkPosition { x: 4, y: -2 };
+    let position = ChunkPosition::of(MIDDLE, ChunkPlace::new(4, 2));
     assert_eq!(arena.make_hot_layers(position, &chunk, &[LayerType(3), LayerType(1), LayerType(8)], &mut codec), 3);
     assert_eq!(arena.make_hot_layers(position, &chunk, &[LayerType(1)], &mut codec), 0, "already hot");
     let hot: Vec<LayerType> = arena.keys().map(|key| key.layer_type).collect();
