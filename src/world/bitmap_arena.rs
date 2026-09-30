@@ -22,7 +22,7 @@
 //! evicted.
 
 use super::coordinates::{CellPlace, ChunkPosition, WorldCell};
-use super::disk_chunk::LayerType;
+use super::disk_chunk::{DiskChunk, LayerType};
 use super::disk_superchunk::DiskSuperChunk;
 use super::encoded_layer::{EncodedLayer, LayerCodec};
 use bitmap::morton::morton_index;
@@ -160,6 +160,17 @@ impl BitmapArena {
         self.buckets.insert(index, cells);
         self.dirty.insert(index, false);
         true
+    }
+
+    /// Makes hot the layers of `types` of the chunk at `chunk`, held in
+    /// `disk_chunk`: only those are decoded, and the chunk's other layers
+    /// stay encoded. A type the chunk has no layer of turns hot empty, and
+    /// one already hot is left as it is: how many were made hot.
+    pub fn make_hot_layers(&mut self, chunk: ChunkPosition, disk_chunk: &DiskChunk, types: &[LayerType], codec: &mut LayerCodec) -> usize {
+        types
+            .iter()
+            .filter(|&&layer_type| self.make_hot(BucketKey { layer_type, chunk }, disk_chunk.layer(layer_type), codec))
+            .count()
     }
 
     /// `key`'s bitmap, to read, if it is hot.

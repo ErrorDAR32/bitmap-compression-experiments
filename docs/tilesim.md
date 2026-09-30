@@ -60,6 +60,27 @@ are held in, is not optimized further for that until the game needs it.
    removing the layer if no cell is left set. A dirty bucket must be
    written back before it is evicted.
 
+### The tick budget
+
+The simulation is to run at 1 kHz -- a tick every millisecond -- with
+1,000 to 10,000 updates a tick. Against that budget, what the world
+structures cost decides where each operation may run:
+
+- **Nothing on the tick path decodes, encodes, or changes the arena's
+  layout.** Decoding a layer, encoding one back, and making a bitmap hot
+  (which moves every bucket after it) each cost a large share of a tick
+  or more. They run between ticks or on other threads, and bitmaps are
+  made hot ahead of the ticks that touch them.
+- **Updates are applied bucket by bucket.** A lookup by world cell pays
+  for the coordinate split, the Morton key and the search every time,
+  and random updates across the arena miss the cache on nearly every
+  one. Updates grouped by bucket, in the arena's order -- which the
+  plan's scheduling by superchunk, chunk and cell already groups them
+  by -- pay one lookup a bucket and touch memory in order.
+
+`make_hot_layers` turns a chunk's layers hot filtered by type: only the
+types asked for are decoded, and the chunk's other layers stay encoded.
+
 ### Built so far
 
 The in-memory structures and their API (`src/world/`): the disk chunk,

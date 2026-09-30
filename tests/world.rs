@@ -246,3 +246,20 @@ fn evicting_an_unwritten_change_panics() {
     arena.set(LayerType(1), WorldCell { x: 0, y: 0 }).expect("hot");
     arena.evict(key);
 }
+
+/// Turning a chunk's layers hot by type decodes those types only: the
+/// chunk's other layers stay cold.
+#[test]
+fn only_the_types_asked_for_turn_hot() {
+    let (mut codec, mut arena) = (LayerCodec::new(), BitmapArena::new());
+    let mut chunk = DiskChunk::new();
+    for layer_type in [LayerType(1), LayerType(2), LayerType(3)] {
+        chunk.replace_layer(layer_type, codec.encode(&drawn()));
+    }
+    let position = ChunkPosition { x: 4, y: -2 };
+    assert_eq!(arena.make_hot_layers(position, &chunk, &[LayerType(3), LayerType(1), LayerType(8)], &mut codec), 3);
+    assert_eq!(arena.make_hot_layers(position, &chunk, &[LayerType(1)], &mut codec), 0, "already hot");
+    let hot: Vec<LayerType> = arena.keys().map(|key| key.layer_type).collect();
+    assert_eq!(hot, [LayerType(1), LayerType(3), LayerType(8)]);
+    assert!(!arena.is_hot(BucketKey { layer_type: LayerType(2), chunk: position }));
+}
