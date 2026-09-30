@@ -12,7 +12,7 @@ use super::disk_chunk::DiskChunk;
 pub struct DiskSuperChunk {
     /// Where it is in the world.
     position: SuperChunkPosition,
-    /// Its chunks, in reading order ([`ChunkPlace::index`]).
+    /// Its chunks, in Morton order ([`ChunkPlace::index`]).
     chunks: Box<[DiskChunk; CHUNKS_IN_SUPERCHUNK]>,
 }
 
@@ -38,12 +38,12 @@ impl DiskSuperChunk {
         &mut self.chunks[place.index()]
     }
 
-    /// Every chunk with its place, in reading order.
+    /// Every chunk with its place, in Morton order.
     pub fn chunks(&self) -> impl Iterator<Item = (ChunkPlace, &DiskChunk)> {
         ChunkPlace::all().zip(self.chunks.iter())
     }
 
-    /// Every chunk with its place, to change, in reading order: each
+    /// Every chunk with its place, to change, in Morton order: each
     /// borrowed apart from the others, so they can be worked on at once.
     pub fn chunks_mut(&mut self) -> impl Iterator<Item = (ChunkPlace, &mut DiskChunk)> {
         ChunkPlace::all().zip(self.chunks.iter_mut())

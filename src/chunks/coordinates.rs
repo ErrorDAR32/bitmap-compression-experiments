@@ -7,6 +7,8 @@
 //!
 //! x grows to the right and y downwards, as in a bitmap.
 
+use bitmap::morton::{morton_coordinates, morton_index};
+
 /// Cells along a chunk's side: a chunk's layers are bitmaps, and a
 /// bitmap is this wide.
 pub const CHUNK_SIDE: usize = bitmap::WIDTH;
@@ -27,8 +29,55 @@ pub struct SuperChunkPosition {
     pub y: i32,
 }
 
+impl SuperChunkPosition {
+    /// The superchunk's place in Morton order over the whole world: its
+    /// coordinates' bits interleaved, `x` in the even bits and `y` in the
+    /// odd ones, as a bitmap's cells and a superchunk's chunks are
+    /// ordered. Neighbouring superchunks mostly get near keys, in both
+    /// directions. Each coordinate is first shifted to unsigned keeping
+    /// its order, so negative superchunks come before positive ones.
+    pub fn morton_key(self) -> u64 {
+        let unsigned = |coordinate: i32| (coordinate as u32) ^ SIGN_BIT;
+        spread(unsigned(self.x)) | spread(unsigned(self.y)) << 1
+    }
+}
+
+/// An `i32`'s sign bit, as a `u32`: flipping it maps the `i32`s onto the
+/// `u32`s in the same order.
+const SIGN_BIT: u32 = 1 << (u32::BITS - 1);
+
+/// A `u64` whose bits alternate, `run` set then `run` clear, from the
+/// lowest: the mask that keeps each half of a spread step.
+const fn alternating_runs(run: u32) -> u64 {
+    let mut mask = 0u64;
+    let mut bit = 0;
+    while bit < u64::BITS {
+        if (bit / run).is_multiple_of(2) {
+            mask |= 1 << bit;
+        }
+        bit += 1;
+    }
+    mask
+}
+
+/// The spread steps, widest first: each shifts every other run of bits
+/// up by the run's length, halving the runs, until each bit sits alone.
+const SPREAD_STEPS: [(u32, u64); 5] = [
+    (16, alternating_runs(16)),
+    (8, alternating_runs(8)),
+    (4, alternating_runs(4)),
+    (2, alternating_runs(2)),
+    (1, alternating_runs(1)),
+];
+
+/// `value`'s bits spread to every other bit: bit `i` to bit `2i`.
+fn spread(value: u32) -> u64 {
+    SPREAD_STEPS.iter().fold(value as u64, |spread, &(shift, mask)| (spread | spread << shift) & mask)
+}
+
 /// A chunk's place in its superchunk: 0 to 15 each way. Made only
-/// through [`ChunkPlace::new`], which holds it to that.
+/// through [`ChunkPlace::new`] or [`ChunkPlace::from_index`], which hold
+/// it to that.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct ChunkPlace {
     /// Chunks from the superchunk's left edge.
@@ -55,15 +104,24 @@ impl ChunkPlace {
         self.y
     }
 
-    /// Where the chunk is among its superchunk's, in reading order: row
-    /// by row, left to right.
+    /// Where the chunk is among its superchunk's, in Morton order, as a
+    /// bitmap's cells are: every aligned square of chunks of a
+    /// power-of-two side is one run of indices.
     pub fn index(self) -> usize {
-        self.y as usize * SUPERCHUNK_SIDE + self.x as usize
+        morton_index(self.x, self.y)
     }
 
-    /// Every chunk place of a superchunk, in reading order.
+    /// The chunk place at `index` in Morton order: [`ChunkPlace::index`]
+    /// undone. An index past a superchunk's chunks is a bug, and panics.
+    pub fn from_index(index: usize) -> Self {
+        assert!(index < CHUNKS_IN_SUPERCHUNK, "chunk index {index} is outside a superchunk");
+        let (x, y) = morton_coordinates(index);
+        Self { x, y }
+    }
+
+    /// Every chunk place of a superchunk, in Morton order.
     pub fn all() -> impl Iterator<Item = ChunkPlace> {
-        (0..CHUNKS_IN_SUPERCHUNK).map(|index| Self { x: (index % SUPERCHUNK_SIDE) as u8, y: (index / SUPERCHUNK_SIDE) as u8 })
+        (0..CHUNKS_IN_SUPERCHUNK).map(Self::from_index)
     }
 }
 
@@ -95,51 +153,6 @@ impl ChunkPosition {
         let ((superchunk_x, place_x), (superchunk_y, place_y)) = (split(self.x), split(self.y));
         (SuperChunkPosition { x: superchunk_x, y: superchunk_y }, ChunkPlace::new(place_x, place_y))
     }
-
-    /// The chunk's place in Morton order over the whole world: its
-    /// coordinates' bits interleaved, `x` in the even bits and `y` in the
-    /// odd ones, as a bitmap's cells are ordered. Neighbouring chunks
-    /// mostly get near keys, in both directions. Each coordinate is
-    /// first shifted to unsigned keeping its order, so negative chunks
-    /// come before positive ones.
-    pub fn morton_key(self) -> u128 {
-        let unsigned = |coordinate: i64| (coordinate as u64) ^ SIGN_BIT;
-        spread(unsigned(self.x)) | spread(unsigned(self.y)) << 1
-    }
-}
-
-/// An `i64`'s sign bit, as a `u64`: flipping it maps the `i64`s onto the
-/// `u64`s in the same order.
-const SIGN_BIT: u64 = 1 << (u64::BITS - 1);
-
-/// A `u128` whose bits alternate, `run` set then `run` clear, from the
-/// lowest: the mask that keeps each half of a spread step.
-const fn alternating_runs(run: u32) -> u128 {
-    let mut mask = 0u128;
-    let mut bit = 0;
-    while bit < u128::BITS {
-        if (bit / run).is_multiple_of(2) {
-            mask |= 1 << bit;
-        }
-        bit += 1;
-    }
-    mask
-}
-
-/// The spread steps, widest first: each shifts every other run of bits
-/// up by the run's length, halving the runs, until each bit sits alone.
-const SPREAD_STEPS: [(u32, u128); 6] = [
-    (32, alternating_runs(32)),
-    (16, alternating_runs(16)),
-    (8, alternating_runs(8)),
-    (4, alternating_runs(4)),
-    (2, alternating_runs(2)),
-    (1, alternating_runs(1)),
-];
-
-/// `value`'s bits spread to every other bit: bit `i` to bit `2i`.
-fn spread(value: u64) -> u128 {
-    SPREAD_STEPS.iter().fold(value as u128, |spread, &(shift, mask)| (spread | spread << shift) & mask)
 }
 
 /// A cell's place in its chunk: the coordinates its bitmaps use. `u8`

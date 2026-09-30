@@ -35,11 +35,13 @@ superchunk at a time.
 - **Layers**: pairs of a type and an encoded bitmap. The type is a `u64`
   naming what the bitmap represents, anything from specific things (a
   kind of tree, say) to properties (wet, burning). The bitmap marks the
-  cells where it holds, Tessera-encoded and kept at its exact length. A
-  chunk holds at most one layer per type, and a type with no cell set
-  has no layer.
+  cells where it holds, Tessera-encoded and packed to the byte: its
+  length is its bytes, the stream's bits rounded up to the next byte.
+  Inside a chunk, layers are sorted by type; a chunk holds at most one
+  layer per type, and a type with no cell set has no layer.
 
-A disk chunk has no cell operations: only whole layers, by type.
+A disk chunk has no cell operations: only whole layers, by type. A
+superchunk holds its chunks in Morton order.
 
 Most layers will probably be sparse. Tessera, the encoding the layers
 are held in, is not optimized further for that until the game needs it.
@@ -51,14 +53,22 @@ are held in, is not optimized further for that until the game needs it.
 2. Cells are read and changed in the **bitmap arena**: its buckets hold
    the hot bitmaps, raw, one layer of one chunk each, decoded from their
    chunks only when needed. The arena is the only place with a cell API.
-3. The buckets lie in one contiguous run of memory, sorted by layer
-   type, then by the chunk's place in Morton order: every type's buckets
-   are one run, and in it neighbouring chunks mostly lie near each other,
-   in both directions.
-4. The arena grows as bitmaps turn hot. A bucket changed since it was
-   decoded is dirty; writing back encodes it into its chunk's layer,
-   removing the layer if no cell is left set. A dirty bucket must be
-   written back before it is evicted.
+3. The arena is made of allocations the size of a superchunk: each holds
+   one layer type over one superchunk, a bucket for every one of its 256
+   chunks, in the chunks' Morton order, allocated whole. A chunk's bucket
+   is found by its Morton index in O(1): nothing inside an allocation is
+   ever sorted, and a bucket never moves once allocated.
+4. A small directory says which allocation holds which type over which
+   superchunk, sorted by type and then the superchunk's Morton key: the
+   one thing ever sorted, and it holds no bitmaps. The allocations lie
+   wherever they were made; each one is a large run of memory in Morton
+   order.
+5. The arena grows an allocation at a time. An allocation whose chunks
+   have all been evicted leaves the directory and is kept for the next
+   one needed. A bucket changed since it was decoded is dirty; writing
+   back encodes it into its chunk's layer, removing the layer if no cell
+   is left set. A dirty bucket must be written back before it is
+   evicted.
 
 ### The tick budget
 
@@ -66,17 +76,18 @@ The simulation is to run at 1 kHz -- a tick every millisecond -- with
 1,000 to 10,000 updates a tick. Against that budget, what the world
 structures cost decides where each operation may run:
 
-- **Nothing on the tick path decodes, encodes, or changes the arena's
-  layout.** Decoding a layer, encoding one back, and making a bitmap hot
-  (which moves every bucket after it) each cost a large share of a tick
-  or more. They run between ticks or on other threads, and bitmaps are
-  made hot ahead of the ticks that touch them.
+- **Nothing on the tick path decodes or encodes.** Decoding a layer and
+  encoding one back each cost a large share of a tick or more. They run
+  between ticks or on other threads, and bitmaps are made hot ahead of
+  the ticks that touch them.
 - **Updates are applied bucket by bucket.** A lookup by world cell pays
-  for the coordinate split, the Morton key and the search every time,
-  and random updates across the arena miss the cache on nearly every
-  one. Updates grouped by bucket, in the arena's order -- which the
-  plan's scheduling by superchunk, chunk and cell already groups them
-  by -- pay one lookup a bucket and touch memory in order.
+  for the coordinate split, the directory search and the chunk's index
+  every time, and random updates across the arena miss the cache on
+  nearly every one. Updates grouped by bucket, in the arena's order --
+  which the plan's scheduling by superchunk, chunk and cell already
+  groups them by -- pay one lookup a bucket and touch memory in order.
+- **For later:** ordering the computations themselves in Morton order,
+  as the data is, so each tick walks memory forwards.
 
 `make_hot_layers` turns a chunk's layers hot filtered by type: only the
 types asked for are decoded, and the chunk's other layers stay encoded.
@@ -90,14 +101,8 @@ cell. Nothing is read from or written to disk yet: disk access comes
 once these are right, since it brings concerns of its own.
 
 Planned: loading an aligned power-of-two square of chunks for a set of
-layer types at once, in Morton order. Such a square is one run of Morton
-keys, so each type's buckets for it arrive already in order and nothing
-needs sorting. Raw bitmaps are to move as little as possible: today
-making a bitmap hot shifts every bucket after it, and how the arena
-avoids that is a plan still to come.
-
-An encoded layer's length is exact to the bit, but it is held in whole
-64-bit words; on disk it can be packed tighter.
+layer types at once. Such a square is one run of Morton indices in its
+superchunk, so its buckets are one run of each type's allocation.
 
 Still open: where heights are read and changed while hot (a chunk only
 hands its height map over whole), when buckets are evicted, and

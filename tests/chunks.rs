@@ -143,16 +143,28 @@ fn world_cells_and_addresses_convert_both_ways() {
     assert!(superchunk.address_of(WorldCell { x: 0, y: 0 }).is_none());
 }
 
-/// Chunks' Morton keys interleave their coordinates, x in the low bit:
-/// the first four of a 2x2 block run top left, top right, bottom left,
-/// bottom right, and every negative chunk comes before every positive
-/// one.
+/// A superchunk's chunks go in Morton order, as a bitmap's cells do:
+/// every aligned square of chunks is one run of indices.
 #[test]
-fn chunks_sort_in_morton_order() {
-    let key = |x, y| ChunkPosition { x, y }.morton_key();
+fn chunks_in_a_superchunk_go_in_morton_order() {
+    let indices: Vec<usize> = [(0, 0), (1, 0), (0, 1), (1, 1), (2, 0), (0, 2), (15, 15)]
+        .into_iter()
+        .map(|(x, y)| ChunkPlace::new(x, y).index())
+        .collect();
+    assert_eq!(indices, [0, 1, 2, 3, 4, 8, 255]);
+    assert!(ChunkPlace::all().enumerate().all(|(index, place)| place.index() == index && ChunkPlace::from_index(index) == place));
+}
+
+/// Superchunks' Morton keys interleave their coordinates, x in the low
+/// bit: the first four of a 2x2 block run top left, top right, bottom
+/// left, bottom right, and every negative superchunk comes before every
+/// positive one.
+#[test]
+fn superchunks_sort_in_morton_order() {
+    let key = |x, y| SuperChunkPosition { x, y }.morton_key();
     assert!(key(0, 0) < key(1, 0) && key(1, 0) < key(0, 1) && key(0, 1) < key(1, 1));
     assert!(key(1, 1) < key(2, 0));
-    assert!(key(-1, -1) < key(0, 0) && key(i64::MIN, 0) < key(-1, 0));
+    assert!(key(-1, -1) < key(0, 0) && key(i32::MIN, 0) < key(-1, 0));
 }
 
 /// A bitmap turns hot decoded from its chunk's layer, or empty if the
@@ -185,25 +197,63 @@ fn hot_bitmaps_hold_their_chunks_cells() {
     assert_eq!(arena.set(LayerType(3), inside_the_circle), Err(NotHot(cold)));
 }
 
-/// The arena's buckets lie by type, then by the chunks' Morton order,
-/// however they turned hot; one type's buckets are one run.
+/// The arena's bitmaps come in order by type, then superchunk, then
+/// chunk, each in Morton order, however they turned hot.
 #[test]
-fn buckets_lie_by_type_then_morton_order() {
+fn buckets_come_by_type_then_superchunk_then_chunk() {
     let (mut codec, mut arena) = (LayerCodec::new(), BitmapArena::new());
-    let chunks = [ChunkPosition { x: 1, y: 1 }, ChunkPosition { x: 0, y: 1 }, ChunkPosition { x: 1, y: 0 }, ChunkPosition { x: 0, y: 0 }];
+    let superchunks = [SuperChunkPosition { x: 1, y: 0 }, SuperChunkPosition { x: -1, y: 0 }, ORIGIN];
+    let places = [ChunkPlace::new(1, 1), ChunkPlace::new(0, 1), ChunkPlace::new(1, 0), ChunkPlace::new(0, 0)];
     for layer_type in [LayerType(9), LayerType(4)] {
-        for chunk in chunks {
-            arena.make_hot(BucketKey { layer_type, chunk }, None, &mut codec);
+        for superchunk in superchunks {
+            for place in places {
+                arena.make_hot(BucketKey { layer_type, chunk: ChunkPosition::of(superchunk, place) }, None, &mut codec);
+            }
         }
     }
-    let in_morton_order = [ChunkPosition { x: 0, y: 0 }, ChunkPosition { x: 1, y: 0 }, ChunkPosition { x: 0, y: 1 }, ChunkPosition { x: 1, y: 1 }];
+    let superchunks_in_order = [SuperChunkPosition { x: -1, y: 0 }, ORIGIN, SuperChunkPosition { x: 1, y: 0 }];
+    let places_in_order = [ChunkPlace::new(0, 0), ChunkPlace::new(1, 0), ChunkPlace::new(0, 1), ChunkPlace::new(1, 1)];
+    let chunks_in_order: Vec<ChunkPosition> = superchunks_in_order
+        .into_iter()
+        .flat_map(|superchunk| places_in_order.map(|place| ChunkPosition::of(superchunk, place)))
+        .collect();
     let expected: Vec<BucketKey> = [LayerType(4), LayerType(9)]
         .into_iter()
-        .flat_map(|layer_type| in_morton_order.map(|chunk| BucketKey { layer_type, chunk }))
+        .flat_map(|layer_type| chunks_in_order.iter().map(move |&chunk| BucketKey { layer_type, chunk }))
         .collect();
     assert_eq!(arena.keys().collect::<Vec<_>>(), expected);
-    assert_eq!(arena.run(LayerType(9)).map(|(chunk, _)| chunk).collect::<Vec<_>>(), in_morton_order);
+    assert_eq!(arena.len(), expected.len());
+    assert_eq!(arena.run(LayerType(9)).map(|(chunk, _)| chunk).collect::<Vec<_>>(), chunks_in_order);
     assert_eq!(arena.run(LayerType(5)).count(), 0);
+}
+
+/// A hot bitmap stays where it is while others turn hot and cold, in
+/// its superchunk and in new ones; and a superchunk's allocation freed
+/// is the next one used.
+#[test]
+fn hot_bitmaps_never_move() {
+    let (mut codec, mut arena) = (LayerCodec::new(), BitmapArena::new());
+    let key = |layer_type, x, y| BucketKey { layer_type: LayerType(layer_type), chunk: ChunkPosition { x, y } };
+    let first = key(5, 3, 3);
+    arena.make_hot(first, None, &mut codec);
+    let address = |arena: &BitmapArena, key| arena.bucket(key).expect("hot").cells().as_ptr();
+    let before = address(&arena, first);
+    for layer_type in 0..8 {
+        for superchunk in 0..8 {
+            arena.make_hot(key(layer_type, superchunk * 16, 0), None, &mut codec);
+            arena.make_hot(key(5, 3 + superchunk % 2, 4), None, &mut codec);
+        }
+    }
+    assert_eq!(address(&arena, first), before);
+
+    let lone = key(100, 1000, 1000);
+    arena.make_hot(lone, Some(&codec.encode(&drawn())), &mut codec);
+    let freed = address(&arena, lone);
+    assert!(arena.evict(lone));
+    let next = key(101, 1000, 1000);
+    arena.make_hot(next, None, &mut codec);
+    assert_eq!(address(&arena, next), freed, "the freed allocation, reused");
+    assert!(arena.bucket(next).expect("hot").cells().iter().all(|&word| word == 0), "and cleared");
 }
 
 /// Writing back encodes only what changed into its chunk, and a layer
