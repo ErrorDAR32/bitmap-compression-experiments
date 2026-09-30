@@ -3,10 +3,10 @@
 //!
 //! | module | what it is |
 //! |---|---|
-//! | [`world`] | the world's data in memory: disk chunks, disk superchunks, and the coordinates between them |
+//! | [`chunks`] | the world's data in memory: disk chunks and superchunks with their encoded layers, the bitmap arena of hot bitmaps, and the coordinates between them |
 
 // Every item is documented, private ones included; `cargo clippy`
 // checks the private ones.
 #![warn(missing_docs, clippy::missing_docs_in_private_items)]
 
-pub mod world;
+pub mod chunks;

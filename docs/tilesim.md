@@ -83,7 +83,7 @@ types asked for are decoded, and the chunk's other layers stay encoded.
 
 ### Built so far
 
-The in-memory structures and their API (`src/world/`): the disk chunk,
+The in-memory structures and their API (`src/chunks/`): the disk chunk,
 the disk superchunk, the encoded layer and its codec, the bitmap arena,
 and the coordinates between the world, a superchunk, a chunk and a
 cell. Nothing is read from or written to disk yet: disk access comes

@@ -5,7 +5,7 @@
 //! `cargo test`
 
 use bitmap::{Bitmap, CellWords, WORDS};
-use tilesim::world::{
+use tilesim::chunks::{
     BitmapArena, BucketKey, CellAddress, CellPlace, ChunkPlace, ChunkPosition, DiskChunk, DiskSuperChunk, HeightMap,
     LayerCodec, LayerType, NotHot, SuperChunkPosition, WorldCell, CHUNKS_IN_SUPERCHUNK, CHUNK_SIDE, SUPERCHUNK_SIDE_CELLS,
 };
