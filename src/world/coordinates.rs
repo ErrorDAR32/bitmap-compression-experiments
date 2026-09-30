@@ -1,6 +1,7 @@
 //! Where things are. A cell anywhere in the world is a [`WorldCell`];
 //! it lies in one superchunk ([`SuperChunkPosition`]), in one chunk of
-//! it ([`ChunkPlace`]), at one cell of that chunk ([`CellPlace`]).
+//! it ([`ChunkPlace`]), at one cell of that chunk ([`CellPlace`]). A
+//! chunk anywhere in the world is a [`ChunkPosition`].
 //! [`WorldCell::address`] and [`WorldCell::at`] convert between the
 //! two, both ways, for every cell -- negative coordinates included.
 //!
@@ -66,6 +67,81 @@ impl ChunkPlace {
     }
 }
 
+/// A chunk's place in the world, counted in chunks: its superchunk's
+/// place times 16, plus its place in the superchunk.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct ChunkPosition {
+    /// Chunks to the right of the origin, or left if negative.
+    pub x: i64,
+    /// Chunks below the origin, or above if negative.
+    pub y: i64,
+}
+
+impl ChunkPosition {
+    /// The chunk at `place` in the superchunk at `superchunk`.
+    pub fn of(superchunk: SuperChunkPosition, place: ChunkPlace) -> Self {
+        let join = |superchunk: i32, place: u8| superchunk as i64 * SUPERCHUNK_SIDE as i64 + place as i64;
+        Self { x: join(superchunk.x, place.x), y: join(superchunk.y, place.y) }
+    }
+
+    /// The superchunk the chunk is in, and its place there:
+    /// [`ChunkPosition::of`] undone. A chunk beyond the superchunks `i32`
+    /// counts is a bug, and panics.
+    pub fn superchunk_and_place(self) -> (SuperChunkPosition, ChunkPlace) {
+        let split = |coordinate: i64| {
+            let superchunk = i32::try_from(coordinate.div_euclid(SUPERCHUNK_SIDE as i64)).expect("a chunk within the world's superchunks");
+            (superchunk, coordinate.rem_euclid(SUPERCHUNK_SIDE as i64) as u8)
+        };
+        let ((superchunk_x, place_x), (superchunk_y, place_y)) = (split(self.x), split(self.y));
+        (SuperChunkPosition { x: superchunk_x, y: superchunk_y }, ChunkPlace::new(place_x, place_y))
+    }
+
+    /// The chunk's place in Morton order over the whole world: its
+    /// coordinates' bits interleaved, `x` in the even bits and `y` in the
+    /// odd ones, as a bitmap's cells are ordered. Neighbouring chunks
+    /// mostly get near keys, in both directions. Each coordinate is
+    /// first shifted to unsigned keeping its order, so negative chunks
+    /// come before positive ones.
+    pub fn morton_key(self) -> u128 {
+        let unsigned = |coordinate: i64| (coordinate as u64) ^ SIGN_BIT;
+        spread(unsigned(self.x)) | spread(unsigned(self.y)) << 1
+    }
+}
+
+/// An `i64`'s sign bit, as a `u64`: flipping it maps the `i64`s onto the
+/// `u64`s in the same order.
+const SIGN_BIT: u64 = 1 << (u64::BITS - 1);
+
+/// A `u128` whose bits alternate, `run` set then `run` clear, from the
+/// lowest: the mask that keeps each half of a spread step.
+const fn alternating_runs(run: u32) -> u128 {
+    let mut mask = 0u128;
+    let mut bit = 0;
+    while bit < u128::BITS {
+        if (bit / run).is_multiple_of(2) {
+            mask |= 1 << bit;
+        }
+        bit += 1;
+    }
+    mask
+}
+
+/// The spread steps, widest first: each shifts every other run of bits
+/// up by the run's length, halving the runs, until each bit sits alone.
+const SPREAD_STEPS: [(u32, u128); 6] = [
+    (32, alternating_runs(32)),
+    (16, alternating_runs(16)),
+    (8, alternating_runs(8)),
+    (4, alternating_runs(4)),
+    (2, alternating_runs(2)),
+    (1, alternating_runs(1)),
+];
+
+/// `value`'s bits spread to every other bit: bit `i` to bit `2i`.
+fn spread(value: u64) -> u128 {
+    SPREAD_STEPS.iter().fold(value as u128, |spread, &(shift, mask)| (spread | spread << shift) & mask)
+}
+
 /// A cell's place in its chunk: the coordinates its bitmaps use. `u8`
 /// holds exactly a chunk's 256 cells a side, so every value is a cell.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -109,6 +185,13 @@ impl WorldCell {
             chunk: ChunkPlace::new(chunk_x, chunk_y),
             cell: CellPlace { x: cell_x, y: cell_y },
         }
+    }
+
+    /// The chunk the cell is in, anywhere in the world, and its place
+    /// in that chunk.
+    pub fn chunk_and_cell(self) -> (ChunkPosition, CellPlace) {
+        let address = self.address();
+        (ChunkPosition::of(address.superchunk, address.chunk), address.cell)
     }
 
     /// The cell at `address`: [`WorldCell::address`] undone.

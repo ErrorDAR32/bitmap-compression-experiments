@@ -32,22 +32,45 @@ superchunk at a time.
 
 - **A height map**: one `u8` height per cell, stored raw for now. It
   will need compressing too.
-- **Layers**: pairs of a type and a bitmap. The type is a `u64` naming
-  what the bitmap represents, anything from specific things (a kind of
-  tree, say) to properties (wet, burning). The bitmap marks the cells
-  where it holds. A chunk holds at most one bitmap per type.
+- **Layers**: pairs of a type and an encoded bitmap. The type is a `u64`
+  naming what the bitmap represents, anything from specific things (a
+  kind of tree, say) to properties (wet, burning). The bitmap marks the
+  cells where it holds, Tessera-encoded and kept at its exact length. A
+  chunk holds at most one layer per type, and a type with no cell set
+  has no layer.
+
+A disk chunk has no cell operations: only whole layers, by type.
 
 Most layers will probably be sparse. Tessera, the encoding the layers
-will be written to disk with, is not optimized further for that until
-the game needs it.
+are held in, is not optimized further for that until the game needs it.
+
+### From the disk to the cells
+
+1. A disk superchunk is read from disk, and dispatched into its disk
+   chunks, their layers still encoded.
+2. Cells are read and changed in the **bitmap arena**: its buckets hold
+   the hot bitmaps, raw, one layer of one chunk each, decoded from their
+   chunks only when needed. The arena is the only place with a cell API.
+3. The buckets lie in one contiguous run of memory, sorted by layer
+   type, then by the chunk's place in Morton order: every type's buckets
+   are one run, and in it neighbouring chunks mostly lie near each other,
+   in both directions.
+4. The arena grows as bitmaps turn hot. A bucket changed since it was
+   decoded is dirty; writing back encodes it into its chunk's layer,
+   removing the layer if no cell is left set. A dirty bucket must be
+   written back before it is evicted.
 
 ### Built so far
 
 The in-memory structures and their API (`src/world/`): the disk chunk,
-the disk superchunk, and the coordinates between the world, a
-superchunk, a chunk and a cell. Nothing is read from or written to disk
-yet: disk access comes once these are right, since it brings concerns
-of its own.
+the disk superchunk, the encoded layer and its codec, the bitmap arena,
+and the coordinates between the world, a superchunk, a chunk and a
+cell. Nothing is read from or written to disk yet: disk access comes
+once these are right, since it brings concerns of its own.
+
+Still open: where heights are read and changed while hot (a chunk only
+hands its height map over whole), when buckets are evicted, and
+reading and writing superchunks on disk.
 
 ## Simulation (the plan)
 

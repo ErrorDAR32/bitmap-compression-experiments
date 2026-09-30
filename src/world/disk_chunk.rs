@@ -1,19 +1,19 @@
-//! A disk chunk: 256x256 cells, the unit the world's data is held in.
-//! It has a height map, and layers: pairs of a [`LayerType`] -- what the
-//! layer represents, from specific things to properties -- and a bitmap
-//! of the cells where it holds. A chunk holds at most one bitmap a
-//! type.
+//! A disk chunk: 256x256 cells, the unit the world's data is held in,
+//! as it comes off the disk. It has a height map, and layers: pairs of a
+//! [`LayerType`] -- what the layer represents, from specific things to
+//! properties -- and the layer's bitmap, encoded ([`EncodedLayer`]). A
+//! chunk holds at most one layer a type, and a type with no cell set
+//! has no layer.
+//!
+//! A chunk has no cell operations: only whole layers, by type. Cells
+//! are read and changed in the bitmap arena (`bitmap_arena`), which
+//! decodes the layers it needs and encodes them back.
 //!
 //! Layers are kept in a list sorted by type: found by a binary search,
-//! walked in type order, and holding only the types the chunk has. A
-//! layer's bitmap is made the first time a cell of it is set, and a
-//! layer whose cells are all cleared keeps its bitmap until
-//! [`DiskChunk::remove_empty_layers`]: checking after every clear would
-//! cost more than the bitmap does.
+//! walked in type order, holding only the types the chunk has.
 
-use super::coordinates::CellPlace;
+use super::encoded_layer::EncodedLayer;
 use super::height_map::HeightMap;
-use bitmap::Bitmap;
 
 /// What a layer represents: a `u64` naming anything from a specific
 /// thing to a property. What each value means is not this module's
@@ -21,13 +21,13 @@ use bitmap::Bitmap;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct LayerType(pub u64);
 
-/// A disk chunk: a height map, and its layers, one bitmap a type.
+/// A disk chunk: a height map, and its layers, one a type, encoded.
 #[derive(Clone, Default)]
 pub struct DiskChunk {
     /// Every cell's height.
     heights: HeightMap,
     /// Every layer the chunk has, sorted by type, no type twice.
-    layers: Vec<(LayerType, Bitmap)>,
+    layers: Vec<(LayerType, EncodedLayer)>,
 }
 
 impl DiskChunk {
@@ -41,9 +41,9 @@ impl DiskChunk {
         &self.heights
     }
 
-    /// The chunk's heights, to change.
-    pub fn heights_mut(&mut self) -> &mut HeightMap {
-        &mut self.heights
+    /// Makes `heights` the chunk's heights: the ones they replace.
+    pub fn replace_heights(&mut self, heights: HeightMap) -> HeightMap {
+        std::mem::replace(&mut self.heights, heights)
     }
 
     /// Where `layer_type` is in the list, or where it would go.
@@ -52,72 +52,34 @@ impl DiskChunk {
     }
 
     /// The layer of `layer_type`, if the chunk has one.
-    pub fn layer(&self, layer_type: LayerType) -> Option<&Bitmap> {
+    pub fn layer(&self, layer_type: LayerType) -> Option<&EncodedLayer> {
         self.find(layer_type).ok().map(|index| &self.layers[index].1)
     }
 
-    /// The layer of `layer_type`, to change: an empty one made first if
-    /// the chunk has none.
-    pub fn layer_mut(&mut self, layer_type: LayerType) -> &mut Bitmap {
-        let index = match self.find(layer_type) {
-            Ok(index) => index,
-            Err(index) => {
-                self.layers.insert(index, (layer_type, Bitmap::new()));
-                index
-            }
-        };
-        &mut self.layers[index].1
-    }
-
-    /// Makes `bitmap` the layer of `layer_type`: the one it replaces, if
+    /// Makes `layer` the layer of `layer_type`: the one it replaces, if
     /// any.
-    pub fn replace_layer(&mut self, layer_type: LayerType, bitmap: Bitmap) -> Option<Bitmap> {
+    pub fn replace_layer(&mut self, layer_type: LayerType, layer: EncodedLayer) -> Option<EncodedLayer> {
         match self.find(layer_type) {
-            Ok(index) => Some(std::mem::replace(&mut self.layers[index].1, bitmap)),
+            Ok(index) => Some(std::mem::replace(&mut self.layers[index].1, layer)),
             Err(index) => {
-                self.layers.insert(index, (layer_type, bitmap));
+                self.layers.insert(index, (layer_type, layer));
                 None
             }
         }
     }
 
     /// Takes the layer of `layer_type` out of the chunk, if it has one.
-    pub fn remove_layer(&mut self, layer_type: LayerType) -> Option<Bitmap> {
+    pub fn remove_layer(&mut self, layer_type: LayerType) -> Option<EncodedLayer> {
         self.find(layer_type).ok().map(|index| self.layers.remove(index).1)
     }
 
-    /// Drops every layer with no cell set.
-    pub fn remove_empty_layers(&mut self) {
-        self.layers.retain(|(_, bitmap)| !bitmap.is_empty());
-    }
-
     /// Every layer the chunk has, in type order.
-    pub fn layers(&self) -> impl Iterator<Item = (LayerType, &Bitmap)> {
-        self.layers.iter().map(|(layer_type, bitmap)| (*layer_type, bitmap))
+    pub fn layers(&self) -> impl Iterator<Item = (LayerType, &EncodedLayer)> {
+        self.layers.iter().map(|(layer_type, layer)| (*layer_type, layer))
     }
 
-    /// How many layers the chunk has, empty ones included.
+    /// How many layers the chunk has.
     pub fn layer_count(&self) -> usize {
         self.layers.len()
-    }
-
-    /// Whether `layer_type` holds at `cell`: false where the chunk has
-    /// no such layer.
-    pub fn holds(&self, layer_type: LayerType, cell: CellPlace) -> bool {
-        self.layer(layer_type).is_some_and(|bitmap| bitmap.get(cell.x, cell.y))
-    }
-
-    /// Makes `layer_type` hold at `cell`, making the layer if the chunk
-    /// has none.
-    pub fn set(&mut self, layer_type: LayerType, cell: CellPlace) {
-        self.layer_mut(layer_type).set(cell.x, cell.y);
-    }
-
-    /// Makes `layer_type` not hold at `cell`. A chunk with no such layer
-    /// already does not, and is left as it is: no layer is made.
-    pub fn unset(&mut self, layer_type: LayerType, cell: CellPlace) {
-        if let Ok(index) = self.find(layer_type) {
-            self.layers[index].1.unset(cell.x, cell.y);
-        }
     }
 }

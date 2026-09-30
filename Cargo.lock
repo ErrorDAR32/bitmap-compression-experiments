@@ -7,8 +7,21 @@ name = "bitmap"
 version = "0.1.0"
 
 [[package]]
+name = "tessera"
+version = "0.1.0"
+dependencies = [
+ "bitmap",
+ "utilities",
+]
+
+[[package]]
 name = "tilesim"
 version = "0.1.0"
 dependencies = [
  "bitmap",
+ "tessera",
 ]
+
+[[package]]
+name = "utilities"
+version = "0.1.0"

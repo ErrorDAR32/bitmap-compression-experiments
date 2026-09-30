@@ -1,19 +1,28 @@
-//! The world's in-memory structures: a disk chunk's heights and layers,
-//! a disk superchunk's chunks, and every coordinate conversion.
+//! The world's in-memory structures: a disk chunk's heights and encoded
+//! layers, a disk superchunk's chunks, the bitmap arena's hot buckets,
+//! and every coordinate conversion.
 //!
 //! `cargo test`
 
-use bitmap::Bitmap;
+use bitmap::{Bitmap, CellWords, WORDS};
 use tilesim::world::{
-    CellAddress, CellPlace, ChunkPlace, DiskChunk, DiskSuperChunk, HeightMap, LayerType, SuperChunkPosition, WorldCell,
-    CHUNKS_IN_SUPERCHUNK, CHUNK_SIDE, SUPERCHUNK_SIDE_CELLS,
+    BitmapArena, BucketKey, CellAddress, CellPlace, ChunkPlace, ChunkPosition, DiskChunk, DiskSuperChunk, HeightMap,
+    LayerCodec, LayerType, NotHot, SuperChunkPosition, WorldCell, CHUNKS_IN_SUPERCHUNK, CHUNK_SIDE, SUPERCHUNK_SIDE_CELLS,
 };
-
-/// Some layer types, out of order.
-const TYPES: [LayerType; 4] = [LayerType(42), LayerType(7), LayerType(u64::MAX), LayerType(0)];
 
 /// A cell of a chunk.
 const CELL: CellPlace = CellPlace { x: 3, y: 200 };
+
+/// The superchunk the arena tests work in.
+const ORIGIN: SuperChunkPosition = SuperChunkPosition { x: 0, y: 0 };
+
+/// A bitmap's cells, with a rectangle and a circle drawn.
+fn drawn() -> CellWords {
+    let mut bitmap = Bitmap::new();
+    bitmap.set_rect(10, 10, 40, 30);
+    bitmap.set_circle(180, 180, 25);
+    *bitmap.words()
+}
 
 #[test]
 fn a_new_chunk_is_flat_with_no_layers() {
@@ -22,52 +31,36 @@ fn a_new_chunk_is_flat_with_no_layers() {
     assert!(chunk.heights().in_morton_order().iter().all(|&height| height == 0));
 }
 
-/// Layers come out in type order, one a type, however they went in.
+/// A layer comes back from its encoding cell for cell, and an empty one
+/// takes a few bits, not a bitmap's worth.
 #[test]
-fn layers_are_one_a_type_in_type_order() {
+fn layers_decode_to_what_was_encoded() {
+    let mut codec = LayerCodec::new();
+    let cells = drawn();
+    let layer = codec.encode(&cells);
+    let mut back = [u64::MAX; WORDS];
+    codec.decode(&layer, &mut back);
+    assert_eq!(back, cells);
+    assert!(codec.encode(&[0; WORDS]).bits() < u64::BITS as usize);
+}
+
+/// Layers come out in type order, one a type, however they went in;
+/// replacing gives back the old one, removing takes it out.
+#[test]
+fn a_chunk_holds_one_layer_a_type_in_type_order() {
+    let mut codec = LayerCodec::new();
+    let (empty, drawn) = (codec.encode(&[0; WORDS]), codec.encode(&drawn()));
     let mut chunk = DiskChunk::new();
-    for layer_type in TYPES.iter().chain(TYPES.iter()) {
-        chunk.set(*layer_type, CELL);
+    for layer_type in [LayerType(42), LayerType(7), LayerType(u64::MAX), LayerType(0)] {
+        assert!(chunk.replace_layer(layer_type, empty.clone()).is_none());
     }
     let types: Vec<LayerType> = chunk.layers().map(|(layer_type, _)| layer_type).collect();
-    let mut expected = TYPES.to_vec();
-    expected.sort();
-    assert_eq!(types, expected);
-    assert!(TYPES.iter().all(|&layer_type| chunk.holds(layer_type, CELL)));
-}
-
-#[test]
-fn replacing_a_layer_gives_back_the_old_one() {
-    let mut chunk = DiskChunk::new();
-    let mut first = Bitmap::new();
-    first.set(1, 1);
-    assert!(chunk.replace_layer(LayerType(5), first).is_none());
-    let old = chunk.replace_layer(LayerType(5), Bitmap::new()).expect("the first layer");
-    assert!(old.get(1, 1));
-    assert_eq!(chunk.layer_count(), 1);
-    assert!(chunk.layer(LayerType(5)).expect("the second layer").is_empty());
-}
-
-/// Clearing a cell of a layer the chunk does not have makes no layer.
-#[test]
-fn unsetting_an_absent_layer_makes_none() {
-    let mut chunk = DiskChunk::new();
-    chunk.unset(LayerType(9), CELL);
-    assert_eq!(chunk.layer_count(), 0);
-    assert!(!chunk.holds(LayerType(9), CELL));
-}
-
-#[test]
-fn empty_layers_stay_until_removed() {
-    let mut chunk = DiskChunk::new();
-    chunk.set(LayerType(1), CELL);
-    chunk.set(LayerType(2), CELL);
-    chunk.unset(LayerType(1), CELL);
-    assert_eq!(chunk.layer_count(), 2);
-    chunk.remove_empty_layers();
-    assert_eq!(chunk.layers().map(|(layer_type, _)| layer_type).collect::<Vec<_>>(), [LayerType(2)]);
-    assert!(chunk.remove_layer(LayerType(2)).is_some());
-    assert!(chunk.remove_layer(LayerType(2)).is_none());
+    assert_eq!(types, [LayerType(0), LayerType(7), LayerType(42), LayerType(u64::MAX)]);
+    assert_eq!(chunk.replace_layer(LayerType(7), drawn.clone()), Some(empty));
+    assert_eq!(chunk.layer(LayerType(7)), Some(&drawn));
+    assert_eq!(chunk.remove_layer(LayerType(7)), Some(drawn));
+    assert!(chunk.remove_layer(LayerType(7)).is_none());
+    assert_eq!(chunk.layer_count(), 3);
 }
 
 /// Every cell's height is its own: set every one differently, read
@@ -86,28 +79,30 @@ fn every_cell_has_its_own_height() {
             assert_eq!(heights.get(CellPlace { x, y }), height_of(x, y), "cell ({x}, {y})");
         }
     }
-    heights.fill(9);
-    assert_eq!(heights, HeightMap::filled(9));
+    let mut chunk = DiskChunk::new();
+    chunk.replace_heights(heights.clone());
+    assert_eq!(chunk.heights(), &heights);
 }
 
-/// A superchunk's chunks are each at their own place, and a change to
-/// one is seen there and nowhere else.
+/// A superchunk's chunks are each at their own place, found by their
+/// place in it or their position in the world.
 #[test]
 fn a_superchunk_holds_every_chunk_once() {
-    let mut superchunk = DiskSuperChunk::new(SuperChunkPosition { x: -3, y: 8 });
+    let position = SuperChunkPosition { x: -3, y: 8 };
+    let mut superchunk = DiskSuperChunk::new(position);
     assert_eq!(superchunk.chunks().count(), CHUNKS_IN_SUPERCHUNK);
     let places: Vec<usize> = superchunk.chunks().map(|(place, _)| place.index()).collect();
     assert_eq!(places, (0..CHUNKS_IN_SUPERCHUNK).collect::<Vec<_>>());
 
     let place = ChunkPlace::new(15, 4);
-    superchunk.chunk_mut(place).set(LayerType(1), CELL);
+    superchunk.chunk_mut(place).replace_heights(HeightMap::filled(1));
     for (other, chunk) in superchunk.chunks() {
-        assert_eq!(chunk.holds(LayerType(1), CELL), other == place, "chunk {other:?}");
+        assert_eq!(chunk.heights().get(CELL) == 1, other == place, "chunk {other:?}");
     }
-    for (_, chunk) in superchunk.chunks_mut() {
-        chunk.heights_mut().fill(1);
-    }
-    assert!(superchunk.chunks().all(|(_, chunk)| chunk.heights().get(CELL) == 1));
+    let in_world = ChunkPosition::of(position, place);
+    assert_eq!(in_world.superchunk_and_place(), (position, place));
+    assert_eq!(superchunk.chunk_at(in_world).map(|chunk| chunk.heights().get(CELL)), Some(1));
+    assert!(superchunk.chunk_at(ChunkPosition { x: 0, y: 0 }).is_none());
 }
 
 #[test]
@@ -128,6 +123,9 @@ fn world_cells_and_addresses_convert_both_ways() {
         for &y in &coordinates {
             let cell = WorldCell { x, y };
             assert_eq!(WorldCell::at(cell.address()), cell, "cell ({x}, {y})");
+            let (chunk, place) = cell.chunk_and_cell();
+            let (superchunk, chunk_place) = chunk.superchunk_and_place();
+            assert_eq!(CellAddress { superchunk, chunk: chunk_place, cell: place }, cell.address());
         }
     }
     // The cell just up and left of the origin is the last of everything
@@ -143,4 +141,108 @@ fn world_cells_and_addresses_convert_both_ways() {
     let superchunk = DiskSuperChunk::new(SuperChunkPosition { x: -1, y: 0 });
     assert!(superchunk.address_of(WorldCell { x: -1, y: 0 }).is_some());
     assert!(superchunk.address_of(WorldCell { x: 0, y: 0 }).is_none());
+}
+
+/// Chunks' Morton keys interleave their coordinates, x in the low bit:
+/// the first four of a 2x2 block run top left, top right, bottom left,
+/// bottom right, and every negative chunk comes before every positive
+/// one.
+#[test]
+fn chunks_sort_in_morton_order() {
+    let key = |x, y| ChunkPosition { x, y }.morton_key();
+    assert!(key(0, 0) < key(1, 0) && key(1, 0) < key(0, 1) && key(0, 1) < key(1, 1));
+    assert!(key(1, 1) < key(2, 0));
+    assert!(key(-1, -1) < key(0, 0) && key(i64::MIN, 0) < key(-1, 0));
+}
+
+/// A bitmap turns hot decoded from its chunk's layer, or empty if the
+/// chunk has none; cells of it are read and changed through the arena,
+/// and a cell of a bitmap not hot is refused.
+#[test]
+fn hot_bitmaps_hold_their_chunks_cells() {
+    let (mut codec, mut arena) = (LayerCodec::new(), BitmapArena::new());
+    let mut chunk = DiskChunk::new();
+    chunk.replace_layer(LayerType(1), codec.encode(&drawn()));
+    let chunk_position = ChunkPosition { x: 0, y: 0 };
+    let drawn_key = BucketKey { layer_type: LayerType(1), chunk: chunk_position };
+    let absent_key = BucketKey { layer_type: LayerType(2), chunk: chunk_position };
+
+    assert!(arena.make_hot(drawn_key, chunk.layer(LayerType(1)), &mut codec));
+    assert!(arena.make_hot(absent_key, chunk.layer(LayerType(2)), &mut codec));
+    assert_eq!(arena.bucket(drawn_key).expect("hot").cells(), &drawn());
+    assert!(arena.bucket(absent_key).expect("hot").cells().iter().all(|&word| word == 0));
+
+    let inside_the_circle = WorldCell { x: 180, y: 180 };
+    assert_eq!(arena.holds(LayerType(1), inside_the_circle), Ok(true));
+    arena.unset(LayerType(1), inside_the_circle).expect("hot");
+    assert_eq!(arena.holds(LayerType(1), inside_the_circle), Ok(false));
+    // Turning it hot again keeps the change.
+    assert!(!arena.make_hot(drawn_key, chunk.layer(LayerType(1)), &mut codec));
+    assert_eq!(arena.holds(LayerType(1), inside_the_circle), Ok(false));
+
+    let cold = BucketKey { layer_type: LayerType(3), chunk: chunk_position };
+    assert_eq!(arena.holds(LayerType(3), inside_the_circle), Err(NotHot(cold)));
+    assert_eq!(arena.set(LayerType(3), inside_the_circle), Err(NotHot(cold)));
+}
+
+/// The arena's buckets lie by type, then by the chunks' Morton order,
+/// however they turned hot; one type's buckets are one run.
+#[test]
+fn buckets_lie_by_type_then_morton_order() {
+    let (mut codec, mut arena) = (LayerCodec::new(), BitmapArena::new());
+    let chunks = [ChunkPosition { x: 1, y: 1 }, ChunkPosition { x: 0, y: 1 }, ChunkPosition { x: 1, y: 0 }, ChunkPosition { x: 0, y: 0 }];
+    for layer_type in [LayerType(9), LayerType(4)] {
+        for chunk in chunks {
+            arena.make_hot(BucketKey { layer_type, chunk }, None, &mut codec);
+        }
+    }
+    let in_morton_order = [ChunkPosition { x: 0, y: 0 }, ChunkPosition { x: 1, y: 0 }, ChunkPosition { x: 0, y: 1 }, ChunkPosition { x: 1, y: 1 }];
+    let expected: Vec<BucketKey> = [LayerType(4), LayerType(9)]
+        .into_iter()
+        .flat_map(|layer_type| in_morton_order.map(|chunk| BucketKey { layer_type, chunk }))
+        .collect();
+    assert_eq!(arena.keys().collect::<Vec<_>>(), expected);
+    assert_eq!(arena.run(LayerType(9)).map(|(chunk, _)| chunk).collect::<Vec<_>>(), in_morton_order);
+    assert_eq!(arena.run(LayerType(5)).count(), 0);
+}
+
+/// Writing back encodes only what changed into its chunk, and a layer
+/// left with no cell set leaves the chunk; a changed bitmap cannot be
+/// evicted before it is written back.
+#[test]
+fn changes_write_back_into_their_chunks() {
+    let (mut codec, mut arena) = (LayerCodec::new(), BitmapArena::new());
+    let mut superchunk = DiskSuperChunk::new(ORIGIN);
+    let place = ChunkPlace::new(2, 3);
+    let chunk = ChunkPosition::of(ORIGIN, place);
+    let (new, cleared) = (BucketKey { layer_type: LayerType(1), chunk }, BucketKey { layer_type: LayerType(2), chunk });
+    let mut one_cell = Bitmap::new();
+    one_cell.set(CELL.x, CELL.y);
+    superchunk.chunk_mut(place).replace_layer(LayerType(2), codec.encode(one_cell.words()));
+
+    arena.make_hot(new, None, &mut codec);
+    arena.make_hot(cleared, superchunk.chunk(place).layer(LayerType(2)), &mut codec);
+    assert_eq!(arena.write_back(&mut superchunk, &mut codec), 0, "nothing changed");
+
+    arena.bucket_mut(new).expect("hot").set(CELL);
+    arena.bucket_mut(cleared).expect("hot").unset(CELL);
+    assert_eq!(arena.write_back(&mut superchunk, &mut codec), 2);
+    let written = superchunk.chunk(place);
+    assert!(written.layer(LayerType(2)).is_none(), "an empty layer leaves the chunk");
+    let mut back = [0; WORDS];
+    codec.decode(written.layer(LayerType(1)).expect("the new layer"), &mut back);
+    assert_eq!(&back, one_cell.words());
+
+    assert!(arena.evict(new) && arena.evict(cleared) && arena.is_empty());
+    assert!(!arena.evict(new));
+}
+
+#[test]
+#[should_panic(expected = "was not written back")]
+fn evicting_an_unwritten_change_panics() {
+    let (mut codec, mut arena) = (LayerCodec::new(), BitmapArena::new());
+    let key = BucketKey { layer_type: LayerType(1), chunk: ChunkPosition { x: 0, y: 0 } };
+    arena.make_hot(key, None, &mut codec);
+    arena.set(LayerType(1), WorldCell { x: 0, y: 0 }).expect("hot");
+    arena.evict(key);
 }

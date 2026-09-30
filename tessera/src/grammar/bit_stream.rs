@@ -65,6 +65,30 @@ impl BitStream {
         self.len = 0;
     }
 
+    /// The words the bits written take, and no more: the stream at its
+    /// exact size, for keeping it once written. The bits past the last
+    /// one written are 0.
+    pub fn words(&self) -> &[u64] {
+        &self.words[..self.len.div_ceil(WORD_BITS)]
+    }
+
+    /// Makes the stream `len` bits held in `words`, whatever it held
+    /// before: what [`BitStream::words`] gave, read back. `words` must
+    /// be exactly the words `len` bits take, their bits past `len` 0;
+    /// anything else is a bug, and panics.
+    pub fn load(&mut self, words: &[u64], len: usize) {
+        assert!(len <= MOST_BITS, "a stream longer than any Tessera writes");
+        assert_eq!(words.len(), len.div_ceil(WORD_BITS), "not the words {len} bits take");
+        let used_in_last = len % WORD_BITS;
+        assert!(
+            used_in_last == 0 || words.last().is_none_or(|&last| last >> used_in_last == 0),
+            "bits set past the stream's end"
+        );
+        self.clear();
+        self.words[..words.len()].copy_from_slice(words);
+        self.len = len;
+    }
+
     /// Writes one bit.
     #[inline]
     pub fn push(&mut self, bit: bool) {
@@ -239,4 +263,30 @@ impl BitReader<'_> {
 /// A word with its low `width` bits set, `width` at most a word.
 fn low_bits(width: u32) -> u64 {
     u64::MAX.checked_shr(u64::BITS - width).unwrap_or(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A stream's words, loaded into another stream, read back the same
+    /// bits, whatever that stream held before.
+    #[test]
+    fn words_load_back_into_the_same_stream() {
+        let mut written = BitStream::default();
+        for value in 0..40u64 {
+            written.push_value(value * 2_654_435_761 % 1000, 10);
+        }
+        written.push(true);
+        let mut loaded = BitStream::default();
+        loaded.push_value(u64::MAX, 64);
+        loaded.load(written.words(), written.len());
+        assert_eq!(loaded, written);
+    }
+
+    #[test]
+    #[should_panic(expected = "bits set past the stream's end")]
+    fn loading_bits_past_the_end_panics() {
+        BitStream::default().load(&[0b100], 2);
+    }
 }

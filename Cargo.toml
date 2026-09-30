@@ -7,3 +7,4 @@ publish = false
 
 [dependencies]
 bitmap = { path = "bitmap" }
+tessera = { path = "tessera" }
