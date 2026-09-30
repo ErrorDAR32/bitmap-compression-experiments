@@ -89,6 +89,16 @@ and the coordinates between the world, a superchunk, a chunk and a
 cell. Nothing is read from or written to disk yet: disk access comes
 once these are right, since it brings concerns of its own.
 
+Planned: loading an aligned power-of-two square of chunks for a set of
+layer types at once, in Morton order. Such a square is one run of Morton
+keys, so each type's buckets for it arrive already in order and nothing
+needs sorting. Raw bitmaps are to move as little as possible: today
+making a bitmap hot shifts every bucket after it, and how the arena
+avoids that is a plan still to come.
+
+An encoded layer's length is exact to the bit, but it is held in whole
+64-bit words; on disk it can be packed tighter.
+
 Still open: where heights are read and changed while hot (a chunk only
 hands its height map over whole), when buckets are evicted, and
 reading and writing superchunks on disk.
