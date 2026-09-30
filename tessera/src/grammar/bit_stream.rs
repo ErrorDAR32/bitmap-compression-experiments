@@ -69,9 +69,28 @@ impl BitStream {
         self.len = 0;
     }
 
+    /// The words the bits written take, and no more: the stream at its
+    /// size to the word, for keeping it in memory once written. The bits
+    /// past the last one written are 0.
+    pub fn words(&self) -> &[u64] {
+        &self.words[..self.len.div_ceil(WORD_BITS)]
+    }
+
+    /// Makes the stream the bits in `words`, whatever it held before:
+    /// what [`BitStream::words`] gave, read back. Its length is every bit
+    /// of every word -- the last word's bits past the stream written are
+    /// read as the 0s they are -- so a stream loaded is for reading: bits
+    /// pushed after it would follow that padding.
+    pub fn load_words(&mut self, words: &[u64]) {
+        assert!(words.len() <= MOST_WORDS, "a stream longer than any Tessera writes");
+        self.clear();
+        self.words[..words.len()].copy_from_slice(words);
+        self.len = words.len() * WORD_BITS;
+    }
+
     /// The bits written, packed into bytes, the first bit lowest in the
     /// first byte, and no more bytes than they take: the stream at its
-    /// size to the byte, for keeping it once written. The bits past the
+    /// size to the byte, for keeping it on disk. The bits past the
     /// last one written are 0.
     pub fn to_bytes(&self) -> Box<[u8]> {
         let mut bytes = vec![0u8; self.len.div_ceil(BYTE_BITS)].into_boxed_slice();
@@ -276,6 +295,28 @@ fn low_bits(width: u32) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A stream's words, loaded into another stream, read back the same
+    /// bits, and 0 past them.
+    #[test]
+    fn words_load_back_into_the_same_bits() {
+        let mut written = BitStream::default();
+        for value in 0..40u64 {
+            written.push_value(value * 2_654_435_761 % 1000, 10);
+        }
+        written.push(true);
+        let mut loaded = BitStream::default();
+        loaded.push_value(u64::MAX, 64);
+        loaded.load_words(written.words());
+        assert_eq!(loaded.len(), written.words().len() * WORD_BITS);
+        let (mut expected, mut read) = (written.reader(), loaded.reader());
+        for bit in 0..written.len() {
+            assert_eq!(read.bit(), expected.bit(), "bit {bit}");
+        }
+        for _ in written.len()..loaded.len() {
+            assert!(!read.bit(), "padding reads as 0");
+        }
+    }
 
     /// A stream's bytes, loaded into another stream, read back the same
     /// bits, whatever that stream held before -- a stream of whole words

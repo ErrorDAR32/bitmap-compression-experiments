@@ -41,8 +41,9 @@ direction.
 - **Layers**: pairs of a type and an encoded bitmap. The type is a `u64`
   naming what the bitmap represents, anything from specific things (a
   kind of tree, say) to properties (wet, burning). The bitmap marks the
-  cells where it holds, Tessera-encoded and packed to the byte: its
-  length is its bytes, the stream's bits rounded up to the next byte.
+  cells where it holds, Tessera-encoded: in memory in aligned 64-bit
+  words, its length its words; on disk packed to the byte, its length
+  its bytes -- the stream's bits rounded up either way.
   Inside a chunk, layers are sorted by type; a chunk holds at most one
   layer per type, and a type with no cell set has no layer.
 
