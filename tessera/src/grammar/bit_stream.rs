@@ -10,6 +10,10 @@ use crate::tile::{tiles_down_to, CELLS, FLOOR_LEVEL};
 
 /// Bits a word holds.
 const WORD_BITS: usize = u64::BITS as usize;
+/// Bits a byte holds.
+const BYTE_BITS: usize = u8::BITS as usize;
+/// Bytes a word holds.
+const WORD_BYTES: usize = WORD_BITS / BYTE_BITS;
 
 /// The most bits one node takes, its values aside: the longest header,
 /// a masking copy's -- leaf, code, far, direction, mask-present and a
@@ -65,28 +69,32 @@ impl BitStream {
         self.len = 0;
     }
 
-    /// The words the bits written take, and no more: the stream at its
-    /// exact size, for keeping it once written. The bits past the last
-    /// one written are 0.
-    pub fn words(&self) -> &[u64] {
-        &self.words[..self.len.div_ceil(WORD_BITS)]
+    /// The bits written, packed into bytes, the first bit lowest in the
+    /// first byte, and no more bytes than they take: the stream at its
+    /// size to the byte, for keeping it once written. The bits past the
+    /// last one written are 0.
+    pub fn to_bytes(&self) -> Box<[u8]> {
+        let mut bytes = vec![0u8; self.len.div_ceil(BYTE_BITS)].into_boxed_slice();
+        for (chunk, word) in bytes.chunks_mut(WORD_BYTES).zip(self.words.iter()) {
+            chunk.copy_from_slice(&word.to_le_bytes()[..chunk.len()]);
+        }
+        bytes
     }
 
-    /// Makes the stream `len` bits held in `words`, whatever it held
-    /// before: what [`BitStream::words`] gave, read back. `words` must
-    /// be exactly the words `len` bits take, their bits past `len` 0;
-    /// anything else is a bug, and panics.
-    pub fn load(&mut self, words: &[u64], len: usize) {
-        assert!(len <= MOST_BITS, "a stream longer than any Tessera writes");
-        assert_eq!(words.len(), len.div_ceil(WORD_BITS), "not the words {len} bits take");
-        let used_in_last = len % WORD_BITS;
-        assert!(
-            used_in_last == 0 || words.last().is_none_or(|&last| last >> used_in_last == 0),
-            "bits set past the stream's end"
-        );
+    /// Makes the stream the bits in `bytes`, whatever it held before:
+    /// what [`BitStream::to_bytes`] gave, read back. Its length is every
+    /// bit of every byte -- the last byte's bits past the stream written
+    /// are read as the 0s they are -- so a stream loaded is for reading:
+    /// bits pushed after it would follow that padding.
+    pub fn load_bytes(&mut self, bytes: &[u8]) {
+        assert!(bytes.len() <= MOST_WORDS * WORD_BYTES, "a stream longer than any Tessera writes");
         self.clear();
-        self.words[..words.len()].copy_from_slice(words);
-        self.len = len;
+        for (word, chunk) in self.words.iter_mut().zip(bytes.chunks(WORD_BYTES)) {
+            let mut word_bytes = [0u8; WORD_BYTES];
+            word_bytes[..chunk.len()].copy_from_slice(chunk);
+            *word = u64::from_le_bytes(word_bytes);
+        }
+        self.len = bytes.len() * BYTE_BITS;
     }
 
     /// Writes one bit.
@@ -269,24 +277,32 @@ fn low_bits(width: u32) -> u64 {
 mod tests {
     use super::*;
 
-    /// A stream's words, loaded into another stream, read back the same
-    /// bits, whatever that stream held before.
+    /// A stream's bytes, loaded into another stream, read back the same
+    /// bits, whatever that stream held before -- a stream of whole words
+    /// and one ending partway through a byte alike.
     #[test]
-    fn words_load_back_into_the_same_stream() {
-        let mut written = BitStream::default();
-        for value in 0..40u64 {
-            written.push_value(value * 2_654_435_761 % 1000, 10);
+    fn bytes_load_back_into_the_same_bits() {
+        for extra_bits in [0, 1, 7, 8, 63] {
+            let mut written = BitStream::default();
+            for value in 0..40u64 {
+                written.push_value(value * 2_654_435_761 % 1000, 10);
+            }
+            for _ in 0..extra_bits {
+                written.push(true);
+            }
+            let bytes = written.to_bytes();
+            assert_eq!(bytes.len(), written.len().div_ceil(BYTE_BITS));
+            let mut loaded = BitStream::default();
+            loaded.push_value(u64::MAX, 64);
+            loaded.load_bytes(&bytes);
+            assert_eq!(loaded.len(), bytes.len() * BYTE_BITS);
+            let (mut expected, mut read) = (written.reader(), loaded.reader());
+            for bit in 0..written.len() {
+                assert_eq!(read.bit(), expected.bit(), "bit {bit}");
+            }
+            for _ in written.len()..loaded.len() {
+                assert!(!read.bit(), "padding reads as 0");
+            }
         }
-        written.push(true);
-        let mut loaded = BitStream::default();
-        loaded.push_value(u64::MAX, 64);
-        loaded.load(written.words(), written.len());
-        assert_eq!(loaded, written);
-    }
-
-    #[test]
-    #[should_panic(expected = "bits set past the stream's end")]
-    fn loading_bits_past_the_end_panics() {
-        BitStream::default().load(&[0b100], 2);
     }
 }

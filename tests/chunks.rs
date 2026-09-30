@@ -32,7 +32,7 @@ fn a_new_chunk_is_flat_with_no_layers() {
 }
 
 /// A layer comes back from its encoding cell for cell, and an empty one
-/// takes a few bits, not a bitmap's worth.
+/// takes a byte, not a bitmap's worth.
 #[test]
 fn layers_decode_to_what_was_encoded() {
     let mut codec = LayerCodec::new();
@@ -41,7 +41,7 @@ fn layers_decode_to_what_was_encoded() {
     let mut back = [u64::MAX; WORDS];
     codec.decode(&layer, &mut back);
     assert_eq!(back, cells);
-    assert!(codec.encode(&[0; WORDS]).bits() < u64::BITS as usize);
+    assert_eq!(codec.encode(&[0; WORDS]).byte_len(), 1);
 }
 
 /// Layers come out in type order, one a type, however they went in;
