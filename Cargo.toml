@@ -3,7 +3,6 @@ name = "tilesim"
 version = "0.1.0"
 edition = "2021"
 description = "TileSim, a 2D procedural simulation game, still to come"
-license = "Unlicense"
 publish = false
 
 [dependencies]

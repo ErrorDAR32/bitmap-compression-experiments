@@ -26,10 +26,6 @@ jbigkit's headers and library must be installed:
 apt-get install libjbig-dev
 ```
 
-jbigkit is licensed under the GPL. This crate's own source is in the
-public domain like the rest (the Unlicense), but a compiled benchmark,
-linked with jbigkit, falls under the GPL's terms if it is distributed.
-
 Then, from `tessera/` -- the manifest path is relative to it -- in
 release, with nothing else busy. The samples use the seed held in
 `transient_data/seed`, as every other measurement does:

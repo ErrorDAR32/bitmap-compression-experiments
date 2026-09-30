@@ -23,9 +23,3 @@ Each builds on its own: run cargo from its folder, as usual -- here,
 at the root, for the `tilesim` crate. Tessera depends on `bitmap/` and
 `utilities/` beside it. TileSim itself, with its own tools, utilities
 and tests, is still to come.
-
-## License
-
-Public domain, under the [Unlicense](LICENSE): anyone may use, copy,
-change or sell any of it, for any purpose, with no conditions and no
-warranty.

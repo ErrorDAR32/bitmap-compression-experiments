@@ -148,7 +148,3 @@ tessera/
 [`src/lib.rs`](src/lib.rs) maps every module to its step. The
 repository's [design statements](../docs/design_statements.md) are what
 every design decision here is weighed against.
-
-## License
-
-Public domain, under the [Unlicense](LICENSE).
