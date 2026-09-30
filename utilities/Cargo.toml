@@ -3,4 +3,5 @@ name = "utilities"
 version = "0.1.0"
 edition = "2021"
 description = "General-purpose utilities: the table printer and measurement reports, a seeded random source, a fixed-capacity list"
+license = "Unlicense"
 publish = false

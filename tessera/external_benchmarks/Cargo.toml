@@ -3,6 +3,7 @@ name = "external_benchmarks"
 version = "0.1.0"
 edition = "2021"
 description = "Tessera against existing bitmap compressors: CCITT Group 4, JBIG (jbigkit) and zstd"
+license = "Unlicense"
 publish = false
 default-run = "external_benchmarks"
 
