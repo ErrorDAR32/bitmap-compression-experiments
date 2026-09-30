@@ -13,7 +13,8 @@ encoding of those layers, and what it is built from.
 | folder | what it is |
 |---|---|
 | [`docs/design_statements.md`](docs/design_statements.md) | the design statements |
-| [`src/`](src/) | the `tilesim` crate: the game itself, still to come |
+| [`docs/tilesim.md`](docs/tilesim.md) | what TileSim is, and every decision about it so far: chunks, superchunks, layers, the simulation's plan |
+| [`src/`](src/) | the `tilesim` crate: the world's in-memory structures so far, the game still to come |
 | [`tessera/`](tessera/) | Tessera, the lossless encoding of a 256x256 bitmap: a project of its own, with its own [README](tessera/README.md), tests, tools and docs |
 | [`bitmap/`](bitmap/) | the 256x256 bitmap every layer is, laid out in Morton order |
 | [`utilities/`](utilities/) | general-purpose utilities: the table printer and measurement reports, a seeded random source, a fixed-capacity list |

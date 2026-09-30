@@ -74,6 +74,11 @@ impl Bitmap {
         self.words.iter().map(|word| word.count_ones()).sum()
     }
 
+    /// Whether no cell is set: stops at the first word with one.
+    pub fn is_empty(&self) -> bool {
+        self.words.iter().all(|&word| word == 0)
+    }
+
     /// Sets the cells of an aligned square of fewer than a word of cells,
     /// top left at `(x, y)`, `side` cells a side, whose bits are set in
     /// `run`, in Morton order; its other cells stay as they are.
@@ -180,6 +185,16 @@ mod tests {
     use crate::{HEIGHT, WIDTH};
 
     /// Square fills agree with the same squares drawn cell by cell.
+    #[test]
+    fn empty_until_a_cell_is_set() {
+        let mut bitmap = Bitmap::new();
+        assert!(bitmap.is_empty());
+        bitmap.set(255, 255);
+        assert!(!bitmap.is_empty());
+        bitmap.unset(255, 255);
+        assert!(bitmap.is_empty());
+    }
+
     #[test]
     fn squares_agree_with_their_cells() {
         let mut bitmap = Bitmap::new();
