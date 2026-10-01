@@ -23,7 +23,7 @@ unnoticed, nudging their decisions towards survival and progress.
 |---|---|---|
 | cell | one tile of the world | the unit everything is placed on |
 | disk chunk | 256x256 cells | the unit the world's data is held in: a height map and its layers |
-| disk superchunk | 16x16 disk chunks, 4096x4096 cells | the grain of disk input and output, and of terrain generation |
+| disk superchunk | 4x4 disk chunks, 1024x1024 cells (decided; the code still has 16x16) | the grain of disk input and output, of terrain generation, and of hot bitmaps |
 
 A disk superchunk is read and written whole, and terrain is generated a
 superchunk at a time.
@@ -114,6 +114,71 @@ superchunk, so its buckets are one run of each type's allocation.
 Still open: where heights are read and changed while hot (a chunk only
 hands its height map over whole), when buckets are evicted, and
 reading and writing superchunks on disk.
+
+## Decided, not built yet
+
+### Superchunks of 4x4 chunks
+
+A hot superchunk bitmap holds a bucket for every chunk of its
+superchunk, even for a single set cell: at 16x16 chunks that is 2 MiB, at
+4x4 it is 128 KiB, so 8 GiB holds 65,536 of them -- far more independent
+hot bitmaps. Buckets stay fixed in size, found in O(1) by Morton index
+from a small array.
+
+### Memory
+
+- A custom allocator per area, not one global allocator: the system is
+  asked for large blocks, 256 MiB at a time, tracked in a list; inside
+  them, allocations are runs of 256-byte units, the allocated intervals
+  kept in a sorted list. A few lines of `unsafe` hand out the memory;
+  an allocation is an owning handle that frees itself when dropped.
+  Nothing is ever resized in place by moving it.
+- **The disk chunk area** is a variable-sized ring buffer: pieces --
+  encoded layers, height maps -- are appended in sequence. One list
+  tracks the ring buffer's allocations; another links every piece to its
+  chunk and superchunk. Freeing from the tail drops everything of the
+  superchunk whose data is at the tail. This area may be messy and may
+  move data: a piece that does not fit is compacted into new space.
+- **The hot bitmap area** never moves, which is why it is cut into
+  superchunk-sized allocations, at the cost of a lot of memory.
+
+### The tick
+
+Two steps a tick:
+
+1. **Compute.** Small functions, one per action, sample by Monte Carlo
+   over the action's main bit plane, where its cells are set; an action
+   may also read other planes, and nearby entities by type. Every action
+   has one of a fixed set of maximum ranges, from neighbouring cells up
+   to the game's speed of light. Actions are sorted by maximum range
+   first, then sampled in Morton order -- one dimension -- so similar
+   actions read and write the same areas at the same time, and execution
+   stays highly (never totally) sequential in memory. Their writes are
+   collected as intents.
+2. **Apply.** The bitmap manipulation layer batches the tick's writes:
+   operations -- an area and what to do to it: set, unset, flip, and
+   others -- go into queues by layer type, are sorted into Morton order
+   of their coordinates, and are applied in that order.
+
+Sampling picks, by weight of set cells, a superchunk, then a chunk in
+it, then a cell, found by scanning the chunk's words for set bits. It
+needs counters of set cells per chunk and per superchunk, per layer
+type: a small cost.
+
+Every thread works sequentially within a superchunk; across superchunks
+the perimeter to area ratio keeps synchronization rare. How overlapping
+updates between superchunks are handled -- a before and after copy
+would double the memory -- is decided once a system can have them.
+
+Monte Carlo sampling suits a GPU too.
+
+The height map is ignored for now.
+
+### Entities
+
+They work differently, and later. An entity is a capability unit, not
+necessarily alive, and may schedule chunks. Some are tied to bit planes;
+others exist on their own and keep their location themselves (humans).
 
 ## Simulation (the plan)
 
