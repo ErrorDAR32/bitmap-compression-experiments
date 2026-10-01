@@ -14,12 +14,13 @@ encoding of those layers, and what it is built from.
 |---|---|
 | [`docs/design_statements.md`](docs/design_statements.md) | the design statements |
 | [`docs/tilesim.md`](docs/tilesim.md) | what TileSim is, and every decision about it so far: chunks, superchunks, layers, the simulation's plan |
-| [`src/`](src/) | the `tilesim` crate: the world's in-memory structures so far -- disk chunks, superchunks, the bitmap arena -- the game still to come |
+| [`src/`](src/) | the `tilesim` crate: the game, still to come |
+| [`chunks/`](chunks/) | the world's data in memory: disk chunks, superchunks, the bitmap arena and the coordinates between them |
 | [`tessera/`](tessera/) | Tessera, the lossless encoding of a 256x256 bitmap: a project of its own, with its own [README](tessera/README.md), tests, tools and docs |
 | [`bitmap/`](bitmap/) | the 256x256 bitmap every layer is, laid out in Morton order |
 | [`utilities/`](utilities/) | general-purpose utilities: the table printer and measurement reports, a seeded random source, a fixed-capacity list |
 
 Each builds on its own: run cargo from its folder, as usual -- here,
 at the root, for the `tilesim` crate. Tessera depends on `bitmap/` and
-`utilities/` beside it. TileSim itself, with its own tools, utilities
+`utilities/` beside it; `chunks/` on `bitmap/` and Tessera. TileSim itself, with its own tools, utilities
 and tests, is still to come.

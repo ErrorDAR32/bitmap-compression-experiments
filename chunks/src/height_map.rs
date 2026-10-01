@@ -6,7 +6,7 @@
 //! of heights, as it is one run of bits in a layer: a later encoding
 //! can read heights by the same tiles it reads the layers by.
 
-use super::coordinates::CellPlace;
+use crate::coordinates::CellPlace;
 use bitmap::morton::morton_index;
 use bitmap::{HEIGHT, WIDTH};
 

@@ -5,8 +5,8 @@
 //! Its chunks are made whole when it is: 256 height maps of 64 KiB,
 //! 16 MiB, and no layers.
 
-use super::coordinates::{CellAddress, ChunkPlace, ChunkPosition, SuperChunkPosition, WorldCell, CHUNKS_IN_SUPERCHUNK};
-use super::disk_chunk::DiskChunk;
+use crate::coordinates::{CellAddress, ChunkPlace, ChunkPosition, SuperChunkPosition, WorldCell, CHUNKS_IN_SUPERCHUNK};
+use crate::disk_chunk::DiskChunk;
 
 /// A disk superchunk: its place in the world, and its chunks.
 pub struct DiskSuperChunk {

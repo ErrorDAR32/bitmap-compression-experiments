@@ -1,0 +1,10 @@
+[package]
+name = "chunks"
+version = "0.1.0"
+edition = "2021"
+description = "TileSim's world data in memory: disk chunks, superchunks and the bitmap arena"
+publish = false
+
+[dependencies]
+bitmap = { path = "../bitmap" }
+tessera = { path = "../tessera" }

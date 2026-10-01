@@ -1,5 +1,6 @@
-//! The world's data, held in memory in the grains it is read, written
-//! and generated in. Nothing here touches the disk yet.
+//! TileSim's world data, held in memory in the grains it is read,
+//! written and generated in (`../docs/tilesim.md`). Nothing here touches
+//! the disk yet.
 //!
 //! | file | what is in it |
 //! |---|---|
@@ -9,6 +10,10 @@
 //! | `disk_superchunk` | a disk superchunk: 16x16 disk chunks, the grain of disk access and terrain generation |
 //! | `encoded_layer` | a layer as a chunk holds it, Tessera-encoded at its exact length, and the codec that encodes and decodes it |
 //! | `bitmap_arena` | the hot bitmaps, raw, one a bucket, in runs by type and then the chunks' Morton order: where cells are read and changed |
+
+// Every item is documented, private ones included; `cargo clippy`
+// checks the private ones.
+#![warn(missing_docs, clippy::missing_docs_in_private_items)]
 
 mod bitmap_arena;
 mod coordinates;

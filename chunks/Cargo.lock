@@ -23,12 +23,5 @@ dependencies = [
 ]
 
 [[package]]
-name = "tilesim"
-version = "0.1.0"
-dependencies = [
- "chunks",
-]
-
-[[package]]
 name = "utilities"
 version = "0.1.0"

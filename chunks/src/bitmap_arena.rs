@@ -27,10 +27,10 @@
 //! set has no layer. A dirty bucket must be written back before it is
 //! evicted.
 
-use super::coordinates::{CellPlace, ChunkPlace, ChunkPosition, SuperChunkPosition, WorldCell, CHUNKS_IN_SUPERCHUNK};
-use super::disk_chunk::{DiskChunk, LayerType};
-use super::disk_superchunk::DiskSuperChunk;
-use super::encoded_layer::{EncodedLayer, LayerCodec};
+use crate::coordinates::{CellPlace, ChunkPlace, ChunkPosition, SuperChunkPosition, WorldCell, CHUNKS_IN_SUPERCHUNK};
+use crate::disk_chunk::{DiskChunk, LayerType};
+use crate::disk_superchunk::DiskSuperChunk;
+use crate::encoded_layer::{EncodedLayer, LayerCodec};
 use bitmap::morton::morton_index;
 use bitmap::{CellWords, BITS_PER_WORD, WORDS};
 

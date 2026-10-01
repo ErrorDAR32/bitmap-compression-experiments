@@ -12,8 +12,8 @@
 //! Layers are kept in a list sorted by type: found by a binary search,
 //! walked in type order, holding only the types the chunk has.
 
-use super::encoded_layer::EncodedLayer;
-use super::height_map::HeightMap;
+use crate::encoded_layer::EncodedLayer;
+use crate::height_map::HeightMap;
 
 /// What a layer represents: a `u64` naming anything from a specific
 /// thing to a property. What each value means is not this module's

@@ -6,5 +6,4 @@ description = "TileSim, a 2D procedural simulation game, still to come"
 publish = false
 
 [dependencies]
-bitmap = { path = "bitmap" }
-tessera = { path = "tessera" }
+chunks = { path = "chunks" }
