@@ -7,7 +7,7 @@
 //! both encodings' bits are counted here at every density.
 
 use tessera::diagnostics::examination::Examination;
-use tessera::grammar::bit_stream::BitStream;
+use tessera::bit_stream::BitStream;
 use tessera::grammar::count_split;
 use tessera::set_counts::SetCounts;
 use tessera::Tessera;

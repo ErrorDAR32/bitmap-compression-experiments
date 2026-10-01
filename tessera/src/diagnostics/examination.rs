@@ -14,7 +14,7 @@
 use crate::pyramids::complex_tiling::ComplexTiling;
 use crate::bit_cost::{tree_bits, Counting};
 use crate::set_counts::SetCounts;
-use crate::grammar::bit_stream::BitStream;
+use crate::bit_stream::BitStream;
 use crate::grammar::{count_split, COUNT_SPLIT_STREAM, STREAM_MODE_WIDTH};
 use crate::pyramids::placements::Placement;
 use crate::pyramids::tree::{Node, Tree};

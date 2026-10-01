@@ -15,7 +15,7 @@
 //! a square into two rectangles, and each of those into two squares, so
 //! the runs are the regions of a binary partition of the plane.
 
-use super::bit_stream::{truncated_binary_bits, truncated_binary_shape, BitReader, Sink};
+use crate::bit_stream::{truncated_binary_bits, truncated_binary_shape, BitReader, Sink};
 use crate::set_counts::SetCounts;
 use bitmap::WORDS;
 use bitmap::Bitmap;
@@ -45,27 +45,17 @@ const fn run_bits(run: u64, cells: usize, set: u64) -> u64 {
         + run_bits(run >> half, half, set - first_half_set)
 }
 
-/// A byte of cells: what [`SHORT_RUN_BITS`] is made from.
+/// A byte of cells: a run read back by one lookup in [`BYTE_RUNS`].
 const BYTE_CELLS: usize = u8::BITS as usize;
-
-/// The bits every run of a byte of cells takes inside it, by its cells.
-const BYTE_BITS: [u8; 1 << BYTE_CELLS] = {
-    let mut bits = [0; 1 << BYTE_CELLS];
-    let mut run = 0;
-    while run < bits.len() {
-        bits[run] = run_bits(run as u64, BYTE_CELLS, run.count_ones() as u64) as u8;
-        run += 1;
-    }
-    bits
-};
 
 /// The most bits a run of a byte of cells takes inside it.
 const MOST_BYTE_RUN_BITS: u8 = {
     let mut most = 0;
     let mut run = 0;
-    while run < BYTE_BITS.len() {
-        if BYTE_BITS[run] > most {
-            most = BYTE_BITS[run];
+    while run < 1 << BYTE_CELLS {
+        let bits = run_bits(run as u64, BYTE_CELLS, (run as u64).count_ones() as u64) as u8;
+        if bits > most {
+            most = bits;
         }
         run += 1;
     }
@@ -137,39 +127,25 @@ const SHORT_RUN_CELLS: usize = 2 * BYTE_CELLS;
 /// its cells, made when compiling: its own count, then each byte's bits.
 /// 64 KiB.
 static SHORT_RUN_BITS: [u8; 1 << SHORT_RUN_CELLS] = {
+    let mut byte_bits = [0; 1 << BYTE_CELLS];
+    let mut run = 0;
+    while run < byte_bits.len() {
+        byte_bits[run] = run_bits(run as u64, BYTE_CELLS, (run as u64).count_ones() as u64);
+        run += 1;
+    }
     let mut bits = [0; 1 << SHORT_RUN_CELLS];
     let mut run = 0;
     while run < bits.len() {
         let set = (run as u64).count_ones() as u64;
         if set != 0 && set != SHORT_RUN_CELLS as u64 {
-            let (first_byte, second_byte) = (run & 0xFF, run >> BYTE_CELLS);
             let (fewest, counts) = first_half_counts(SHORT_RUN_CELLS, set);
-            let own = truncated_binary_bits((first_byte as u64).count_ones() as u64 - fewest, counts);
-            bits[run] = (own + BYTE_BITS[first_byte] as u64 + BYTE_BITS[second_byte] as u64) as u8;
+            let own = truncated_binary_bits((run as u64 & 0xFF).count_ones() as u64 - fewest, counts);
+            bits[run] = (own + byte_bits[run & 0xFF] + byte_bits[run >> BYTE_CELLS]) as u8;
         }
         run += 1;
     }
     bits
 };
-
-/// The bits a run of the cells `run` holds, `cells` of them -- a word
-/// or less -- `set` of them set, takes inside it: as [`run_bits`], each
-/// quarter of a word looked up in [`SHORT_RUN_BITS`].
-fn word_bits(run: u64, cells: usize, set: u64) -> u64 {
-    if set == 0 || set == cells as u64 {
-        return 0;
-    }
-    if cells == SHORT_RUN_CELLS {
-        return SHORT_RUN_BITS[run as usize] as u64;
-    }
-    let half = cells / 2;
-    let first_half = run & ((1 << half) - 1);
-    let first_half_set = first_half.count_ones() as u64;
-    let (fewest, counts) = first_half_counts(cells, set);
-    truncated_binary_bits(first_half_set - fewest, counts)
-        + word_bits(first_half, half, first_half_set)
-        + word_bits(run >> half, half, set - first_half_set)
-}
 
 /// Cells a word of the bitmap holds: a run of the Morton order.
 const WORD_CELLS: usize = u64::BITS as usize;
@@ -192,17 +168,13 @@ impl Words<'_> {
 
     /// Writes the run of `count` words from `first`, `set` of its cells
     /// set: nothing if all or none is, else how many lie in its first
-    /// half and each half in turn. A run of one word is counted a
-    /// quarter at a time, off [`SHORT_RUN_BITS`].
+    /// half and each half in turn.
     fn write(&self, stream: &mut impl Sink, first: usize, count: usize, set: u64) {
         if set == 0 || set == (count * WORD_CELLS) as u64 {
             return;
         }
         if count == 1 {
-            match stream.counted() {
-                Some(bits) => *bits += word_bits(self.words[first], WORD_CELLS, set),
-                None => write_word(stream, self.words[first], WORD_CELLS, set),
-            }
+            write_word(stream, self.words[first], WORD_CELLS, set);
             return;
         }
         let (half, first_half_set) = (count / 2, self.first_half_set(first, count));
@@ -214,10 +186,17 @@ impl Words<'_> {
 }
 
 /// Writes the run of the cells `run` holds, `cells` of them -- a word or
-/// less -- `set` of them set, as [`Words::write`] a longer one.
+/// less -- `set` of them set, as [`Words::write`] a longer one; counted,
+/// a run of [`SHORT_RUN_CELLS`] is looked up in [`SHORT_RUN_BITS`].
 fn write_word(stream: &mut impl Sink, run: u64, cells: usize, set: u64) {
     if set == 0 || set == cells as u64 {
         return;
+    }
+    if cells == SHORT_RUN_CELLS {
+        if let Some(bits) = stream.counted() {
+            *bits += SHORT_RUN_BITS[run as usize] as u64;
+            return;
+        }
     }
     let half = cells / 2;
     let first_half = run & ((1 << half) - 1);

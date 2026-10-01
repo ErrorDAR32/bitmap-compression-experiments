@@ -5,7 +5,7 @@
 //! gamma and truncated binary -- written to a [`Sink`]: the stream, or a
 //! [`Counter`] of the bits they would take.
 
-use super::MOST_NODE_BITS;
+use crate::grammar::MOST_NODE_BITS;
 use crate::last_pass::MOST_EXTRA_BITS;
 use crate::tile::{tiles_down_to, CELLS, FLOOR_LEVEL};
 

@@ -9,14 +9,12 @@
 //! each node's bits, its child mask and payload, then its children's
 //! nodes -- then the [last pass](crate::last_pass).
 
-pub mod arithmetic;
-pub mod bit_stream;
 pub mod cell_list;
 pub mod count_split;
 
 use crate::last_pass::LastPass;
 use crate::tile::{cells_in_tile, tiles_in_level, Pyramid, Tile, CELL_LEVEL, CHILDREN, DIRECTIONS, FLOOR_LEVEL};
-use bit_stream::{BitReader, BitStream, Counter, Sink};
+use crate::bit_stream::{BitReader, BitStream, Counter, Sink};
 use bitmap::Bitmap;
 
 /// What the tree holds at one tile.

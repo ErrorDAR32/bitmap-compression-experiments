@@ -53,28 +53,10 @@ pub const MIN_COPIED_NON_HOMOGENEOUS_CHILDREN: u32 = 2;
 /// must bind at least this many.
 pub const MIN_FLIPPED_CHILDREN: u32 = 2;
 
-/// What the rule places at a tile.
-#[derive(Clone, Copy, PartialEq)]
-enum Placement {
-    /// A bind of the whole tile to one value.
-    Bound(bool),
-    /// A divide flipping the value bound above, naming the children not
-    /// homogeneous with the other value, bit `i` for child `i`.
-    FlippingDivide(u8),
-    /// A copy; naming the children it does not copy, bit `i` for child
-    /// `i`.
-    Copied {
-        /// Whether it reads from the far offsets.
-        far: bool,
-        /// Which offset it reads from.
-        direction: u8,
-        /// The children it names.
-        named: u8,
-    },
-}
-
 /// Every child named.
 const ALL_CHILDREN: u8 = 0b1111;
+/// A bind of the whole tile: a complex tile of its own size.
+const PLAIN_TILE: Node = Node::ComplexTile { size_offset: 0 };
 
 /// One walk's reading and writing.
 pub struct GreedyTiler<'a> {
@@ -138,55 +120,40 @@ impl GreedyTiler<'_> {
     /// counts it.
     fn tile_subtree(&mut self, visit: Visit) -> CountedSubtree {
         let tile = visit.tile;
+        let children_numbers = (tile.level < FLOOR_LEVEL).then(|| self.patterns.children_numbers(tile));
+        let unplaced = if tile.level == FLOOR_LEVEL { Node::Residual } else { Node::Divided };
+        let (node, named) = self.place(visit, children_numbers).unwrap_or((unplaced, ALL_CHILDREN));
         let (mut children_bits, mut bound_size) = (0, None);
-        let placement = if tile.level == FLOOR_LEVEL {
-            let placement = self.place(visit, None);
-            if placement.is_none() {
-                children_bits = self.pricing.price(self.bitmap, tile);
-                bound_size = all_2x2s_homogeneous(self.bitmap, tile).then_some(FLOOR_LEVEL + 1);
-            }
-            placement
-        } else {
-            let numbers = self.patterns.children_numbers(tile);
-            let placement = self.place(visit, Some(numbers));
-            let (named, bound_inside) = match placement {
-                None => (ALL_CHILDREN, visit.bound_above),
-                Some(Placement::Bound(_)) => (0, visit.bound_above),
-                Some(Placement::FlippingDivide(named)) => (named, !visit.bound_above),
-                Some(Placement::Copied { named, .. }) => (named, visit.bound_above),
-            };
+        if node == Node::Residual {
+            children_bits = self.pricing.price(self.bitmap, tile);
+            bound_size = all_2x2s_homogeneous(self.bitmap, tile).then_some(FLOOR_LEVEL + 1);
+        } else if node == PLAIN_TILE {
+            bound_size = Some(tile.level);
+        }
+        if let Some(numbers) = children_numbers {
+            let bound_inside = visit.bound_above != (node == Node::FlippingDivide);
             let mut sizes = [None; 4];
             for (index, child) in tile.children().into_iter().enumerate() {
                 if named >> index & 1 == 0 {
                     self.tree.set(child, Node::Absent);
                     continue;
                 }
-                let child_visit = Visit { tile: child, pattern_number: numbers[index], bound_above: bound_inside, child_of_divide: placement.is_none() };
+                let child_visit = Visit { tile: child, pattern_number: numbers[index], bound_above: bound_inside, child_of_divide: node == Node::Divided };
                 let counted = self.tile_subtree(child_visit);
                 if !counted.left_to_binding_above {
                     children_bits += counted.fewest_bits;
                 }
                 sizes[index] = counted.bound_size;
             }
-            if placement.is_none() && sizes.iter().all(|&size| size == sizes[0]) {
+            if node == Node::Divided && sizes.iter().all(|&size| size == sizes[0]) {
                 bound_size = sizes[0];
             }
-            placement
-        };
-        let node = match placement {
-            Some(Placement::Bound(_)) => {
-                bound_size = Some(tile.level);
-                Node::ComplexTile { size_offset: 0 }
-            }
-            Some(Placement::FlippingDivide(_)) => Node::FlippingDivide,
-            Some(Placement::Copied { far, direction, named }) => Node::Copied { far, direction, names_children: named != 0 },
-            None if tile.level == FLOOR_LEVEL => Node::Residual,
-            None => Node::Divided,
-        };
-        let left_to_binding_above = visit.child_of_divide && placement == Some(Placement::Bound(visit.bound_above));
+        }
+        let left_to_binding_above =
+            visit.child_of_divide && node == PLAIN_TILE && homogeneous_value_of(visit.pattern_number) == Some(visit.bound_above);
         let mut fewest_bits = self.node_bits(tile, node) + children_bits;
         self.tree.set(tile, if left_to_binding_above { Node::Absent } else { node });
-        if placement.is_none() {
+        if node == unplaced {
             if let Some((complex_tile, bits)) = self.best_complex_tile(tile, bound_size, fewest_bits) {
                 self.tree.set(tile, complex_tile);
                 fewest_bits = bits;
@@ -224,15 +191,16 @@ impl GreedyTiler<'_> {
         best.0.map(|node| (node, best.1))
     }
 
-    /// What the rule places at the visited tile, if anything;
-    /// `children_numbers` its children's pattern numbers, for a tile
-    /// coarser than 4x4, which may name its children.
-    fn place(&self, visit: Visit, children_numbers: Option<[u16; 4]>) -> Option<Placement> {
-        if let Some(value) = homogeneous_value_of(visit.pattern_number) {
-            return Some(Placement::Bound(value));
+    /// What the rule places at the visited tile, if anything, and the
+    /// children it names, bit `i` for child `i`; `children_numbers` its
+    /// children's pattern numbers, for a tile coarser than 4x4, which
+    /// may name its children.
+    fn place(&self, visit: Visit, children_numbers: Option<[u16; 4]>) -> Option<(Node, u8)> {
+        if homogeneous_value_of(visit.pattern_number).is_some() {
+            return Some((PLAIN_TILE, 0));
         }
         if let Some((far, direction)) = self.patterns.copy_source(visit.tile, visit.pattern_number) {
-            return Some(Placement::Copied { far, direction, named: 0 });
+            return Some((Node::Copied { far, direction, names_children: false }, 0));
         }
         let numbers = children_numbers?;
         self.copy_naming_children(visit, numbers).or_else(|| flipping_divide(numbers, visit.bound_above))
@@ -243,7 +211,7 @@ impl GreedyTiler<'_> {
     /// before far, then in direction order, on a tie. A child is copied
     /// when it holds the same cells as the same child of the copy's
     /// source.
-    fn copy_naming_children(&self, visit: Visit, numbers: [u16; 4]) -> Option<Placement> {
+    fn copy_naming_children(&self, visit: Visit, numbers: [u16; 4]) -> Option<(Node, u8)> {
         let values = numbers.map(homogeneous_value_of);
         let child_level = visit.tile.level + 1;
         // Only a child whose pattern another tile holds can be copied.
@@ -254,7 +222,7 @@ impl GreedyTiler<'_> {
         if !worth_it(adds_copied.iter().sum(), adds_non_homogeneous.iter().sum()) {
             return None;
         }
-        let mut best: Option<(u32, Placement)> = None;
+        let mut best: Option<(u32, Node, u8)> = None;
         for far in [false, true] {
             for direction in 0..DIRECTIONS {
                 let Some(source) = visit.tile.offset_by(copy_offset(far, direction)) else { continue };
@@ -268,21 +236,21 @@ impl GreedyTiler<'_> {
                         named |= 1 << index;
                     }
                 }
-                if worth_it(copied, non_homogeneous) && best.is_none_or(|(most, _)| copied > most) {
-                    best = Some((copied, Placement::Copied { far, direction, named }));
+                if worth_it(copied, non_homogeneous) && best.is_none_or(|(most, ..)| copied > most) {
+                    best = Some((copied, Node::Copied { far, direction, names_children: true }, named));
                 }
             }
         }
-        best.map(|(_, placement)| placement)
+        best.map(|(_, node, named)| (node, named))
     }
 }
 
 /// A flipping divide of a tile whose children's pattern numbers are
 /// `numbers`, naming the children not homogeneous with the value not
 /// bound above, if it binds at least [`MIN_FLIPPED_CHILDREN`].
-fn flipping_divide(numbers: [u16; 4], bound_above: bool) -> Option<Placement> {
+fn flipping_divide(numbers: [u16; 4], bound_above: bool) -> Option<(Node, u8)> {
     let named = (0..numbers.len()).filter(|&index| homogeneous_value_of(numbers[index]) != Some(!bound_above)).fold(0u8, |named, index| named | 1 << index);
-    (numbers.len() as u32 - named.count_ones() >= MIN_FLIPPED_CHILDREN).then_some(Placement::FlippingDivide(named))
+    (numbers.len() as u32 - named.count_ones() >= MIN_FLIPPED_CHILDREN).then_some((Node::FlippingDivide, named))
 }
 
 /// Whether each of the 4x4 `tile`'s 2x2s is homogeneous: its cells, one

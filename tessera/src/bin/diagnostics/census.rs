@@ -3,7 +3,7 @@
 
 use tessera::diagnostics::bitmaps::looked_at;
 use tessera::diagnostics::census::census;
-use tessera::grammar::bit_stream::BitStream;
+use tessera::bit_stream::BitStream;
 use tessera::tile::{tile_side, FLOOR_LEVEL};
 use tessera::Tessera;
 use utilities::table::report::Report;

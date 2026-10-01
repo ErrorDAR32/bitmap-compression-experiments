@@ -32,7 +32,7 @@
 use tessera::adversarial::{record, search_at_once, Effort, Score, SEARCHES_AT_ONCE};
 use tessera::diagnostics::examination::Examination;
 use tessera::encode;
-use tessera::grammar::bit_stream::BitStream;
+use tessera::bit_stream::BitStream;
 use tessera::tile::{cells_in_tile, Tile};
 use tessera::Tessera;
 use tessera::sample_generators::sample_seed;

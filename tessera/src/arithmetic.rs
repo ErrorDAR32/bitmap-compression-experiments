@@ -20,7 +20,7 @@
 //! replays every split with the same probabilities, and reads each bit
 //! off which part that number is in.
 
-use super::bit_stream::{BitReader, BitStream, Sink};
+use crate::bit_stream::{BitReader, BitStream, Sink};
 
 /// The width the interval is kept at or over: a byte under the window's.
 const TOP: u32 = 1 << 24;

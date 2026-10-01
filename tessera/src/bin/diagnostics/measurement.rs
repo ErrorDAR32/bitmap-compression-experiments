@@ -6,7 +6,7 @@ use tessera::adversarial::record;
 use tessera::diagnostics::measured::Measured;
 use tessera::diagnostics::tree_stats::TreeStats;
 use tessera::diagnostics::RAW_CELLS;
-use tessera::grammar::bit_stream::BitStream;
+use tessera::bit_stream::BitStream;
 use tessera::grammar::{COUNT_SPLIT_STREAM, STREAM_MODE_WIDTH};
 use tessera::Tessera;
 use tessera::sample_generators::checkerboards::checkerboards;

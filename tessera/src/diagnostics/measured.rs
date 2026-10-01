@@ -2,7 +2,7 @@
 //! decoded by one `Tessera`.
 
 use super::examination::first_difference;
-use crate::grammar::bit_stream::BitStream;
+use crate::bit_stream::BitStream;
 use crate::Tessera;
 use bitmap::Bitmap;
 use std::time::Instant;

@@ -29,8 +29,8 @@
 //! the same cells whichever node says them; only the odds learned by
 //! then differ.
 
-use crate::grammar::arithmetic::{ClearProbability, Decoder, Encoder, FINISHING_BITS};
-use crate::grammar::bit_stream::{BitReader, BitStream};
+use crate::arithmetic::{ClearProbability, Decoder, Encoder, FINISHING_BITS};
+use crate::bit_stream::{BitReader, BitStream};
 use crate::tile::{cells_in_tile, copy_offset, tiles_across, tiles_in_level, Tile, CELLS, FLOOR_LEVEL};
 use bitmap::morton::{morton_coordinates, morton_index};
 use bitmap::Bitmap;
@@ -198,67 +198,14 @@ fn each_block(set: impl Fn(usize) -> u64, mut visit: impl FnMut(usize)) {
     }
 }
 
-/// Codes a residual cell: encoding, decoding or pricing it.
-trait CellCoder {
-    /// Codes the cell at Morton index `cell_index` at `odds`, and says
-    /// whether it is set.
-    fn code(&mut self, odds: ContextOdds, cell_index: usize) -> bool;
-}
-
-/// Encoding: each cell read off the bitmap and written.
-struct CellEncoder<'a> {
-    /// The bitmap encoded.
-    bitmap: &'a Bitmap,
-    /// The coder.
-    encoder: Encoder,
-    /// Where the bits go.
-    stream: &'a mut BitStream,
-}
-
-impl CellCoder for CellEncoder<'_> {
-    fn code(&mut self, odds: ContextOdds, cell_index: usize) -> bool {
-        let set = self.bitmap.morton_run(cell_index, 1) == 1;
-        self.encoder.encode(set, odds.clear_probability(), self.stream);
-        set
-    }
-}
-
-/// Decoding: each cell read off the stream.
-struct CellDecoder<'r, 'a> {
-    /// Where the bits come from.
-    reader: &'r mut BitReader<'a>,
-    /// The coder.
-    decoder: Decoder,
-}
-
-impl CellCoder for CellDecoder<'_, '_> {
-    fn code(&mut self, odds: ContextOdds, _: usize) -> bool {
-        self.decoder.decode(odds.clear_probability(), self.reader)
-    }
-}
-
-/// Pricing: each cell read off the bitmap and its cost added up.
-struct CellPricer<'a> {
-    /// The bitmap priced.
-    bitmap: &'a Bitmap,
-    /// The cells' costs, in fixed point.
-    bits: u32,
-}
-
-impl CellCoder for CellPricer<'_> {
-    fn code(&mut self, odds: ContextOdds, cell_index: usize) -> bool {
-        let set = self.bitmap.morton_run(cell_index, 1) == 1;
-        self.bits += odds.cost(set);
-        set
-    }
-}
-
 /// Codes the cells of the residual block at `index`, a row at a time,
 /// each at the odds of its context in `cells`, which `odds` learn: the
-/// block's cells, as one run. Every context cell lies in the block or
-/// the blocks left of it, above it and above left, read once, as one
+/// block's cells, as one run. `code` codes the cell at a Morton index
+/// at the odds given -- encoding, decoding or pricing it -- and says
+/// whether it is set. Every context cell lies in the block or the
+/// blocks left of it, above it and above left, read once, as one
 /// [`Window`].
-fn code_residual_block(odds: &mut [ContextOdds; CONTEXTS], cells: &Bitmap, index: usize, coder: &mut impl CellCoder) -> u64 {
+fn code_residual_block(odds: &mut [ContextOdds; CONTEXTS], cells: &Bitmap, index: usize, code: &mut impl FnMut(ContextOdds, usize) -> bool) -> u64 {
     let mut window = Window::around(cells, index);
     let mut block_run = 0;
     for dy in 0..BLOCK_SIDE {
@@ -266,7 +213,7 @@ fn code_residual_block(odds: &mut [ContextOdds; CONTEXTS], cells: &Bitmap, index
         for dx in 0..BLOCK_SIDE {
             let context = &mut odds[columns.context(dx)];
             let morton_place = MORTON_PLACES[(dy * BLOCK_SIDE + dx) as usize];
-            let set = coder.code(*context, index * BLOCK_CELLS + morton_place);
+            let set = code(*context, index * BLOCK_CELLS + morton_place);
             if set {
                 window.set(dx, dy);
                 columns.set(dx);
@@ -302,9 +249,13 @@ impl Pricing {
     /// Prices the residual block `block` of `bitmap`, every residual
     /// block before it in Morton order priced: its bits.
     pub fn price(&mut self, bitmap: &Bitmap, block: Tile) -> u64 {
-        let mut pricer = CellPricer { bitmap, bits: 0 };
-        code_residual_block(&mut self.odds, bitmap, block.index(), &mut pricer);
-        let price = ((pricer.bits + (1 << (FRACTION_BITS - 1))) >> FRACTION_BITS) as u16;
+        let mut bits = 0;
+        code_residual_block(&mut self.odds, bitmap, block.index(), &mut |odds, cell_index| {
+            let set = bitmap.morton_run(cell_index, 1) == 1;
+            bits += odds.cost(set);
+            set
+        });
+        let price = ((bits + (1 << (FRACTION_BITS - 1))) >> FRACTION_BITS) as u16;
         self.prices[block.index()] = price;
         price as u64
     }
@@ -399,10 +350,14 @@ impl LastPass {
         each_block(|word_index| unsaid[word_index], |index| self.cells_as_decoded.clear_morton_run(index * BLOCK_CELLS, BLOCK_CELLS));
         // A pass coding no cell writes nothing: not even the coder's end.
         let codes_any_cell = self.state.residual != [0; BLOCK_WORDS];
-        let mut coder = CellEncoder { bitmap, encoder: Encoder::default(), stream };
-        self.state.run_pass(&mut self.cells_as_decoded, &mut coder);
+        let mut encoder = Encoder::default();
+        self.state.run_pass(&mut self.cells_as_decoded, &mut |odds, cell_index| {
+            let set = bitmap.morton_run(cell_index, 1) == 1;
+            encoder.encode(set, odds.clear_probability(), stream);
+            set
+        });
         if codes_any_cell {
-            coder.encoder.finish(coder.stream);
+            encoder.finish(stream);
         }
     }
 
@@ -410,15 +365,15 @@ impl LastPass {
     pub fn decode(&mut self, cells: &mut Bitmap, reader: &mut BitReader) {
         // A pass coding no cell has nothing after it: the coder's start
         // reads past the stream's end, all 0, and nothing more.
-        let decoder = Decoder::new(reader);
-        self.state.run_pass(cells, &mut CellDecoder { reader, decoder });
+        let mut decoder = Decoder::new(reader);
+        self.state.run_pass(cells, &mut |odds, _| decoder.decode(odds.clear_probability(), reader));
     }
 }
 
 impl PassState {
     /// The pass itself, on `cells`: every block copied or coded, in
     /// Morton order, then the copies that waited.
-    fn run_pass(&mut self, cells: &mut Bitmap, coder: &mut impl CellCoder) {
+    fn run_pass(&mut self, cells: &mut Bitmap, code: &mut impl FnMut(ContextOdds, usize) -> bool) {
         self.odds = [ContextOdds::UNSEEN; CONTEXTS];
         self.pending.clear();
         let unsaid = self.unsaid;
@@ -430,7 +385,7 @@ impl PassState {
                     self.pending.push(index as BlockIndex);
                 }
             } else if contains(&self.residual, index) {
-                let run = code_residual_block(&mut self.odds, cells, index, coder);
+                let run = code_residual_block(&mut self.odds, cells, index, code);
                 cells.set_in_morton_run(index * BLOCK_CELLS, BLOCK_CELLS, run);
                 remove(&mut self.residual, index);
             }

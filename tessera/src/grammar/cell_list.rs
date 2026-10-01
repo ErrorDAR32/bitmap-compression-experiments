@@ -11,7 +11,7 @@
 //! `k * (log2(cells / k) + 1.5)` bits: near what `k` cells scattered at
 //! random need at least.
 
-use super::bit_stream::{gamma_bits, BitReader, Sink};
+use crate::bit_stream::{gamma_bits, BitReader, Sink};
 use crate::tile::{cells_in_tile, Tile};
 use bitmap::Bitmap;
 

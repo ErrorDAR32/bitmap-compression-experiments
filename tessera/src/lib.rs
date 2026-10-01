@@ -45,6 +45,8 @@
 
 #![warn(missing_docs, clippy::missing_docs_in_private_items)]
 
+mod arithmetic;
+mod bit_stream;
 mod grammar;
 mod greedy_tiler;
 mod last_pass;
@@ -52,10 +54,10 @@ mod patterns;
 mod set_counts;
 mod tile;
 
-pub use grammar::bit_stream::BitStream;
+pub use bit_stream::BitStream;
 
 use bitmap::Bitmap;
-use grammar::bit_stream::{Counter, Sink};
+use bit_stream::{Counter, Sink};
 use grammar::{count_split, read_tree, write_tree, Tree, COUNT_SPLIT_STREAM, FLAG_WIDTH, TREE_STREAM};
 use greedy_tiler::GreedyTiler;
 use last_pass::{LastPass, Pricing};

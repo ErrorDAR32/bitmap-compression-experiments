@@ -36,7 +36,7 @@ use tessera::adversarial::record;
 use tessera::diagnostics::examination::first_difference;
 use tessera::diagnostics::RAW_CELLS;
 use tessera::transient_data;
-use tessera::grammar::bit_stream::BitStream;
+use tessera::bit_stream::BitStream;
 use tessera::Tessera;
 use tessera::sample_generators::checkerboards::checkerboard;
 use tessera::sample_generators::seed::seed_in_use;
