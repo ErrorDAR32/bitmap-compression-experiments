@@ -5,7 +5,6 @@
 //! subtraction.
 
 use crate::tile::{cells_in_tile, Tile};
-use bitmap::morton::morton_index;
 use bitmap::{Bitmap, WORDS};
 
 /// Cells a word of the bitmap holds.
@@ -30,13 +29,6 @@ impl SetCounts {
         }
     }
 
-    /// `bitmap`'s counts, in room of their own.
-    pub fn of(bitmap: &Bitmap) -> Self {
-        let mut counts = Self::new();
-        counts.count(bitmap);
-        counts
-    }
-
     /// Cells set in all.
     pub fn total(&self) -> u64 {
         self.set_before[WORDS] as u64
@@ -50,15 +42,8 @@ impl SetCounts {
     /// Cells set in `tile`, a word or more of cells: one run of whole
     /// words.
     pub fn in_tile(&self, tile: Tile) -> u64 {
-        let cells = cells_in_tile(tile.level) as usize;
+        let cells = cells_in_tile(tile.level);
         debug_assert!(cells >= WORD_CELLS, "{tile:?} is less than a word of cells");
-        self.in_words(morton_index(tile.x, tile.y) * cells / WORD_CELLS, cells / WORD_CELLS)
-    }
-}
-
-impl Default for SetCounts {
-    /// The same as [`SetCounts::new`].
-    fn default() -> Self {
-        Self::new()
+        self.in_words(tile.first_cell() / WORD_CELLS, cells / WORD_CELLS)
     }
 }

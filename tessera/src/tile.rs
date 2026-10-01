@@ -1,51 +1,36 @@
-//! What a tile is: a size and a place in that size's plane.
-//!
-//! A tile's level is its size -- level 0 is the whole 256x256 bitmap,
-//! level [`CELL_LEVEL`] is one cell -- and its `x` and `y` count tiles
-//! of that size, not cells. All three fit a `u8`: levels run 0-8, and
-//! no level has more than 256 tiles across. Cell coordinates, also
-//! `u8`, are worked out only where cells are actually read.
+//! A tile: a size and a place in that size's plane. Its level is its
+//! size -- 0 the whole 256x256 bitmap, [`CELL_LEVEL`] one cell -- and its
+//! `x` and `y` count tiles of that size, not cells.
 
-use bitmap::{Bitmap, WIDTH};
 use bitmap::morton::{morton_coordinates, morton_index};
+use bitmap::{Bitmap, WIDTH};
 
 /// The level of a single cell, the finest there is.
 pub const CELL_LEVEL: u8 = 8;
-
-/// The 4x4 floor: the finest tile the tree holds a node at -- a 4x4
-/// that is not one tile, a copy or a complex tile of 2x2 resolution is a
-/// residual block, its cells said in the last pass.
+/// The 4x4 floor: the finest tile the tree holds a node at, and the
+/// finest a copy reads.
 pub const FLOOR_LEVEL: u8 = CELL_LEVEL - 2;
-
-/// The finest tile the greedy tiler places: a 2x2, finer than the tree
-/// goes, for the complex tiles of 2x2 resolution that unmask it.
-pub const FINEST_PLACED_LEVEL: u8 = CELL_LEVEL - 1;
-
-/// Where a tile may copy from: the four same-size neighbours reading
-/// order puts before it -- top left, above, top right, left.
-pub const DIRECTIONS: [(isize, isize); 4] = [(-1, -1), (0, -1), (1, -1), (-1, 0)];
-
-/// Every direction, as the index into [`DIRECTIONS`] a copy names.
-pub fn directions() -> impl Iterator<Item = u8> {
-    0..DIRECTIONS.len() as u8
-}
-
-/// A tile is this many of its children wide.
-pub const CHILDREN_ACROSS: u8 = 2;
 /// A tile's children.
-pub const CHILDREN: u8 = CHILDREN_ACROSS * CHILDREN_ACROSS;
-/// One bit a child, every child's set: a child mask naming them all.
-pub const ALL_CHILDREN: u8 = (1 << CHILDREN) - 1;
-/// Bits enough for any level, the whole bitmap to a cell.
-pub const LEVEL_BITS: u8 = (u8::BITS - CELL_LEVEL.leading_zeros()) as u8;
-
+pub const CHILDREN: u8 = 4;
 /// Cells in the bitmap.
 pub const CELLS: usize = tiles_in_level(CELL_LEVEL);
 
-/// How many tiles there are from the whole bitmap down to `level`, both
-/// included: `1 + 4 + ... + 4^level`.
-pub const fn tiles_down_to(level: u8) -> usize {
-    ((1usize << (2 * (level as usize + 1))) - 1) / 3
+/// Where a near copy reads from, by direction, in tiles of its own size:
+/// the neighbours reading order puts before it -- top left, above, top
+/// right, left.
+const NEAR_OFFSETS: [(isize, isize); 4] = [(-1, -1), (0, -1), (1, -1), (-1, 0)];
+/// Where a far copy reads from, by direction: found by a search over
+/// offsets, where the near offsets doubled lost several percent on
+/// cities and more on checkerboards.
+const FAR_OFFSETS: [(isize, isize); 4] = [(-2, -2), (0, -4), (4, -4), (-4, 0)];
+/// The directions a copy names.
+pub const DIRECTIONS: u8 = NEAR_OFFSETS.len() as u8;
+
+/// Where a near or far copy in `direction` reads from, in tiles of its
+/// own size: always before it in reading order, so decoding has every
+/// source before what copies it.
+pub const fn copy_offset(far: bool, direction: u8) -> (isize, isize) {
+    if far { FAR_OFFSETS[direction as usize] } else { NEAR_OFFSETS[direction as usize] }
 }
 
 /// Tiles across one row of a level's plane.
@@ -59,44 +44,41 @@ pub const fn tiles_in_level(level: u8) -> usize {
     tiles_across(level) * tiles_across(level)
 }
 
-/// A tile's side at a level, in cells.
-pub const fn tile_side(level: u8) -> usize {
-    WIDTH >> level
+/// How many tiles there are from the whole bitmap down to `level`, both
+/// included: `1 + 4 + ... + 4^level`.
+pub const fn tiles_down_to(level: u8) -> usize {
+    (tiles_in_level(level + 1) - 1) / 3
 }
 
 /// How many cells one tile at `level` covers.
-pub const fn cells_in_tile(level: u8) -> u64 {
-    let side = tile_side(level) as u64;
-    side * side
-}
-
-/// How many levels lie between a tile at `level` and its cells.
-pub const fn levels_to_cells(level: u8) -> u8 {
-    CELL_LEVEL - level
+pub const fn cells_in_tile(level: u8) -> usize {
+    tiles_in_level(CELL_LEVEL - level)
 }
 
 /// A square of the bitmap: its size, and its place among tiles of that
 /// size.
-#[derive(Clone, Copy, Default, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Tile {
-    /// Its size: `0` the whole bitmap, [`CELL_LEVEL`] a single cell,
-    /// each level half the side of the one before.
+    /// Its size: each level half the side of the one before.
     pub level: u8,
-    /// Its column among the tiles of its level, left to right.
+    /// Its column among the tiles of its level.
     pub x: u8,
-    /// Its row among the tiles of its level, top to bottom.
+    /// Its row among the tiles of its level.
     pub y: u8,
 }
 
 impl Tile {
     /// The whole bitmap as one tile.
-    pub const fn whole_bitmap() -> Self {
-        Self { level: 0, x: 0, y: 0 }
+    pub const WHOLE_BITMAP: Tile = Tile { level: 0, x: 0, y: 0 };
+
+    /// Its place among its level's tiles, in Morton order.
+    pub const fn index(self) -> usize {
+        morton_index(self.x, self.y)
     }
 
     /// Its side, in cells.
     pub const fn side_in_cells(self) -> usize {
-        tile_side(self.level)
+        WIDTH >> self.level
     }
 
     /// Its top left cell.
@@ -105,36 +87,16 @@ impl Tile {
         ((self.x as usize * side) as u8, (self.y as usize * side) as u8)
     }
 
-    /// Its cells as an inclusive rectangle: left, top, right, bottom.
-    pub const fn cell_rect(self) -> (u8, u8, u8, u8) {
-        let (left, top) = self.top_left_cell();
-        let last = (self.side_in_cells() - 1) as u8;
-        (left, top, left + last, top + last)
+    /// The Morton index of its first cell: its cells are the run from
+    /// there.
+    pub const fn first_cell(self) -> usize {
+        self.index() * cells_in_tile(self.level)
     }
 
-    /// Its place among its parent's children, in reading order.
-    pub const fn child_index(self) -> u8 {
-        (self.y % CHILDREN_ACROSS) * CHILDREN_ACROSS + self.x % CHILDREN_ACROSS
-    }
-
-    /// Its four children, in reading order: top left, top right, bottom
-    /// left, bottom right.
+    /// Its four children, in reading order -- which, for one 2x2 group,
+    /// is Morton order.
     pub fn children(self) -> [Tile; 4] {
-        [(0, 0), (1, 0), (0, 1), (1, 1)].map(|(dx, dy)| Tile {
-            level: self.level + 1,
-            x: self.x * CHILDREN_ACROSS + dx,
-            y: self.y * CHILDREN_ACROSS + dy,
-        })
-    }
-
-    /// The tile one level coarser that holds this one.
-    pub const fn parent(self) -> Tile {
-        Tile { level: self.level - 1, x: self.x / CHILDREN_ACROSS, y: self.y / CHILDREN_ACROSS }
-    }
-
-    /// The same-size neighbour in a direction, if it is on the bitmap.
-    pub fn neighbour(self, direction: u8) -> Option<Tile> {
-        self.offset_by(DIRECTIONS[direction as usize])
+        [(0, 0), (1, 0), (0, 1), (1, 1)].map(|(dx, dy)| Tile { level: self.level + 1, x: self.x * 2 + dx, y: self.y * 2 + dy })
     }
 
     /// The same-size tile `(dx, dy)` tiles away, if it is on the bitmap.
@@ -144,46 +106,85 @@ impl Tile {
         (x >= 0 && y >= 0 && x < across && y < across).then_some(Tile { level: self.level, x: x as u8, y: y as u8 })
     }
 
-    /// The tile at `level`, coarser or equal, that holds this one.
-    pub const fn ancestor(self, level: u8) -> Tile {
-        // Up to 8 levels apart, a shift as wide as a u8 itself: done wider.
-        let shift = self.level - level;
-        Tile { level, x: ((self.x as u16) >> shift) as u8, y: ((self.y as u16) >> shift) as u8 }
-    }
-
-    /// What `bitmap` holds at this tile's top left cell -- the tile's own
-    /// value, when every cell of it agrees.
+    /// What `bitmap` holds at its top left cell: the tile's value, when
+    /// every cell of it agrees.
     pub fn top_left_value(self, bitmap: &Bitmap) -> bool {
         let (x, y) = self.top_left_cell();
         bitmap.get(x, y)
     }
 
-    /// Sets every cell of this tile in `bitmap`.
-    pub fn set_in(self, bitmap: &mut Bitmap) {
-        bitmap.set_square(self.top_left_cell(), self.side_in_cells());
-    }
-
-    /// Every tile of one level, in Morton order -- the order the level
-    /// is laid out in, in every pyramid.
+    /// Every tile of one level, in Morton order.
     pub fn all_of_level(level: u8) -> impl Iterator<Item = Tile> {
-        Tile::whole_bitmap().tiles_at_size_offset(level)
+        Tile::WHOLE_BITMAP.tiles_under(level)
     }
 
-    /// Every single cell, in Morton order.
-    pub fn all_cells() -> impl Iterator<Item = Tile> {
-        Tile::all_of_level(CELL_LEVEL)
-    }
-
-    /// The tiles that fill this one `size_offset` levels finer, in Morton
-    /// order: one run of Morton indices, from this tile's own times the
-    /// tiles a tile holds.
-    pub fn tiles_at_size_offset(self, size_offset: u8) -> impl Iterator<Item = Tile> {
+    /// The tiles filling this one `size_offset` levels finer, in Morton
+    /// order.
+    pub fn tiles_under(self, size_offset: u8) -> impl Iterator<Item = Tile> {
+        let count = tiles_in_level(size_offset);
         let level = self.level + size_offset;
-        let tile_count = tiles_in_level(size_offset);
-        let first_index = morton_index(self.x, self.y) * tile_count;
-        (first_index..first_index + tile_count).map(move |index| {
+        (self.index() * count..(self.index() + 1) * count).map(move |index| {
             let (x, y) = morton_coordinates(index);
             Tile { level, x, y }
         })
+    }
+}
+
+/// One element per tile, at every level from the whole bitmap down to
+/// `FINEST`, each level's elements in Morton order: a tile's four
+/// children are four consecutive elements.
+pub struct Pyramid<T, const FINEST: u8> {
+    /// Every level's elements, coarsest first.
+    elements: Box<[T]>,
+}
+
+impl<T: Copy + Default, const FINEST: u8> Pyramid<T, FINEST> {
+    /// Every element the default.
+    pub fn new() -> Self {
+        Self { elements: vec![T::default(); tiles_down_to(FINEST)].into_boxed_slice() }
+    }
+
+    /// Where `level`'s elements start.
+    const fn level_start(level: u8) -> usize {
+        (tiles_in_level(level) - 1) / 3
+    }
+
+    /// The element of `level`'s tile at Morton index `index`.
+    #[inline]
+    fn slot(level: u8, index: usize) -> usize {
+        Self::level_start(level) + index
+    }
+
+    /// `tile`'s element.
+    #[inline]
+    pub fn get(&self, tile: Tile) -> T {
+        self.elements[Self::slot(tile.level, tile.index())]
+    }
+
+    /// Makes `value` `tile`'s element.
+    #[inline]
+    pub fn set(&mut self, tile: Tile, value: T) {
+        self.set_at(tile.level, tile.index(), value);
+    }
+
+    /// Makes `value` the element of `level`'s tile at Morton index
+    /// `index`.
+    #[inline]
+    pub fn set_at(&mut self, level: u8, index: usize, value: T) {
+        self.elements[Self::slot(level, index)] = value;
+    }
+
+    /// `tile`'s four children's elements, in reading order.
+    #[inline]
+    pub fn children(&self, tile: Tile) -> [T; 4] {
+        self.children_at(tile.level, tile.index())
+    }
+
+    /// The four children's elements of `level`'s tile at Morton index
+    /// `index`, in reading order.
+    #[inline]
+    pub fn children_at(&self, level: u8, index: usize) -> [T; 4] {
+        let first = Self::slot(level + 1, 4 * index);
+        self.elements[first..first + 4].try_into().expect("four children")
     }
 }

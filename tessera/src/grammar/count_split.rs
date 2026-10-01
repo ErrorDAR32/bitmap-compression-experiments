@@ -15,7 +15,7 @@
 //! a square into two rectangles, and each of those into two squares, so
 //! the runs are the regions of a binary partition of the plane.
 
-use super::bit_stream::{gamma_bits, truncated_binary_bits, truncated_binary_shape, BitReader, BitStream};
+use super::bit_stream::{truncated_binary_bits, truncated_binary_shape, BitReader, Sink};
 use crate::set_counts::SetCounts;
 use bitmap::WORDS;
 use bitmap::Bitmap;
@@ -190,31 +190,19 @@ impl Words<'_> {
         self.set_counts.in_words(first, count / 2)
     }
 
-    /// The bits the run of `count` words from `first`, `set` of its
-    /// cells set, takes inside it.
-    fn bits(&self, first: usize, count: usize, set: u64) -> u64 {
-        if set == 0 || set == (count * WORD_CELLS) as u64 {
-            return 0;
-        }
-        if count == 1 {
-            return word_bits(self.words[first], WORD_CELLS, set);
-        }
-        let (half, first_half_set) = (count / 2, self.first_half_set(first, count));
-        let (fewest, counts) = first_half_counts(count * WORD_CELLS, set);
-        truncated_binary_bits(first_half_set - fewest, counts)
-            + self.bits(first, half, first_half_set)
-            + self.bits(first + half, half, set - first_half_set)
-    }
-
     /// Writes the run of `count` words from `first`, `set` of its cells
     /// set: nothing if all or none is, else how many lie in its first
-    /// half and each half in turn.
-    fn write(&self, stream: &mut BitStream, first: usize, count: usize, set: u64) {
+    /// half and each half in turn. A run of one word is counted a
+    /// quarter at a time, off [`SHORT_RUN_BITS`].
+    fn write(&self, stream: &mut impl Sink, first: usize, count: usize, set: u64) {
         if set == 0 || set == (count * WORD_CELLS) as u64 {
             return;
         }
         if count == 1 {
-            write_word(stream, self.words[first], WORD_CELLS, set);
+            match stream.counted() {
+                Some(bits) => *bits += word_bits(self.words[first], WORD_CELLS, set),
+                None => write_word(stream, self.words[first], WORD_CELLS, set),
+            }
             return;
         }
         let (half, first_half_set) = (count / 2, self.first_half_set(first, count));
@@ -227,7 +215,7 @@ impl Words<'_> {
 
 /// Writes the run of the cells `run` holds, `cells` of them -- a word or
 /// less -- `set` of them set, as [`Words::write`] a longer one.
-fn write_word(stream: &mut BitStream, run: u64, cells: usize, set: u64) {
+fn write_word(stream: &mut impl Sink, run: u64, cells: usize, set: u64) {
     if set == 0 || set == cells as u64 {
         return;
     }
@@ -240,16 +228,8 @@ fn write_word(stream: &mut BitStream, run: u64, cells: usize, set: u64) {
     write_word(stream, run >> half, half, set - first_half_set);
 }
 
-/// The bits `bitmap`'s count split takes: a step a word, whatever the
-/// bitmap -- a run inside one word counted off that word alone.
-/// `set_counts` are `bitmap`'s.
-pub fn bits(bitmap: &Bitmap, set_counts: &SetCounts) -> u64 {
-    let words = Words { words: bitmap.words(), set_counts };
-    gamma_bits(set_counts.total() + 1) + words.bits(0, WORDS, set_counts.total())
-}
-
 /// Writes `bitmap`'s count split; `set_counts` are `bitmap`'s.
-pub fn write(bitmap: &Bitmap, set_counts: &SetCounts, stream: &mut BitStream) {
+pub fn write(stream: &mut impl Sink, bitmap: &Bitmap, set_counts: &SetCounts) {
     let words = Words { words: bitmap.words(), set_counts };
     stream.push_gamma(set_counts.total() + 1);
     words.write(stream, 0, WORDS, set_counts.total());

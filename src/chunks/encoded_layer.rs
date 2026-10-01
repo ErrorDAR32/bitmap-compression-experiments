@@ -15,7 +15,7 @@
 //! say -- and decoding writes them there.
 
 use bitmap::{Bitmap, CellWords};
-use tessera::grammar::bit_stream::BitStream;
+use tessera::BitStream;
 use tessera::Tessera;
 
 /// A bitmap, Tessera-encoded, in aligned 64-bit words.
