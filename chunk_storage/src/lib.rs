@@ -8,7 +8,7 @@
 //! | `coordinates` | where things are: a cell in the world, a superchunk in the world, a chunk in its superchunk, a cell in its chunk, and the conversions between them |
 //! | `height_map` | a chunk's heights, one a cell |
 //! | `disk_chunk` | a disk chunk: its height map, and its layers, one a type, encoded; whole layers only, no cells |
-//! | `disk_superchunk` | a disk superchunk: 16x16 disk chunks, the grain of disk access and terrain generation |
+//! | `disk_superchunk` | a disk superchunk: 4x4 disk chunks, the grain of disk access and terrain generation |
 //! | `encoded_layer` | a layer as a chunk holds it, Tessera-encoded at its exact length, and the codec that encodes and decodes it |
 
 // Every item is documented, private ones included; `cargo clippy`
@@ -23,7 +23,7 @@ mod height_map;
 
 pub use coordinates::{
     CellAddress, CellPlace, ChunkPlace, ChunkPosition, SuperChunkPosition, WorldCell, CHUNKS_IN_SUPERCHUNK, CHUNK_SIDE, SUPERCHUNK_SIDE,
-    SUPERCHUNK_SIDE_CELLS,
+    SUPERCHUNK_SIDE_CELLS, WORLD_SIDE_SUPERCHUNKS,
 };
 pub use disk_chunk::{DiskChunk, LayerType};
 pub use disk_superchunk::DiskSuperChunk;

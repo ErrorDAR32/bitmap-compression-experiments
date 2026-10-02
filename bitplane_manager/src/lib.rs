@@ -5,14 +5,14 @@
 //!
 //! The arena is made of allocations the size of a superchunk -- blocks
 //! of the allocator's pool (`../allocator`) -- each holding one layer
-//! type over one superchunk, a bucket for every one of its 256 chunks,
+//! type over one superchunk, a bucket for every one of its 16 chunks,
 //! in the chunks' Morton order ([`ChunkPlace::index`]). A chunk's bucket is found in its allocation by that
 //! index, with no search and no sorting, and a bucket never moves once
 //! allocated: making a bitmap hot or cold moves no other.
 //!
 //! Which allocation holds which layer type over which superchunk is a
 //! small directory, sorted by type and then by the superchunk's Morton
-//! key ([`SuperChunkPosition::morton_key`]): the one thing ever sorted,
+//! key ([`SuperChunkPosition::morton_index`]): the one thing ever sorted,
 //! and it holds no bitmaps. The allocations themselves lie wherever they
 //! were made; each is one large run of memory in Morton order.
 //!
@@ -53,26 +53,27 @@ pub struct BucketKey {
 pub struct NotHot(pub BucketKey);
 
 /// A set of a superchunk's chunks, one bit each, by Morton index.
-type ChunkSet = [u64; CHUNKS_IN_SUPERCHUNK / BITS_PER_WORD];
+type ChunkSet = u16;
+
+const _: () = assert!(ChunkSet::BITS as usize == CHUNKS_IN_SUPERCHUNK, "a chunk set holds a bit for every chunk");
 
 /// Whether `set` holds the chunk at `index`.
-fn contains(set: &ChunkSet, index: usize) -> bool {
-    set[index / BITS_PER_WORD] >> (index % BITS_PER_WORD) & 1 == 1
+fn contains(set: ChunkSet, index: usize) -> bool {
+    set >> index & 1 == 1
 }
 
 /// Puts the chunk at `index` in `set`, or takes it out.
 fn put(set: &mut ChunkSet, index: usize, held: bool) {
-    let bit = 1 << (index % BITS_PER_WORD);
     if held {
-        set[index / BITS_PER_WORD] |= bit;
+        *set |= 1 << index;
     } else {
-        set[index / BITS_PER_WORD] &= !bit;
+        *set &= !(1 << index);
     }
 }
 
 /// The chunks in `set`, in Morton order.
-fn members(set: &ChunkSet) -> impl Iterator<Item = usize> + '_ {
-    (0..CHUNKS_IN_SUPERCHUNK).filter(|&index| contains(set, index))
+fn members(set: ChunkSet) -> impl Iterator<Item = usize> {
+    (0..CHUNKS_IN_SUPERCHUNK).filter(move |&index| contains(set, index))
 }
 
 /// Words an allocation takes: a bitmap's for every chunk of a
@@ -98,7 +99,7 @@ struct SuperChunkLayer {
 impl SuperChunkLayer {
     /// Where it sorts in the directory.
     fn order(&self) -> (LayerType, u64) {
-        (self.layer_type, self.superchunk.morton_key())
+        (self.layer_type, self.superchunk.morton_index())
     }
 }
 
@@ -198,7 +199,7 @@ impl BitmapArena {
 
     /// How many bitmaps are hot.
     pub fn len(&self) -> usize {
-        self.directory.iter().map(|layer| layer.hot.iter().map(|word| word.count_ones() as usize).sum::<usize>()).sum()
+        self.directory.iter().map(|layer| layer.hot.count_ones() as usize).sum()
     }
 
     /// Whether no bitmap is hot.
@@ -209,7 +210,7 @@ impl BitmapArena {
     /// Where the allocation for `layer_type` over `superchunk` is in the
     /// directory, or where it would go.
     fn find(&self, layer_type: LayerType, superchunk: SuperChunkPosition) -> Result<usize, usize> {
-        self.directory.binary_search_by_key(&(layer_type, superchunk.morton_key()), SuperChunkLayer::order)
+        self.directory.binary_search_by_key(&(layer_type, superchunk.morton_index()), SuperChunkLayer::order)
     }
 
     /// Where `key`'s bucket is, if it is hot: its allocation's entry in
@@ -217,7 +218,7 @@ impl BitmapArena {
     fn hot(&self, key: BucketKey) -> Option<(usize, usize)> {
         let (superchunk, place) = key.chunk.superchunk_and_place();
         let entry = self.find(key.layer_type, superchunk).ok()?;
-        contains(&self.directory[entry].hot, place.index()).then_some((entry, place.index()))
+        contains(self.directory[entry].hot, place.index()).then_some((entry, place.index()))
     }
 
     /// Whether `key`'s bitmap is hot.
@@ -230,8 +231,7 @@ impl BitmapArena {
     fn allocation(&mut self, layer_type: LayerType, superchunk: SuperChunkPosition) -> usize {
         self.find(layer_type, superchunk).unwrap_or_else(|entry| {
             let block = self.pool.allocate();
-            let empty = [0; CHUNKS_IN_SUPERCHUNK / BITS_PER_WORD];
-            self.directory.insert(entry, SuperChunkLayer { layer_type, superchunk, block, hot: empty, dirty: empty });
+            self.directory.insert(entry, SuperChunkLayer { layer_type, superchunk, block, hot: 0, dirty: 0 });
             entry
         })
     }
@@ -244,7 +244,7 @@ impl BitmapArena {
         let (superchunk, place) = key.chunk.superchunk_and_place();
         let (entry, index) = (self.allocation(key.layer_type, superchunk), place.index());
         let allocation = &mut self.directory[entry];
-        if contains(&allocation.hot, index) {
+        if contains(allocation.hot, index) {
             return false;
         }
         let bucket = bucket_in_mut(self.pool.block_mut(allocation.block), index);
@@ -307,7 +307,7 @@ impl BitmapArena {
         let end = self.directory.partition_point(|layer| layer.layer_type <= layer_type);
         self.directory[start..end].iter().flat_map(move |allocation| {
             let words = self.pool.block(allocation.block);
-            members(&allocation.hot).map(move |index| {
+            members(allocation.hot).map(move |index| {
                 let chunk = ChunkPosition::of(allocation.superchunk, ChunkPlace::from_index(index));
                 (chunk, Bucket { cells: bucket_in(words, index) })
             })
@@ -318,7 +318,7 @@ impl BitmapArena {
     /// superchunk, then chunk, each in Morton order.
     pub fn keys(&self) -> impl Iterator<Item = BucketKey> + '_ {
         self.directory.iter().flat_map(move |allocation| {
-            members(&allocation.hot).map(move |index| BucketKey {
+            members(allocation.hot).map(move |index| BucketKey {
                 layer_type: allocation.layer_type,
                 chunk: ChunkPosition::of(allocation.superchunk, ChunkPlace::from_index(index)),
             })
@@ -332,7 +332,7 @@ impl BitmapArena {
         let (mut written, position) = (0, superchunk.position());
         for allocation in self.directory.iter_mut().filter(|allocation| allocation.superchunk == position) {
             let words = self.pool.block(allocation.block);
-            for index in members(&allocation.dirty.clone()) {
+            for index in members(allocation.dirty) {
                 let (cells, chunk) = (bucket_in(words, index), superchunk.chunk_mut(ChunkPlace::from_index(index)));
                 if cells.iter().all(|&word| word == 0) {
                     chunk.remove_layer(allocation.layer_type);
@@ -355,9 +355,9 @@ impl BitmapArena {
             return false;
         };
         let allocation = &mut self.directory[entry];
-        assert!(!contains(&allocation.dirty, index), "{key:?} changed and was not written back");
+        assert!(!contains(allocation.dirty, index), "{key:?} changed and was not written back");
         put(&mut allocation.hot, index, false);
-        if allocation.hot.iter().all(|&word| word == 0) {
+        if allocation.hot == 0 {
             let block = self.directory.remove(entry).block;
             self.pool.release(block);
         }

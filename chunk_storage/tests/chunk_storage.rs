@@ -3,17 +3,18 @@
 //!
 //! `cargo test`
 
+use bitmap::morton::morton_index;
 use bitmap::{Bitmap, CellWords, WORDS};
 use chunk_storage::{
     CellAddress, CellPlace, ChunkPlace, ChunkPosition, DiskChunk, DiskSuperChunk, HeightMap, LayerCodec, LayerType, SuperChunkPosition,
-    WorldCell, CHUNKS_IN_SUPERCHUNK, CHUNK_SIDE, SUPERCHUNK_SIDE_CELLS,
+    WorldCell, CHUNKS_IN_SUPERCHUNK, CHUNK_SIDE, SUPERCHUNK_SIDE_CELLS, WORLD_SIDE_SUPERCHUNKS,
 };
 
 /// A cell of a chunk.
 const CELL: CellPlace = CellPlace { x: 3, y: 200 };
 
 /// A superchunk roughly in the middle of the world, where it starts.
-const MIDDLE: SuperChunkPosition = SuperChunkPosition { x: u32::MAX / 2, y: u32::MAX / 2 };
+const MIDDLE: SuperChunkPosition = SuperChunkPosition { x: WORLD_SIDE_SUPERCHUNKS / 2, y: WORLD_SIDE_SUPERCHUNKS / 2 };
 
 /// A bitmap's cells, with a rectangle and a circle drawn.
 fn drawn() -> CellWords {
@@ -93,7 +94,7 @@ fn a_superchunk_holds_every_chunk_once() {
     let places: Vec<usize> = superchunk.chunks().map(|(place, _)| place.index()).collect();
     assert_eq!(places, (0..CHUNKS_IN_SUPERCHUNK).collect::<Vec<_>>());
 
-    let place = ChunkPlace::new(15, 4);
+    let place = ChunkPlace::new(3, 2);
     superchunk.chunk_mut(place).replace_heights(HeightMap::filled(1));
     for (other, chunk) in superchunk.chunks() {
         assert_eq!(chunk.heights().get(CELL) == 1, other == place, "chunk {other:?}");
@@ -107,7 +108,7 @@ fn a_superchunk_holds_every_chunk_once() {
 #[test]
 #[should_panic(expected = "outside a superchunk")]
 fn a_chunk_place_outside_a_superchunk_panics() {
-    ChunkPlace::new(16, 0);
+    ChunkPlace::new(4, 0);
 }
 
 /// Every cell near the edges between superchunks and chunks, at the
@@ -115,10 +116,10 @@ fn a_chunk_place_outside_a_superchunk_panics() {
 /// address is the one expected.
 #[test]
 fn world_cells_and_addresses_convert_both_ways() {
-    let chunk_side = CHUNK_SIDE as u64;
-    let middle = MIDDLE.x as u64 * SUPERCHUNK_SIDE_CELLS;
+    let chunk_side = CHUNK_SIDE as u32;
+    let middle = MIDDLE.x * SUPERCHUNK_SIDE_CELLS;
     let edges = [0, 1, chunk_side - 1, chunk_side, SUPERCHUNK_SIDE_CELLS - 1, SUPERCHUNK_SIDE_CELLS, 5 * SUPERCHUNK_SIDE_CELLS + 1234];
-    let coordinates: Vec<u64> = edges.iter().flat_map(|&edge| [edge, middle + edge, middle - edge - 1]).collect();
+    let coordinates: Vec<u32> = edges.iter().flat_map(|&edge| [edge, middle + edge, middle - edge - 1]).collect();
     for &x in &coordinates {
         for &y in &coordinates {
             let cell = WorldCell { x, y };
@@ -134,7 +135,7 @@ fn world_cells_and_addresses_convert_both_ways() {
         WorldCell { x: middle - 1, y: middle - 1 }.address(),
         CellAddress {
             superchunk: SuperChunkPosition { x: MIDDLE.x - 1, y: MIDDLE.y - 1 },
-            chunk: ChunkPlace::new(15, 15),
+            chunk: ChunkPlace::new(3, 3),
             cell: CellPlace { x: 255, y: 255 },
         }
     );
@@ -147,11 +148,11 @@ fn world_cells_and_addresses_convert_both_ways() {
 /// every aligned square of chunks is one run of indices.
 #[test]
 fn chunks_in_a_superchunk_go_in_morton_order() {
-    let indices: Vec<usize> = [(0, 0), (1, 0), (0, 1), (1, 1), (2, 0), (0, 2), (15, 15)]
+    let indices: Vec<usize> = [(0, 0), (1, 0), (0, 1), (1, 1), (2, 0), (0, 2), (3, 3)]
         .into_iter()
         .map(|(x, y)| ChunkPlace::new(x, y).index())
         .collect();
-    assert_eq!(indices, [0, 1, 2, 3, 4, 8, 255]);
+    assert_eq!(indices, [0, 1, 2, 3, 4, 8, 15]);
     assert!(ChunkPlace::all().enumerate().all(|(index, place)| place.index() == index && ChunkPlace::from_index(index) == place));
 }
 
@@ -160,10 +161,29 @@ fn chunks_in_a_superchunk_go_in_morton_order() {
 /// left, bottom right, at the world's corner and in its middle alike.
 #[test]
 fn superchunks_sort_in_morton_order() {
-    let key = |x, y| SuperChunkPosition { x, y }.morton_key();
+    let key = |x, y| SuperChunkPosition { x, y }.morton_index();
     assert!(key(0, 0) < key(1, 0) && key(1, 0) < key(0, 1) && key(0, 1) < key(1, 1));
     assert!(key(1, 1) < key(2, 0));
     let (x, y) = (MIDDLE.x & !1, MIDDLE.y & !1);
     assert!(key(x, y) < key(x + 1, y) && key(x + 1, y) < key(x, y + 1) && key(x, y + 1) < key(x + 1, y + 1));
-    assert_eq!(key(u32::MAX, u32::MAX), u64::MAX);
+    let last = WORLD_SIDE_SUPERCHUNKS - 1;
+    assert_eq!(key(last, last), (1 << 44) - 1);
+}
+
+/// A cell's Morton index alone locates it: from the lowest bit, 16 for
+/// its place in its chunk, 4 for its chunk's place in its superchunk, 44
+/// for its superchunk -- and it comes back from its index.
+#[test]
+fn a_cells_morton_index_is_its_address() {
+    let middle = MIDDLE.x * SUPERCHUNK_SIDE_CELLS;
+    for (x, y) in [(0, 0), (1, 0), (0, 1), (255, 256), (middle + 1234, middle - 77), (u32::MAX, u32::MAX), (u32::MAX, 0)] {
+        let cell = WorldCell { x, y };
+        let (index, address) = (cell.morton_index(), cell.address());
+        assert_eq!(index & 0xFFFF, morton_index(address.cell.x, address.cell.y) as u64, "cell ({x}, {y})");
+        assert_eq!(index >> 16 & 0xF, address.chunk.index() as u64, "cell ({x}, {y})");
+        assert_eq!(index >> 20, address.superchunk.morton_index(), "cell ({x}, {y})");
+        assert_eq!(index >> 16, cell.chunk_and_cell().0.morton_index(), "cell ({x}, {y})");
+        assert_eq!(WorldCell::from_morton_index(index), cell);
+    }
+    assert_eq!(WorldCell { x: u32::MAX, y: u32::MAX }.morton_index(), u64::MAX);
 }

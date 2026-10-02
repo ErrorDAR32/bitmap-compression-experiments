@@ -23,16 +23,29 @@ unnoticed, nudging their decisions towards survival and progress.
 |---|---|---|
 | cell | one tile of the world | the unit everything is placed on |
 | disk chunk | 256x256 cells | the unit the world's data is held in: a height map and its layers |
-| disk superchunk | 4x4 disk chunks, 1024x1024 cells (decided; the code still has 16x16) | the grain of disk input and output, of terrain generation, and of hot bitmaps |
+| disk superchunk | 4x4 disk chunks, 1024x1024 cells | the grain of disk input and output, of terrain generation, and of hot bitmaps |
 
 A disk superchunk is read and written whole, and terrain is generated a
 superchunk at a time.
 
 Coordinates are non-negative integers, counted from the world's top
-left, and resolve by cascade: a superchunk (`u32` each way), then a
-chunk in it (0 to 15), then a cell in that chunk (0 to 255). The world
+left, and resolve by cascade: a superchunk (under 2^22 each way), then
+a chunk in it (0 to 3), then a cell in that chunk (0 to 255). The world
 starts roughly in the middle of both axes, so there is room in every
 direction.
+
+A cell's coordinates are a `u32` each, and their Morton index, a `u64`,
+locates it alone: from the lowest bit, 16 for the cell in its chunk, 4
+for the chunk in its superchunk, 44 for the superchunk in the world.
+Every cell, chunk and superchunk has a Morton index, and they nest:
+a chunk's is its cells' without the low 16 bits, a superchunk's without
+the low 20.
+
+Superchunks are 4x4 chunks because a hot superchunk bitmap holds a
+bucket for every chunk of its superchunk, even for a single set cell:
+at 16x16 chunks that is 2 MiB, at 4x4 it is 128 KiB, so 8 GiB holds
+65,536 of them -- far more independent hot bitmaps. Buckets stay fixed
+in size, found in O(1) by Morton index from a small array.
 
 ### A disk chunk
 
@@ -61,7 +74,7 @@ are held in, is not optimized further for that until the game needs it.
    the hot bitmaps, raw, one layer of one chunk each, decoded from their
    chunks only when needed. The arena is the only place with a cell API.
 3. The arena is made of allocations the size of a superchunk: each holds
-   one layer type over one superchunk, a bucket for every one of its 256
+   one layer type over one superchunk, a bucket for every one of its 16
    chunks, in the chunks' Morton order, allocated whole. A chunk's bucket
    is found by its Morton index in O(1): nothing inside an allocation is
    ever sorted, and a bucket never moves once allocated.
@@ -119,14 +132,6 @@ reading and writing superchunks on disk.
 
 ## Decided, not built yet
 
-### Superchunks of 4x4 chunks
-
-A hot superchunk bitmap holds a bucket for every chunk of its
-superchunk, even for a single set cell: at 16x16 chunks that is 2 MiB, at
-4x4 it is 128 KiB, so 8 GiB holds 65,536 of them -- far more independent
-hot bitmaps. Buckets stay fixed in size, found in O(1) by Morton index
-from a small array.
-
 ### Memory
 
 - The custom allocator (`allocator/`) serves two projects only: chunk
@@ -161,7 +166,9 @@ Chunk storage is two parts in memory:
 
 The ring is cold writeback only: it is never read to make a bitmap
 hot. A bitmap with an entry in the ring is still hot, so its newest
-version is in the bitplanes.
+version is in the bitplanes: an evicted superchunk's bitplanes stay
+allocated until its ring entries reach the pool, so a superchunk
+needed again before then is still hot.
 
 The ring is a sponge for writes into the pool. A superchunk is
 sequential even in memory, so changing one bitmap in place would mean
@@ -176,18 +183,20 @@ pool needs variable-size allocations, the area allocator's job.
 
 A superchunk, in the pool and on disk alike:
 
-1. **The bitmap table**: one entry a bitmap, sorted by type id, each
-   with the bitmap's offset into the bitmaps.
-2. **The height maps**: one a chunk, raw for now.
-3. **The bitmaps**, compressed, each starting byte-aligned, in no
-   particular order: the table's offsets find them.
+1. **Its chunks, in Morton order**, each:
+   1. **its bitmap table**: one entry a bitmap, sorted by type id, each
+      with the bitmap's offset into the bitmaps;
+   2. **its height map**, raw for now.
+2. **The bitmaps**, compressed, each starting byte-aligned, in no
+   particular order: the tables' offsets find them. No length is kept:
+   a Tessera stream ends itself.
 
 On disk a superchunk is one file, named by its coordinates, its
 contents written sequentially as laid out in memory.
 
-Still open: what an entry tags besides the type (its chunk), how a
-bitmap's length is known, and a superchunk evicted and needed again
-before its ring entries reach the pool.
+Still open: Tessera's stream ends itself only once its range coder's
+end is changed to stand any bits after it (measured: 0.6 bits a bitmap
+more); today it needs zeros after its last bit.
 
 ### The tick
 

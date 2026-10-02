@@ -5,7 +5,7 @@
 
 use bitmap::{Bitmap, CellWords, WORDS};
 use bitplane_manager::{BitmapArena, BucketKey, NotHot};
-use chunk_storage::{CellPlace, ChunkPlace, ChunkPosition, DiskChunk, DiskSuperChunk, LayerCodec, LayerType, SuperChunkPosition, WorldCell};
+use chunk_storage::{CellPlace, ChunkPlace, ChunkPosition, DiskChunk, DiskSuperChunk, LayerCodec, LayerType, SuperChunkPosition, WorldCell, SUPERCHUNK_SIDE, WORLD_SIDE_SUPERCHUNKS};
 
 /// A cell of a chunk.
 const CELL: CellPlace = CellPlace { x: 3, y: 200 };
@@ -14,7 +14,7 @@ const CELL: CellPlace = CellPlace { x: 3, y: 200 };
 const ORIGIN: SuperChunkPosition = SuperChunkPosition { x: 0, y: 0 };
 
 /// A superchunk roughly in the middle of the world, where it starts.
-const MIDDLE: SuperChunkPosition = SuperChunkPosition { x: u32::MAX / 2, y: u32::MAX / 2 };
+const MIDDLE: SuperChunkPosition = SuperChunkPosition { x: WORLD_SIDE_SUPERCHUNKS / 2, y: WORLD_SIDE_SUPERCHUNKS / 2 };
 
 /// A bitmap's cells, with a rectangle and a circle drawn.
 fn drawn() -> CellWords {
@@ -97,7 +97,7 @@ fn hot_bitmaps_never_move() {
     let before = address(&arena, first);
     for layer_type in 0..8 {
         for superchunk in 0..8 {
-            arena.make_hot(key(layer_type, superchunk * 16, 0), None, &mut codec);
+            arena.make_hot(key(layer_type, superchunk * SUPERCHUNK_SIDE as u32, 0), None, &mut codec);
             arena.make_hot(key(5, 3 + superchunk % 2, 4), None, &mut codec);
         }
     }
@@ -163,7 +163,7 @@ fn only_the_types_asked_for_turn_hot() {
     for layer_type in [LayerType(1), LayerType(2), LayerType(3)] {
         chunk.replace_layer(layer_type, codec.encode(&drawn()));
     }
-    let position = ChunkPosition::of(MIDDLE, ChunkPlace::new(4, 2));
+    let position = ChunkPosition::of(MIDDLE, ChunkPlace::new(3, 2));
     assert_eq!(arena.make_hot_layers(position, &chunk, &[LayerType(3), LayerType(1), LayerType(8)], &mut codec), 3);
     assert_eq!(arena.make_hot_layers(position, &chunk, &[LayerType(1)], &mut codec), 0, "already hot");
     let hot: Vec<LayerType> = arena.keys().map(|key| key.layer_type).collect();

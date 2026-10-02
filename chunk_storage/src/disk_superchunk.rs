@@ -1,9 +1,9 @@
-//! A disk superchunk: 16x16 disk chunks, 4096x4096 cells, at a place in
+//! A disk superchunk: 4x4 disk chunks, 1024x1024 cells, at a place in
 //! the world -- the grain the world is read from and written to disk in,
 //! and generated in.
 //!
-//! Its chunks are made whole when it is: 256 height maps of 64 KiB,
-//! 16 MiB, and no layers.
+//! Its chunks are made whole when it is: 16 height maps of 64 KiB,
+//! 1 MiB, and no layers.
 
 use crate::coordinates::{CellAddress, ChunkPlace, ChunkPosition, SuperChunkPosition, WorldCell, CHUNKS_IN_SUPERCHUNK};
 use crate::disk_chunk::DiskChunk;
