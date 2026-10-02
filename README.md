@@ -24,9 +24,12 @@ spreading over dirt.
 | [`bitmap/`](bitmap/) | the 256x256 bitmap every layer is, laid out in Morton order |
 | [`utilities/`](utilities/) | general-purpose utilities: the table printer and measurement reports, a seeded random source, a fixed-capacity list, the process's memory |
 
-Every crate is laid out as Tessera is: `src/diagnostics/` gathers data
-(and judges nothing), `tests/` judges it, and `transient_data/` -- out
-of git -- holds what runs leave behind, measurements first.
+Every crate is laid out as Tessera is: `docs/` -- its design, and
+`reference.md`, function by function, which the code points to --
+`tests/`, and, where it has something to measure, `src/diagnostics/`,
+which gathers data and judges nothing, and `transient_data/`, out of
+git, which holds what runs leave behind. `bitmap/` and `utilities/`
+measure nothing of their own, so have neither of the last two.
 
 Each builds on its own: run cargo from its folder, as usual -- here,
 at the root, for the `tilesim` crate. Tessera depends on `bitmap/` and

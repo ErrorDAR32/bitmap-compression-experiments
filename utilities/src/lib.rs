@@ -8,6 +8,9 @@
 //! | [`fixed_list`] | a list of fixed capacity, allocated once, that never grows |
 //! | [`memory`] | the process's memory as the system counts it, now and at its peak, and tracked over a run |
 
+//! The design: `docs/utilities.md`; function by function:
+//! `docs/reference.md`.
+
 // Every item is documented, private ones included; `cargo clippy`
 // checks the private ones.
 #![warn(missing_docs, clippy::missing_docs_in_private_items)]

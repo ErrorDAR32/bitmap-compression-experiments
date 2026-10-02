@@ -11,6 +11,9 @@
 //! Nothing here decides anything. What to describe, at what size, in
 //! what order, is for whatever reads the bitmap.
 
+//! The design: `docs/bitmap.md`; function by function:
+//! `docs/reference.md`.
+
 // Every item is documented, private ones included; `cargo clippy`
 // checks the private ones.
 #![warn(missing_docs, clippy::missing_docs_in_private_items)]

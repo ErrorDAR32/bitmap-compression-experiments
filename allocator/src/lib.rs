@@ -14,6 +14,9 @@
 //! next: per area, in 256 MiB system blocks cut into 256-byte units,
 //! with owning handles freed on drop.
 
+//! The design: `docs/allocator.md`; function by function:
+//! `docs/reference.md`.
+
 // Every item is documented, private ones included; `cargo clippy`
 // checks the private ones.
 #![warn(missing_docs, clippy::missing_docs_in_private_items)]

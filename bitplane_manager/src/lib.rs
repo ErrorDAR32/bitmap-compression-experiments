@@ -45,6 +45,9 @@
 //! a bitmap evicted and made hot again before then is the bucket as it
 //! was, not decoded.
 
+//! The design: `docs/bitplane_manager.md`; function by function:
+//! `docs/reference.md`.
+
 // Every item is documented, private ones included; `cargo clippy`
 // checks the private ones.
 #![warn(missing_docs, clippy::missing_docs_in_private_items)]

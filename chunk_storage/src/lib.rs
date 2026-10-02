@@ -16,6 +16,9 @@
 //! | `diagnostics/` | data gathered from storage, judged by the tests and printed by tools |
 //! | `transient_data` | where runs leave what they make, out of git |
 
+//! The design: `docs/chunk_storage.md`; function by function:
+//! `docs/reference.md`.
+
 // Every item is documented, private ones included; `cargo clippy`
 // checks the private ones.
 #![warn(missing_docs, clippy::missing_docs_in_private_items)]

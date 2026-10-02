@@ -16,6 +16,9 @@
 //! (`src/bin/diagnostics/`) in `transient_data` (out of git); and the
 //! tests, in `tests/`.
 
+//! What TileSim is: `docs/tilesim.md`; function by function:
+//! `docs/reference.md`.
+
 // Every item is documented, private ones included; `cargo clippy`
 // checks the private ones.
 #![warn(missing_docs, clippy::missing_docs_in_private_items)]
