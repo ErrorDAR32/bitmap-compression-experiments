@@ -6,3 +6,4 @@ description = "TileSim's allocator: equal-size blocks of zeroed memory, handed o
 publish = false
 
 [dependencies]
+utilities = { path = "../utilities" }

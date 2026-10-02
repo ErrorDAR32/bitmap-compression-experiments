@@ -49,9 +49,11 @@
 // checks the private ones.
 #![warn(missing_docs, clippy::missing_docs_in_private_items)]
 
+pub mod diagnostics;
 mod random;
 mod sampling;
 mod tick;
+pub mod transient_data;
 mod writes;
 
 pub use random::Random;

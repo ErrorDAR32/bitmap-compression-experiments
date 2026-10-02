@@ -6,5 +6,6 @@ description = "TileSim's chunks as stored: coordinates, height maps, the layer c
 publish = false
 
 [dependencies]
+utilities = { path = "../utilities" }
 bitmap = { path = "../bitmap" }
 tessera = { path = "../tessera" }

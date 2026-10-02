@@ -289,7 +289,8 @@ Two steps a tick:
    sorted: sampling emits them in Morton order already. Not yet:
    writing a word at a time rather than a cell.
 
-   Measured (`bitplane_manager/examples/write_order.rs`: 100,000 random
+   Measured (a `write_order` example, since removed -- git keeps it --
+   once Morton order was settled as sampling's: 100,000 random
    writes a run, nine in ten a single cell, 50 runs, dirt and grass hot
    everywhere), in nanoseconds a write, mean:
 
@@ -339,7 +340,7 @@ sample reads the world as the tick found it: the writes are applied at
 the tick's end. Spreading at `0.1% x (dirt share)` and decay at
 `0.2% x (grass share)` balance, roughly, at a third of the cells grass.
 
-Measured, ticking as fast as one core goes (`examples/throughput.rs`,
+Measured, ticking as fast as one core goes (`diagnostics throughput`,
 500 ticks, grass starting scattered over a third of the cells, near
 its balance), nanoseconds a write -- a write is one cell set or
 cleared; a spread or a decay is two:
@@ -361,6 +362,13 @@ number of threads -- ticks a second:
 |---|---|---|---|---|
 | 16 | 12,535 | 462 | 593 | 947 |
 | 64 | 50,149 | 104 | 171 | 307 |
+
+`diagnostics throughput` also reports the memory held: the process's
+peak and its average over the ticks (from `/proc/self/status`), and
+what the arena's blocks and storage's images take. At 64 superchunks
+on 4 threads: a peak of 99 MiB -- 16 MiB of arena blocks (two layers
+of 128 KiB a superchunk) and 79 MiB of stored images, most of it the
+1 MiB raw height map a superchunk.
 
 Four threads tick 64 superchunks at 307 ticks a second, 15 million
 writes a second: about 75 superchunks at 256 ticks a second. The

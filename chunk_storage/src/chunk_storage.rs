@@ -18,9 +18,9 @@ use crate::writeback_ring::WritebackRing;
 /// The cold pool and the writeback ring.
 pub struct ChunkStorage {
     /// Every superchunk held, sorted by Morton index.
-    pool: Vec<(SuperChunkPosition, SuperChunkImage)>,
+    pub(crate) pool: Vec<(SuperChunkPosition, SuperChunkImage)>,
     /// Changed bitmaps on their way to the pool.
-    ring: WritebackRing,
+    pub(crate) ring: WritebackRing,
 }
 
 impl ChunkStorage {

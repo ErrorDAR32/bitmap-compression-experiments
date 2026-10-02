@@ -6,6 +6,7 @@ description = "TileSim's hot bitplanes: decoded layers, where cells are read and
 publish = false
 
 [dependencies]
+utilities = { path = "../utilities" }
 allocator = { path = "../allocator" }
 bitmap = { path = "../bitmap" }
 chunk_storage = { path = "../chunk_storage" }

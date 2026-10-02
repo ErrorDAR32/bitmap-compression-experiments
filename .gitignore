@@ -1,8 +1,5 @@
 target/
-# What Tessera's runs leave behind -- the seed and its uses, measurements,
-# adversarial records, renders, callgrind output: the working copy's own,
-# never moved by git (tessera/src/transient_data.rs).
-tessera/transient_data/
-
-# What TileSim's runs leave behind: renders and the like, never in git.
-/transient_data/
+# What every crate's runs leave behind -- measurements, renders, and for
+# Tessera the seed, adversarial records and callgrind output: the working
+# copy's own, never moved by git (each crate's src/transient_data.rs).
+transient_data/

@@ -18,6 +18,9 @@
 // checks the private ones.
 #![warn(missing_docs, clippy::missing_docs_in_private_items)]
 
+pub mod diagnostics;
+pub mod transient_data;
+
 /// A block of a pool's, owned by whoever holds it: its words go with
 /// it, so blocks held apart are changed apart -- on different threads,
 /// say -- and it never moves while held. Released back to its pool when
@@ -44,11 +47,11 @@ impl std::ops::DerefMut for Block {
 /// Equal-size blocks of words, handed out and taken back.
 pub struct BlockPool {
     /// Words a block.
-    block_words: usize,
+    pub(crate) block_words: usize,
     /// How many blocks have been made.
-    made: usize,
+    pub(crate) made: usize,
     /// The blocks released, to hand out again first.
-    released: Vec<Block>,
+    pub(crate) released: Vec<Block>,
 }
 
 impl BlockPool {

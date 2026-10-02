@@ -10,9 +10,16 @@
 //! | module | rule |
 //! |---|---|
 //! | `grass` | grass spreading over dirt |
+//!
+//! Beside them, as in every crate: `diagnostics/`, data gathered from
+//! the ticks, printed and kept by the diagnostics tool
+//! (`src/bin/diagnostics/`) in `transient_data` (out of git); and the
+//! tests, in `tests/`.
 
 // Every item is documented, private ones included; `cargo clippy`
 // checks the private ones.
 #![warn(missing_docs, clippy::missing_docs_in_private_items)]
 
+pub mod diagnostics;
 pub mod grass;
+pub mod transient_data;
