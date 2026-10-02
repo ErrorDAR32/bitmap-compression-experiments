@@ -5,7 +5,7 @@
 //! `cargo test`
 
 use bitmap::{Bitmap, CellWords, WORDS};
-use bitplane_manager::{Applied, BitmapArena, BucketKey, NotHot, Shape, Write, WriteOp};
+use bitplane_manager::{Applied, BitmapArena, BucketKey, NotHot, Write, WriteOp};
 use chunk_storage::mock::{grass_on_dirt, DIRT, GRASS};
 use chunk_storage::{
     CellPlace, ChunkPlace, ChunkPosition, ChunkStorage, HeightMap, LayerChange, LayerCodec, LayerType, SuperChunkImage, SuperChunkPosition,
@@ -32,7 +32,7 @@ fn drawn() -> CellWords {
 /// Queues `op` on `cell` of `layer_type`'s bitplane, and applies it:
 /// what applying did.
 fn write(arena: &mut BitmapArena, layer_type: LayerType, op: WriteOp, cell: WorldCell) -> Applied {
-    arena.queue(Write { layer_type, op, shape: Shape::Cell(cell) });
+    arena.queue(layer_type, Write::cell(cell, op));
     arena.apply()
 }
 

@@ -10,15 +10,24 @@ use chunk_storage::{ChunkPosition, LayerCodec, LayerType, WorldCell};
 /// The layer type the tests sample.
 const STONE: LayerType = LayerType(4);
 
+/// Writes setting every cell of the `width` by `height` rectangle from
+/// `(x, y)`, in pieces of at most 128 cells a side.
+fn rect(x: u32, y: u32, width: u32, height: u32) -> Vec<Write> {
+    let piece = |start: u32, length: u32| (0..length.div_ceil(128)).map(move |at| (start + at * 128, (length - at * 128).min(128) as u8));
+    piece(y, height)
+        .flat_map(|(y, height)| piece(x, width).map(move |(x, width)| Write { at: WorldCell { x, y }, op: WriteOp::Set, shape: Shape::Rect { width, height } }))
+        .collect()
+}
+
 /// An arena with `STONE` hot in the chunks at `chunks`, the cells of
-/// `shapes` set.
-fn arena_with(chunks: &[ChunkPosition], shapes: &[Shape]) -> BitmapArena {
+/// `writes` set.
+fn arena_with(chunks: &[ChunkPosition], writes: &[Write]) -> BitmapArena {
     let (mut codec, mut arena) = (LayerCodec::new(), BitmapArena::new());
     for &chunk in chunks {
         arena.make_hot(BucketKey { layer_type: STONE, chunk }, None, &mut codec);
     }
-    for &shape in shapes {
-        arena.queue(Write { layer_type: STONE, op: WriteOp::Set, shape });
+    for &write in writes {
+        arena.queue(STONE, write);
     }
     assert_eq!(arena.apply().missed, 0);
     arena
@@ -41,12 +50,12 @@ fn two_superchunks() -> Vec<ChunkPosition> {
 /// superchunks; at 0, none.
 #[test]
 fn certain_sampling_finds_every_set_cell_in_morton_order() {
-    let shapes = [
-        Shape::Disc { center: WorldCell { x: 102_900, y: 102_600 }, radius: 40 },
-        Shape::Rect { corner: WorldCell { x: 103_300, y: 103_000 }, width: 200, height: 3 },
-        Shape::Cell(WorldCell { x: 102_400, y: 102_400 }),
+    let writes = [
+        Write { at: WorldCell { x: 102_900, y: 102_600 }, op: WriteOp::Set, shape: Shape::Disc { radius: 40 } },
+        Write { at: WorldCell { x: 103_300, y: 103_000 }, op: WriteOp::Set, shape: Shape::Rect { width: 200, height: 3 } },
+        Write::cell(WorldCell { x: 102_400, y: 102_400 }, WriteOp::Set),
     ];
-    let arena = arena_with(&two_superchunks(), &shapes);
+    let arena = arena_with(&two_superchunks(), &writes);
     let cells = sampled(&arena, 1.0, 1);
     let expected: usize = two_superchunks().iter().map(|&chunk| arena.bucket(BucketKey { layer_type: STONE, chunk }).expect("hot").count() as usize).sum();
     assert_eq!(cells.len(), expected);
@@ -61,7 +70,7 @@ fn certain_sampling_finds_every_set_cell_in_morton_order() {
 #[test]
 fn each_cell_is_chosen_with_the_probability_asked() {
     let chunks: Vec<ChunkPosition> = (0..4).flat_map(|y| (0..4).map(move |x| ChunkPosition { x: 400 + x, y: 400 + y })).collect();
-    let arena = arena_with(&chunks, &[Shape::Rect { corner: WorldCell { x: 102_400, y: 102_400 }, width: 1024, height: 1024 }]);
+    let arena = arena_with(&chunks, &rect(102_400, 102_400, 1024, 1024));
     for seed in 1..=3 {
         let cells = sampled(&arena, 0.01, seed);
         let (mean, deviation) = (1_048_576.0 * 0.01, (1_048_576.0f64 * 0.01 * 0.99).sqrt());
@@ -75,11 +84,8 @@ fn each_cell_is_chosen_with_the_probability_asked() {
 #[test]
 fn chunks_are_weighted_by_their_counts() {
     let (full, sparse) = (ChunkPosition { x: 400, y: 400 }, ChunkPosition { x: 401, y: 400 });
-    let shapes = [
-        Shape::Rect { corner: WorldCell { x: 102_400, y: 102_400 }, width: 256, height: 256 },
-        Shape::Rect { corner: WorldCell { x: 102_656, y: 102_400 }, width: 64, height: 64 },
-    ];
-    let arena = arena_with(&[full, sparse], &shapes);
+    let writes = [rect(102_400, 102_400, 256, 256), rect(102_656, 102_400, 64, 64)].concat();
+    let arena = arena_with(&[full, sparse], &writes);
     let cells = sampled(&arena, 0.05, 7);
     let in_sparse = cells.iter().filter(|cell| cell.chunk_and_cell().0 == sparse).count() as f64;
     let ratio = (cells.len() as f64 - in_sparse) / in_sparse;
@@ -90,7 +96,7 @@ fn chunks_are_weighted_by_their_counts() {
 #[test]
 fn only_hot_bitmaps_are_sampled() {
     let (kept, evicted) = (ChunkPosition { x: 400, y: 400 }, ChunkPosition { x: 401, y: 400 });
-    let mut arena = arena_with(&[kept, evicted], &[Shape::Rect { corner: WorldCell { x: 102_400, y: 102_400 }, width: 512, height: 4 }]);
+    let mut arena = arena_with(&[kept, evicted], &rect(102_400, 102_400, 512, 4));
     assert_eq!(sampled(&arena, 1.0, 1).len(), 2048);
     let mut storage = chunk_storage::ChunkStorage::new(1 << 12);
     arena.write_back(evicted.superchunk_and_place().0, &mut storage, &mut LayerCodec::new());

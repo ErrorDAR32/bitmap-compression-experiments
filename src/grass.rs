@@ -5,7 +5,7 @@
 //! Morton order, and applied at the tick's end: every sample reads the
 //! world as the tick found it.
 
-use bitplane_manager::{BitmapArena, Random, Shape, Write, WriteOp};
+use bitplane_manager::{BitmapArena, Random, Write, WriteOp};
 use chunk_storage::mock::{DIRT, GRASS};
 use chunk_storage::WorldCell;
 
@@ -57,8 +57,8 @@ pub fn spread(arena: &mut BitmapArena, random: &mut Random, samples: &[WorldCell
         };
         let neighbour = WorldCell { x, y };
         if arena.holds(DIRT, neighbour) == Ok(true) {
-            arena.queue(Write { layer_type: GRASS, op: WriteOp::Set, shape: Shape::Cell(neighbour) });
-            arena.queue(Write { layer_type: DIRT, op: WriteOp::Unset, shape: Shape::Cell(neighbour) });
+            arena.queue(GRASS, Write::cell(neighbour, WriteOp::Set));
+            arena.queue(DIRT, Write::cell(neighbour, WriteOp::Unset));
         }
     }
     arena.queued() - queued

@@ -25,8 +25,8 @@ fn arena_over(cells: &[WorldCell]) -> BitmapArena {
 }
 
 /// `op` over `shape` in the `STONE` bitplane.
-fn stone(op: WriteOp, shape: Shape) -> Write {
-    Write { layer_type: STONE, op, shape }
+fn stone(arena: &mut BitmapArena, op: WriteOp, at: WorldCell, shape: Shape) {
+    arena.queue(STONE, Write { at, op, shape });
 }
 
 /// Whether `STONE` holds at `(x, y)`.
@@ -35,8 +35,8 @@ fn holds(arena: &BitmapArena, x: u32, y: u32) -> bool {
 }
 
 #[test]
-fn a_write_is_32_bytes() {
-    assert_eq!(size_of::<Write>(), 32);
+fn a_write_is_12_bytes() {
+    assert_eq!(size_of::<Write>(), 12);
 }
 
 /// Queued writes change nothing until applied; applying empties the
@@ -45,7 +45,7 @@ fn a_write_is_32_bytes() {
 fn nothing_changes_until_applied() {
     let cell = WorldCell { x: 1000, y: 2000 };
     let mut arena = arena_over(&[cell]);
-    arena.queue(stone(WriteOp::Set, Shape::Cell(cell)));
+    stone(&mut arena, WriteOp::Set, cell, Shape::Cell);
     assert_eq!((arena.queued(), holds(&arena, cell.x, cell.y)), (1, false));
     assert_eq!(arena.apply(), Applied { writes: 1, changed: 1, missed: 0 });
     assert_eq!((arena.queued(), holds(&arena, cell.x, cell.y)), (0, true));
@@ -58,18 +58,18 @@ fn nothing_changes_until_applied() {
 fn the_latest_write_wins() {
     let corner = WorldCell { x: 10, y: 10 };
     let mut arena = arena_over(&[corner]);
-    arena.queue(stone(WriteOp::Set, Shape::Rect { corner, width: 4, height: 4 }));
-    arena.queue(stone(WriteOp::Unset, Shape::Cell(WorldCell { x: 11, y: 11 })));
-    arena.queue(stone(WriteOp::Unset, Shape::Cell(WorldCell { x: 12, y: 12 })));
-    arena.queue(stone(WriteOp::Set, Shape::Cell(WorldCell { x: 12, y: 12 })));
-    arena.queue(stone(WriteOp::Flip, Shape::Rect { corner: WorldCell { x: 13, y: 10 }, width: 2, height: 1 }));
+    stone(&mut arena, WriteOp::Set, corner, Shape::Rect { width: 4, height: 4 });
+    stone(&mut arena, WriteOp::Unset, WorldCell { x: 11, y: 11 }, Shape::Cell);
+    stone(&mut arena, WriteOp::Unset, WorldCell { x: 12, y: 12 }, Shape::Cell);
+    stone(&mut arena, WriteOp::Set, WorldCell { x: 12, y: 12 }, Shape::Cell);
+    stone(&mut arena, WriteOp::Flip, WorldCell { x: 13, y: 10 }, Shape::Rect { width: 2, height: 1 });
     let applied = arena.apply();
     assert!(!holds(&arena, 11, 11) && holds(&arena, 12, 12) && holds(&arena, 10, 13));
     assert!(!holds(&arena, 13, 10) && holds(&arena, 14, 10), "flipped: set to clear, clear to set");
     assert_eq!(applied.changed, 16 + 1 + 1 + 1 + 2);
 
-    arena.queue(stone(WriteOp::Flip, Shape::Disc { center: corner, radius: 2 }));
-    arena.queue(stone(WriteOp::Flip, Shape::Disc { center: corner, radius: 2 }));
+    stone(&mut arena, WriteOp::Flip, corner, Shape::Disc { radius: 2 });
+    stone(&mut arena, WriteOp::Flip, corner, Shape::Disc { radius: 2 });
     let before = arena.bucket(BucketKey { layer_type: STONE, chunk: corner.chunk_and_cell().0 }).expect("hot").count();
     arena.apply();
     assert_eq!(arena.bucket(BucketKey { layer_type: STONE, chunk: corner.chunk_and_cell().0 }).expect("hot").count(), before, "flipped twice");
@@ -83,7 +83,7 @@ fn rectangles_cross_chunks_and_superchunks() {
     let corner = WorldCell { x: edge - 3, y: edge - 2 };
     let cells = [corner, WorldCell { x: edge, y: edge - 2 }, WorldCell { x: edge - 3, y: edge }, WorldCell { x: edge, y: edge }];
     let mut arena = arena_over(&cells);
-    arena.queue(stone(WriteOp::Set, Shape::Rect { corner, width: 6, height: 5 }));
+    stone(&mut arena, WriteOp::Set, corner, Shape::Rect { width: 6, height: 5 });
     assert_eq!(arena.apply().changed, 30);
     let superchunks = [MIDDLE.x - 1, MIDDLE.x].into_iter().flat_map(|y| [MIDDLE.x - 1, MIDDLE.x].map(|x| SuperChunkPosition { x, y }));
     assert_eq!(superchunks.map(|superchunk| arena.superchunk_count(STONE, superchunk)).collect::<Vec<_>>(), [6, 6, 9, 9], "3 columns each side; 2 rows above, 3 below");
@@ -98,12 +98,12 @@ fn rectangles_cross_chunks_and_superchunks() {
 fn discs_cover_their_radius() {
     let center = WorldCell { x: 300, y: 300 };
     let mut arena = arena_over(&[center, WorldCell { x: 0, y: 0 }]);
-    arena.queue(stone(WriteOp::Set, Shape::Disc { center, radius: 3 }));
+    stone(&mut arena, WriteOp::Set, center, Shape::Disc { radius: 3 });
     assert_eq!(arena.apply().changed, 29, "the cells with dx² + dy² <= 9");
     assert!(holds(&arena, 303, 300) && holds(&arena, 302, 302) && holds(&arena, 297, 300));
     assert!(!holds(&arena, 303, 301) && !holds(&arena, 304, 300));
-    arena.queue(stone(WriteOp::Set, Shape::Disc { center: WorldCell { x: 0, y: 0 }, radius: 2 }));
-    arena.queue(stone(WriteOp::Set, Shape::Disc { center: WorldCell { x: 100, y: 100 }, radius: 0 }));
+    stone(&mut arena, WriteOp::Set, WorldCell { x: 0, y: 0 }, Shape::Disc { radius: 2 });
+    stone(&mut arena, WriteOp::Set, WorldCell { x: 100, y: 100 }, Shape::Disc { radius: 0 });
     assert_eq!(arena.apply().changed, 6 + 1, "a quarter of a disc at the world's corner, and a lone cell");
 }
 
@@ -111,7 +111,7 @@ fn discs_cover_their_radius() {
 #[test]
 fn cold_bitmaps_are_missed() {
     let mut arena = arena_over(&[WorldCell { x: 0, y: 0 }]);
-    arena.queue(stone(WriteOp::Set, Shape::Rect { corner: WorldCell { x: 250, y: 0 }, width: 10, height: 2 }));
+    stone(&mut arena, WriteOp::Set, WorldCell { x: 250, y: 0 }, Shape::Rect { width: 10, height: 2 });
     assert_eq!(arena.apply(), Applied { writes: 1, changed: 12, missed: 8 });
     assert!(arena.holds(STONE, WorldCell { x: 256, y: 0 }).is_err());
 }
@@ -128,9 +128,9 @@ fn grass_spreads_over_dirt() {
         arena.make_hot_layers(ChunkPosition::of(MIDDLE, place), &[DIRT, GRASS], &storage, &mut codec);
     }
     let edge = MIDDLE.x * SUPERCHUNK_SIDE_CELLS;
-    let disc = Shape::Disc { center: WorldCell { x: edge + 256, y: edge + 256 }, radius: 10 };
-    arena.queue(Write { layer_type: GRASS, op: WriteOp::Set, shape: disc });
-    arena.queue(Write { layer_type: DIRT, op: WriteOp::Unset, shape: disc });
+    let at = WorldCell { x: edge + 256, y: edge + 256 };
+    arena.queue(GRASS, Write { at, op: WriteOp::Set, shape: Shape::Disc { radius: 10 } });
+    arena.queue(DIRT, Write { at, op: WriteOp::Unset, shape: Shape::Disc { radius: 10 } });
     let applied = arena.apply();
     assert_eq!(applied.missed, 0);
     assert_eq!(arena.superchunk_count(GRASS, MIDDLE) + arena.superchunk_count(DIRT, MIDDLE), 1 << 20, "dirt or grass, never both");

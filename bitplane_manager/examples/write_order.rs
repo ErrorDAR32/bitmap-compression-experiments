@@ -14,7 +14,7 @@
 
 use bitplane_manager::{BitmapArena, Shape, Write, WriteOp};
 use chunk_storage::mock::{grass_on_dirt, DIRT, GRASS};
-use chunk_storage::{ChunkPlace, ChunkPosition, ChunkStorage, LayerCodec, SuperChunkPosition, WorldCell, SUPERCHUNK_SIDE_CELLS, WORLD_SIDE_SUPERCHUNKS};
+use chunk_storage::{ChunkPlace, ChunkPosition, ChunkStorage, LayerCodec, LayerType, SuperChunkPosition, WorldCell, SUPERCHUNK_SIDE_CELLS, WORLD_SIDE_SUPERCHUNKS};
 use std::time::{Duration, Instant};
 
 /// A xorshift64* generator: enough for drawing writes.
@@ -46,7 +46,7 @@ fn superchunks(count: u32) -> Vec<SuperChunkPosition> {
 /// `count` random writes over `superchunks`: nine in ten a single cell,
 /// the rest rectangles up to 8x8 and discs up to radius 4, each set,
 /// unset or flip, on dirt or grass.
-fn draw_writes(random: &mut Random, superchunks: &[SuperChunkPosition], count: usize) -> Vec<Write> {
+fn draw_writes(random: &mut Random, superchunks: &[SuperChunkPosition], count: usize) -> Vec<(LayerType, Write)> {
     (0..count)
         .map(|_| {
             let superchunk = superchunks[random.below(superchunks.len() as u32) as usize];
@@ -55,28 +55,21 @@ fn draw_writes(random: &mut Random, superchunks: &[SuperChunkPosition], count: u
                 y: superchunk.y * SUPERCHUNK_SIDE_CELLS + random.below(SUPERCHUNK_SIDE_CELLS),
             };
             let shape = match random.below(20) {
-                0 => Shape::Rect { corner: cell, width: 1 + random.below(8), height: 1 + random.below(8) },
-                1 => Shape::Disc { center: cell, radius: random.below(5) },
-                _ => Shape::Cell(cell),
+                0 => Shape::Rect { width: 1 + random.below(8) as u8, height: 1 + random.below(8) as u8 },
+                1 => Shape::Disc { radius: random.below(5) as u8 },
+                _ => Shape::Cell,
             };
             let op = [WriteOp::Set, WriteOp::Unset, WriteOp::Flip][random.below(3) as usize];
-            Write { layer_type: if random.below(2) == 0 { DIRT } else { GRASS }, op, shape }
+            (if random.below(2) == 0 { DIRT } else { GRASS }, Write { at: cell, op, shape })
         })
         .collect()
-}
-
-/// The cell a write's shape is anchored at: its cell, corner or centre.
-fn anchor(write: &Write) -> WorldCell {
-    match write.shape {
-        Shape::Cell(cell) | Shape::Rect { corner: cell, .. } | Shape::Disc { center: cell, .. } => cell,
-    }
 }
 
 /// Queues `writes` and times applying them: the time, and the cells
 /// missed -- of shapes spilling past the superchunks used, whose
 /// neighbours are not hot.
-fn timed_apply(arena: &mut BitmapArena, writes: &[Write]) -> (Duration, u64) {
-    writes.iter().for_each(|&write| arena.queue(write));
+fn timed_apply(arena: &mut BitmapArena, writes: &[(LayerType, Write)]) -> (Duration, u64) {
+    writes.iter().for_each(|&(layer_type, write)| arena.queue(layer_type, write));
     let start = Instant::now();
     let applied = arena.apply();
     (start.elapsed(), applied.missed)
@@ -113,11 +106,11 @@ fn main() {
         let start = Instant::now();
         // Each key computed once; ties keep the order drawn, so the
         // latest of two writes at one anchor still wins.
-        let mut keys: Vec<(u64, u32)> = writes.iter().enumerate().map(|(index, write)| (anchor(write).morton_index(), index as u32)).collect();
+        let mut keys: Vec<(u64, u32)> = writes.iter().enumerate().map(|(index, (_, write))| (write.at.morton_index(), index as u32)).collect();
         keys.sort_unstable();
-        let sorted: Vec<Write> = keys.iter().map(|&(_, index)| writes[index as usize]).collect();
+        let sorted: Vec<(LayerType, Write)> = keys.iter().map(|&(_, index)| writes[index as usize]).collect();
         sorting.push(start.elapsed());
-        let mut apply = |times: &mut Vec<Duration>, writes: &[Write]| {
+        let mut apply = |times: &mut Vec<Duration>, writes: &[(LayerType, Write)]| {
             let (time, cells) = timed_apply(&mut arena, writes);
             times.push(time);
             missed += cells;

@@ -1,10 +1,13 @@
 //! Writes into the hot bitplanes, batched: the standard way cells are
-//! changed. A [`Write`] -- an operation over a shape of cells in one
-//! layer type -- is queued ([`BitmapArena::queue`]), and nothing changes
-//! until [`BitmapArena::apply`] applies every write queued, in the
-//! order queued: where writes overlap, the latest wins.
+//! changed. A [`Write`] -- an operation over a shape of cells -- is
+//! queued for one layer type ([`BitmapArena::queue`]), into that type's
+//! queue, and nothing changes until [`BitmapArena::apply`] applies every
+//! queue, type by type, each write in the order queued: where writes to
+//! one bitplane overlap, the latest wins.
 //!
-//! A write is fixed in size, 32 bytes, whatever its shape covers.
+//! The layer type is the queue's, not the write's, so a write is 12
+//! bytes: its anchor cell, its operation and its shape, whose sides and
+//! radius are a byte each. A larger area is several writes.
 
 use crate::{BitmapArena, BucketKey};
 use chunk_storage::{CellPlace, ChunkPosition, LayerType, WorldCell, CHUNK_SIDE};
@@ -20,74 +23,75 @@ pub enum WriteOp {
     Flip,
 }
 
-/// The cells a write covers, anywhere in the world; the parts past the
+/// The cells a write covers, from its anchor cell; the parts past the
 /// world's edges are cut off.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Shape {
-    /// One cell.
-    Cell(WorldCell),
-    /// `width` by `height` cells, `corner` the top left one; no cells if
-    /// either is 0.
+    /// The anchor cell alone.
+    Cell,
+    /// `width` by `height` cells, the anchor the top left one; no cells
+    /// if either is 0.
     Rect {
-        /// The top left cell.
-        corner: WorldCell,
         /// Cells across.
-        width: u32,
+        width: u8,
         /// Cells down.
-        height: u32,
+        height: u8,
     },
-    /// Every cell no farther than `radius` from `center`, centre to
-    /// centre: the centre alone at radius 0.
+    /// Every cell no farther than `radius` from the anchor, centre to
+    /// centre: the anchor alone at radius 0.
     Disc {
-        /// The centre cell.
-        center: WorldCell,
         /// The farthest a cell may be, in cells.
-        radius: u32,
+        radius: u8,
     },
 }
 
-impl Shape {
-    /// The smallest rectangle holding the shape: its first and last
-    /// columns and rows, if it has any cell.
-    fn bounds(self) -> Option<([u32; 2], [u32; 2])> {
-        match self {
-            Shape::Cell(cell) => Some(([cell.x, cell.x], [cell.y, cell.y])),
-            Shape::Rect { corner, width, height } => (width > 0 && height > 0).then(|| {
-                ([corner.x, corner.x.saturating_add(width - 1)], [corner.y, corner.y.saturating_add(height - 1)])
-            }),
-            Shape::Disc { center, radius } => Some((
-                [center.x.saturating_sub(radius), center.x.saturating_add(radius)],
-                [center.y.saturating_sub(radius), center.y.saturating_add(radius)],
-            )),
-        }
-    }
-
-    /// Whether the shape covers the cell at `(x, y)`, which is inside its
-    /// bounds.
-    fn covers(self, x: u32, y: u32) -> bool {
-        match self {
-            Shape::Cell(_) | Shape::Rect { .. } => true,
-            Shape::Disc { center, radius } => {
-                let (dx, dy) = (x.abs_diff(center.x) as u64, y.abs_diff(center.y) as u64);
-                dx * dx + dy * dy <= radius as u64 * radius as u64
-            }
-        }
-    }
-}
-
-/// One write: `op` over every cell of `shape` in the bitplane of
-/// `layer_type`.
+/// One write: `op` over every cell of `shape`, from `at`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Write {
-    /// The bitplane written.
-    pub layer_type: LayerType,
+    /// The anchor cell: the cell, the rectangle's top left, the disc's
+    /// centre.
+    pub at: WorldCell,
     /// What is done to each cell.
     pub op: WriteOp,
     /// Which cells.
     pub shape: Shape,
 }
 
-const _: () = assert!(size_of::<Write>() == 32, "a write is fixed in size, 32 bytes");
+const _: () = assert!(size_of::<Write>() == 12, "a write is fixed in size, 12 bytes");
+
+impl Write {
+    /// `op` on the cell `at`.
+    pub fn cell(at: WorldCell, op: WriteOp) -> Self {
+        Self { at, op, shape: Shape::Cell }
+    }
+
+    /// The smallest rectangle holding the write's cells: its first and
+    /// last columns and rows, if it has any cell.
+    fn bounds(self) -> Option<([u32; 2], [u32; 2])> {
+        let Self { at, shape, .. } = self;
+        match shape {
+            Shape::Cell => Some(([at.x, at.x], [at.y, at.y])),
+            Shape::Rect { width, height } => (width > 0 && height > 0)
+                .then(|| ([at.x, at.x.saturating_add(width as u32 - 1)], [at.y, at.y.saturating_add(height as u32 - 1)])),
+            Shape::Disc { radius } => {
+                let radius = radius as u32;
+                Some(([at.x.saturating_sub(radius), at.x.saturating_add(radius)], [at.y.saturating_sub(radius), at.y.saturating_add(radius)]))
+            }
+        }
+    }
+
+    /// Whether the write covers the cell at `(x, y)`, which is inside its
+    /// bounds.
+    fn covers(self, x: u32, y: u32) -> bool {
+        match self.shape {
+            Shape::Cell | Shape::Rect { .. } => true,
+            Shape::Disc { radius } => {
+                let (dx, dy) = (x.abs_diff(self.at.x) as u64, y.abs_diff(self.at.y) as u64);
+                dx * dx + dy * dy <= radius as u64 * radius as u64
+            }
+        }
+    }
+}
 
 /// What applying the queued writes did.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -104,34 +108,51 @@ pub struct Applied {
 const CHUNK_SIDE_U32: u32 = CHUNK_SIDE as u32;
 
 impl BitmapArena {
-    /// Queues `write`, to be applied with every other queued, in order,
-    /// by [`BitmapArena::apply`]: until then no cell changes.
-    pub fn queue(&mut self, write: Write) {
-        self.queued.push(write);
+    /// Queues `write` into `layer_type`'s queue, to be applied with every
+    /// other queued, in order, by [`BitmapArena::apply`]: until then no
+    /// cell changes.
+    pub fn queue(&mut self, layer_type: LayerType, write: Write) {
+        let queue = match self.queues.get(self.last_queue) {
+            Some((held, _)) if *held == layer_type => self.last_queue,
+            _ => match self.queues.binary_search_by_key(&layer_type, |(held, _)| *held) {
+                Ok(at) => at,
+                Err(at) => {
+                    self.queues.insert(at, (layer_type, Vec::new()));
+                    at
+                }
+            },
+        };
+        self.last_queue = queue;
+        self.queues[queue].1.push(write);
     }
 
-    /// How many writes are queued.
+    /// How many writes are queued, over every layer type.
     pub fn queued(&self) -> usize {
-        self.queued.len()
+        self.queues.iter().map(|(_, writes)| writes.len()).sum()
     }
 
-    /// Applies every write queued, in the order queued, and empties the
-    /// queue: where writes overlap, the latest wins. A write covering
-    /// cells of bitmaps that are not hot leaves those cells out.
+    /// Applies every queue, type by type, each write in the order queued,
+    /// and empties them: where writes to one bitplane overlap, the latest
+    /// wins. A write covering cells of bitmaps that are not hot leaves
+    /// those cells out.
     pub fn apply(&mut self) -> Applied {
-        let mut queued = std::mem::take(&mut self.queued);
-        let mut applied = Applied { writes: queued.len(), ..Applied::default() };
-        for write in &queued {
-            self.apply_one(*write, &mut applied);
+        let mut applied = Applied::default();
+        for queue in 0..self.queues.len() {
+            let (layer_type, mut writes) = (self.queues[queue].0, std::mem::take(&mut self.queues[queue].1));
+            applied.writes += writes.len();
+            for &write in &writes {
+                self.apply_one(layer_type, write, &mut applied);
+            }
+            writes.clear();
+            self.queues[queue].1 = writes;
         }
-        queued.clear();
-        self.queued = queued;
         applied
     }
 
-    /// Applies `write`, chunk by chunk over its bounds.
-    fn apply_one(&mut self, write: Write, applied: &mut Applied) {
-        let Some(([left, right], [top, bottom])) = write.shape.bounds() else {
+    /// Applies `write` to `layer_type`'s bitplane, chunk by chunk over its
+    /// bounds.
+    fn apply_one(&mut self, layer_type: LayerType, write: Write, applied: &mut Applied) {
+        let Some(([left, right], [top, bottom])) = write.bounds() else {
             return;
         };
         let chunk_of = |coordinate: u32| coordinate / CHUNK_SIDE_U32;
@@ -140,8 +161,8 @@ impl BitmapArena {
                 // The bounds' part inside this chunk.
                 let (x0, y0) = (left.max(chunk_x * CHUNK_SIDE_U32), top.max(chunk_y * CHUNK_SIDE_U32));
                 let (x1, y1) = (right.min(chunk_x * CHUNK_SIDE_U32 + (CHUNK_SIDE_U32 - 1)), bottom.min(chunk_y * CHUNK_SIDE_U32 + (CHUNK_SIDE_U32 - 1)));
-                let covered = (y0..=y1).flat_map(|y| (x0..=x1).map(move |x| (x, y))).filter(|&(x, y)| write.shape.covers(x, y));
-                let key = BucketKey { layer_type: write.layer_type, chunk: ChunkPosition { x: chunk_x, y: chunk_y } };
+                let covered = (y0..=y1).flat_map(|y| (x0..=x1).map(move |x| (x, y))).filter(|&(x, y)| write.covers(x, y));
+                let key = BucketKey { layer_type, chunk: ChunkPosition { x: chunk_x, y: chunk_y } };
                 let Some(mut bucket) = self.bucket_mut(key) else {
                     applied.missed += covered.count() as u64;
                     continue;

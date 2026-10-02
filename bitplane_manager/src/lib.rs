@@ -241,8 +241,12 @@ pub struct BitmapArena {
     directory: Vec<SuperChunkLayer>,
     /// The blocks the allocations' buckets live in.
     pool: BlockPool,
-    /// Writes queued, not yet applied, in the order queued.
-    queued: Vec<Write>,
+    /// Writes queued, not yet applied: a queue a layer type, sorted by
+    /// type, each in the order queued.
+    queues: Vec<(LayerType, Vec<Write>)>,
+    /// The queue last written to: a rule queues runs of writes to one
+    /// type, found again without a search.
+    last_queue: usize,
 }
 
 impl Default for BitmapArena {
@@ -255,7 +259,7 @@ impl Default for BitmapArena {
 impl BitmapArena {
     /// An arena with no bitmap hot.
     pub fn new() -> Self {
-        Self { directory: Vec::new(), pool: BlockPool::new(ALLOCATION_WORDS), queued: Vec::new() }
+        Self { directory: Vec::new(), pool: BlockPool::new(ALLOCATION_WORDS), queues: Vec::new(), last_queue: 0 }
     }
 
     /// How many bitmaps are hot.
