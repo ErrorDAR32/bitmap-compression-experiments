@@ -131,8 +131,10 @@ written sequentially as laid out in memory.
    is found by its Morton index in O(1): nothing inside an allocation is
    ever sorted, and a bucket never moves once allocated.
 4. A small directory says which allocation holds which type over which
-   superchunk, sorted by type and then the superchunk's Morton index:
-   the one thing ever sorted, and it holds no bitmaps. The allocations
+   superchunk: the superchunks in Morton order, each with its types
+   sorted -- the one thing ever sorted, and it holds no bitmaps. The
+   last superchunk and type looked up are remembered, so runs of
+   lookups in one superchunk search nothing. The allocations
    lie wherever they were made; each one is a large run of memory in
    Morton order.
 5. The arena grows an allocation at a time. A bucket changed since it
@@ -301,18 +303,22 @@ cleared; a spread or a decay is two:
 
 | superchunks | writes a tick | sampling | computing | applying | the tick | writes a second | ticks a second |
 |---|---|---|---|---|---|---|---|
-| 1 | 798 | 96 | 52 | 36 | 184 | 5.4 million | 6,823 |
-| 16 | 12,711 | 104 | 132 | 94 | 330 | 3.0 million | 238 |
-| 64 | 50,822 | 104 | 175 | 131 | 409 | 2.4 million | 48 |
+| 1 | 798 | 98 | 40 | 25 | 163 | 6.1 million | 7,679 |
+| 16 | 12,711 | 102 | 49 | 30 | 181 | 5.5 million | 434 |
+| 64 | 50,822 | 107 | 60 | 43 | 210 | 4.8 million | 94 |
 
-At the target of 256 ticks a second, one core keeps about 15
+At the target of 256 ticks a second, one core keeps about 27
 superchunks of grass ticking.
 
-Sampling costs about 85 ns a sample: a logarithm a sample, the words'
-bits counted on the way, and the chosen word's bits cleared one by one
-to the one asked. Computing and applying each find a cell's bucket
-afresh -- a directory search a cell -- which costs more the more
-superchunks there are.
+Sampling now costs the most, about 85 ns a sample: a logarithm a
+sample, the words' bits counted on the way, and the chosen word's bits
+cleared one by one to the one asked. Computing and applying find a
+cell's bucket through the directory -- superchunks by Morton index,
+then their types -- and remember the last superchunk and type found,
+so Morton-ordered work rarely searches at all. Before that, a
+directory sorted by type then superchunk and searched afresh for every
+cell made computing and applying cost 2.5 to 3 times as much at 16 and
+64 superchunks.
 
 Every thread works sequentially within a superchunk; across superchunks
 the perimeter to area ratio keeps synchronization rare. How overlapping

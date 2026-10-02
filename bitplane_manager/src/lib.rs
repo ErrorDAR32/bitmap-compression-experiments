@@ -12,10 +12,13 @@
 //! allocated: making a bitmap hot or cold moves no other.
 //!
 //! Which allocation holds which layer type over which superchunk is a
-//! small directory, sorted by type and then by the superchunk's Morton
-//! key ([`SuperChunkPosition::morton_index`]): the one thing ever sorted,
-//! and it holds no bitmaps. The allocations themselves lie wherever they
-//! were made; each is one large run of memory in Morton order.
+//! small directory: the superchunks in use, sorted by Morton index
+//! ([`SuperChunkPosition::morton_index`], kept beside each), and for each
+//! its layers, sorted by type -- the one thing ever sorted, and it holds
+//! no bitmaps. The last lookup is remembered, superchunk and type, so
+//! runs of lookups in one superchunk, as Morton-ordered work makes,
+//! search nothing. The allocations themselves lie wherever they were
+//! made; each is one large run of memory in Morton order.
 //!
 //! The arena grows an allocation at a time, as a layer type turns hot
 //! over a superchunk it had none of. An allocation none of whose chunks
@@ -48,6 +51,7 @@ pub use random::Random;
 pub use writes::{Applied, Shape, Write, WriteOp};
 
 use allocator::{BlockId, BlockPool};
+use std::cell::Cell;
 use bitmap::morton::morton_index;
 use chunk_storage::{CellPlace, ChunkPlace, ChunkPosition, ChunkStorage, LayerCodec, LayerType, SuperChunkPosition, WorldCell, CHUNKS_IN_SUPERCHUNK};
 use bitmap::{CellWords, BITS_PER_WORD, WORDS};
@@ -144,11 +148,6 @@ impl SuperChunkLayer {
         put(&mut self.flags.nonempty, index, count > 0);
         self.counts_less_one[index] = count.saturating_sub(1) as u16;
     }
-
-    /// Where it sorts in the directory.
-    fn order(&self) -> (LayerType, u64) {
-        (self.layer_type, self.superchunk.morton_index())
-    }
 }
 
 /// The bucket of the chunk at `index` in a block's words.
@@ -234,11 +233,42 @@ impl BucketMut<'_> {
     }
 }
 
+/// One superchunk in the directory -- each layer knows which -- its layers, hot or waiting in the
+/// ring, sorted by type.
+struct SuperChunkEntry {
+    /// Its Morton index, kept so a search never computes it again.
+    morton: u64,
+    /// Its layers, sorted by type, one a type.
+    layers: Vec<SuperChunkLayer>,
+}
+
+/// Where a layer is: its superchunk's entry in the directory, and its
+/// place among the entry's layers.
+type Place = (usize, usize);
+
+/// The last lookup: its superchunk and where that is in the directory,
+/// and its layer type and where that is in the superchunk's layers, if
+/// the superchunk has it.
+#[derive(Clone, Copy)]
+struct LastLookup {
+    /// The superchunk looked up.
+    superchunk: SuperChunkPosition,
+    /// Its entry in the directory.
+    entry: usize,
+    /// The layer type looked up.
+    layer_type: LayerType,
+    /// Its place among the superchunk's layers, if it has one.
+    layer: Option<usize>,
+}
+
 /// The hot bitmaps, in allocations a superchunk each.
 pub struct BitmapArena {
-    /// Every allocation in use, sorted by type, then the superchunk's
-    /// Morton index.
-    directory: Vec<SuperChunkLayer>,
+    /// Every superchunk with a layer in use, sorted by Morton index.
+    directory: Vec<SuperChunkEntry>,
+    /// The last lookup, so the next one for the same superchunk -- and
+    /// the same type -- needs no search. Forgotten whenever the
+    /// directory's shape changes.
+    last: Cell<Option<LastLookup>>,
     /// The blocks the allocations' buckets live in.
     pool: BlockPool,
     /// Writes queued, not yet applied: a queue a layer type, sorted by
@@ -259,12 +289,18 @@ impl Default for BitmapArena {
 impl BitmapArena {
     /// An arena with no bitmap hot.
     pub fn new() -> Self {
-        Self { directory: Vec::new(), pool: BlockPool::new(ALLOCATION_WORDS), queues: Vec::new(), last_queue: 0 }
+        Self { directory: Vec::new(), last: Cell::new(None), pool: BlockPool::new(ALLOCATION_WORDS), queues: Vec::new(), last_queue: 0 }
+    }
+
+    /// Every allocation in use, superchunk by superchunk in Morton order,
+    /// in each by type.
+    fn layers(&self) -> impl Iterator<Item = &SuperChunkLayer> {
+        self.directory.iter().flat_map(|entry| &entry.layers)
     }
 
     /// How many bitmaps are hot.
     pub fn len(&self) -> usize {
-        self.directory.iter().map(|layer| layer.flags.hot.count_ones() as usize).sum()
+        self.layers().map(|layer| layer.flags.hot.count_ones() as usize).sum()
     }
 
     /// Whether no bitmap is hot.
@@ -275,21 +311,52 @@ impl BitmapArena {
     /// How many allocations are in use: holding a hot bitmap, or one
     /// waiting in the ring.
     pub fn allocations(&self) -> usize {
-        self.directory.len()
+        self.layers().count()
     }
 
-    /// Where the allocation for `layer_type` over `superchunk` is in the
-    /// directory, or where it would go.
-    fn find(&self, layer_type: LayerType, superchunk: SuperChunkPosition) -> Result<usize, usize> {
-        self.directory.binary_search_by_key(&(layer_type, superchunk.morton_index()), SuperChunkLayer::order)
+    /// The layer at `place`.
+    fn at(&self, (entry, layer): Place) -> &SuperChunkLayer {
+        &self.directory[entry].layers[layer]
     }
 
-    /// Where `key`'s bucket is, if it is hot: its allocation's entry in
-    /// the directory, and its index there.
-    fn hot(&self, key: BucketKey) -> Option<(usize, usize)> {
+    /// The layer at `place`, to change.
+    fn at_mut(&mut self, (entry, layer): Place) -> &mut SuperChunkLayer {
+        &mut self.directory[entry].layers[layer]
+    }
+
+    /// Where `superchunk` is in the directory, or where it would go:
+    /// remembered from the last lookup, or searched for.
+    fn find_superchunk(&self, superchunk: SuperChunkPosition) -> Result<usize, usize> {
+        match self.last.get() {
+            Some(last) if last.superchunk == superchunk => Ok(last.entry),
+            _ => {
+                let morton = superchunk.morton_index();
+                self.directory.binary_search_by_key(&morton, |entry| entry.morton)
+            }
+        }
+    }
+
+    /// Where the allocation for `layer_type` over `superchunk` is, if in
+    /// use: remembered from the last lookup, or searched for, and
+    /// remembered for the next.
+    fn find(&self, layer_type: LayerType, superchunk: SuperChunkPosition) -> Option<Place> {
+        if let Some(last) = self.last.get() {
+            if last.superchunk == superchunk && last.layer_type == layer_type {
+                return last.layer.map(|layer| (last.entry, layer));
+            }
+        }
+        let entry = self.find_superchunk(superchunk).ok()?;
+        let layer = self.directory[entry].layers.binary_search_by_key(&layer_type, |layer| layer.layer_type).ok();
+        self.last.set(Some(LastLookup { superchunk, entry, layer_type, layer }));
+        layer.map(|layer| (entry, layer))
+    }
+
+    /// Where `key`'s bucket is, if it is hot: its allocation, and the
+    /// bucket's index there.
+    fn hot(&self, key: BucketKey) -> Option<(Place, usize)> {
         let (superchunk, place) = key.chunk.superchunk_and_place();
-        let entry = self.find(key.layer_type, superchunk).ok()?;
-        contains(self.directory[entry].flags.hot, place.index()).then_some((entry, place.index()))
+        let at = self.find(key.layer_type, superchunk)?;
+        contains(self.at(at).flags.hot, place.index()).then_some((at, place.index()))
     }
 
     /// Whether `key`'s bitmap is hot.
@@ -297,14 +364,23 @@ impl BitmapArena {
         self.hot(key).is_some()
     }
 
-    /// The directory entry for `layer_type` over `superchunk`: the one in
+    /// The allocation for `layer_type` over `superchunk`: the one in
     /// use, or else a new one, its block from the pool.
-    fn allocation(&mut self, layer_type: LayerType, superchunk: SuperChunkPosition) -> usize {
-        self.find(layer_type, superchunk).unwrap_or_else(|entry| {
-            let block = self.pool.allocate();
-            self.directory.insert(entry, SuperChunkLayer { layer_type, superchunk, block, flags: ChunkFlags::default(), counts_less_one: [0; CHUNKS_IN_SUPERCHUNK], hot_count: 0 });
+    fn allocation(&mut self, layer_type: LayerType, superchunk: SuperChunkPosition) -> Place {
+        if let Some(at) = self.find(layer_type, superchunk) {
+            return at;
+        }
+        self.last.set(None);
+        let entry = self.find_superchunk(superchunk).unwrap_or_else(|entry| {
+            self.directory.insert(entry, SuperChunkEntry { morton: superchunk.morton_index(), layers: Vec::new() });
             entry
-        })
+        });
+        let layers = &mut self.directory[entry].layers;
+        let layer = layers.binary_search_by_key(&layer_type, |layer| layer.layer_type).expect_err("not in use");
+        let block = self.pool.allocate();
+        let new = SuperChunkLayer { layer_type, superchunk, block, flags: ChunkFlags::default(), counts_less_one: [0; CHUNKS_IN_SUPERCHUNK], hot_count: 0 };
+        layers.insert(layer, new);
+        (entry, layer)
     }
 
     /// Makes `key`'s bitmap hot, decoding `layer` -- the encoded bitmap
@@ -315,8 +391,9 @@ impl BitmapArena {
     /// hot now.
     pub fn make_hot(&mut self, key: BucketKey, layer: Option<&[u64]>, codec: &mut LayerCodec) -> bool {
         let (superchunk, place) = key.chunk.superchunk_and_place();
-        let (entry, index) = (self.allocation(key.layer_type, superchunk), place.index());
-        let allocation = &mut self.directory[entry];
+        let (at, index) = (self.allocation(key.layer_type, superchunk), place.index());
+        let (entry, slot) = at;
+        let allocation = &mut self.directory[entry].layers[slot];
         if contains(allocation.flags.hot, index) {
             return false;
         }
@@ -345,21 +422,21 @@ impl BitmapArena {
     /// How many cells of `layer_type` are set over `superchunk`, in its
     /// hot bitmaps: what weighs the superchunk when sampling.
     pub fn superchunk_count(&self, layer_type: LayerType, superchunk: SuperChunkPosition) -> u32 {
-        self.find(layer_type, superchunk).map_or(0, |entry| self.directory[entry].hot_count)
+        self.find(layer_type, superchunk).map_or(0, |at| self.at(at).hot_count)
     }
 
     /// `key`'s bitmap, to read, if it is hot.
     pub fn bucket(&self, key: BucketKey) -> Option<Bucket<'_>> {
-        self.hot(key).map(|(entry, index)| {
-            let allocation = &self.directory[entry];
+        self.hot(key).map(|(at, index)| {
+            let allocation = self.at(at);
             Bucket { cells: bucket_in(self.pool.block(allocation.block), index), count: allocation.count(index) }
         })
     }
 
     /// `key`'s bitmap, to change, if it is hot: for applying writes.
     fn bucket_mut(&mut self, key: BucketKey) -> Option<BucketMut<'_>> {
-        let (entry, index) = self.hot(key)?;
-        let allocation = &mut self.directory[entry];
+        let ((entry, slot), index) = self.hot(key)?;
+        let allocation = &mut self.directory[entry].layers[slot];
         Some(BucketMut { cells: bucket_in_mut(self.pool.block_mut(allocation.block), index), allocation, index })
     }
 
@@ -370,12 +447,18 @@ impl BitmapArena {
         self.bucket(key).map(|bucket| bucket.get(place)).ok_or(NotHot(key))
     }
 
+    /// Every allocation of `layer_type`, superchunk by superchunk in
+    /// Morton order.
+    fn layers_of(&self, layer_type: LayerType) -> impl Iterator<Item = &SuperChunkLayer> {
+        self.directory.iter().filter_map(move |entry| {
+            entry.layers.binary_search_by_key(&layer_type, |layer| layer.layer_type).ok().map(|layer| &entry.layers[layer])
+        })
+    }
+
     /// Every hot bitmap of `layer_type`: superchunk by superchunk in their
     /// Morton order, and in each the chunks in theirs.
     pub fn run(&self, layer_type: LayerType) -> impl Iterator<Item = (ChunkPosition, Bucket<'_>)> {
-        let start = self.directory.partition_point(|layer| layer.layer_type < layer_type);
-        let end = self.directory.partition_point(|layer| layer.layer_type <= layer_type);
-        self.directory[start..end].iter().flat_map(move |allocation| {
+        self.layers_of(layer_type).flat_map(move |allocation| {
             let words = self.pool.block(allocation.block);
             members(allocation.flags.hot).map(move |index| {
                 let chunk = ChunkPosition::of(allocation.superchunk, ChunkPlace::from_index(index));
@@ -384,10 +467,10 @@ impl BitmapArena {
         })
     }
 
-    /// Every hot bitmap's key, in the arena's order: by type, then
-    /// superchunk, then chunk, each in Morton order.
+    /// Every hot bitmap's key, in the arena's order: by superchunk, then
+    /// type, then chunk, superchunks and chunks in Morton order.
     pub fn keys(&self) -> impl Iterator<Item = BucketKey> + '_ {
-        self.directory.iter().flat_map(move |allocation| {
+        self.layers().flat_map(move |allocation| {
             members(allocation.flags.hot).map(move |index| BucketKey {
                 layer_type: allocation.layer_type,
                 chunk: ChunkPosition::of(allocation.superchunk, ChunkPlace::from_index(index)),
@@ -400,20 +483,20 @@ impl BitmapArena {
     /// clean and waiting in the ring: how many were written. Superchunks
     /// the ring flushes to make room are [`BitmapArena::flushed`].
     pub fn write_back(&mut self, superchunk: SuperChunkPosition, storage: &mut ChunkStorage, codec: &mut LayerCodec) -> usize {
+        let Ok(entry) = self.find_superchunk(superchunk) else {
+            return 0;
+        };
         let (mut written, mut flushed) = (0, Vec::new());
-        for entry in 0..self.directory.len() {
-            if self.directory[entry].superchunk != superchunk {
-                continue;
-            }
-            for index in members(self.directory[entry].flags.dirty) {
-                let allocation = &self.directory[entry];
+        for slot in 0..self.directory[entry].layers.len() {
+            for index in members(self.at((entry, slot)).flags.dirty) {
+                let allocation = self.at((entry, slot));
                 let cells = bucket_in(self.pool.block(allocation.block), index);
                 let bitmap: &[u64] = if cells.iter().all(|&word| word == 0) { &[] } else { codec.encode(cells) };
                 let chunk = ChunkPosition::of(superchunk, ChunkPlace::from_index(index));
                 storage.write_back(chunk, allocation.layer_type, bitmap, &mut flushed);
                 // Flushed before this bitmap went in: it waits on.
                 flushed.drain(..).for_each(|done| self.leave_ring(done));
-                let allocation = &mut self.directory[entry];
+                let allocation = self.at_mut((entry, slot));
                 put(&mut allocation.flags.dirty, index, false);
                 put(&mut allocation.flags.in_ring, index, true);
                 written += 1;
@@ -434,20 +517,27 @@ impl BitmapArena {
     /// Marks every bucket over `superchunk` as no longer waiting in the
     /// ring.
     fn leave_ring(&mut self, superchunk: SuperChunkPosition) {
-        self.directory.iter_mut().filter(|allocation| allocation.superchunk == superchunk).for_each(|allocation| allocation.flags.in_ring = 0);
+        if let Ok(entry) = self.find_superchunk(superchunk) {
+            self.directory[entry].layers.iter_mut().for_each(|layer| layer.flags.in_ring = 0);
+        }
     }
 
     /// Releases every allocation with no bucket hot or waiting in the
-    /// ring, its block back in the pool.
+    /// ring, its block back in the pool, and every superchunk left with
+    /// none.
     fn release_unused(&mut self) {
         let pool = &mut self.pool;
-        self.directory.retain(|allocation| {
-            let used = allocation.flags.hot | allocation.flags.in_ring != 0;
-            if !used {
-                pool.release(allocation.block);
-            }
-            used
-        });
+        for entry in &mut self.directory {
+            entry.layers.retain(|allocation| {
+                let used = allocation.flags.hot | allocation.flags.in_ring != 0;
+                if !used {
+                    pool.release(allocation.block);
+                }
+                used
+            });
+        }
+        self.directory.retain(|entry| !entry.layers.is_empty());
+        self.last.set(None);
     }
 
     /// Drops `key`'s bitmap from the hot ones: whether it was hot. Its
@@ -456,16 +546,21 @@ impl BitmapArena {
     /// back in the pool. Dropping a dirty bitmap would lose its changes,
     /// and is a bug: write it back first.
     pub fn evict(&mut self, key: BucketKey) -> bool {
-        let Some((entry, index)) = self.hot(key) else {
+        let Some((at, index)) = self.hot(key) else {
             return false;
         };
-        let allocation = &mut self.directory[entry];
+        let allocation = self.at_mut(at);
         assert!(!contains(allocation.flags.dirty, index), "{key:?} changed and was not written back");
         put(&mut allocation.flags.hot, index, false);
         allocation.hot_count -= allocation.count(index);
         if allocation.flags.hot | allocation.flags.in_ring == 0 {
-            let block = self.directory.remove(entry).block;
+            let (entry, slot) = at;
+            let block = self.directory[entry].layers.remove(slot).block;
             self.pool.release(block);
+            if self.directory[entry].layers.is_empty() {
+                self.directory.remove(entry);
+            }
+            self.last.set(None);
         }
         true
     }

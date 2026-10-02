@@ -47,10 +47,8 @@ impl BitmapArena {
         }
         let log_unchosen = (1.0 - probability.min(1.0)).ln();
         let draw = |random: &mut Random| if probability >= 1.0 { 0 } else { gap(random, log_unchosen) };
-        let start = self.directory.partition_point(|layer| layer.layer_type < layer_type);
-        let end = self.directory.partition_point(|layer| layer.layer_type <= layer_type);
         let mut chosen = 0;
-        for allocation in &self.directory[start..end] {
+        for allocation in self.layers_of(layer_type) {
             if allocation.hot_count == 0 {
                 continue;
             }

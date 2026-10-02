@@ -88,10 +88,11 @@ fn hot_bitmaps_hold_their_chunks_cells() {
     assert_eq!(write(&mut arena, LayerType(3), WriteOp::Set, inside_the_circle).missed, 1, "a write to a cold bitmap is missed");
 }
 
-/// The arena's bitmaps come in order by type, then superchunk, then
-/// chunk, each in Morton order, however they turned hot.
+/// The arena's bitmaps come in order by superchunk, then type, then
+/// chunk, superchunks and chunks in Morton order, however they turned
+/// hot; a type's alone come superchunk by superchunk.
 #[test]
-fn buckets_come_by_type_then_superchunk_then_chunk() {
+fn buckets_come_by_superchunk_then_type_then_chunk() {
     let (mut codec, mut arena) = (LayerCodec::new(), BitmapArena::new());
     let superchunks = [SuperChunkPosition { x: 2, y: 0 }, ORIGIN, SuperChunkPosition { x: 1, y: 0 }];
     let places = [ChunkPlace::new(1, 1), ChunkPlace::new(0, 1), ChunkPlace::new(1, 0), ChunkPlace::new(0, 0)];
@@ -108,9 +109,13 @@ fn buckets_come_by_type_then_superchunk_then_chunk() {
         .into_iter()
         .flat_map(|superchunk| places_in_order.map(|place| ChunkPosition::of(superchunk, place)))
         .collect();
-    let expected: Vec<BucketKey> = [LayerType(4), LayerType(9)]
+    let expected: Vec<BucketKey> = superchunks_in_order
         .into_iter()
-        .flat_map(|layer_type| chunks_in_order.iter().map(move |&chunk| BucketKey { layer_type, chunk }))
+        .flat_map(|superchunk| {
+            [LayerType(4), LayerType(9)]
+                .into_iter()
+                .flat_map(move |layer_type| places_in_order.map(|place| BucketKey { layer_type, chunk: ChunkPosition::of(superchunk, place) }))
+        })
         .collect();
     assert_eq!(arena.keys().collect::<Vec<_>>(), expected);
     assert_eq!(arena.len(), expected.len());
