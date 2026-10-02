@@ -6,7 +6,7 @@
 
 use bitmap::morton::morton_coordinates;
 use bitmap::BITS_PER_WORD;
-use bitplane_manager::{BitmapArena, BucketKey, Random};
+use bitplane_manager::{BitmapArena, BucketKey};
 use chunk_storage::mock::{grass_on_dirt, DIRT, GRASS};
 use chunk_storage::{ChunkPlace, ChunkPosition, ChunkStorage, LayerCodec, SuperChunkPosition, CHUNK_SIDE, SUPERCHUNK_SIDE_CELLS};
 use std::io::Write;
@@ -53,7 +53,7 @@ fn main() {
     }
 
     let side = SUPERCHUNK_SIDE_CELLS as usize;
-    let (mut random, mut samples, mut pixels) = (Random::new(1), Vec::new(), vec![0u8; side * side * 3]);
+    let mut pixels = vec![0u8; side * side * 3];
     let mut out = std::io::BufWriter::new(std::io::stdout().lock());
     for tick in 0..=ticks {
         if tick % every == 0 {
@@ -63,6 +63,6 @@ fn main() {
                 eprintln!("tick {tick:>7}: grass {}", arena.superchunk_count(GRASS, superchunk));
             }
         }
-        grass::tick(&mut arena, &mut random, &mut samples);
+        grass::tick(&mut arena, 1, tick as u64);
     }
 }

@@ -13,9 +13,9 @@
 //! fields alone; a rectangle or a disc is laid out in cartesian
 //! coordinates, the cheaper for geometry.
 
-use crate::BitmapArena;
+use crate::{contains, BitmapArena, SuperChunkLayer};
 use bitmap::morton::morton_index;
-use chunk_storage::{CellIndex, ChunkPosition, LayerType, CHUNK_SIDE};
+use chunk_storage::{CellIndex, ChunkPosition, LayerType, SuperChunkPosition, CHUNK_SIDE, SUPERCHUNK_SIDE_CELLS};
 
 /// What a write does to each cell it covers.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -111,16 +111,31 @@ pub struct Applied {
     pub missed: u64,
 }
 
-/// Cells along a chunk's side, as a coordinate.
-const CHUNK_SIDE_U32: u32 = CHUNK_SIDE as u32;
+impl std::ops::AddAssign for Applied {
+    /// Both added up.
+    fn add_assign(&mut self, other: Self) {
+        self.writes += other.writes;
+        self.changed += other.changed;
+        self.missed += other.missed;
+    }
+}
 
-impl BitmapArena {
-    /// Queues `write` into `layer_type`'s queue, to be applied with every
-    /// other queued, in order, by [`BitmapArena::apply`]: until then no
-    /// cell changes.
-    pub fn queue(&mut self, layer_type: LayerType, write: Write) {
-        let queue = match self.queues.get(self.last_queue) {
-            Some((held, _)) if *held == layer_type => self.last_queue,
+/// Writes queued, a queue a layer type, sorted by type, each in the
+/// order queued; the queue last written to is found again without a
+/// search, since rules queue runs of writes to one type.
+#[derive(Default)]
+pub(crate) struct TypeQueues {
+    /// The queues, by type.
+    queues: Vec<(LayerType, Vec<Write>)>,
+    /// The queue last written to.
+    last: usize,
+}
+
+impl TypeQueues {
+    /// Queues `write` into `layer_type`'s queue.
+    pub(crate) fn push(&mut self, layer_type: LayerType, write: Write) {
+        let queue = match self.queues.get(self.last) {
+            Some((held, _)) if *held == layer_type => self.last,
             _ => match self.queues.binary_search_by_key(&layer_type, |(held, _)| *held) {
                 Ok(at) => at,
                 Err(at) => {
@@ -129,13 +144,122 @@ impl BitmapArena {
                 }
             },
         };
-        self.last_queue = queue;
+        self.last = queue;
         self.queues[queue].1.push(write);
+    }
+
+    /// How many writes are queued.
+    pub(crate) fn len(&self) -> usize {
+        self.queues.iter().map(|(_, writes)| writes.len()).sum()
+    }
+
+    /// Every queue, by type.
+    pub(crate) fn iter(&self) -> impl Iterator<Item = (LayerType, &[Write])> {
+        self.queues.iter().map(|(layer_type, writes)| (*layer_type, writes.as_slice()))
+    }
+
+    /// Empties every queue, keeping its room.
+    pub(crate) fn clear(&mut self) {
+        self.queues.iter_mut().for_each(|(_, writes)| writes.clear());
+    }
+}
+
+/// Cells along a chunk's side, as a coordinate.
+const CHUNK_SIDE_U32: u32 = CHUNK_SIDE as u32;
+
+impl Write {
+    /// The Morton indices of the superchunks the write's cells lie in:
+    /// one, or for a shape across a border up to four.
+    pub(crate) fn superchunks(self) -> impl Iterator<Item = u64> {
+        let at = { self.at };
+        let ([left, right], [top, bottom]) = match self.shape {
+            Shape::Cell => ([at.cartesian().x; 2], [at.cartesian().y; 2]),
+            _ => self.bounds().unwrap_or(([1, 0], [1, 0])),
+        };
+        let superchunk_of = |coordinate: u32| coordinate / SUPERCHUNK_SIDE_CELLS;
+        let (columns, rows) = (superchunk_of(left)..=superchunk_of(right), superchunk_of(top)..=superchunk_of(bottom));
+        let empty = left > right;
+        rows.flat_map(move |y| columns.clone().map(move |x| (x, y)))
+            .filter(move |_| !empty)
+            .map(|(x, y)| SuperChunkPosition { x, y }.morton_index())
+    }
+}
+
+/// Applies the part of `write`, to `layer_type`'s bitplane, that lies in
+/// the superchunk whose Morton index is `superchunk` and whose layers
+/// are `layers` -- `None` if it has none in use: a cell straight from its
+/// Morton index, a shape chunk by chunk over its bounds there.
+pub(crate) fn apply_in(layers: Option<&mut [SuperChunkLayer]>, superchunk: u64, layer_type: LayerType, write: Write, applied: &mut Applied) {
+    let layer = layers.and_then(|layers| {
+        let at = layers.binary_search_by_key(&layer_type, |layer| layer.layer_type).ok()?;
+        Some(&mut layers[at])
+    });
+    let op = |layer: &SuperChunkLayer, chunk, cell| match write.op {
+        WriteOp::Set => true,
+        WriteOp::Unset => false,
+        WriteOp::Flip => !layer.get(chunk, cell),
+    };
+    let at = { write.at };
+    if write.shape == Shape::Cell {
+        if at.superchunk() != superchunk {
+            return;
+        }
+        let chunk = at.chunk_in_superchunk();
+        match layer {
+            Some(layer) if contains(layer.flags.hot, chunk) => {
+                let set = op(layer, chunk, at.in_chunk());
+                applied.changed += layer.put_cell(chunk, at.in_chunk(), set) as u64;
+            }
+            _ => applied.missed += 1,
+        }
+        return;
+    }
+    let Some(([left, right], [top, bottom])) = write.bounds() else {
+        return;
+    };
+    // The bounds' part inside this superchunk.
+    let position = SuperChunkPosition::from_morton_index(superchunk);
+    let (first_x, first_y) = (position.x * SUPERCHUNK_SIDE_CELLS, position.y * SUPERCHUNK_SIDE_CELLS);
+    let (left, top) = (left.max(first_x), top.max(first_y));
+    let (right, bottom) = (right.min(first_x + (SUPERCHUNK_SIDE_CELLS - 1)), bottom.min(first_y + (SUPERCHUNK_SIDE_CELLS - 1)));
+    if left > right || top > bottom {
+        return;
+    }
+    let mut layer = layer;
+    let chunk_of = |coordinate: u32| coordinate / CHUNK_SIDE_U32;
+    for chunk_y in chunk_of(top)..=chunk_of(bottom) {
+        for chunk_x in chunk_of(left)..=chunk_of(right) {
+            // The bounds' part inside this chunk.
+            let (x0, y0) = (left.max(chunk_x * CHUNK_SIDE_U32), top.max(chunk_y * CHUNK_SIDE_U32));
+            let (x1, y1) = (right.min(chunk_x * CHUNK_SIDE_U32 + (CHUNK_SIDE_U32 - 1)), bottom.min(chunk_y * CHUNK_SIDE_U32 + (CHUNK_SIDE_U32 - 1)));
+            let covered = (y0..=y1).flat_map(|y| (x0..=x1).map(move |x| (x, y))).filter(|&(x, y)| write.covers(x, y));
+            let chunk = ChunkPosition { x: chunk_x, y: chunk_y }.superchunk_and_place().1.index();
+            match layer.as_deref_mut() {
+                Some(layer) if contains(layer.flags.hot, chunk) => {
+                    for (x, y) in covered {
+                        let cell = morton_index(x as u8, y as u8);
+                        let set = op(layer, chunk, cell);
+                        applied.changed += layer.put_cell(chunk, cell, set) as u64;
+                    }
+                }
+                _ => applied.missed += covered.count() as u64,
+            }
+        }
+    }
+}
+
+impl BitmapArena {
+    /// Queues `write` into `layer_type`'s queue, to be applied with every
+    /// other queued, in order, by [`BitmapArena::apply`]: until then no
+    /// cell changes. For writes from outside a tick -- setting up, say;
+    /// a tick's rules queue theirs through [`crate::SuperChunkTick`].
+    pub fn queue(&mut self, layer_type: LayerType, write: Write) {
+        self.queued.push(layer_type, write);
     }
 
     /// How many writes are queued, over every layer type.
     pub fn queued(&self) -> usize {
-        self.queues.iter().map(|(_, writes)| writes.len()).sum()
+        self.queued.len()
     }
 
     /// Applies every queue, type by type, each write in the order queued,
@@ -144,61 +268,19 @@ impl BitmapArena {
     /// those cells out.
     pub fn apply(&mut self) -> Applied {
         let mut applied = Applied::default();
-        for queue in 0..self.queues.len() {
-            let (layer_type, mut writes) = (self.queues[queue].0, std::mem::take(&mut self.queues[queue].1));
+        let queued = std::mem::take(&mut self.queued);
+        for (layer_type, writes) in queued.iter() {
             applied.writes += writes.len();
-            for &write in &writes {
-                self.apply_one(layer_type, write, &mut applied);
+            for &write in writes {
+                for superchunk in write.superchunks() {
+                    let entry = self.lookup.superchunk(&self.directory, superchunk).ok();
+                    let layers = entry.map(|entry| self.directory[entry].layers.as_mut_slice());
+                    apply_in(layers, superchunk, layer_type, write, &mut applied);
+                }
             }
-            writes.clear();
-            self.queues[queue].1 = writes;
         }
+        self.queued = queued;
+        self.queued.clear();
         applied
-    }
-
-    /// Applies `write` to `layer_type`'s bitplane: a cell straight from
-    /// its Morton index, a shape chunk by chunk over its bounds.
-    fn apply_one(&mut self, layer_type: LayerType, write: Write, applied: &mut Applied) {
-        if write.shape == Shape::Cell {
-            let at = write.at;
-            match self.bucket_mut(layer_type, at.superchunk(), at.chunk_in_superchunk()) {
-                Some(mut bucket) => {
-                    let set = match write.op {
-                        WriteOp::Set => true,
-                        WriteOp::Unset => false,
-                        WriteOp::Flip => !bucket.get(at.in_chunk()),
-                    };
-                    applied.changed += bucket.put_cell(at.in_chunk(), set) as u64;
-                }
-                None => applied.missed += 1,
-            }
-            return;
-        }
-        let Some(([left, right], [top, bottom])) = write.bounds() else {
-            return;
-        };
-        let chunk_of = |coordinate: u32| coordinate / CHUNK_SIDE_U32;
-        for chunk_y in chunk_of(top)..=chunk_of(bottom) {
-            for chunk_x in chunk_of(left)..=chunk_of(right) {
-                // The bounds' part inside this chunk.
-                let (x0, y0) = (left.max(chunk_x * CHUNK_SIDE_U32), top.max(chunk_y * CHUNK_SIDE_U32));
-                let (x1, y1) = (right.min(chunk_x * CHUNK_SIDE_U32 + (CHUNK_SIDE_U32 - 1)), bottom.min(chunk_y * CHUNK_SIDE_U32 + (CHUNK_SIDE_U32 - 1)));
-                let covered = (y0..=y1).flat_map(|y| (x0..=x1).map(move |x| (x, y))).filter(|&(x, y)| write.covers(x, y));
-                let (superchunk, place) = ChunkPosition { x: chunk_x, y: chunk_y }.superchunk_and_place();
-                let Some(mut bucket) = self.bucket_mut(layer_type, superchunk.morton_index(), place.index()) else {
-                    applied.missed += covered.count() as u64;
-                    continue;
-                };
-                for (x, y) in covered {
-                    let cell = morton_index(x as u8, y as u8);
-                    let set = match write.op {
-                        WriteOp::Set => true,
-                        WriteOp::Unset => false,
-                        WriteOp::Flip => !bucket.get(cell),
-                    };
-                    applied.changed += bucket.put_cell(cell, set) as u64;
-                }
-            }
-        }
     }
 }

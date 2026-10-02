@@ -12,17 +12,17 @@ const BLOCK_WORDS: usize = 1024;
 #[test]
 fn blocks_are_zeroed_and_never_move() {
     let mut pool = BlockPool::new(BLOCK_WORDS);
-    let first = pool.allocate();
-    assert_eq!(pool.block(first).len(), BLOCK_WORDS);
-    assert!(pool.block(first).iter().all(|&word| word == 0));
-    pool.block_mut(first)[7] = 42;
-    let address = pool.block(first).as_ptr();
-    let others: Vec<_> = (0..16).map(|_| pool.allocate()).collect();
-    for &other in &others[..8] {
+    let mut first = pool.allocate();
+    assert_eq!(first.len(), BLOCK_WORDS);
+    assert!(first.iter().all(|&word| word == 0));
+    first[7] = 42;
+    let address = first.as_ptr();
+    let mut others: Vec<_> = (0..16).map(|_| pool.allocate()).collect();
+    for other in others.drain(..8) {
         pool.release(other);
     }
-    assert_eq!(pool.block(first).as_ptr(), address);
-    assert_eq!(pool.block(first)[7], 42);
+    assert_eq!(first.as_ptr(), address);
+    assert_eq!(first[7], 42);
 }
 
 /// A released block is the next handed out, holding what it held, and
@@ -30,15 +30,15 @@ fn blocks_are_zeroed_and_never_move() {
 #[test]
 fn released_blocks_come_back_first() {
     let mut pool = BlockPool::new(BLOCK_WORDS);
-    let (first, second) = (pool.allocate(), pool.allocate());
-    pool.block_mut(first)[0] = 9;
+    let (mut first, second) = (pool.allocate(), pool.allocate());
+    first[0] = 9;
+    let address = first.as_ptr();
     pool.release(first);
-    assert_eq!(pool.allocate(), first);
-    assert_eq!(pool.block(first)[0], 9);
+    let again = pool.allocate();
+    assert_eq!((again.as_ptr(), again[0]), (address, 9));
     assert_eq!(pool.blocks_made(), 2);
     pool.release(second);
-    pool.release(first);
-    assert_eq!(pool.allocate(), first);
-    assert_eq!(pool.allocate(), second);
+    pool.release(again);
+    let _ = (pool.allocate(), pool.allocate());
     assert_eq!(pool.blocks_made(), 2);
 }

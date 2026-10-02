@@ -55,6 +55,12 @@ impl SuperChunkPosition {
         debug_assert!(self.x < WORLD_SIDE_SUPERCHUNKS && self.y < WORLD_SIDE_SUPERCHUNKS, "{self:?} is outside the world");
         interleave(self.x, self.y)
     }
+
+    /// The superchunk whose Morton index is `index`:
+    /// [`SuperChunkPosition::morton_index`] undone.
+    pub fn from_morton_index(index: u64) -> Self {
+        Self { x: gather(index), y: gather(index >> 1) }
+    }
 }
 
 /// A `u64` whose bits alternate, `run` set then `run` clear, from the

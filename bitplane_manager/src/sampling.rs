@@ -14,7 +14,7 @@
 //! and only the word holding a chosen cell is searched.
 
 use crate::random::Random;
-use crate::{bucket_in, contains, BitmapArena};
+use crate::{contains, BitmapArena, SuperChunkLayer};
 use bitmap::BITS_PER_WORD;
 use chunk_storage::{CellIndex, LayerType, CHUNKS_IN_SUPERCHUNK};
 
@@ -35,58 +35,60 @@ fn select(mut word: u64, rank: u32) -> u32 {
     word.trailing_zeros()
 }
 
+/// Chooses each hot set cell of `layer` -- of the superchunk whose
+/// Morton index is `superchunk` -- with `probability`, independently,
+/// and hands every chosen cell to `emit` in Morton order: how many were
+/// chosen.
+pub(crate) fn sample_layer(superchunk: u64, layer: &SuperChunkLayer, probability: f64, random: &mut Random, emit: &mut impl FnMut(CellIndex)) -> usize {
+    if probability <= 0.0 || layer.hot_count == 0 {
+        return 0;
+    }
+    let log_unchosen = (1.0 - probability.min(1.0)).ln();
+    let draw = |random: &mut Random| if probability >= 1.0 { 0 } else { gap(random, log_unchosen) };
+    // The rank, among the layer's hot set cells still ahead, of the next
+    // one chosen.
+    let mut next = draw(random);
+    if next >= layer.hot_count as u64 {
+        return 0;
+    }
+    let mut chosen = 0;
+    for chunk in 0..CHUNKS_IN_SUPERCHUNK {
+        if !contains(layer.flags.hot, chunk) {
+            continue;
+        }
+        let count = layer.count(chunk) as u64;
+        if next >= count {
+            next -= count;
+            continue;
+        }
+        let cells = layer.cells(chunk);
+        // Set cells in the words before `word`.
+        let (mut word, mut before) = (0, 0u64);
+        while next < count {
+            loop {
+                let ones = cells[word].count_ones() as u64;
+                if before + ones > next {
+                    break;
+                }
+                before += ones;
+                word += 1;
+            }
+            let bit = select(cells[word], (next - before) as u32);
+            emit(CellIndex::of(superchunk, chunk, word * BITS_PER_WORD + bit as usize));
+            chosen += 1;
+            next += 1 + draw(random);
+        }
+        next -= count;
+    }
+    chosen
+}
+
 impl BitmapArena {
     /// Chooses each set cell of `layer_type`'s hot bitmaps with
     /// `probability`, independently, and hands every chosen cell to
     /// `emit` in Morton order: how many were chosen. A probability of 1
     /// or more chooses every set cell; 0 or less, none.
     pub fn sample(&self, layer_type: LayerType, probability: f64, random: &mut Random, mut emit: impl FnMut(CellIndex)) -> usize {
-        if probability <= 0.0 {
-            return 0;
-        }
-        let log_unchosen = (1.0 - probability.min(1.0)).ln();
-        let draw = |random: &mut Random| if probability >= 1.0 { 0 } else { gap(random, log_unchosen) };
-        let mut chosen = 0;
-        for (superchunk, allocation) in self.layers_of(layer_type) {
-            if allocation.hot_count == 0 {
-                continue;
-            }
-            // The rank, among the allocation's hot set cells still ahead,
-            // of the next one chosen.
-            let mut next = draw(random);
-            if next >= allocation.hot_count as u64 {
-                continue;
-            }
-            let words = self.pool.block(allocation.block);
-            for index in 0..CHUNKS_IN_SUPERCHUNK {
-                if !contains(allocation.flags.hot, index) {
-                    continue;
-                }
-                let count = allocation.count(index) as u64;
-                if next >= count {
-                    next -= count;
-                    continue;
-                }
-                let cells = bucket_in(words, index);
-                // Set cells in the words before `word`.
-                let (mut word, mut before) = (0, 0u64);
-                while next < count {
-                    loop {
-                        let ones = cells[word].count_ones() as u64;
-                        if before + ones > next {
-                            break;
-                        }
-                        before += ones;
-                        word += 1;
-                    }
-                    let bit = select(cells[word], (next - before) as u32);
-                    emit(CellIndex::of(superchunk, index, word * BITS_PER_WORD + bit as usize));
-                    chosen += 1;
-                    next += 1 + draw(random);
-                }
-                next -= count;
-            }
-        }
-        chosen
+        self.layers_of(layer_type).map(|(superchunk, layer)| sample_layer(superchunk, layer, probability, random, &mut emit)).sum()
     }
 }

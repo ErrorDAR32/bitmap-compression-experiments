@@ -261,7 +261,24 @@ Two steps a tick:
    others -- go into queues by layer type, are sorted into Morton order
    of their coordinates, and are applied in that order.
 
-   Built so far: the bitplane manager's write queues, one a layer type.
+   Built: the tick runs superchunk by superchunk, in two phases, on as
+   many threads as asked (`BitmapArena::tick`). In the first, each
+   superchunk runs the rules on itself -- samples its own cells, reads
+   any cell, queues writes -- and nothing changes, so every read sees
+   the world as the tick found it and the threads share the arena
+   read-only. Each superchunk has an outbox of nine queues: one for
+   itself, one for each of its eight neighbours, a write going to every
+   superchunk it lands in (a shape across a border to each); a write
+   farther than the neighbours is past the speed of light, and refused.
+   In the second phase each superchunk applies the writes queued for it
+   -- its own and its eight neighbours', in a fixed order -- to its own
+   bitmaps only, so the threads change disjoint superchunks. Each
+   superchunk owns its blocks, and draws its random numbers from the
+   tick's seed and its Morton index: a tick comes out the same on any
+   number of threads. Threads hold contiguous runs of the directory, so
+   each works through superchunks in Morton order.
+
+   Write queues, one a layer type.
    A write is fixed in size, 12 bytes -- the layer type is its queue's:
    an anchor cell, an operation -- set, unset or flip -- and a shape --
    the cell, a rectangle from it of up to 255 cells a side, or a disc
@@ -335,6 +352,21 @@ cleared; a spread or a decay is two:
 
 At the target of 256 ticks a second, one core keeps about 29
 superchunks of grass ticking.
+
+The same on the two-phase tick, on 1, 2 and 4 threads of a 4-core
+machine -- the same writes on each, the tick being the same on any
+number of threads -- ticks a second:
+
+| superchunks | writes a tick | 1 thread | 2 threads | 4 threads |
+|---|---|---|---|---|
+| 16 | 12,535 | 462 | 593 | 947 |
+| 64 | 50,149 | 104 | 171 | 307 |
+
+Four threads tick 64 superchunks at 307 ticks a second, 15 million
+writes a second: about 75 superchunks at 256 ticks a second. The
+threads are started afresh each phase, which a tick of 16 superchunks
+-- about 2 ms -- feels: kept between ticks, a pool of them would cost
+less.
 
 Sampling now costs the most, about 85 ns a sample: a logarithm a
 sample, the words' bits counted on the way, and the chosen word's bits
