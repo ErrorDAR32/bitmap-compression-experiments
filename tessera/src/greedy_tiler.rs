@@ -3,6 +3,8 @@
 //! complex tiles where they take fewer bits. Both are thrown away when
 //! the binary count tree wins. `docs/tessera.md`, "The greedy tiling"
 //! and "The complex tiling".
+//!
+//! Function by function: `docs/reference.md`, "`greedy_tiler.rs`".
 
 use crate::payload_writer::cell_list_least_bits;
 use crate::quadtree_writer::{node_bits, raw_resolution_fits, START_LEVEL_WIDTH};

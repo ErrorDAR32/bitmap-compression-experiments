@@ -18,6 +18,8 @@
 //! before each word, the pattern pyramid, the greedy tiling, the complex
 //! tiling, the stream's mode, the writers, the last pass. Every step and
 //! every bit: `docs/tessera.md`, "The steps".
+//!
+//! Function by function: `docs/reference.md`, "`lib.rs`".
 
 #![warn(missing_docs, clippy::missing_docs_in_private_items)]
 

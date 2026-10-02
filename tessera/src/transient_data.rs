@@ -13,6 +13,8 @@
 //!
 //! Every path is relative to the crate's folder, found from it wherever
 //! a run starts from.
+//!
+//! Function by function: `docs/lab.md`, "`transient_data.rs`".
 
 use crate::sample_generators::seed::seed_in_use;
 use std::path::{Path, PathBuf};

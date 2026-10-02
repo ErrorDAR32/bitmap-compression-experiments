@@ -1,6 +1,8 @@
 //! A tile: a size and a place in that size's plane. Its level is its
 //! size -- 0 the whole 256x256 bitmap, [`CELL_LEVEL`] one cell -- and its
 //! `x` and `y` count tiles of that size, not cells.
+//!
+//! Function by function: `docs/reference.md`, "`tile.rs`".
 
 use bitmap::morton::{morton_coordinates, morton_index};
 use bitmap::{Bitmap, WIDTH};

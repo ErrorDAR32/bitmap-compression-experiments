@@ -135,6 +135,8 @@ tessera/
   tests/                the three tiers, and unit/: the private internals' unit tests
   docs/
     tessera.md          every step and every bit
+    reference.md        the encoder, function by function
+    lab.md              the lab and tools, function by function
     testing_protocol.md how a change gets measured
   external_benchmarks/  against G4, JBIG and zstd; the saved adversarial bitmaps
   transient_data/       out of git: what runs leave behind -- the seed,

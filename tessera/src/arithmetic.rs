@@ -1,5 +1,7 @@
 //! A range coder of single bits, each at the probability given:
 //! `docs/tessera.md`, "The last pass", the coder.
+//!
+//! Function by function: `docs/reference.md`, "`arithmetic.rs`".
 
 use crate::bit_stream::{BitReader, BitStream, Sink};
 

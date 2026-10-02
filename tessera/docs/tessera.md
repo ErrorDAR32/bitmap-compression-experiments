@@ -8,7 +8,9 @@ complex tile where that takes fewer bits, and writes the result as a
 tree, its leftover cells coded from the cells around them.
 
 This file is the one full description of the encoding: every step,
-every bit, and why. The code's comments are short and point here. Kept
+every bit, and why. The code's comments are short and point here;
+`docs/reference.md` goes through the encoder function by function, and
+`docs/lab.md` the lab and tools. Kept
 up to date by hand: if the code changes and this doesn't, this file is
 wrong, not the code.
 

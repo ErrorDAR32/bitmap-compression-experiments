@@ -21,6 +21,8 @@
 //!
 //! `docs/testing_protocol.md` holds the rule for using them: fix with
 //! the seed held still, then check on a seed never seen.
+//!
+//! Function by function: `docs/lab.md`, "`sample_generators/`".
 
 pub mod checkerboards;
 mod city;

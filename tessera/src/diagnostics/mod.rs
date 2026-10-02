@@ -11,6 +11,8 @@
 //! | `census.rs` | a tree's nodes, by kind and level |
 //! | `bitmaps.rs` | the bitmaps a diagnostic looks at by name: adversarial records, saved bitmaps, one named by the caller |
 //! | `png.rs` | a bitmap as a PNG image |
+//!
+//! Function by function: `docs/lab.md`, "`diagnostics/`".
 
 pub mod bitmaps;
 pub mod census;

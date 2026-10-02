@@ -2,6 +2,8 @@
 //! two tiles of one size exactly when they hold the same cells -- so
 //! whether a tile is homogeneous, and whether it is copyable, is one
 //! comparison. `docs/tessera.md`, "The pattern pyramid".
+//!
+//! Function by function: `docs/reference.md`, "`patterns.rs`".
 
 use crate::tile::{cells_in_tile, copy_offset, tiles_in_level, Pyramid, Tile, FLOOR_LEVEL};
 use bitmap::Bitmap;

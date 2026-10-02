@@ -3,6 +3,8 @@
 //! residual block's cells range-coded at the odds of their contexts --
 //! and the pricing of residual blocks for the complex tiling, by the same
 //! block coder. `docs/tessera.md`, "The last pass".
+//!
+//! Function by function: `docs/reference.md`, "`last_pass.rs`".
 
 use crate::arithmetic::{ClearProbability, Decoder, Encoder, FINISHING_BITS};
 use crate::bit_stream::{BitReader, BitStream};

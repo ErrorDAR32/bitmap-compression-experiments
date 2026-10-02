@@ -2,6 +2,8 @@
 //! walks writing and reading the tree that gather the last pass's block
 //! plan. Counting a node's bits is writing it to a [`Counter`].
 //! `docs/tessera.md`, "The quadtree grammar".
+//!
+//! Function by function: `docs/reference.md`, "`quadtree_writer.rs`".
 
 use crate::bit_stream::{BitReader, BitStream, Counter, Sink};
 use crate::last_pass::BlockPlan;

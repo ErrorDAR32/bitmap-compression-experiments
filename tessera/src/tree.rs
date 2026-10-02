@@ -1,4 +1,6 @@
 //! The tree: what it holds at each tile.
+//!
+//! Function by function: `docs/reference.md`, "`tree.rs`".
 
 use crate::tile::{Pyramid, Tile, FLOOR_LEVEL};
 

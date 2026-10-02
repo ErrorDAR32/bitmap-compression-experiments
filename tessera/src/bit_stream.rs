@@ -4,6 +4,8 @@
 //! values, the variable-length codes the grammar uses: unary, Elias
 //! gamma and truncated binary -- written to a [`Sink`]: the stream, or a
 //! [`Counter`] of the bits they would take.
+//!
+//! Function by function: `docs/reference.md`, "`bit_stream.rs`".
 
 use crate::quadtree_writer::MOST_NODE_BITS;
 use crate::last_pass::MOST_EXTRA_BITS;

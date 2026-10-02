@@ -1,6 +1,8 @@
 //! Complex tiles' payloads, written and read: a value for every tile of
 //! the resolution, or, at 1x1, a cell list of the set cells.
 //! `docs/tessera.md`, "Payloads and cell lists".
+//!
+//! Function by function: `docs/reference.md`, "`payload_writer.rs`".
 
 use crate::bit_stream::{gamma_bits, BitReader, Sink};
 use crate::tile::{cells_in_tile, tiles_in_level, Tile, CELL_LEVEL};

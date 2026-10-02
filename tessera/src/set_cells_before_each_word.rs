@@ -3,6 +3,8 @@
 //! needs a set count of a run of whole words -- the binary count tree, a half
 //! at a time, and a cell list's tile, 8x8 or coarser -- as one
 //! subtraction.
+//!
+//! Function by function: `docs/reference.md`, "`set_cells_before_each_word.rs`".
 
 use crate::tile::{cells_in_tile, Tile};
 use bitmap::{Bitmap, WORDS};

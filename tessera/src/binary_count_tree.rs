@@ -2,6 +2,8 @@
 //! bitmaps, the Morton order halved again and again, each run saying how
 //! many of its set cells lie in its first half. `docs/tessera.md`, "The
 //! stream: tree or binary count tree".
+//!
+//! Function by function: `docs/reference.md`, "`binary_count_tree.rs`".
 
 use crate::bit_stream::{truncated_binary_bits, truncated_binary_shape, BitReader, Sink};
 use crate::set_cells_before_each_word::SetCellsBeforeEachWord;

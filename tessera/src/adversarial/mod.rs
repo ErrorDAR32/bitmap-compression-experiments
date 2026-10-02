@@ -16,6 +16,8 @@
 //!    far, carried on from where the last run left it.
 //!
 //! Records are plain PBM images (`record.rs`).
+//!
+//! Function by function: `docs/lab.md`, "`adversarial/`".
 
 mod anneal;
 mod moves;
