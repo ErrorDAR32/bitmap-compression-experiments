@@ -183,14 +183,17 @@ pool needs variable-size allocations, the area allocator's job.
 
 A superchunk, in the pool and on disk alike:
 
-1. **Its chunks, in Morton order**, each:
+1. **The chunk table**: the offset of each of its 16 chunks, in Morton
+   order.
+2. **The height map**: one for the whole superchunk, 1024x1024
+   heights, raw for now (1 MiB), in Morton order, so each chunk's
+   heights are one 64 KiB run.
+3. **Its chunks, in Morton order**, each grouping its own data:
    1. **its bitmap table**: its entry count, then one entry a bitmap,
-      sorted by type id, each with the bitmap's offset into the
-      bitmaps;
-   2. **its height map**, raw for now.
-2. **The bitmaps**, compressed, each starting byte-aligned, in no
-   particular order: the tables' offsets find them. No length is kept:
-   a Tessera stream ends itself.
+      sorted by type id, each with the bitmap's offset;
+   2. **its bitmaps**, compressed, each starting byte-aligned, in no
+      particular order: the table's offsets find them. No length is
+      kept: a Tessera stream ends itself.
 
 On disk a superchunk is one file, named by its coordinates, its
 contents written sequentially as laid out in memory.
