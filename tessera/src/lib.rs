@@ -44,7 +44,7 @@ pub mod transient_data;
 #[path = "../tests/unit/mod.rs"]
 mod unit_tests;
 
-pub use bit_stream::BitStream;
+pub use bit_stream::{BitStream, MOST_BITS};
 
 use bitmap::Bitmap;
 use bit_stream::{Counter, Sink};

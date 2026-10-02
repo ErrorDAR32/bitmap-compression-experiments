@@ -7,6 +7,10 @@ code. Kept up to date by hand, like it.
 
 ## `lib.rs`: the API
 
+**`MOST_BITS`**: the most bits any stream takes, exported so a reader
+of streams laid one after another -- chunk storage -- loads no more
+words than one can take.
+
 **`encode(bitmap) -> BitStream`**, **`decode(stream) -> Bitmap`**: one
 bitmap with a `Tessera` of its own -- allocating one, so for many
 bitmaps keep a `Tessera`.

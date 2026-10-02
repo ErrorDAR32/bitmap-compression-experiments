@@ -191,6 +191,12 @@ impl ChunkPosition {
     pub fn morton_index(self) -> u64 {
         interleave(self.x, self.y)
     }
+
+    /// The chunk at `index` in Morton order: [`ChunkPosition::morton_index`]
+    /// undone.
+    pub fn from_morton_index(index: u64) -> Self {
+        Self { x: gather(index), y: gather(index >> 1) }
+    }
 }
 
 /// A cell's place in its chunk: the coordinates its bitmaps use. `u8`

@@ -1,11 +1,15 @@
-//! The bitplane manager: hot bitmaps decoded from their chunks' layers,
-//! read and changed, written back, evicted -- and never moved.
+//! The bitplane manager: hot bitmaps decoded from chunk storage's cold
+//! pool, read and changed, written back into its ring, evicted -- and
+//! never moved.
 //!
 //! `cargo test`
 
 use bitmap::{Bitmap, CellWords, WORDS};
 use bitplane_manager::{BitmapArena, BucketKey, NotHot};
-use chunk_storage::{CellPlace, ChunkPlace, ChunkPosition, DiskChunk, DiskSuperChunk, LayerCodec, LayerType, SuperChunkPosition, WorldCell, SUPERCHUNK_SIDE, WORLD_SIDE_SUPERCHUNKS};
+use chunk_storage::{
+    CellPlace, ChunkPlace, ChunkPosition, ChunkStorage, HeightMap, LayerChange, LayerCodec, LayerType, SuperChunkImage, SuperChunkPosition,
+    WorldCell, SUPERCHUNK_SIDE, WORLD_SIDE_SUPERCHUNKS,
+};
 
 /// A cell of a chunk.
 const CELL: CellPlace = CellPlace { x: 3, y: 200 };
@@ -24,20 +28,37 @@ fn drawn() -> CellWords {
     *bitmap.words()
 }
 
+/// A bitmap's cells with only `cell` set.
+fn one_cell(cell: CellPlace) -> CellWords {
+    let mut bitmap = Bitmap::new();
+    bitmap.set(cell.x, cell.y);
+    *bitmap.words()
+}
+
+/// Chunk storage holding a superchunk at `superchunk` whose chunk at
+/// `place` has `layers`, each with its cells.
+fn storage_with(superchunk: SuperChunkPosition, place: ChunkPlace, layers: &[(LayerType, CellWords)], codec: &mut LayerCodec) -> ChunkStorage {
+    let encoded: Vec<(LayerType, Vec<u64>)> = layers.iter().map(|(layer_type, cells)| (*layer_type, codec.encode(cells).to_vec())).collect();
+    let changes: Vec<LayerChange> =
+        encoded.iter().map(|(layer_type, words)| LayerChange { chunk: place.index(), layer_type: *layer_type, words }).collect();
+    let mut storage = ChunkStorage::new(1 << 12);
+    storage.insert(superchunk, SuperChunkImage::new(&HeightMap::default()).rewritten(&changes));
+    storage
+}
+
 /// A bitmap turns hot decoded from its chunk's layer, or empty if the
 /// chunk has none; cells of it are read and changed through the arena,
 /// and a cell of a bitmap not hot is refused.
 #[test]
 fn hot_bitmaps_hold_their_chunks_cells() {
     let (mut codec, mut arena) = (LayerCodec::new(), BitmapArena::new());
-    let mut chunk = DiskChunk::new();
-    chunk.replace_layer(LayerType(1), codec.encode(&drawn()));
+    let storage = storage_with(ORIGIN, ChunkPlace::new(0, 0), &[(LayerType(1), drawn())], &mut codec);
     let chunk_position = ChunkPosition { x: 0, y: 0 };
     let drawn_key = BucketKey { layer_type: LayerType(1), chunk: chunk_position };
     let absent_key = BucketKey { layer_type: LayerType(2), chunk: chunk_position };
 
-    assert!(arena.make_hot(drawn_key, chunk.layer(LayerType(1)), &mut codec));
-    assert!(arena.make_hot(absent_key, chunk.layer(LayerType(2)), &mut codec));
+    assert!(arena.make_hot(drawn_key, storage.layer(chunk_position, LayerType(1)), &mut codec));
+    assert!(arena.make_hot(absent_key, storage.layer(chunk_position, LayerType(2)), &mut codec));
     assert_eq!(arena.bucket(drawn_key).expect("hot").cells(), &drawn());
     assert!(arena.bucket(absent_key).expect("hot").cells().iter().all(|&word| word == 0));
 
@@ -46,7 +67,7 @@ fn hot_bitmaps_hold_their_chunks_cells() {
     arena.unset(LayerType(1), inside_the_circle).expect("hot");
     assert_eq!(arena.holds(LayerType(1), inside_the_circle), Ok(false));
     // Turning it hot again keeps the change.
-    assert!(!arena.make_hot(drawn_key, chunk.layer(LayerType(1)), &mut codec));
+    assert!(!arena.make_hot(drawn_key, storage.layer(chunk_position, LayerType(1)), &mut codec));
     assert_eq!(arena.holds(LayerType(1), inside_the_circle), Ok(false));
 
     let cold = BucketKey { layer_type: LayerType(3), chunk: chunk_position };
@@ -104,7 +125,8 @@ fn hot_bitmaps_never_move() {
     assert_eq!(address(&arena, first), before);
 
     let lone = key(100, 1000, 1000);
-    arena.make_hot(lone, Some(&codec.encode(&drawn())), &mut codec);
+    let encoded = codec.encode(&drawn()).to_vec();
+    arena.make_hot(lone, Some(&encoded), &mut codec);
     let freed = address(&arena, lone);
     assert!(arena.evict(lone));
     let next = key(101, 1000, 1000);
@@ -113,35 +135,85 @@ fn hot_bitmaps_never_move() {
     assert!(arena.bucket(next).expect("hot").cells().iter().all(|&word| word == 0), "and cleared");
 }
 
-/// Writing back encodes only what changed into its chunk, and a layer
-/// left with no cell set leaves the chunk; a changed bitmap cannot be
-/// evicted before it is written back.
+/// Writing back encodes only what changed into the ring, and the pool
+/// holds it once flushed; a layer left with no cell set leaves its
+/// chunk. A changed bitmap cannot be evicted before it is written back.
 #[test]
-fn changes_write_back_into_their_chunks() {
-    let (mut codec, mut arena) = (LayerCodec::new(), BitmapArena::new());
-    let mut superchunk = DiskSuperChunk::new(ORIGIN);
+fn changes_write_back_through_the_ring() {
+    let (mut codec, mut arena, mut flushed) = (LayerCodec::new(), BitmapArena::new(), Vec::new());
     let place = ChunkPlace::new(2, 3);
+    let mut storage = storage_with(ORIGIN, place, &[(LayerType(2), one_cell(CELL))], &mut codec);
     let chunk = ChunkPosition::of(ORIGIN, place);
     let (new, cleared) = (BucketKey { layer_type: LayerType(1), chunk }, BucketKey { layer_type: LayerType(2), chunk });
-    let mut one_cell = Bitmap::new();
-    one_cell.set(CELL.x, CELL.y);
-    superchunk.chunk_mut(place).replace_layer(LayerType(2), codec.encode(one_cell.words()));
 
-    arena.make_hot(new, None, &mut codec);
-    arena.make_hot(cleared, superchunk.chunk(place).layer(LayerType(2)), &mut codec);
-    assert_eq!(arena.write_back(&mut superchunk, &mut codec), 0, "nothing changed");
+    assert_eq!(arena.make_hot_layers(chunk, &[LayerType(1), LayerType(2)], &storage, &mut codec), 2);
+    assert_eq!(arena.write_back(ORIGIN, &mut storage, &mut codec), 0, "nothing changed");
 
     arena.bucket_mut(new).expect("hot").set(CELL);
     arena.bucket_mut(cleared).expect("hot").unset(CELL);
-    assert_eq!(arena.write_back(&mut superchunk, &mut codec), 2);
-    let written = superchunk.chunk(place);
-    assert!(written.layer(LayerType(2)).is_none(), "an empty layer leaves the chunk");
+    assert_eq!(arena.write_back(ORIGIN, &mut storage, &mut codec), 2);
+    assert!(storage.layer(chunk, LayerType(1)).is_none() && storage.layer(chunk, LayerType(2)).is_some(), "in the ring yet");
+    storage.flush_all(&mut flushed);
+    arena.flushed(&flushed);
+    assert!(storage.layer(chunk, LayerType(2)).is_none(), "an empty layer leaves the chunk");
     let mut back = [0; WORDS];
-    codec.decode(written.layer(LayerType(1)).expect("the new layer"), &mut back);
-    assert_eq!(&back, one_cell.words());
+    codec.decode(storage.layer(chunk, LayerType(1)).expect("the new layer"), &mut back);
+    assert_eq!(back, one_cell(CELL));
 
     assert!(arena.evict(new) && arena.evict(cleared) && arena.is_empty());
+    assert_eq!(arena.allocations(), 0, "nothing hot, nothing waiting");
     assert!(!arena.evict(new));
+}
+
+/// A bitmap written back and evicted waits in its allocation until its
+/// superchunk is flushed: made hot again before then, it is the bucket
+/// as it was, though the pool does not have it yet; after, it is
+/// released, and made hot again it is decoded from the pool.
+#[test]
+fn evicted_bitmaps_wait_for_the_ring() {
+    let (mut codec, mut arena, mut flushed) = (LayerCodec::new(), BitmapArena::new(), Vec::new());
+    let mut storage = ChunkStorage::new(1 << 12);
+    let key = BucketKey { layer_type: LayerType(1), chunk: ChunkPosition::of(MIDDLE, ChunkPlace::new(1, 2)) };
+    let cell = WorldCell::at(chunk_storage::CellAddress { superchunk: MIDDLE, chunk: ChunkPlace::new(1, 2), cell: CELL });
+    arena.make_hot(key, storage.layer(key.chunk, key.layer_type), &mut codec);
+    arena.set(LayerType(1), cell).expect("hot");
+    arena.write_back(MIDDLE, &mut storage, &mut codec);
+    assert!(arena.evict(key));
+    assert_eq!((arena.len(), arena.allocations()), (0, 1), "evicted, waiting");
+
+    assert!(storage.layer(key.chunk, key.layer_type).is_none(), "not in the pool yet");
+    assert!(arena.make_hot(key, None, &mut codec));
+    assert_eq!(arena.holds(LayerType(1), cell), Ok(true), "the bucket as it was");
+    assert!(arena.evict(key));
+
+    storage.flush_all(&mut flushed);
+    arena.flushed(&flushed);
+    assert_eq!(arena.allocations(), 0, "released once flushed");
+    arena.make_hot(key, storage.layer(key.chunk, key.layer_type), &mut codec);
+    assert_eq!(arena.holds(LayerType(1), cell), Ok(true), "decoded from the pool");
+}
+
+/// When writing back fills the ring, the superchunk at its tail is
+/// flushed, and its evicted bitmaps are released then.
+#[test]
+fn a_full_ring_releases_what_it_flushed() {
+    let (mut codec, mut arena) = (LayerCodec::new(), BitmapArena::new());
+    let mut storage = ChunkStorage::new(8);
+    let (first, second) = (SuperChunkPosition { x: 7, y: 7 }, SuperChunkPosition { x: 8, y: 7 });
+    let key = |superchunk| BucketKey { layer_type: LayerType(3), chunk: ChunkPosition::of(superchunk, ChunkPlace::new(0, 0)) };
+    // An entry bigger than the ring grows it to the power of two over the
+    // entry -- under two entries -- so the second entry flushes the first.
+    let encoded = codec.encode(&drawn()).to_vec();
+    for superchunk in [first, second] {
+        arena.make_hot(key(superchunk), Some(&encoded), &mut codec);
+        arena.bucket_mut(key(superchunk)).expect("hot").set(CELL);
+    }
+    arena.write_back(first, &mut storage, &mut codec);
+    assert!(arena.evict(key(first)));
+    assert_eq!(arena.allocations(), 2, "the first waits in the ring");
+    arena.write_back(second, &mut storage, &mut codec);
+    assert_eq!(arena.allocations(), 1, "flushed to make room, and released");
+    assert!(storage.layer(key(first).chunk, LayerType(3)).is_some());
 }
 
 #[test]
@@ -158,15 +230,16 @@ fn evicting_an_unwritten_change_panics() {
 /// chunk's other layers stay cold.
 #[test]
 fn only_the_types_asked_for_turn_hot() {
-    let (mut codec, mut arena) = (LayerCodec::new(), BitmapArena::new());
-    let mut chunk = DiskChunk::new();
-    for layer_type in [LayerType(1), LayerType(2), LayerType(3)] {
-        chunk.replace_layer(layer_type, codec.encode(&drawn()));
-    }
-    let position = ChunkPosition::of(MIDDLE, ChunkPlace::new(3, 2));
-    assert_eq!(arena.make_hot_layers(position, &chunk, &[LayerType(3), LayerType(1), LayerType(8)], &mut codec), 3);
-    assert_eq!(arena.make_hot_layers(position, &chunk, &[LayerType(1)], &mut codec), 0, "already hot");
+    let mut codec = LayerCodec::new();
+    let mut arena = BitmapArena::new();
+    let place = ChunkPlace::new(3, 2);
+    let layers: Vec<(LayerType, CellWords)> = [1, 2, 3].map(|layer_type| (LayerType(layer_type), drawn())).to_vec();
+    let storage = storage_with(MIDDLE, place, &layers, &mut codec);
+    let position = ChunkPosition::of(MIDDLE, place);
+    assert_eq!(arena.make_hot_layers(position, &[LayerType(3), LayerType(1), LayerType(8)], &storage, &mut codec), 3);
+    assert_eq!(arena.make_hot_layers(position, &[LayerType(1)], &storage, &mut codec), 0, "already hot");
     let hot: Vec<LayerType> = arena.keys().map(|key| key.layer_type).collect();
     assert_eq!(hot, [LayerType(1), LayerType(3), LayerType(8)]);
+    assert_eq!(arena.bucket(BucketKey { layer_type: LayerType(3), chunk: position }).expect("hot").cells(), &drawn());
     assert!(!arena.is_hot(BucketKey { layer_type: LayerType(2), chunk: position }));
 }

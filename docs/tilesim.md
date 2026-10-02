@@ -22,10 +22,10 @@ unnoticed, nudging their decisions towards survival and progress.
 | grain | size | what it is for |
 |---|---|---|
 | cell | one tile of the world | the unit everything is placed on |
-| disk chunk | 256x256 cells | the unit the world's data is held in: a height map and its layers |
-| disk superchunk | 4x4 disk chunks, 1024x1024 cells | the grain of disk input and output, of terrain generation, and of hot bitmaps |
+| chunk | 256x256 cells | the unit the world's layers are held in |
+| superchunk | 4x4 chunks, 1024x1024 cells | the grain of disk input and output, of terrain generation, of the height map and of hot bitmaps |
 
-A disk superchunk is read and written whole, and terrain is generated a
+A superchunk is read and written whole, and terrain is generated a
 superchunk at a time.
 
 Coordinates are non-negative integers, counted from the world's top
@@ -47,48 +47,99 @@ at 16x16 chunks that is 2 MiB, at 4x4 it is 128 KiB, so 8 GiB holds
 65,536 of them -- far more independent hot bitmaps. Buckets stay fixed
 in size, found in O(1) by Morton index from a small array.
 
-### A disk chunk
+### Layers
 
-- **A height map**: one `u8` height per cell, stored raw for now. It
-  will need compressing too.
-- **Layers**: pairs of a type and an encoded bitmap. The type is a `u64`
-  naming what the bitmap represents, anything from specific things (a
-  kind of tree, say) to properties (wet, burning). The bitmap marks the
-  cells where it holds, Tessera-encoded: in memory in aligned 64-bit
-  words, its length its words; on disk packed to the byte, its length
-  its bytes -- the stream's bits rounded up either way.
-  Inside a chunk, layers are sorted by type; a chunk holds at most one
-  layer per type, and a type with no cell set has no layer.
+A chunk's data is its **layers**: pairs of a type and an encoded
+bitmap. The type is a `u64` naming what the bitmap represents, anything
+from specific things (a kind of tree, say) to properties (wet,
+burning). The bitmap marks the cells where it holds, Tessera-encoded in
+64-bit words, in memory and on disk alike. A chunk holds at most one
+layer per type, and a type with no cell set has no layer.
 
-A disk chunk has no cell operations: only whole layers, by type. A
-superchunk holds its chunks in Morton order.
+A Tessera stream ends itself: its range coder ends with bits that
+decode the same whatever follows them, at about 0.6 bits a bitmap more
+than ending on implied zeros. So no bitmap's length is kept: bitmaps
+lie one after another, each read from its first word.
+
+Heights are one `u8` a cell, raw for now, in one height map a
+superchunk. They will need compressing too.
 
 Most layers will probably be sparse. Tessera, the encoding the layers
 are held in, is not optimized further for that until the game needs it.
 
+### Chunk storage: the cold pool and the writeback ring
+
+Chunk storage (`chunk_storage/`) is two parts in memory:
+
+1. **The cold pool**: superchunk images, each one run of words, laid
+   out as on disk (below). When the bitplane manager asks for a
+   bitmap, it is decoded from here into the bitmap planes.
+2. **The writeback ring**: a ring buffer of changed bitmaps, encoded,
+   each tagged with its chunk's Morton index and its type; one of no
+   words says the layer is gone. Writing back a dirty bucket appends to
+   the ring; it never touches the pool. Evicting a superchunk from the
+   bitplanes fills the ring with its changed bitmaps, tagged.
+
+The ring is cold writeback only: it is never read to make a bitmap
+hot. A bitmap with an entry in the ring is still in the bitplanes: an
+evicted bitmap's bucket stays allocated until its superchunk is
+flushed, and one made hot again before then is the bucket as it was.
+
+The ring is a sponge for writes into the pool. A superchunk is
+sequential even in memory, so changing one bitmap in place would mean
+resizing it and moving everything after it. Instead the ring absorbs
+writes, and a superchunk is rewritten once, its image merged with its
+ring entries into a new image. The ring frees from its tail: when an
+entry does not fit, the superchunk whose entry is at the tail is
+flushed -- rewritten, which frees every entry of it -- until it fits;
+the tail then skips entries already freed. A later entry for the same
+bitmap replaces an earlier one. Entries never wrap round the ring's
+end: one that does not fit before it starts again at the start. The
+ring grows only when empty and still too small for an entry. Each
+flush is told to the bitplane manager, which only then drops the
+evicted buckets of that superchunk.
+
+A superchunk image, in the pool and on disk alike, every part starting
+on a word:
+
+1. **The chunk table**: the offset of each of its 16 chunks, in Morton
+   order.
+2. **The height map**: one for the whole superchunk, 1024x1024
+   heights, raw for now (1 MiB), 8 a word, in Morton order, so each
+   chunk's heights are one 64 KiB run.
+3. **Its chunks, in Morton order**, each grouping its own data:
+   1. **its bitmap table**: its entry count, then one entry a bitmap,
+      sorted by type, each a type and the bitmap's offset from the
+      chunk's start;
+   2. **its bitmaps**, encoded, each starting on a word, in no
+      particular order: the table's offsets find them.
+
+On disk a superchunk is one file, named by its coordinates, its words
+written sequentially as laid out in memory.
+
 ### From the disk to the cells
 
-1. A disk superchunk is read from disk, and dispatched into its disk
-   chunks, their layers still encoded.
-2. Cells are read and changed in the **bitmap arena**: its buckets hold
-   the hot bitmaps, raw, one layer of one chunk each, decoded from their
-   chunks only when needed. The arena is the only place with a cell API.
+1. A superchunk image is read from disk into the cold pool as it is,
+   its layers still encoded.
+2. Cells are read and changed in the **bitmap arena**
+   (`bitplane_manager/`): its buckets hold the hot bitmaps, raw, one
+   layer of one chunk each, decoded from the pool only when needed. The
+   arena is the only place with a cell API.
 3. The arena is made of allocations the size of a superchunk: each holds
    one layer type over one superchunk, a bucket for every one of its 16
    chunks, in the chunks' Morton order, allocated whole. A chunk's bucket
    is found by its Morton index in O(1): nothing inside an allocation is
    ever sorted, and a bucket never moves once allocated.
 4. A small directory says which allocation holds which type over which
-   superchunk, sorted by type and then the superchunk's Morton key: the
-   one thing ever sorted, and it holds no bitmaps. The allocations lie
-   wherever they were made; each one is a large run of memory in Morton
-   order.
-5. The arena grows an allocation at a time. An allocation whose chunks
-   have all been evicted leaves the directory and is kept for the next
-   one needed. A bucket changed since it was decoded is dirty; writing
-   back encodes it into its chunk's layer, removing the layer if no cell
-   is left set. A dirty bucket must be written back before it is
-   evicted.
+   superchunk, sorted by type and then the superchunk's Morton index:
+   the one thing ever sorted, and it holds no bitmaps. The allocations
+   lie wherever they were made; each one is a large run of memory in
+   Morton order.
+5. The arena grows an allocation at a time. A bucket changed since it
+   was decoded is dirty; writing back encodes it into the ring, no words
+   if no cell is left set. A dirty bucket must be written back before
+   it is evicted. An allocation with no bucket hot or waiting in the
+   ring leaves the directory, its block kept for the next one needed.
 
 ### The tick budget
 
@@ -116,91 +167,43 @@ types asked for are decoded, and the chunk's other layers stay encoded.
 
 The in-memory structures and their API, in three projects: chunks as
 stored (`chunk_storage/`), the hot bitplanes (`bitplane_manager/`) and
-the allocator their buckets live in (`allocator/`): the disk chunk,
-the disk superchunk, the encoded layer and its codec, the bitmap arena,
-and the coordinates between the world, a superchunk, a chunk and a
-cell. Nothing is read from or written to disk yet: disk access comes
-once these are right, since it brings concerns of its own.
+the allocator their buckets live in (`allocator/`): the coordinates and
+Morton indices between the world, a superchunk, a chunk and a cell; the
+height map; the layer codec; the superchunk image; the cold pool and
+the writeback ring; the bitmap arena. Nothing is read from or written
+to disk yet, though an image's words are what a file will hold: disk
+access comes once these are right, since it brings concerns of its own.
 
 Planned: loading an aligned power-of-two square of chunks for a set of
 layer types at once. Such a square is one run of Morton indices in its
 superchunk, so its buckets are one run of each type's allocation.
 
-Still open: where heights are read and changed while hot (a chunk only
-hands its height map over whole), when buckets are evicted, and
-reading and writing superchunks on disk.
+Still open: where heights are read and changed while hot (an image
+only hands them over whole, and is never changed in place), when
+buckets are evicted and superchunks flushed, and reading and writing
+superchunks on disk.
 
 ## Decided, not built yet
 
 ### Memory
 
 - The custom allocator (`allocator/`) serves two projects only: chunk
-  storage (`chunk_storage/`, the disk chunk area) and the bitplane
-  manager (`bitplane_manager/`, the hot bitmap area). Nothing else
-  allocates through it. So far only the bitplane manager uses it, its
-  first form: a pool of equal-size blocks.
+  storage (`chunk_storage/`, the cold area) and the bitplane manager
+  (`bitplane_manager/`, the hot bitmap area). Nothing else allocates
+  through it. So far only the bitplane manager uses it, its first form:
+  a pool of equal-size blocks. Chunk storage's images and ring are
+  plain allocations until the area allocator below exists.
 - A custom allocator per area, not one global allocator: the system is
   asked for large blocks, 256 MiB at a time, tracked in a list; inside
   them, allocations are runs of 256-byte units, the allocated intervals
   kept in a sorted list. A few lines of `unsafe` hand out the memory;
   an allocation is an owning handle that frees itself when dropped.
   Nothing is ever resized in place by moving it.
-- **The disk chunk area** is chunk storage's cold pool and writeback
-  ring (below). It may move data: a superchunk rewritten is written
-  into new space, never resized in place.
+- **The cold area** is chunk storage's cold pool and writeback ring.
+  It may move data: a superchunk rewritten is written into new space,
+  never resized in place.
 - **The hot bitmap area** never moves, which is why it is cut into
   superchunk-sized allocations, at the cost of a lot of memory.
-
-### Chunk storage: the cold pool and the writeback ring
-
-Chunk storage is two parts in memory:
-
-1. **The cold pool**: superchunks, compressed, each one sequential run.
-   When the bitplane manager asks for a bitmap, it is decoded from here
-   into the bitmap planes.
-2. **The writeback ring**: a dynamic ring buffer of changed bitmaps,
-   compressed, each tagged with its chunk's coordinates and its type.
-   Writing back a dirty bucket appends to the ring; it never touches the
-   pool. Evicting a superchunk from the bitplanes fills the ring with
-   compressed versions of its bitmaps, tagged.
-
-The ring is cold writeback only: it is never read to make a bitmap
-hot. A bitmap with an entry in the ring is still hot, so its newest
-version is in the bitplanes: an evicted superchunk's bitplanes stay
-allocated until its ring entries reach the pool, so a superchunk
-needed again before then is still hot.
-
-The ring is a sponge for writes into the pool. A superchunk is
-sequential even in memory, so changing one bitmap in place would mean
-resizing it and moving everything after it. Instead the ring absorbs
-writes, and a superchunk is rewritten once, its pool run merged with
-its ring entries into new space. The ring frees from its tail: when it
-fills, the superchunk whose entry is at the tail is rewritten, which
-frees every entry of that superchunk; the tail then skips entries
-already freed. A later entry for the same bitmap replaces an earlier
-one. A rewrite allocates a run of a new size and frees the old: the
-pool needs variable-size allocations, the area allocator's job.
-
-A superchunk, in the pool and on disk alike:
-
-1. **The chunk table**: the offset of each of its 16 chunks, in Morton
-   order.
-2. **The height map**: one for the whole superchunk, 1024x1024
-   heights, raw for now (1 MiB), in Morton order, so each chunk's
-   heights are one 64 KiB run.
-3. **Its chunks, in Morton order**, each grouping its own data:
-   1. **its bitmap table**: its entry count, then one entry a bitmap,
-      sorted by type id, each with the bitmap's offset;
-   2. **its bitmaps**, compressed, each starting byte-aligned, in no
-      particular order: the table's offsets find them. No length is
-      kept: a Tessera stream ends itself.
-
-On disk a superchunk is one file, named by its coordinates, its
-contents written sequentially as laid out in memory.
-
-A Tessera stream ends itself: its range coder ends with bits that
-decode the same whatever follows them, at about 0.6 bits a bitmap
-more than ending on implied zeros.
 
 ### The tick
 
