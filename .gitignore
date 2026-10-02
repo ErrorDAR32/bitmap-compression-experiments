@@ -3,3 +3,6 @@ target/
 # adversarial records, renders, callgrind output: the working copy's own,
 # never moved by git (tessera/src/transient_data.rs).
 tessera/transient_data/
+
+# What TileSim's runs leave behind: renders and the like, never in git.
+/transient_data/

@@ -39,6 +39,7 @@ dependencies = [
 name = "tilesim"
 version = "0.1.0"
 dependencies = [
+ "bitmap",
  "bitplane_manager",
  "chunk_storage",
 ]
