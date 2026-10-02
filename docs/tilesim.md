@@ -225,6 +225,24 @@ superchunks on disk.
 - **The hot bitmap area** never moves, which is why it is cut into
   superchunk-sized allocations, at the cost of a lot of memory.
 
+### The speed of light
+
+No action reaches farther than 1024 cells a tick -- a superchunk's side
+-- counting the far edge of what it writes, not just its anchor. So
+whatever a cell does in a tick lands in its own superchunk or one of
+the eight around it (in chunks: the 9x9 around its own), never farther.
+What follows:
+
+- A border of hot superchunks one deep around every active one is
+  enough for no read or write to fall on a cold bitmap.
+- Superchunks three apart each way never touch the same superchunk in
+  a tick: updated in nine colours (x mod 3, y mod 3), one colour at a
+  time, they need no synchronization -- two apart is not enough, as S
+  and S + 2 both reach S + 1. Or each superchunk's owner applies every
+  write that lands in it, the others handing theirs over, which needs
+  no colours, and the handing over reaches the eight neighbours only.
+- Not checked yet: rules keeping their writes within the reach.
+
 ### The tick
 
 Two steps a tick:
