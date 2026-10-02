@@ -189,9 +189,9 @@ impl Bucket<'_> {
     }
 }
 
-/// One hot bitmap, to change: a change marks it dirty, and keeps its
-/// count and its allocation's in step.
-pub struct BucketMut<'a> {
+/// One hot bitmap, to change -- by applying writes only: a change marks
+/// it dirty, and keeps its count and its allocation's in step.
+struct BucketMut<'a> {
     /// Its cells.
     cells: &'a mut CellWords,
     /// Its allocation's dirty chunks, counts and hot count.
@@ -201,11 +201,6 @@ pub struct BucketMut<'a> {
 }
 
 impl BucketMut<'_> {
-    /// How many cells are set.
-    pub fn count(&self) -> u32 {
-        self.allocation.count(self.index)
-    }
-
     /// Makes `cell` set or clear, if it is not already: the bitmap is
     /// then dirty, and its count and its allocation's hot count move by
     /// one. Whether it changed.
@@ -229,29 +224,9 @@ impl BucketMut<'_> {
     }
 
     /// Whether `cell` is set.
-    pub fn get(&self, cell: CellPlace) -> bool {
+    fn get(&self, cell: CellPlace) -> bool {
         let (word, bit) = word_and_bit(cell);
         self.cells[word] & bit != 0
-    }
-
-    /// Sets `cell`.
-    pub fn set(&mut self, cell: CellPlace) {
-        self.put_cell(cell, true);
-    }
-
-    /// Clears `cell`.
-    pub fn unset(&mut self, cell: CellPlace) {
-        self.put_cell(cell, false);
-    }
-
-    /// Sets `cell` if it is clear, clears it if it is set.
-    pub fn flip(&mut self, cell: CellPlace) {
-        self.put_cell(cell, !self.get(cell));
-    }
-
-    /// Every cell, in Morton order, 64 a word.
-    pub fn cells(&self) -> &CellWords {
-        self.cells
     }
 }
 
@@ -373,8 +348,8 @@ impl BitmapArena {
         })
     }
 
-    /// `key`'s bitmap, to change, if it is hot.
-    pub fn bucket_mut(&mut self, key: BucketKey) -> Option<BucketMut<'_>> {
+    /// `key`'s bitmap, to change, if it is hot: for applying writes.
+    fn bucket_mut(&mut self, key: BucketKey) -> Option<BucketMut<'_>> {
         let (entry, index) = self.hot(key)?;
         let allocation = &mut self.directory[entry];
         Some(BucketMut { cells: bucket_in_mut(self.pool.block_mut(allocation.block), index), allocation, index })
@@ -385,20 +360,6 @@ impl BitmapArena {
         let (chunk, place) = cell.chunk_and_cell();
         let key = BucketKey { layer_type, chunk };
         self.bucket(key).map(|bucket| bucket.get(place)).ok_or(NotHot(key))
-    }
-
-    /// Makes `layer_type` hold at `cell`, anywhere in the world.
-    pub fn set(&mut self, layer_type: LayerType, cell: WorldCell) -> Result<(), NotHot> {
-        let (chunk, place) = cell.chunk_and_cell();
-        let key = BucketKey { layer_type, chunk };
-        self.bucket_mut(key).map(|mut bucket| bucket.set(place)).ok_or(NotHot(key))
-    }
-
-    /// Makes `layer_type` not hold at `cell`, anywhere in the world.
-    pub fn unset(&mut self, layer_type: LayerType, cell: WorldCell) -> Result<(), NotHot> {
-        let (chunk, place) = cell.chunk_and_cell();
-        let key = BucketKey { layer_type, chunk };
-        self.bucket_mut(key).map(|mut bucket| bucket.unset(place)).ok_or(NotHot(key))
     }
 
     /// Every hot bitmap of `layer_type`: superchunk by superchunk in their

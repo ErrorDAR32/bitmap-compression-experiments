@@ -5,7 +5,7 @@
 //! `cargo test`
 
 use bitmap::{Bitmap, CellWords, WORDS};
-use bitplane_manager::{BitmapArena, BucketKey, NotHot};
+use bitplane_manager::{Applied, BitmapArena, BucketKey, NotHot, Shape, Write, WriteOp};
 use chunk_storage::mock::{grass_on_dirt, DIRT, GRASS};
 use chunk_storage::{
     CellPlace, ChunkPlace, ChunkPosition, ChunkStorage, HeightMap, LayerChange, LayerCodec, LayerType, SuperChunkImage, SuperChunkPosition,
@@ -27,6 +27,18 @@ fn drawn() -> CellWords {
     bitmap.set_rect(10, 10, 40, 30);
     bitmap.set_circle(180, 180, 25);
     *bitmap.words()
+}
+
+/// Queues `op` on `cell` of `layer_type`'s bitplane, and applies it:
+/// what applying did.
+fn write(arena: &mut BitmapArena, layer_type: LayerType, op: WriteOp, cell: WorldCell) -> Applied {
+    arena.queue(Write { layer_type, op, shape: Shape::Cell(cell) });
+    arena.apply()
+}
+
+/// The cell at `cell` in the chunk at `place` of `superchunk`.
+fn cell_in(superchunk: SuperChunkPosition, place: ChunkPlace, cell: CellPlace) -> WorldCell {
+    WorldCell::at(chunk_storage::CellAddress { superchunk, chunk: place, cell })
 }
 
 /// A bitmap's cells with only `cell` set.
@@ -65,7 +77,7 @@ fn hot_bitmaps_hold_their_chunks_cells() {
 
     let inside_the_circle = WorldCell { x: 180, y: 180 };
     assert_eq!(arena.holds(LayerType(1), inside_the_circle), Ok(true));
-    arena.unset(LayerType(1), inside_the_circle).expect("hot");
+    write(&mut arena, LayerType(1), WriteOp::Unset, inside_the_circle);
     assert_eq!(arena.holds(LayerType(1), inside_the_circle), Ok(false));
     // Turning it hot again keeps the change.
     assert!(!arena.make_hot(drawn_key, storage.layer(chunk_position, LayerType(1)), &mut codec));
@@ -73,7 +85,7 @@ fn hot_bitmaps_hold_their_chunks_cells() {
 
     let cold = BucketKey { layer_type: LayerType(3), chunk: chunk_position };
     assert_eq!(arena.holds(LayerType(3), inside_the_circle), Err(NotHot(cold)));
-    assert_eq!(arena.set(LayerType(3), inside_the_circle), Err(NotHot(cold)));
+    assert_eq!(write(&mut arena, LayerType(3), WriteOp::Set, inside_the_circle).missed, 1, "a write to a cold bitmap is missed");
 }
 
 /// The arena's bitmaps come in order by type, then superchunk, then
@@ -150,8 +162,8 @@ fn changes_write_back_through_the_ring() {
     assert_eq!(arena.make_hot_layers(chunk, &[LayerType(1), LayerType(2)], &storage, &mut codec), 2);
     assert_eq!(arena.write_back(ORIGIN, &mut storage, &mut codec), 0, "nothing changed");
 
-    arena.bucket_mut(new).expect("hot").set(CELL);
-    arena.bucket_mut(cleared).expect("hot").unset(CELL);
+    write(&mut arena, LayerType(1), WriteOp::Set, cell_in(ORIGIN, place, CELL));
+    write(&mut arena, LayerType(2), WriteOp::Unset, cell_in(ORIGIN, place, CELL));
     assert_eq!(arena.write_back(ORIGIN, &mut storage, &mut codec), 2);
     assert!(storage.layer(chunk, LayerType(1)).is_none() && storage.layer(chunk, LayerType(2)).is_some(), "in the ring yet");
     storage.flush_all(&mut flushed);
@@ -175,9 +187,9 @@ fn evicted_bitmaps_wait_for_the_ring() {
     let (mut codec, mut arena, mut flushed) = (LayerCodec::new(), BitmapArena::new(), Vec::new());
     let mut storage = ChunkStorage::new(1 << 12);
     let key = BucketKey { layer_type: LayerType(1), chunk: ChunkPosition::of(MIDDLE, ChunkPlace::new(1, 2)) };
-    let cell = WorldCell::at(chunk_storage::CellAddress { superchunk: MIDDLE, chunk: ChunkPlace::new(1, 2), cell: CELL });
+    let cell = cell_in(MIDDLE, ChunkPlace::new(1, 2), CELL);
     arena.make_hot(key, storage.layer(key.chunk, key.layer_type), &mut codec);
-    arena.set(LayerType(1), cell).expect("hot");
+    write(&mut arena, LayerType(1), WriteOp::Set, cell);
     arena.write_back(MIDDLE, &mut storage, &mut codec);
     assert!(arena.evict(key));
     assert_eq!((arena.len(), arena.allocations()), (0, 1), "evicted, waiting");
@@ -207,7 +219,7 @@ fn a_full_ring_releases_what_it_flushed() {
     let encoded = codec.encode(&drawn()).to_vec();
     for superchunk in [first, second] {
         arena.make_hot(key(superchunk), Some(&encoded), &mut codec);
-        arena.bucket_mut(key(superchunk)).expect("hot").set(CELL);
+        write(&mut arena, LayerType(3), WriteOp::Set, cell_in(superchunk, ChunkPlace::new(0, 0), CELL));
     }
     arena.write_back(first, &mut storage, &mut codec);
     assert!(arena.evict(key(first)));
@@ -223,7 +235,7 @@ fn evicting_an_unwritten_change_panics() {
     let (mut codec, mut arena) = (LayerCodec::new(), BitmapArena::new());
     let key = BucketKey { layer_type: LayerType(1), chunk: ChunkPosition { x: 0, y: 0 } };
     arena.make_hot(key, None, &mut codec);
-    arena.set(LayerType(1), WorldCell { x: 0, y: 0 }).expect("hot");
+    write(&mut arena, LayerType(1), WriteOp::Set, WorldCell { x: 0, y: 0 });
     arena.evict(key);
 }
 
@@ -294,18 +306,18 @@ fn counts_follow_every_change() {
     let (dirt, grass) = (BucketKey { layer_type: DIRT, chunk }, BucketKey { layer_type: GRASS, chunk });
     assert_eq!((arena.bucket(dirt).expect("hot").count(), arena.bucket(grass).expect("hot").count()), (1 << 16, 0));
 
-    let cell = WorldCell::at(chunk_storage::CellAddress { superchunk: MIDDLE, chunk: place, cell: CELL });
+    let cell = cell_in(MIDDLE, place, CELL);
     for _ in 0..2 {
-        arena.set(GRASS, cell).expect("hot");
-        arena.unset(DIRT, cell).expect("hot");
+        write(&mut arena, GRASS, WriteOp::Set, cell);
+        write(&mut arena, DIRT, WriteOp::Unset, cell);
     }
     assert_eq!((arena.bucket(dirt).expect("hot").count(), arena.bucket(grass).expect("hot").count()), ((1 << 16) - 1, 1));
     assert_eq!(arena.superchunk_count(GRASS, MIDDLE), 1);
-    arena.unset(GRASS, cell).expect("hot");
-    arena.set(DIRT, cell).expect("hot");
+    write(&mut arena, GRASS, WriteOp::Unset, cell);
+    write(&mut arena, DIRT, WriteOp::Set, cell);
     assert_eq!((arena.bucket(dirt).expect("hot").count(), arena.bucket(grass).expect("hot").count()), (1 << 16, 0));
 
-    arena.set(GRASS, cell).expect("hot");
+    write(&mut arena, GRASS, WriteOp::Set, cell);
     arena.write_back(MIDDLE, &mut storage, &mut codec);
     assert!(arena.evict(grass));
     assert_eq!(arena.superchunk_count(GRASS, MIDDLE), 0, "evicted, waiting in the ring");
