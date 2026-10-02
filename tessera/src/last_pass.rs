@@ -262,16 +262,11 @@ impl Pricing {
     }
 }
 
-/// Room for the last pass, allocated once.
-pub struct LastPass {
-    /// Every block the tree leaves unsaid, and how far the pass is.
-    state: PassState,
-    /// Encoding: the cells as decoding has them.
-    cells_as_decoded: Bitmap,
-}
-
-/// The blocks the tree leaves unsaid, and the contexts' odds.
-struct PassState {
+/// The last pass's input: the 4x4 blocks the tree leaves unsaid -- each
+/// block a copy covers, and its source block, and the residual blocks.
+/// Gathered by the quadtree writer and reader as they walk the tree,
+/// so encoding and decoding gather the same.
+pub struct BlockPlan {
     /// Each block's source while a copy covers it and it is not copied
     /// yet; [`NO_SOURCE`] otherwise.
     sources: Box<[BlockIndex; BLOCKS]>,
@@ -279,6 +274,58 @@ struct PassState {
     unsaid: BlockSet,
     /// The residual blocks not yet coded.
     residual: BlockSet,
+}
+
+impl BlockPlan {
+    /// No block planned.
+    pub fn new() -> Self {
+        Self { sources: Box::new([NO_SOURCE; BLOCKS]), unsaid: [0; BLOCK_WORDS], residual: [0; BLOCK_WORDS] }
+    }
+
+    /// Forgets every block planned: before the tree is walked.
+    pub fn clear(&mut self) {
+        self.sources.fill(NO_SOURCE);
+        self.unsaid = [0; BLOCK_WORDS];
+        self.residual = [0; BLOCK_WORDS];
+    }
+
+    /// Adds the residual block `block`.
+    pub fn add_residual_block(&mut self, block: Tile) {
+        insert(&mut self.residual, block.index());
+        insert(&mut self.unsaid, block.index());
+    }
+
+    /// The residual blocks, by Morton index, in that order.
+    pub fn residual_blocks(&self, mut visit: impl FnMut(usize)) {
+        each_block(|word_index| self.residual[word_index], &mut visit);
+    }
+
+    /// Adds the blocks of `part` -- the copy at `copy`, or a child of it
+    /// the copy copies -- copied from the tile `far` and `direction`
+    /// name, counted in the copy's own sides: each block from the block
+    /// at the same place in the same-size tile that far away.
+    pub fn add_copied_blocks(&mut self, copy: Tile, part: Tile, far: bool, direction: u8) {
+        let (dx, dy) = copy_offset(far, direction);
+        let reach = tiles_across(part.level - copy.level) as isize;
+        let source = Tile { level: part.level, x: (part.x as isize + dx * reach) as u8, y: (part.y as isize + dy * reach) as u8 };
+        let (first, source_first) = (part.first_cell() / BLOCK_CELLS, source.first_cell() / BLOCK_CELLS);
+        for place in 0..tiles_in_level(FLOOR_LEVEL - part.level) {
+            self.sources[first + place] = (source_first + place) as BlockIndex;
+            insert(&mut self.unsaid, first + place);
+        }
+    }
+}
+
+/// Room for the last pass, allocated once.
+pub struct LastPass {
+    /// How far the pass is.
+    state: PassState,
+    /// Encoding: the cells as decoding has them.
+    cells_as_decoded: Bitmap,
+}
+
+/// Copies waiting on their sources, and the contexts' odds.
+struct PassState {
     /// A copy waiting on its source, and that source on its own: a
     /// chain, never longer than there are blocks.
     waiting: FixedList<BlockIndex, BLOCKS>,
@@ -292,61 +339,22 @@ struct PassState {
 impl LastPass {
     /// Room for the pass.
     pub fn new() -> Self {
-        let state = PassState {
-            sources: Box::new([NO_SOURCE; BLOCKS]),
-            unsaid: [0; BLOCK_WORDS],
-            residual: [0; BLOCK_WORDS],
-            waiting: FixedList::new(),
-            pending: FixedList::new(),
-            odds: [ContextOdds::UNSEEN; CONTEXTS],
-        };
+        let state = PassState { waiting: FixedList::new(), pending: FixedList::new(), odds: [ContextOdds::UNSEEN; CONTEXTS] };
         Self { state, cells_as_decoded: Bitmap::new() }
     }
 
-    /// Forgets every block noted: before the tree is walked.
-    pub fn clear(&mut self) {
-        self.state.sources.fill(NO_SOURCE);
-        self.state.unsaid = [0; BLOCK_WORDS];
-        self.state.residual = [0; BLOCK_WORDS];
-    }
-
-    /// Notes the residual block `block`.
-    pub fn note_residual(&mut self, block: Tile) {
-        insert(&mut self.state.residual, block.index());
-        insert(&mut self.state.unsaid, block.index());
-    }
-
-    /// The residual blocks noted, by Morton index, in that order.
-    pub fn residual_blocks(&self, mut visit: impl FnMut(usize)) {
-        each_block(|word_index| self.state.residual[word_index], &mut visit);
-    }
-
-    /// Notes that `part` -- the copy at `copy`, or a child of it the copy
-    /// copies -- is copied from the tile `far` and `direction` name,
-    /// counted in the copy's own sides: each of `part`'s blocks from the
-    /// block at the same place in the same-size tile that far away.
-    pub fn note_copy(&mut self, copy: Tile, part: Tile, far: bool, direction: u8) {
-        let (dx, dy) = copy_offset(far, direction);
-        let reach = tiles_across(part.level - copy.level) as isize;
-        let source = Tile { level: part.level, x: (part.x as isize + dx * reach) as u8, y: (part.y as isize + dy * reach) as u8 };
-        let (first, source_first) = (part.first_cell() / BLOCK_CELLS, source.first_cell() / BLOCK_CELLS);
-        for place in 0..tiles_in_level(FLOOR_LEVEL - part.level) {
-            self.state.sources[first + place] = (source_first + place) as BlockIndex;
-            insert(&mut self.state.unsaid, first + place);
-        }
-    }
-
-    /// Writes the pass for `bitmap` to `stream`, after its tree.
-    pub fn encode(&mut self, bitmap: &Bitmap, stream: &mut BitStream) {
+    /// Writes the pass of `plan` for `bitmap` to `stream`, after its
+    /// tree.
+    pub fn encode(&mut self, plan: &mut BlockPlan, bitmap: &Bitmap, stream: &mut BitStream) {
         // The cells as decoding has them after the tree: none of a block
-        // a copy covers or of a residual block.
+        // the tree leaves unsaid.
         self.cells_as_decoded.copy_from(bitmap);
-        let unsaid = &self.state.unsaid;
+        let unsaid = &plan.unsaid;
         each_block(|word_index| unsaid[word_index], |index| self.cells_as_decoded.clear_morton_run(index * BLOCK_CELLS, BLOCK_CELLS));
         // A pass coding no cell writes nothing: not even the coder's end.
-        let codes_any_cell = self.state.residual != [0; BLOCK_WORDS];
+        let codes_any_cell = plan.residual != [0; BLOCK_WORDS];
         let mut encoder = Encoder::default();
-        self.state.run_pass(&mut self.cells_as_decoded, &mut |odds, cell_index| {
+        self.state.run_pass(plan, &mut self.cells_as_decoded, &mut |odds, cell_index| {
             let set = bitmap.morton_run(cell_index, 1) == 1;
             encoder.encode(set, odds.clear_probability(), stream);
             set
@@ -356,37 +364,38 @@ impl LastPass {
         }
     }
 
-    /// Reads the pass into `cells`, which hold what the tree said.
-    pub fn decode(&mut self, cells: &mut Bitmap, reader: &mut BitReader) {
+    /// Reads the pass of `plan` into `cells`, which hold what the tree
+    /// said.
+    pub fn decode(&mut self, plan: &mut BlockPlan, cells: &mut Bitmap, reader: &mut BitReader) {
         // A pass coding no cell has nothing after it: the coder's start
         // reads past the stream's end, all 0, and nothing more.
         let mut decoder = Decoder::new(reader);
-        self.state.run_pass(cells, &mut |odds, _| decoder.decode(odds.clear_probability(), reader));
+        self.state.run_pass(plan, cells, &mut |odds, _| decoder.decode(odds.clear_probability(), reader));
     }
 }
 
 impl PassState {
     /// The pass itself, on `cells`: every block copied or coded, in
     /// Morton order, then the copies that waited.
-    fn run_pass(&mut self, cells: &mut Bitmap, code: &mut impl FnMut(ContextOdds, usize) -> bool) {
+    fn run_pass(&mut self, plan: &mut BlockPlan, cells: &mut Bitmap, code: &mut impl FnMut(ContextOdds, usize) -> bool) {
         self.odds = [ContextOdds::UNSEEN; CONTEXTS];
         self.pending.clear();
-        let unsaid = self.unsaid;
+        let unsaid = plan.unsaid;
         each_block(|word_index| unsaid[word_index], |index| {
             // A block copied as the source of one before it has no source
             // left when its turn comes, and is passed over.
-            if self.sources[index] != NO_SOURCE {
-                if !self.copy_block_chain(index, cells) {
+            if plan.sources[index] != NO_SOURCE {
+                if !self.copy_block_chain(plan, index, cells) {
                     self.pending.push(index as BlockIndex);
                 }
-            } else if contains(&self.residual, index) {
+            } else if contains(&plan.residual, index) {
                 let run = code_residual_block(&mut self.odds, cells, index, code);
                 cells.set_in_morton_run(index * BLOCK_CELLS, BLOCK_CELLS, run);
-                remove(&mut self.residual, index);
+                remove(&mut plan.residual, index);
             }
         });
         for pending_index in 0..self.pending.len() {
-            let copied = self.copy_block_chain(self.pending[pending_index] as usize, cells);
+            let copied = self.copy_block_chain(plan, self.pending[pending_index] as usize, cells);
             debug_assert!(copied, "every source is final by the end");
         }
     }
@@ -395,21 +404,21 @@ impl PassState {
     /// block a copy covers not copied yet, and so on down the chain --
     /// unless the chain ends at a residual block not coded yet: then
     /// nothing. Whether it copied.
-    fn copy_block_chain(&mut self, index: usize, cells: &mut Bitmap) -> bool {
+    fn copy_block_chain(&mut self, plan: &mut BlockPlan, index: usize, cells: &mut Bitmap) -> bool {
         self.waiting.clear();
         self.waiting.push(index as BlockIndex);
         while let Some(&waiting) = self.waiting.last() {
-            let source = self.sources[waiting as usize];
+            let source = plan.sources[waiting as usize];
             if source == NO_SOURCE {
                 self.waiting.pop();
-            } else if contains(&self.residual, source as usize) {
+            } else if contains(&plan.residual, source as usize) {
                 return false;
-            } else if self.sources[source as usize] != NO_SOURCE {
+            } else if plan.sources[source as usize] != NO_SOURCE {
                 self.waiting.push(source);
             } else {
                 let run = cells.morton_run(source as usize * BLOCK_CELLS, BLOCK_CELLS);
                 cells.set_in_morton_run(waiting as usize * BLOCK_CELLS, BLOCK_CELLS, run);
-                self.sources[waiting as usize] = NO_SOURCE;
+                plan.sources[waiting as usize] = NO_SOURCE;
                 self.waiting.pop();
             }
         }

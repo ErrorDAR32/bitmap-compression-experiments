@@ -1,6 +1,6 @@
 //! How many of a bitmap's cells are set before each of its words, in
 //! Morton order: counted once a bitmap, then read by everything that
-//! needs a set count of a run of whole words -- the count split, a half
+//! needs a set count of a run of whole words -- the binary count tree, a half
 //! at a time, and a cell list's tile, 8x8 or coarser -- as one
 //! subtraction.
 
@@ -11,12 +11,12 @@ use bitmap::{Bitmap, WORDS};
 const WORD_CELLS: usize = u64::BITS as usize;
 
 /// Cells set before each word, and in all.
-pub struct SetCounts {
+pub struct SetCellsBeforeEachWord {
     /// Cells set before word `i`, at `i`; in all, at the last.
     set_before: Box<[u32; WORDS + 1]>,
 }
 
-impl SetCounts {
+impl SetCellsBeforeEachWord {
     /// Room for a bitmap's counts, none counted yet.
     pub fn new() -> Self {
         Self { set_before: Box::new([0; WORDS + 1]) }

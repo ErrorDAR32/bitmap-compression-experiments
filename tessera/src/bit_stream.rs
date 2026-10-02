@@ -5,7 +5,7 @@
 //! gamma and truncated binary -- written to a [`Sink`]: the stream, or a
 //! [`Counter`] of the bits they would take.
 
-use crate::grammar::MOST_NODE_BITS;
+use crate::quadtree_writer::MOST_NODE_BITS;
 use crate::last_pass::MOST_EXTRA_BITS;
 use crate::tile::{tiles_down_to, CELLS, FLOOR_LEVEL};
 
@@ -20,7 +20,7 @@ const WORD_BYTES: usize = WORD_BITS / BYTE_BITS;
 /// floor -- more than the mode and start level take -- and each cell's value said at most
 /// once -- in a payload, a cell list (only ever chosen when cheaper than
 /// a bit a cell) or the last pass, which may take a little more than a
-/// bit a cell. A stream that is a count split is only ever shorter than
+/// bit a cell. A stream that is a binary count tree is only ever shorter than
 /// the tree.
 pub const MOST_BITS: usize = tiles_down_to(FLOOR_LEVEL) * MOST_NODE_BITS + CELLS + MOST_EXTRA_BITS;
 

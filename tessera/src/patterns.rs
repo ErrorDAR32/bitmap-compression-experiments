@@ -1,8 +1,11 @@
-//! Pattern numbers: every tile from the whole bitmap down to the 4x4
-//! floor gets one, and two tiles of the same size share it exactly when
-//! they hold the same cells. Whether a tile can copy another is then one
-//! comparison, at any size; whether it is homogeneous, whether its
-//! number is [`ALL_CLEAR`] or [`ALL_SET`].
+//! The pattern pyramid: every tile from the whole bitmap down to the
+//! 4x4 floor gets a pattern number, and two tiles of the same size share
+//! it exactly when they hold the same cells. It answers both questions
+//! the greedy tiler asks of a tile:
+//!
+//! - homogeneous? Its number is [`ALL_CLEAR`] or [`ALL_SET`];
+//! - copyable? A tile at one of the copy offsets has its number -- one
+//!   comparison, at any size ([`Patterns::copy_source`]).
 //!
 //! Numbers are handed out in the order patterns first appear, a level at
 //! a time, finest first: a 4x4's pattern is its 16 cells, a coarser

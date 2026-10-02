@@ -1,80 +1,24 @@
-//! The grammar: what the tree holds, and every bit it is spelled in,
-//! written and read side by side. Counting a node's bits is writing it
-//! to a [`Counter`]: one spelling of every rule. `docs/tessera.md` has
-//! the grammar in full, with its costs.
+//! The quadtree writer, and its reader beside it: every node's bits,
+//! and the walks that write and read the whole tree. Counting a node's
+//! bits is writing it to a [`Counter`]: one spelling of every rule.
+//! `docs/tessera.md` has every bit, with its costs.
 //!
-//! A stream is its mode, then either the bitmap's [count
-//! split](count_split), or the tree: the start level, then from every
-//! tile of that level its node and everything under it, depth first --
-//! each node's bits, its child mask and payload, then its children's
-//! nodes -- then the [last pass](crate::last_pass).
+//! The tree is the start level, then from every tile of that level its
+//! node and everything under it, depth first -- each node's bits, its
+//! child mask and payload, then its children's nodes. Writing or
+//! reading it, the walk also fills the last pass's [`BlockPlan`]: each
+//! copied block's source and the residual blocks, gathered here, where
+//! the tree is walked anyway, and the same way on both sides.
 
-pub mod cell_list;
-pub mod count_split;
-
-use crate::last_pass::LastPass;
-use crate::tile::{cells_in_tile, tiles_in_level, Pyramid, Tile, CELL_LEVEL, CHILDREN, DIRECTIONS, FLOOR_LEVEL};
 use crate::bit_stream::{BitReader, BitStream, Counter, Sink};
+use crate::last_pass::BlockPlan;
+use crate::payload_writer::{read_cell_list, read_payload, write_cell_list, write_payload};
+use crate::tile::{Tile, CELL_LEVEL, CHILDREN, DIRECTIONS, FLOOR_LEVEL};
+use crate::tree::{Node, Tree, BOUND_AT_THE_TOP};
 use bitmap::Bitmap;
-
-/// What the tree holds at one tile.
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
-pub enum Node {
-    /// No node: the tile lies inside a coarser node's tile, or the value
-    /// bound above says it.
-    #[default]
-    Absent,
-    /// The tile's four children, each a node of its own -- or, the
-    /// divide naming its children, the value bound above saying those
-    /// that are not.
-    Divided,
-    /// A divide naming its children that flips the value bound above:
-    /// every child not a node is bound to the other value. A bind with
-    /// holes.
-    FlippingDivide,
-    /// A copy of a same-size tile; naming its children, it copies only
-    /// those that are not nodes of their own.
-    Copied {
-        /// Whether it reads from the far offsets.
-        far: bool,
-        /// Which offset it reads from.
-        direction: u8,
-        /// Whether some of its children are nodes of their own.
-        names_children: bool,
-    },
-    /// A value for every tile `size_offset` levels finer, each of them
-    /// homogeneous; at size offset 0, the tile bound whole.
-    ComplexTile {
-        /// How many levels finer than the tile its resolution is.
-        size_offset: u8,
-    },
-    /// A complex tile of 1x1 resolution saying its set cells as a cell
-    /// list.
-    CellList,
-    /// A 4x4 whose cells are left to the last pass.
-    Residual,
-}
-
-impl Node {
-    /// Whether its children's nodes follow it.
-    fn has_children(self) -> bool {
-        matches!(self, Node::Divided | Node::FlippingDivide | Node::Copied { names_children: true, .. })
-    }
-}
-
-/// The tree: a node a tile, down to the 4x4 floor.
-pub type Tree = Pyramid<Node, FLOOR_LEVEL>;
-
-/// The value bound at the top of the bitmap, before any flipping
-/// divide: clear.
-pub const BOUND_AT_THE_TOP: bool = false;
 
 /// Bits in every one-bit choice below.
 pub const FLAG_WIDTH: u8 = 1;
-/// The stream's mode: the tree follows...
-pub const TREE_STREAM: u64 = 0;
-/// ...or the count split.
-pub const COUNT_SPLIT_STREAM: u64 = 1;
 /// A node's first bit: a leaf, a copy or a bind...
 const LEAF: u64 = 1;
 /// ...or a divide -- at the 4x4 floor, a residual block.
@@ -181,7 +125,7 @@ pub fn write_node(sink: &mut impl Sink, tree: &Tree, bitmap: &Bitmap, tile: Tile
         }
         Node::CellList => {
             write_complex_tile_header(sink, tile.level, CELL_LEVEL - tile.level, true);
-            cell_list::write(sink, bitmap, tile);
+            write_cell_list(sink, bitmap, tile);
         }
         Node::Residual => push_flag(sink, DIVIDE),
         Node::Absent => unreachable!("an absent node is never written"),
@@ -215,110 +159,63 @@ fn write_complex_tile_header(sink: &mut impl Sink, level: u8, size_offset: u8, c
     }
 }
 
-/// A complex tile's payload: the value of each of `tile`'s tiles
-/// `size_offset` levels finer, in Morton order -- at 1x1, its cells as
-/// they lie in the bitmap, a word at a time.
-fn write_payload(sink: &mut impl Sink, bitmap: &Bitmap, tile: Tile, size_offset: u8) {
-    if let Some(bits) = sink.counted() {
-        *bits += tiles_in_level(size_offset) as u64;
-        return;
-    }
-    if tile.level + size_offset == CELL_LEVEL {
-        let width = cells_in_tile(tile.level).min(u64::BITS as usize) as u8;
-        for word in bitmap.square_words(tile.top_left_cell(), tile.side_in_cells()) {
-            sink.push_value(word, width);
-        }
-        return;
-    }
-    for resolution_tile in tile.tiles_under(size_offset) {
-        sink.push(resolution_tile.top_left_value(bitmap));
-    }
-}
-
-/// Reads what [`write_payload`] wrote into `cells`.
-fn read_payload(reader: &mut BitReader, cells: &mut Bitmap, tile: Tile, size_offset: u8) {
-    let (corner, side) = (tile.top_left_cell(), tile.side_in_cells());
-    if tile.level + size_offset != CELL_LEVEL {
-        for resolution_tile in tile.tiles_under(size_offset) {
-            if reader.bit() {
-                cells.set_square(resolution_tile.top_left_cell(), resolution_tile.side_in_cells());
-            }
-        }
-    } else if side * side < u64::BITS as usize {
-        cells.set_in_small_square(corner, side, reader.value((side * side) as u8));
-    } else {
-        for word in cells.square_words_mut(corner, side) {
-            *word |= reader.value(u64::BITS as u8);
-        }
-    }
-}
-
-/// The level the tree starts at: that of its coarsest tile that is not
-/// a divide with every child a node. Every coarser tile is one -- the
-/// trunk, which the stream never spells out.
-pub fn start_level(tree: &Tree) -> u8 {
-    (0..=FLOOR_LEVEL)
-        .find(|&level| {
-            Tile::all_of_level(level).any(|tile| tree.get(tile) != Node::Divided || tree.children(tile).contains(&Node::Absent))
-        })
-        .expect("the 4x4 floor never divides")
-}
-
 /// Writes `tree`, which starts at `start_level`, for `bitmap`: the start
-/// level, then every node from there, each copy and residual block
-/// noted in `last_pass`.
-pub fn write_tree(stream: &mut BitStream, tree: &Tree, bitmap: &Bitmap, last_pass: &mut LastPass, start_level: u8) {
+/// level, then every node from there -- and fills `plan`, whatever it
+/// held, with the blocks the tree leaves to the last pass.
+pub fn write_tree(stream: &mut BitStream, tree: &Tree, bitmap: &Bitmap, plan: &mut BlockPlan, start_level: u8) {
+    plan.clear();
     stream.push_value(start_level as u64, START_LEVEL_WIDTH);
     for tile in Tile::all_of_level(start_level) {
-        write_subtree(stream, tree, bitmap, last_pass, tile);
+        write_subtree(stream, tree, bitmap, plan, tile);
     }
 }
 
 /// Writes `tile`'s node and everything under it.
-fn write_subtree(stream: &mut BitStream, tree: &Tree, bitmap: &Bitmap, last_pass: &mut LastPass, tile: Tile) {
+fn write_subtree(stream: &mut BitStream, tree: &Tree, bitmap: &Bitmap, plan: &mut BlockPlan, tile: Tile) {
     let node = tree.get(tile);
     write_node(stream, tree, bitmap, tile, node);
     match node {
-        Node::Residual => last_pass.note_residual(tile),
-        Node::Copied { far, direction, names_children: false } => last_pass.note_copy(tile, tile, far, direction),
+        Node::Residual => plan.add_residual_block(tile),
+        Node::Copied { far, direction, names_children: false } => plan.add_copied_blocks(tile, tile, far, direction),
         _ => {}
     }
     if node.has_children() {
         for (child, child_node) in tile.children().into_iter().zip(tree.children(tile)) {
             match (child_node, node) {
-                (Node::Absent, Node::Copied { far, direction, .. }) => last_pass.note_copy(tile, child, far, direction),
+                (Node::Absent, Node::Copied { far, direction, .. }) => plan.add_copied_blocks(tile, child, far, direction),
                 (Node::Absent, _) => {}
-                _ => write_subtree(stream, tree, bitmap, last_pass, child),
+                _ => write_subtree(stream, tree, bitmap, plan, child),
             }
         }
     }
 }
 
 /// Reads back what [`write_tree`] wrote into `cells`, which start
-/// clear: every cell the tree says, each copy and residual block noted
-/// in `last_pass`.
-pub fn read_tree(reader: &mut BitReader, cells: &mut Bitmap, last_pass: &mut LastPass) {
+/// clear: every cell the tree says -- and fills `plan`, whatever it
+/// held, as writing did.
+pub fn read_tree(reader: &mut BitReader, cells: &mut Bitmap, plan: &mut BlockPlan) {
+    plan.clear();
     let start_level = reader.value(START_LEVEL_WIDTH) as u8;
     for tile in Tile::all_of_level(start_level) {
-        read_subtree(reader, cells, last_pass, tile, BOUND_AT_THE_TOP);
+        read_subtree(reader, cells, plan, tile, BOUND_AT_THE_TOP);
     }
 }
 
 /// Reads `tile`'s node and everything under it, `bound_above` the value
 /// bound above it.
-fn read_subtree(reader: &mut BitReader, cells: &mut Bitmap, last_pass: &mut LastPass, tile: Tile, bound_above: bool) {
+fn read_subtree(reader: &mut BitReader, cells: &mut Bitmap, plan: &mut BlockPlan, tile: Tile, bound_above: bool) {
     if read_flag(reader) == DIVIDE {
         if tile.level == FLOOR_LEVEL {
-            last_pass.note_residual(tile);
+            plan.add_residual_block(tile);
         } else if read_flag(reader) != NAMES_CHILDREN {
             for child in tile.children() {
-                read_subtree(reader, cells, last_pass, child, bound_above);
+                read_subtree(reader, cells, plan, child, bound_above);
             }
         } else {
             let bound_inside = bound_above != (read_flag(reader) == BINDING_FLIPPED);
             for (child, is_node) in tile.children().into_iter().zip(read_child_mask(reader)) {
                 if is_node {
-                    read_subtree(reader, cells, last_pass, child, bound_inside);
+                    read_subtree(reader, cells, plan, child, bound_inside);
                 } else if bound_inside {
                     cells.set_square(child.top_left_cell(), child.side_in_cells());
                 }
@@ -328,21 +225,21 @@ fn read_subtree(reader: &mut BitReader, cells: &mut Bitmap, last_pass: &mut Last
         let far = reader.bit();
         let direction = reader.value(DIRECTION_WIDTH) as u8;
         if !may_name_children(tile.level) || read_flag(reader) != NAMES_CHILDREN {
-            last_pass.note_copy(tile, tile, far, direction);
+            plan.add_copied_blocks(tile, tile, far, direction);
             return;
         }
         for (child, is_node) in tile.children().into_iter().zip(read_child_mask(reader)) {
             if is_node {
-                read_subtree(reader, cells, last_pass, child, bound_above);
+                read_subtree(reader, cells, plan, child, bound_above);
             } else {
-                last_pass.note_copy(tile, child, far, direction);
+                plan.add_copied_blocks(tile, child, far, direction);
             }
         }
     } else {
         let size_offset =
             if read_flag(reader) == PLAIN_TILE { 0 } else { most_size_offset(tile.level) - reader.truncated_binary(most_size_offset(tile.level) as u64) as u8 };
         if tile.level + size_offset == CELL_LEVEL && read_flag(reader) == CELL_LIST {
-            cell_list::read(reader, tile, cells);
+            read_cell_list(reader, tile, cells);
         } else {
             read_payload(reader, cells, tile, size_offset);
         }

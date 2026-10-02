@@ -1,5 +1,5 @@
-//! The count split: what the stream says instead of the tree for a
-//! bitmap whose count split takes fewer bits than its tree would --
+//! The binary count tree: what the stream says instead of the tree for a
+//! bitmap whose binary count tree takes fewer bits than its tree would --
 //! sparse cells, clustered, with nothing to copy: the tree's worst case.
 //! Only one of the two is ever made: which is judged from the greedy
 //! tiler's count of the tree ([`Tessera::encode`](crate::Tessera::encode)).
@@ -16,7 +16,7 @@
 //! the runs are the regions of a binary partition of the plane.
 
 use crate::bit_stream::{truncated_binary_bits, truncated_binary_shape, BitReader, Sink};
-use crate::set_counts::SetCounts;
+use crate::set_cells_before_each_word::SetCellsBeforeEachWord;
 use bitmap::WORDS;
 use bitmap::Bitmap;
 
@@ -156,14 +156,14 @@ struct Words<'a> {
     /// The bitmap's words, in Morton order.
     words: &'a [u64; WORDS],
     /// Cells set before each word.
-    set_counts: &'a SetCounts,
+    set_cells_before_each_word: &'a SetCellsBeforeEachWord,
 }
 
 impl Words<'_> {
     /// Cells set in the first half of the run of `count` words from
     /// `first`.
     fn first_half_set(&self, first: usize, count: usize) -> u64 {
-        self.set_counts.in_words(first, count / 2)
+        self.set_cells_before_each_word.in_words(first, count / 2)
     }
 
     /// Writes the run of `count` words from `first`, `set` of its cells
@@ -207,14 +207,14 @@ fn write_word(stream: &mut impl Sink, run: u64, cells: usize, set: u64) {
     write_word(stream, run >> half, half, set - first_half_set);
 }
 
-/// Writes `bitmap`'s count split; `set_counts` are `bitmap`'s.
-pub fn write(stream: &mut impl Sink, bitmap: &Bitmap, set_counts: &SetCounts) {
-    let words = Words { words: bitmap.words(), set_counts };
-    stream.push_gamma(set_counts.total() + 1);
-    words.write(stream, 0, WORDS, set_counts.total());
+/// Writes `bitmap`'s binary count tree; `set_cells_before_each_word` are `bitmap`'s.
+pub fn write(stream: &mut impl Sink, bitmap: &Bitmap, set_cells_before_each_word: &SetCellsBeforeEachWord) {
+    let words = Words { words: bitmap.words(), set_cells_before_each_word };
+    stream.push_gamma(set_cells_before_each_word.total() + 1);
+    words.write(stream, 0, WORDS, set_cells_before_each_word.total());
 }
 
-/// Reads a count split into `cell_values`, which start clear.
+/// Reads a binary count tree into `cell_values`, which start clear.
 pub fn read(reader: &mut BitReader, cell_values: &mut Bitmap) {
     let set = reader.gamma() - 1;
     read_words(reader, cell_values.words_mut(), set);
