@@ -285,6 +285,25 @@ one of its eight neighbours, drawn at random, and if it is dirt, grass
 spreads onto it. Every sample reads the world as the tick found it: the
 writes are applied at the tick's end.
 
+Measured, ticking as fast as one core goes (`examples/throughput.rs`,
+1,000 ticks, grass starting scattered over a quarter of the cells, or a
+twentieth), nanoseconds a write -- a write is one cell set or cleared;
+grass spreading onto a cell is two:
+
+| superchunks | grass | writes a tick | sampling | computing | applying | the tick | writes a second |
+|---|---|---|---|---|---|---|---|
+| 1 | 1/20 | 132 | 199 | 25 | 34 | 258 | 3.9 million |
+| 1 | 1/4 | 410 | 117 | 36 | 36 | 189 | 5.3 million |
+| 16 | 1/4 | 6,567 | 118 | 91 | 92 | 301 | 3.3 million |
+| 64 | 1/4 | 26,274 | 115 | 126 | 125 | 366 | 2.7 million |
+
+Sampling costs about 145 ns a sample at a quarter grass, 320 ns at a
+twentieth (more empty words between chosen cells): a logarithm a
+sample, the words' bits counted on the way, and the chosen word's bits
+cleared one by one to the one asked. Computing and applying each find
+a cell's bucket afresh -- a directory search a cell -- which costs more
+the more superchunks there are.
+
 Every thread works sequentially within a superchunk; across superchunks
 the perimeter to area ratio keeps synchronization rare. How overlapping
 updates between superchunks are handled -- a before and after copy

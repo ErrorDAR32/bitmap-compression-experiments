@@ -20,18 +20,37 @@ const NEIGHBOURS: [(i32, i32); 8] = [(-1, -1), (0, -1), (1, -1), (-1, 0), (1, 0)
 pub struct Tick {
     /// Cells of grass sampled.
     pub sampled: usize,
+    /// Writes queued: two a sample whose neighbour was dirt.
+    pub writes: usize,
     /// Cells of dirt grass spread onto: two samples may pick the same
     /// one, which counts once.
     pub spread: u64,
 }
 
-/// One tick of grass spreading over the hot bitplanes. `samples` is room
-/// for the cells sampled, kept between ticks so a tick allocates
-/// nothing once it has grown.
+/// One tick of grass spreading over the hot bitplanes: [`sample`],
+/// [`spread`], then the writes applied. `samples` is room for the cells
+/// sampled, kept between ticks so a tick allocates nothing once it has
+/// grown.
 pub fn tick(arena: &mut BitmapArena, random: &mut Random, samples: &mut Vec<WorldCell>) -> Tick {
+    let sampled = sample(arena, random, samples);
+    let writes = spread(arena, random, samples);
+    // Each cell spread onto changes twice: grass set, dirt cleared.
+    Tick { sampled, writes, spread: arena.apply().changed / 2 }
+}
+
+/// The tick's first step: every cell of grass chosen with
+/// [`SPREAD_CHANCE`], into `samples`, in Morton order: how many.
+pub fn sample(arena: &BitmapArena, random: &mut Random, samples: &mut Vec<WorldCell>) -> usize {
     samples.clear();
-    let sampled = arena.sample(GRASS, SPREAD_CHANCE, random, |cell| samples.push(cell));
-    for &cell in samples.iter() {
+    arena.sample(GRASS, SPREAD_CHANCE, random, |cell| samples.push(cell))
+}
+
+/// The tick's second step: each sampled cell looks at one of its eight
+/// neighbours, drawn at random, and queues grass onto it if it is dirt:
+/// how many writes were queued.
+pub fn spread(arena: &mut BitmapArena, random: &mut Random, samples: &[WorldCell]) -> usize {
+    let queued = arena.queued();
+    for &cell in samples {
         let (dx, dy) = NEIGHBOURS[random.below(NEIGHBOURS.len() as u32) as usize];
         let (Some(x), Some(y)) = (cell.x.checked_add_signed(dx), cell.y.checked_add_signed(dy)) else {
             continue;
@@ -42,6 +61,5 @@ pub fn tick(arena: &mut BitmapArena, random: &mut Random, samples: &mut Vec<Worl
             arena.queue(Write { layer_type: DIRT, op: WriteOp::Unset, shape: Shape::Cell(neighbour) });
         }
     }
-    // Each cell spread onto changes twice: grass set, dirt cleared.
-    Tick { sampled, spread: arena.apply().changed / 2 }
+    arena.queued() - queued
 }
