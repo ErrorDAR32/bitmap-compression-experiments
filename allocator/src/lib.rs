@@ -1,7 +1,8 @@
 //! TileSim's allocator: a pool of equal-size blocks of words, handed out
 //! and taken back, for structures that must never move once made -- a
 //! block stays where it is from its allocation on, so nothing in it is
-//! ever copied to make room.
+//! ever copied to make room. It serves chunk storage and the bitplane
+//! manager, and nothing else (`../docs/tilesim.md`, "Memory").
 //!
 //! A new block is asked of the system zeroed, so its pages cost nothing
 //! until first written. A released block is kept, not freed, and handed

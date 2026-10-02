@@ -129,6 +129,11 @@ from a small array.
 
 ### Memory
 
+- The custom allocator (`allocator/`) serves two projects only: chunk
+  storage (`chunk_storage/`, the disk chunk area) and the bitplane
+  manager (`bitplane_manager/`, the hot bitmap area). Nothing else
+  allocates through it. So far only the bitplane manager uses it, its
+  first form: a pool of equal-size blocks.
 - A custom allocator per area, not one global allocator: the system is
   asked for large blocks, 256 MiB at a time, tracked in a list; inside
   them, allocations are runs of 256-byte units, the allocated intervals
@@ -178,8 +183,10 @@ The height map is ignored for now.
 
 ### Entities
 
-They work differently, and later. An entity is a capability unit, not
-necessarily alive, and may schedule chunks. Some are tied to bit planes;
+They work differently, and later: nothing is built for them yet. Chunk
+storage is the project most likely to hold them when the time comes.
+An entity is a capability unit, not necessarily alive, and may schedule
+chunks. Some are tied to bit planes;
 others exist on their own and keep their location themselves (humans).
 
 ## Simulation (the plan)
