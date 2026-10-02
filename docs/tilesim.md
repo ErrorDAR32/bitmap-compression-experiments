@@ -233,6 +233,14 @@ Two steps a tick:
    others -- go into queues by layer type, are sorted into Morton order
    of their coordinates, and are applied in that order.
 
+   Built so far: the bitplane manager's write queue. A write is fixed
+   in size (32 bytes): a layer type, an operation -- set, unset or flip
+   -- and a shape -- a cell, a rectangle or a disc of a radius. Writes
+   are queued, change nothing until applied, and apply in the order
+   queued: where they overlap, the latest wins. Cells of bitmaps not hot
+   are left unwritten, and counted. Not yet: queues by layer type, the
+   Morton sort, and writing a word at a time rather than a cell.
+
 Sampling picks, by weight of set cells, a superchunk, then a chunk in
 it, then a cell, found by scanning the chunk's words for set bits. The
 counts it weighs by are built: per bitmap and per superchunk bitplane,

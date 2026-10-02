@@ -22,6 +22,9 @@
 //! is hot or waiting in the ring (below) leaves the directory, its block
 //! released to the pool, which hands it out next.
 //!
+//! Cells are changed by writes, batched (`writes`): queued, then applied
+//! in order.
+//!
 //! A bucket changed since it was decoded is dirty, and
 //! [`BitmapArena::write_back`] encodes it into chunk storage's writeback
 //! ring (`../chunk_storage`) -- no words where no cell is set, since a
@@ -35,6 +38,10 @@
 // Every item is documented, private ones included; `cargo clippy`
 // checks the private ones.
 #![warn(missing_docs, clippy::missing_docs_in_private_items)]
+
+mod writes;
+
+pub use writes::{Applied, Shape, Write, WriteOp};
 
 use allocator::{BlockId, BlockPool};
 use bitmap::morton::morton_index;
@@ -201,11 +208,11 @@ impl BucketMut<'_> {
 
     /// Makes `cell` set or clear, if it is not already: the bitmap is
     /// then dirty, and its count and its allocation's hot count move by
-    /// one.
-    fn put_cell(&mut self, cell: CellPlace, set: bool) {
+    /// one. Whether it changed.
+    fn put_cell(&mut self, cell: CellPlace, set: bool) -> bool {
         let (word, bit) = word_and_bit(cell);
         if (self.cells[word] & bit != 0) == set {
-            return;
+            return false;
         }
         self.cells[word] ^= bit;
         let allocation = &mut *self.allocation;
@@ -218,6 +225,7 @@ impl BucketMut<'_> {
             allocation.set_count(self.index, count - 1);
             allocation.hot_count -= 1;
         }
+        true
     }
 
     /// Whether `cell` is set.
@@ -236,6 +244,11 @@ impl BucketMut<'_> {
         self.put_cell(cell, false);
     }
 
+    /// Sets `cell` if it is clear, clears it if it is set.
+    pub fn flip(&mut self, cell: CellPlace) {
+        self.put_cell(cell, !self.get(cell));
+    }
+
     /// Every cell, in Morton order, 64 a word.
     pub fn cells(&self) -> &CellWords {
         self.cells
@@ -249,6 +262,8 @@ pub struct BitmapArena {
     directory: Vec<SuperChunkLayer>,
     /// The blocks the allocations' buckets live in.
     pool: BlockPool,
+    /// Writes queued, not yet applied, in the order queued.
+    queued: Vec<Write>,
 }
 
 impl Default for BitmapArena {
@@ -261,7 +276,7 @@ impl Default for BitmapArena {
 impl BitmapArena {
     /// An arena with no bitmap hot.
     pub fn new() -> Self {
-        Self { directory: Vec::new(), pool: BlockPool::new(ALLOCATION_WORDS) }
+        Self { directory: Vec::new(), pool: BlockPool::new(ALLOCATION_WORDS), queued: Vec::new() }
     }
 
     /// How many bitmaps are hot.
