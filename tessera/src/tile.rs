@@ -133,6 +133,7 @@ impl Tile {
 /// One element per tile, at every level from the whole bitmap down to
 /// `FINEST`, each level's elements in Morton order: a tile's four
 /// children are four consecutive elements.
+#[derive(Clone)]
 pub struct Pyramid<T, const FINEST: u8> {
     /// Every level's elements, coarsest first.
     elements: Box<[T]>,
@@ -186,5 +187,12 @@ impl<T: Copy + Default, const FINEST: u8> Pyramid<T, FINEST> {
     pub fn children_at(&self, level: u8, index: usize) -> [T; 4] {
         let first = Self::slot(level + 1, 4 * index);
         self.elements[first..first + 4].try_into().expect("four children")
+    }
+}
+
+impl<T: Copy + Default, const FINEST: u8> Default for Pyramid<T, FINEST> {
+    /// The same as [`Pyramid::new`].
+    fn default() -> Self {
+        Self::new()
     }
 }

@@ -1,7 +1,7 @@
 //! What a tree holds: tiles, complex tiles and the tiles of their
-//! resolutions they say, masking nodes and cell lists.
+//! resolutions they say, nodes naming children, and cell lists.
 
-use crate::pyramids::tree::{Node, Tree};
+use crate::tree::{Node, Tree};
 use crate::tile::Tile;
 
 /// The counts, over one tree or added up over many.
@@ -14,10 +14,10 @@ pub struct TreeStats {
     /// Tiles of a complex tile's resolution said in its payload: one bit
     /// each.
     pub payload_values: usize,
-    /// Copies that mask some of their children.
-    pub copies_that_mask: usize,
-    /// Binds that mask some of their children.
-    pub binds_that_mask: usize,
+    /// Copies naming some of their children.
+    pub copies_naming_children: usize,
+    /// Flipping divides.
+    pub flipping_divides: usize,
     /// Cell lists.
     pub cell_lists: usize,
 }
@@ -26,7 +26,7 @@ impl TreeStats {
     /// The counts of one tree.
     pub fn of(tree: &Tree) -> Self {
         let mut stats = Self::default();
-        stats.count(tree, Tile::whole_bitmap());
+        stats.count(tree, Tile::WHOLE_BITMAP);
         stats
     }
 
@@ -35,30 +35,30 @@ impl TreeStats {
         self.tiles += other.tiles;
         self.complex_tiles += other.complex_tiles;
         self.payload_values += other.payload_values;
-        self.copies_that_mask += other.copies_that_mask;
-        self.binds_that_mask += other.binds_that_mask;
+        self.copies_naming_children += other.copies_naming_children;
+        self.flipping_divides += other.flipping_divides;
         self.cell_lists += other.cell_lists;
     }
 
     /// Counts `tile`'s node and everything under it.
     fn count(&mut self, tree: &Tree, tile: Tile) {
-        match tree.node(tile) {
-            Node::Copied { masks: true, .. } => {
-                self.copies_that_mask += 1;
+        match tree.get(tile) {
+            Node::Copied { names_children: true, .. } => {
+                self.copies_naming_children += 1;
                 self.count_children(tree, tile);
             }
-            Node::MaskingBind => {
-                self.binds_that_mask += 1;
+            Node::FlippingDivide => {
+                self.flipping_divides += 1;
                 self.count_children(tree, tile);
             }
-            Node::Subdivided => self.count_children(tree, tile),
+            Node::Divided => self.count_children(tree, tile),
             Node::ComplexTile { size_offset: 0 } => self.tiles += 1,
             Node::ComplexTile { size_offset } => {
                 self.complex_tiles += 1;
                 self.payload_values += 1 << (2 * size_offset);
             }
             Node::CellList => self.cell_lists += 1,
-            Node::Copied { masks: false, .. } | Node::Residual | Node::Absent => {}
+            Node::Copied { names_children: false, .. } | Node::Residual | Node::Absent => {}
         }
     }
 

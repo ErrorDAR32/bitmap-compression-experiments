@@ -80,7 +80,7 @@ const NOISE_DENSITY_DIVISOR: u64 = 2;
 /// `area` filled with noise, the rest clear.
 fn noise(rng: &mut Rng, area: Tile) -> Bitmap {
     let mut bitmap = Bitmap::new();
-    let (left, top, right, bottom) = area.cell_rect();
+    let (left, top, right, bottom) = cell_rect(area);
     for y in top..=bottom {
         for x in left..=right {
             if rng.below(NOISE_DENSITY_DIVISOR) == 0 {
@@ -127,7 +127,7 @@ pub fn search(seed: u64, recorded: Option<Bitmap>, effort: Effort, score: &mut i
     let window_starts = vec![("clear", Bitmap::new()), ("noise", noise(&mut rng, WINDOW))];
     let (window, window_from) = best_of(window_starts, WINDOW, effort.window, &mut rng, score);
 
-    let whole = Tile::whole_bitmap();
+    let whole = Tile::WHOLE_BITMAP;
     let mut plane_starts =
         vec![("window variants", plane::fill_the_plane(&window.bitmap, WINDOW)), ("noise", noise(&mut rng, whole))];
     plane_starts.extend(recorded.map(|bitmap| ("record", bitmap)));
@@ -157,4 +157,11 @@ pub fn search_at_once<S: FnMut(&Bitmap, Tile) -> Score>(
             .collect();
         searches.into_iter().map(|search| search.join().expect("a search")).collect()
     })
+}
+
+/// `area`'s cells as an inclusive rectangle: left, top, right, bottom.
+pub(crate) fn cell_rect(area: Tile) -> (u8, u8, u8, u8) {
+    let (left, top) = area.top_left_cell();
+    let last = (area.side_in_cells() - 1) as u8;
+    (left, top, left + last, top + last)
 }

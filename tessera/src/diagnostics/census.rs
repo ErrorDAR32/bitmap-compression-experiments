@@ -1,20 +1,20 @@
 //! A tree's nodes, counted by kind and level.
 
-use crate::pyramids::tree::{Node, Tree};
 use crate::tile::{Tile, CELL_LEVEL, FLOOR_LEVEL};
+use crate::tree::{Node, Tree};
 use std::collections::BTreeMap;
 
-/// The node at `tile`'s kind, named as the grammar spells it.
+/// The node at `tile`'s kind, as `docs/tessera.md` names it.
 pub fn kind(tree: &Tree, tile: Tile, node: Node) -> &'static str {
     match node {
         Node::ComplexTile { size_offset } if tile.level + size_offset == CELL_LEVEL => "raw",
         Node::ComplexTile { size_offset: 0 } => "tile",
         Node::ComplexTile { .. } => "complex tile",
-        Node::MaskingBind => "masking bind",
-        Node::Subdivided if tree.divides_whole(tile) => "divide",
-        Node::Subdivided => "masking divide",
-        Node::Copied { masks: false, .. } => "copy",
-        Node::Copied { masks: true, .. } => "masking copy",
+        Node::FlippingDivide => "flipping divide",
+        Node::Divided if tree.children(tile).contains(&Node::Absent) => "divide naming children",
+        Node::Divided => "divide",
+        Node::Copied { names_children: false, .. } => "copy",
+        Node::Copied { names_children: true, .. } => "copy naming children",
         Node::Residual => "residual",
         Node::CellList => "cell list",
         Node::Absent => "absent",
@@ -22,19 +22,26 @@ pub fn kind(tree: &Tree, tile: Tile, node: Node) -> &'static str {
 }
 
 /// How many nodes of each kind a tree has at each level, whole bitmap
-/// to the 4x4 floor; absent ones not counted.
+/// to the 4x4 floor.
 pub type Census = BTreeMap<&'static str, [usize; FLOOR_LEVEL as usize + 1]>;
 
-/// `tree`'s census.
+/// `tree`'s census, walked from the whole bitmap down: what lies under
+/// a complex tile is not in the tree.
 pub fn census(tree: &Tree) -> Census {
     let mut counts = Census::new();
-    for level in 0..=FLOOR_LEVEL {
-        for tile in Tile::all_of_level(level) {
-            let node = tree.node(tile);
-            if node != Node::Absent {
-                counts.entry(kind(tree, tile, node)).or_default()[level as usize] += 1;
+    count(tree, Tile::WHOLE_BITMAP, &mut counts);
+    counts
+}
+
+/// Counts `tile`'s node and every node under it.
+fn count(tree: &Tree, tile: Tile, counts: &mut Census) {
+    let node = tree.get(tile);
+    counts.entry(kind(tree, tile, node)).or_default()[tile.level as usize] += 1;
+    if node.has_children() {
+        for child in tile.children() {
+            if tree.get(child) != Node::Absent {
+                count(tree, child, counts);
             }
         }
     }
-    counts
 }

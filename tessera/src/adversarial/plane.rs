@@ -6,7 +6,7 @@
 //! only ever translate, so none of the variants is a copy of another
 //! unless the window is itself symmetric.
 
-use crate::tile::{tile_side, Tile};
+use crate::tile::Tile;
 use bitmap::Bitmap;
 
 /// A window can be turned four ways...
@@ -33,7 +33,7 @@ fn transformed(variant: usize, side: usize, x: usize, y: usize) -> (usize, usize
 /// The plane filled with `window`'s variants, `window` being what
 /// `bitmap` holds at `area`, one variant per tile of `area`'s size.
 pub fn fill_the_plane(bitmap: &Bitmap, area: Tile) -> Bitmap {
-    let side = tile_side(area.level);
+    let side = area.side_in_cells();
     let (left, top) = area.top_left_cell();
     let mut plane = Bitmap::new();
     for (variant, spot) in Tile::all_of_level(area.level).enumerate() {

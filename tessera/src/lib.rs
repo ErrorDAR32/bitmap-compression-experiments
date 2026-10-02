@@ -58,8 +58,18 @@ mod patterns;
 mod payload_writer;
 mod quadtree_writer;
 mod set_cells_before_each_word;
-mod tile;
-mod tree;
+pub mod tile;
+pub mod tree;
+
+// What measures and tests it.
+pub mod adversarial;
+pub mod diagnostics;
+pub mod sample_generators;
+pub mod transient_data;
+
+#[cfg(test)]
+#[path = "../tests/unit/mod.rs"]
+mod unit_tests;
 
 pub use bit_stream::BitStream;
 
@@ -131,15 +141,10 @@ impl Tessera {
     /// or its binary count tree unless the tree is shorter by more than
     /// [`BINARY_COUNT_TREE_TOLERANCE_PERCENT`].
     pub fn encode(&mut self, bitmap: &Bitmap, stream: &mut BitStream) {
-        self.set_cells_before_each_word.count(bitmap);
-        self.patterns.build(bitmap);
-        greedy_tiling(&self.patterns, &mut self.tree);
-        let (tree_bits, start_level) = complex_tiling(bitmap, &self.set_cells_before_each_word, &mut self.tree, &mut self.pricing);
-        let mut binary_count_tree_bits = Counter::default();
-        binary_count_tree::write(&mut binary_count_tree_bits, bitmap, &self.set_cells_before_each_word);
+        let (tree_bits, start_level, binary_count_tree_bits) = self.weigh(bitmap);
         stream.clear();
         const PERCENT: u64 = 100;
-        if binary_count_tree_bits.0 * PERCENT < tree_bits * (PERCENT + BINARY_COUNT_TREE_TOLERANCE_PERCENT) {
+        if binary_count_tree_bits * PERCENT < tree_bits * (PERCENT + BINARY_COUNT_TREE_TOLERANCE_PERCENT) {
             stream.push_value(BINARY_COUNT_TREE_STREAM, FLAG_WIDTH);
             binary_count_tree::write(stream, bitmap, &self.set_cells_before_each_word);
             return;
@@ -152,6 +157,34 @@ impl Tessera {
             assert_eq!(stream.len() as u64 - FLAG_WIDTH as u64, tree_bits - prices, "the tree written is not the tree counted");
         }
         self.last_pass.encode(&mut self.block_plan, bitmap, stream);
+    }
+
+    /// Tiles `bitmap` and counts both streams: the tree's bits, its
+    /// residual blocks at their prices, its start level, and the binary
+    /// count tree's bits.
+    fn weigh(&mut self, bitmap: &Bitmap) -> (u64, u8, u64) {
+        self.set_cells_before_each_word.count(bitmap);
+        self.patterns.build(bitmap);
+        greedy_tiling(&self.patterns, &mut self.tree);
+        let (tree_bits, start_level) = complex_tiling(bitmap, &self.set_cells_before_each_word, &mut self.tree, &mut self.pricing);
+        let mut binary_count_tree_bits = Counter::default();
+        binary_count_tree::write(&mut binary_count_tree_bits, bitmap, &self.set_cells_before_each_word);
+        (tree_bits, start_level, binary_count_tree_bits.0)
+    }
+
+    /// What each stream would take for `bitmap`, for diagnostics: the
+    /// tree's bits, its residual blocks at their prices, and the binary
+    /// count tree's -- what encoding weighs, each without its mode bit.
+    pub fn stream_bits(&mut self, bitmap: &Bitmap) -> (u64, u64) {
+        let (tree_bits, _, binary_count_tree_bits) = self.weigh(bitmap);
+        (tree_bits, binary_count_tree_bits)
+    }
+
+    /// The tree of the bitmap last encoded, whichever stream was written:
+    /// for diagnostics, walked from the whole bitmap down -- nodes under a
+    /// complex tile are stale ([`tree::Tree`]).
+    pub fn tree(&self) -> &Tree {
+        &self.tree
     }
 
     /// Decodes `stream` into `bitmap`, whatever it held before.

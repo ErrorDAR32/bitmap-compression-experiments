@@ -32,7 +32,7 @@
 use tessera::adversarial::{record, search_at_once, Effort, Score, SEARCHES_AT_ONCE};
 use tessera::diagnostics::examination::Examination;
 use tessera::encode;
-use tessera::bit_stream::BitStream;
+use tessera::BitStream;
 use tessera::tile::{cells_in_tile, Tile};
 use tessera::Tessera;
 use tessera::sample_generators::sample_seed;
@@ -113,7 +113,7 @@ fn main() {
     report.add("the searches", table);
 
     let worst = outcomes.iter().map(|outcome| &outcome.worst).max_by_key(|found| found.score.gap).expect("a search");
-    let record_gap = recorded.map(|bitmap| score(&bitmap, Tile::whole_bitmap()).gap);
+    let record_gap = recorded.map(|bitmap| score(&bitmap, Tile::WHOLE_BITMAP).gap);
     let beaten = record_gap.is_none_or(|gap| worst.score.gap > gap);
     if beaten {
         record::write(RECORD, &worst.bitmap, &format!("{RECORD}: gap {} bits", worst.score.gap));

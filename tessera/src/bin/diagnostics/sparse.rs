@@ -1,5 +1,5 @@
 //! Tessera on sparse bitmaps -- the most common kind -- density by density,
-//! scattered and clustered: the tree's bits, the count split's, what the
+//! scattered and clustered: the tree's bits, the binary count tree's, what the
 //! stream takes (the fewer, and its mode bit), how many streams are count
 //! splits, and, for scattered cells, the least any encoding could take on
 //! average: log2 of how many ways the set cells could be placed. The
@@ -7,9 +7,7 @@
 //! both encodings' bits are counted here at every density.
 
 use tessera::diagnostics::examination::Examination;
-use tessera::bit_stream::BitStream;
-use tessera::grammar::count_split;
-use tessera::set_counts::SetCounts;
+use tessera::BitStream;
 use tessera::Tessera;
 use tessera::sample_generators::{grown, sample_seed};
 use utilities::table::report::Report;
@@ -51,9 +49,9 @@ pub fn run(report: &mut Report) {
         "density",
         "set cells\na bitmap",
         "tree\nbits",
-        "count split\nbits",
+        "binary count tree\nbits",
         "stream\nbits",
-        "streams that\nare count splits",
+        "streams that\nare binary count trees",
         "scattered\nbound",
     ]);
     for cluster in CLUSTERS {
@@ -64,10 +62,11 @@ pub fn run(report: &mut Report) {
                 assert_eq!(examined.first_difference, None, "cluster {cluster}, density {density}: a bitmap did not round trip");
                 let set_cells = bitmap.count_set() as u64;
                 set += set_cells;
-                tree += examined.tree_bits;
-                split += count_split::bits(&bitmap, &SetCounts::of(&bitmap));
+                let (tree_bits, binary_count_tree_bits) = tessera.stream_bits(&bitmap);
+                tree += tree_bits;
+                split += binary_count_tree_bits;
                 written += examined.written_bits as u64;
-                splits += examined.count_split_stream as u64;
+                splits += examined.binary_count_tree as u64;
                 bound += placements_bits(set_cells);
             }
             table.row(&[

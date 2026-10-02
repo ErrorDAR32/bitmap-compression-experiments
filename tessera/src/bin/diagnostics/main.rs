@@ -21,7 +21,6 @@
 #![warn(missing_docs, clippy::missing_docs_in_private_items)]
 
 mod census;
-mod copy_offsets;
 mod instruction_count;
 mod measurement;
 mod noise;
@@ -58,7 +57,7 @@ struct Tool {
 }
 
 /// Every tool.
-const TOOLS: [Tool; 11] = [
+const TOOLS: [Tool; 10] = [
     Tool {
         name: "measurement",
         prints: "bits a bitmap from every sample generator, a table a generator, a row a parameter set; then what the trees hold",
@@ -84,14 +83,8 @@ const TOOLS: [Tool; 11] = [
         run: Run::Measuring(noise::run),
     },
     Tool {
-        name: "copy_offsets",
-        prints: "a search for better copy offsets on the fast sample, the best set against the current ones on the timed sample",
-        argument: "",
-        run: Run::Measuring(copy_offsets::run),
-    },
-    Tool {
         name: "sparse",
-        prints: "the tree against the count split on sparse bitmaps, beside the least scattered cells can take",
+        prints: "the tree against the binary count tree on sparse bitmaps, beside the least scattered cells can take",
         argument: "",
         run: Run::Measuring(sparse::run),
     },

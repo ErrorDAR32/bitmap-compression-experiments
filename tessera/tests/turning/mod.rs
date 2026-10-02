@@ -5,7 +5,7 @@
 //! and contexts differ, and so do its bits; but a set's total should
 //! barely move, and a bias for one orientation shows there.
 
-use tessera::grammar::bit_stream::BitStream;
+use tessera::BitStream;
 use tessera::Tessera;
 use bitmap::Bitmap;
 

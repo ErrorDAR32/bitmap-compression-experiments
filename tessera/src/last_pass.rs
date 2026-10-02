@@ -60,13 +60,13 @@ const HALVING_WEIGHT: u16 = UNSEEN_WEIGHT + CELL_WEIGHT * HALVING_COUNT;
 const MOST_WEIGHT_TOTAL: usize = 2 * (HALVING_WEIGHT - CELL_WEIGHT) as usize;
 
 /// Bits of a fixed-point `log2` below the point: a 256th of a bit.
-const FRACTION_BITS: u32 = 8;
+pub(crate) const FRACTION_BITS: u32 = 8;
 
 /// `log2(value)` in [`FRACTION_BITS`] fixed point, `value` at least 1:
 /// its whole part, and its fraction from the mantissa's top
 /// [`FRACTION_BITS`] bits under its leading one, squared a fraction bit
 /// at a time.
-const fn fixed_point_log2(value: u64) -> u32 {
+pub(crate) const fn fixed_point_log2(value: u64) -> u32 {
     // The mantissa in 2.30 fixed point.
     const POINT: u32 = 30;
     let whole = value.ilog2();

@@ -9,18 +9,14 @@
 
 mod common;
 
-use tessera::pyramids::copyable::{child_offset, matches_at, matching_direction, CopyOffsets, FAR_OFFSETS, FINEST_COPY_LEVEL, NEAR_OFFSETS};
-use tessera::pyramids::patterns::Patterns;
-use tessera::pyramids::pyramid::{Pyramid, PyramidShape};
-use tessera::tile::{Tile, FLOOR_LEVEL};
-use tessera::pyramids::tree::Node;
+use bitmap::Bitmap;
+use common::check;
+use tessera::diagnostics::examination::tree_of;
 use tessera::diagnostics::tree_stats::TreeStats;
 use tessera::encode;
-use tessera::sample_generators::checkerboards::checkerboard;
 use tessera::sample_generators::{one_grown, one_laid_out, seed_uncounted, PLANS};
-use bitmap::Bitmap;
-use tessera::diagnostics::examination::tree_of;
-use common::check;
+use tessera::tile::{Tile, CELL_LEVEL, FLOOR_LEVEL};
+use tessera::tree::Node;
 
 /// The seed for the grown and laid-out cases here: every other run's,
 /// not counted as a use.
@@ -28,73 +24,27 @@ fn seed() -> u64 {
     seed_uncounted()
 }
 
-/// A small shape to test the generic pyramid on: three levels, a byte
-/// a tile.
-struct ThreeLevelsOfBytes;
-
-impl PyramidShape for ThreeLevelsOfBytes {
-    const COARSEST_LEVEL: u8 = 0;
-    const FINEST_LEVEL: u8 = 2;
-    const ELEMENT_BITS: usize = u8::BITS as usize;
-}
-
-/// Setting an element of a generic pyramid changes no other.
-#[test]
-fn generic_pyramid_sets_one_element() {
-    let mut pyramid = Pyramid::<ThreeLevelsOfBytes, { ThreeLevelsOfBytes::WORDS }>::new();
-    pyramid.set(Tile { level: 2, x: 3, y: 3 }, 1);
-    assert_eq!(pyramid.get(Tile { level: 2, x: 3, y: 3 }), 1);
-    assert_eq!(pyramid.get(Tile { level: 1, x: 1, y: 1 }), 0);
-    assert_eq!(pyramid.get(Tile::whole_bitmap()), 0);
-}
-
-/// With the top-left quarter filled, that quarter is homogeneous and set,
-/// the next one homogeneous and clear, and the whole bitmap neither.
-#[test]
-fn patterns_see_a_filled_quarter() {
-    let mut bitmap = Bitmap::new();
-    bitmap.set_rect(0, 0, 127, 127);
-    let mut patterns = Patterns::default();
-    patterns.build(&bitmap);
-    assert_eq!(patterns.homogeneous_value(Tile { level: 1, x: 0, y: 0 }), Some(true));
-    assert_eq!(patterns.homogeneous_value(Tile { level: 1, x: 1, y: 0 }), Some(false));
-    assert_eq!(patterns.homogeneous_value(Tile::whole_bitmap()), None);
-}
-
-/// Every tile of a ragged bitmap and of an odd checkerboard the patterns
-/// number, at every level, homogeneous by its number exactly when its
-/// own cells, read one at a time, all agree.
-#[test]
-fn patterns_homogeneity_matches_the_cells() {
-    let mut patterns = Patterns::default();
-    for bitmap in [one_grown(seed(), 0.20, 0.70), checkerboard(3)] {
-        patterns.build(&bitmap);
-        for level in 0..=FINEST_COPY_LEVEL {
-            for tile in Tile::all_of_level(level) {
-                let (left, top, right, bottom) = tile.cell_rect();
-                let first = bitmap.get(left, top);
-                let agree = (top..=bottom).all(|y| (left..=right).all(|x| bitmap.get(x, y) == first));
-                assert_eq!(patterns.homogeneous_value(tile), agree.then_some(first), "{tile:?}");
-            }
-        }
-    }
+/// The tile at `level` holding the cell `cell`.
+fn ancestor(cell: Tile, level: u8) -> Tile {
+    let shift = CELL_LEVEL - level;
+    Tile { level, x: ((cell.x as u16) >> shift) as u8, y: ((cell.y as u16) >> shift) as u8 }
 }
 
 /// An empty bitmap's tree is one tile at the top, but its stream is its
-/// count split, in 2 bits: fewer than the tree's 8.
+/// binary count tree, in 2 bits: fewer than the tree's 8.
 #[test]
-fn all_clear_is_an_empty_count_split_in_two_bits() {
+fn all_clear_is_an_empty_binary_count_tree_in_two_bits() {
     let bitmap = Bitmap::new();
     // The stream's mode bit + the set cell count, zero, in 1 bit.
     assert_eq!(encode(&bitmap).len(), 2);
-    assert_eq!(tree_of(&bitmap).node(Tile::whole_bitmap()), Node::ComplexTile { size_offset: 0 });
+    assert_eq!(tree_of(&bitmap).get(Tile::WHOLE_BITMAP), Node::ComplexTile { size_offset: 0 });
     check(&bitmap, "all clear");
 }
 
-/// One set cell, wherever it is, is a count split of 20 bits, and passes
-/// every check: a cell alone is the count split's best case.
+/// One set cell, wherever it is, is a binary count tree of 20 bits, and passes
+/// every check: a cell alone is the binary count tree's best case.
 #[test]
-fn one_cell_is_a_count_split_in_twenty_bits() {
+fn one_cell_is_a_binary_count_tree_in_twenty_bits() {
     for (x, y) in [(0, 0), (255, 255), (0, 255), (131, 77)] {
         let mut bitmap = Bitmap::new();
         bitmap.set(x, y);
@@ -108,7 +58,7 @@ fn one_cell_is_a_count_split_in_twenty_bits() {
 /// Two set cells in opposite halves of the Morton order are a count
 /// split of 36 bits, and pass every check.
 #[test]
-fn two_cells_apart_are_a_count_split_in_thirty_six_bits() {
+fn two_cells_apart_are_a_binary_count_tree_in_thirty_six_bits() {
     let mut bitmap = Bitmap::new();
     bitmap.set(3, 5);
     bitmap.set(250, 240);
@@ -127,69 +77,9 @@ fn all_set_is_one_tile_in_eight_bits() {
     let mut bitmap = Bitmap::new();
     bitmap.set_rect(0, 0, 255, 255);
     // The stream's mode bit + 3 start level bits (0) + leaf + bind + the
-    // tile-or-complex bit (a tile) + 1 value bit
+    // plain-tile bit + 1 value bit
     assert_eq!(encode(&bitmap).len(), 8);
     check(&bitmap, "all set");
-}
-
-/// Every match of a ragged bitmap and of an odd checkerboard, at every
-/// level a copy can be and every offset one is read from -- near, far,
-/// and a far copy's children's -- against the two tiles' cells read one
-/// at a time.
-#[test]
-fn matches_agree_with_the_cells() {
-    for bitmap in [one_grown(seed(), 0.20, 0.70), checkerboard(3)] {
-        let mut patterns = Patterns::default();
-        patterns.build(&bitmap);
-        for level in 0..=FINEST_COPY_LEVEL {
-            for tile in Tile::all_of_level(level) {
-                let mine = patterns.number(tile);
-                let children_of_far = FAR_OFFSETS.map(child_offset);
-                for offset in NEAR_OFFSETS.into_iter().chain(FAR_OFFSETS).chain(children_of_far) {
-                    let same = tile.offset_by(offset).is_some_and(|other| {
-                        let ((left, top, right, bottom), (x, y)) = (tile.cell_rect(), other.top_left_cell());
-                        (top..=bottom).all(|row| {
-                            (left..=right).all(|col| bitmap.get(col, row) == bitmap.get(x + (col - left), y + (row - top)))
-                        })
-                    });
-                    let matched = matches_at(&patterns, tile, mine, offset);
-                    assert_eq!(matched, same, "{tile:?} {offset:?}");
-                }
-            }
-        }
-    }
-}
-
-/// One patterns table built for one bitmap, then another: every tile of
-/// the second, at every level held, shares its number with another tile
-/// exactly when their cells agree -- nothing left from the first build --
-/// and each number's first tile holds that same number.
-#[test]
-fn patterns_number_cells_across_builds() {
-    let mut patterns = Patterns::default();
-    patterns.build(&checkerboard(3));
-    let bitmap = one_grown(seed(), 0.20, 0.70);
-    patterns.build(&bitmap);
-    for level in 0..=FINEST_COPY_LEVEL {
-        let tiles: Vec<Tile> = Tile::all_of_level(level).collect();
-        let cells = |tile: Tile| {
-            let (left, top, right, bottom) = tile.cell_rect();
-            (top..=bottom).flat_map(|y| (left..=right).map(move |x| (x, y))).map(|(x, y)| bitmap.get(x, y)).collect::<Vec<bool>>()
-        };
-        let contents: Vec<Vec<bool>> = tiles.iter().map(|&tile| cells(tile)).collect();
-        for (index, &tile) in tiles.iter().enumerate() {
-            let number = patterns.number(tile);
-            if let Some(first) = patterns.first_tile(level, number) {
-                assert_eq!(patterns.number(first), number, "{tile:?}");
-            }
-            // Against a handful of others, not all: every pair would take
-            // too long at the finest levels.
-            for other in (0..tiles.len()).step_by(tiles.len() / 64 + 1) {
-                let same = contents[index] == contents[other];
-                assert_eq!(number == patterns.number(tiles[other]), same, "{tile:?} {:?}", tiles[other]);
-            }
-        }
-    }
 }
 
 /// Every adversarial record -- the worst bitmap found so far against
@@ -215,11 +105,8 @@ fn a_repeated_quarter_is_a_near_copy() {
     bitmap.set_circle(64, 64, 40);
     bitmap.set_circle(192, 64, 40);
     let right_quarter = Tile { level: 1, x: 1, y: 0 };
-    // DIRECTIONS[3] is the neighbour to the left.
-    let mut patterns = Patterns::default();
-    patterns.build(&bitmap);
-    assert_eq!(matching_direction(&patterns, &CopyOffsets::default(), right_quarter, false), Some(3));
-    assert_eq!(tree_of(&bitmap).node(right_quarter), Node::Copied { far: false, direction: 3, masks: false });
+    // Near direction 3 is the neighbour to the left.
+    assert_eq!(tree_of(&bitmap).get(right_quarter), Node::Copied { far: false, direction: 3, names_children: false });
     check(&bitmap, "a repeated quarter");
 }
 
@@ -249,7 +136,7 @@ fn one_ragged_bitmap_round_trips() {
     check(&one_grown(seed(), 0.20, 0.70), "one middling ragged bitmap");
 }
 
-/// A complex tile never masks: where one block of a regular area holds
+/// A complex tile says every cell under it: where one block of a regular area holds
 /// a lone cell, the areas around it are still complex tiles, and the
 /// lone cell is said on its own.
 #[test]
@@ -271,13 +158,13 @@ fn a_lone_cell_leaves_the_areas_around_it_complex_tiles() {
     bitmap.set(lone_cell.x, lone_cell.y);
 
     let written = tree_of(&bitmap);
-    let lone_cells_32x32 = lone_cell.ancestor(3);
-    for quarter in lone_cell.ancestor(2).children().into_iter().filter(|&quarter| quarter != lone_cells_32x32) {
-        assert_eq!(written.node(quarter), Node::ComplexTile { size_offset: 1 }, "{quarter:?}");
+    let lone_cells_32x32 = ancestor(lone_cell, 3);
+    for quarter in ancestor(lone_cell, 2).children().into_iter().filter(|&quarter| quarter != lone_cells_32x32) {
+        assert_eq!(written.get(quarter), Node::ComplexTile { size_offset: 1 }, "{quarter:?}");
     }
     for level in 3..FLOOR_LEVEL - 1 {
-        assert_eq!(written.node(lone_cell.ancestor(level)), Node::Subdivided);
+        assert_eq!(written.get(ancestor(lone_cell, level)), Node::Divided);
     }
-    assert_eq!(written.node(lone_cell.ancestor(FLOOR_LEVEL - 1)), Node::CellList);
+    assert_eq!(written.get(ancestor(lone_cell, FLOOR_LEVEL - 1)), Node::CellList);
     check(&bitmap, "a lone cell among complex tiles");
 }

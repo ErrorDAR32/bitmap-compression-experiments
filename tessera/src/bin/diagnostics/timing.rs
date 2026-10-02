@@ -17,7 +17,7 @@
 
 use tessera::adversarial::record;
 use tessera::diagnostics::examination::first_difference;
-use tessera::bit_stream::BitStream;
+use tessera::BitStream;
 use tessera::Tessera;
 use tessera::sample_generators::{families, HowMany, TIMING_PER_GENERATOR};
 use utilities::table::report::Report;

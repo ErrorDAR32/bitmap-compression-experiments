@@ -6,8 +6,7 @@ use tessera::adversarial::record;
 use tessera::diagnostics::measured::Measured;
 use tessera::diagnostics::tree_stats::TreeStats;
 use tessera::diagnostics::RAW_CELLS;
-use tessera::bit_stream::BitStream;
-use tessera::grammar::{COUNT_SPLIT_STREAM, STREAM_MODE_WIDTH};
+use tessera::BitStream;
 use tessera::Tessera;
 use tessera::sample_generators::checkerboards::checkerboards;
 use tessera::sample_generators::{families, HowMany, LINE_SETS, PLANS, SHAPES, SPARSE};
@@ -110,26 +109,25 @@ pub fn run(report: &mut Report) {
 }
 
 /// What Tessera's trees hold, family by family -- every bitmap's tree, even
-/// where the stream is its count split: how many streams are, complex
-/// tiles and masking nodes.
+/// where the stream is its binary count tree: how many streams are,
+/// complex tiles, and nodes naming children.
 fn add_structure(tessera: &mut Tessera, report: &mut Report) {
     let mut structure = Table::new(&[
         "family",
-        "streams that\nare count splits",
+        "binary count\ntree streams",
         "complex tiles\na bitmap",
         "payload values\na complex tile",
         "tiles\na bitmap",
-        "masking copies\na bitmap",
-        "masking binds\na bitmap",
+        "copies naming\nchildren a bitmap",
+        "flipping divides\na bitmap",
         "cell lists\na bitmap",
     ]);
     let mut stream = BitStream::default();
     for (family, maps) in families(HowMany::Timed) {
-        let (mut stats, mut count_splits) = (TreeStats::default(), 0);
+        let (mut stats, mut binary_count_trees) = (TreeStats::default(), 0);
         for bitmap in &maps {
             tessera.encode(bitmap, &mut stream);
-            count_splits += (stream.reader().value(STREAM_MODE_WIDTH) == COUNT_SPLIT_STREAM) as usize;
-            tessera.encode_tree(bitmap, &mut stream);
+            binary_count_trees += (stream.words()[0] & 1 == 1) as usize;
             stats.add(&TreeStats::of(tessera.tree()));
         }
 
@@ -139,12 +137,12 @@ fn add_structure(tessera: &mut Tessera, report: &mut Report) {
         let name = format!("{family}, {bitmaps} bitmaps");
         structure.row(&[
             name,
-            share(count_splits, bitmaps),
+            share(binary_count_trees, bitmaps),
             per_bitmap(stats.complex_tiles),
             format!("{:.1}", stats.payload_values as f64 / stats.complex_tiles.max(1) as f64),
             per_bitmap(stats.tiles),
-            per_bitmap(stats.copies_that_mask),
-            per_bitmap(stats.binds_that_mask),
+            per_bitmap(stats.copies_naming_children),
+            per_bitmap(stats.flipping_divides),
             per_bitmap(stats.cell_lists),
         ]);
     }

@@ -4,8 +4,8 @@
 //! almost match, and structure no power-of-two tile lines up with.
 
 use utilities::rng::Rng;
-use crate::pyramids::copyable::FINEST_COPY_LEVEL;
-use crate::tile::{tile_side, Tile, CELL_LEVEL, DIRECTIONS};
+use super::cell_rect;
+use crate::tile::{copy_offset, Tile, CELL_LEVEL, DIRECTIONS, FLOOR_LEVEL};
 use bitmap::Bitmap;
 
 /// The largest square a painted rectangle or a checkerboard patch
@@ -30,7 +30,7 @@ pub fn flip(bitmap: &mut Bitmap, x: u8, y: u8) {
 
 /// A cell of `area`, anywhere.
 fn some_cell(rng: &mut Rng, area: Tile) -> (u8, u8) {
-    let (left, top, right, bottom) = area.cell_rect();
+    let (left, top, right, bottom) = cell_rect(area);
     (rng.between(left as u64, right as u64) as u8, rng.between(top as u64, bottom as u64) as u8)
 }
 
@@ -38,7 +38,8 @@ fn some_cell(rng: &mut Rng, area: Tile) -> (u8, u8) {
 fn some_tile_inside(rng: &mut Rng, area: Tile, coarsest: u8, finest: u8) -> Tile {
     let level = rng.between(coarsest as u64, finest as u64) as u8;
     let (x, y) = some_cell(rng, area);
-    Tile { level: CELL_LEVEL, x, y }.ancestor(level)
+    let shift = CELL_LEVEL - level;
+    Tile { level, x: ((x as u16) >> shift) as u8, y: ((y as u16) >> shift) as u8 }
 }
 
 /// A kind of change.
@@ -56,7 +57,7 @@ fn flip_a_cell(rng: &mut Rng, bitmap: &mut Bitmap, area: Tile) {
 /// Every cell of one tile, which breaks or makes a homogeneous tile.
 fn flip_a_tile(rng: &mut Rng, bitmap: &mut Bitmap, area: Tile) {
     let tile = some_tile_inside(rng, area, area.level + 1, CELL_LEVEL);
-    let (left, top, right, bottom) = tile.cell_rect();
+    let (left, top, right, bottom) = cell_rect(tile);
     for y in top..=bottom {
         for x in left..=right {
             flip(bitmap, x, y);
@@ -69,7 +70,7 @@ fn flip_a_tile(rng: &mut Rng, bitmap: &mut Bitmap, area: Tile) {
 fn paint_a_rectangle(rng: &mut Rng, bitmap: &mut Bitmap, area: Tile) {
     let longest = (area.side_in_cells() / PATCH_SHARE_OF_SIDE).max(1) as u64;
     let (x, y) = some_cell(rng, area);
-    let (_, _, right, bottom) = area.cell_rect();
+    let (_, _, right, bottom) = cell_rect(area);
     let x1 = (x as u64 + rng.below(longest)).min(right as u64) as i64;
     let y1 = (y as u64 + rng.below(longest)).min(bottom as u64) as i64;
     if rng.below(2) == 0 {
@@ -83,13 +84,13 @@ fn paint_a_rectangle(rng: &mut Rng, bitmap: &mut Bitmap, area: Tile) {
 /// of it changed: a copy that almost fits, for the copies, the masking
 /// copies and the complex tiles to argue over.
 fn copy_almost(rng: &mut Rng, bitmap: &mut Bitmap, area: Tile) {
-    if area.level + 1 > FINEST_COPY_LEVEL {
+    if area.level + 1 > FLOOR_LEVEL {
         return flip_a_cell(rng, bitmap, area);
     }
-    let tile = some_tile_inside(rng, area, area.level + 1, FINEST_COPY_LEVEL);
-    let direction = rng.below(DIRECTIONS.len() as u64) as u8;
-    let Some(source) = tile.neighbour(direction) else { return };
-    let side = tile_side(tile.level);
+    let tile = some_tile_inside(rng, area, area.level + 1, FLOOR_LEVEL);
+    let direction = rng.below(DIRECTIONS as u64) as u8;
+    let Some(source) = tile.offset_by(copy_offset(false, direction)) else { return };
+    let side = tile.side_in_cells();
     let ((to_x, to_y), (from_x, from_y)) = (tile.top_left_cell(), source.top_left_cell());
     for dy in 0..side {
         for dx in 0..side {
@@ -110,7 +111,7 @@ fn xor_a_checkerboard(rng: &mut Rng, bitmap: &mut Bitmap, area: Tile) {
     let longest = (area.side_in_cells() / PATCH_SHARE_OF_SIDE).max(1) as u64;
     let period = rng.between(SHORTEST_CHECKER_PERIOD / 2, LONGEST_CHECKER_PERIOD / 2) * 2 + 1;
     let (x0, y0) = some_cell(rng, area);
-    let (_, _, right, bottom) = area.cell_rect();
+    let (_, _, right, bottom) = cell_rect(area);
     let x1 = (x0 as u64 + rng.below(longest)).min(right as u64) as u8;
     let y1 = (y0 as u64 + rng.below(longest)).min(bottom as u64) as u8;
     for y in y0..=y1 {
