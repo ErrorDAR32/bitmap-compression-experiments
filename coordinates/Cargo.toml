@@ -1,0 +1,10 @@
+[package]
+name = "coordinates"
+version = "0.1.0"
+edition = "2021"
+description = "TileSim's coordinates: cells, chunks and superchunks, cartesian and by Morton index"
+publish = false
+
+[dependencies]
+
+bitmap = { path = "../bitmap" }

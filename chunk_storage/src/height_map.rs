@@ -7,7 +7,7 @@
 //! are one run, and any aligned square of cells is one run of heights,
 //! as it is one run of bits in a layer.
 
-use crate::coordinates::{CellPlace, ChunkPlace, CHUNK_SIDE, CHUNKS_IN_SUPERCHUNK};
+use coordinates::{CellPlace, ChunkPlace, CHUNK_SIDE, CHUNKS_IN_SUPERCHUNK};
 use bitmap::morton::morton_index;
 
 /// A cell's height.

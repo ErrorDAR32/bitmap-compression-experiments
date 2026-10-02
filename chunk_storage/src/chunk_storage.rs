@@ -9,7 +9,7 @@
 //! entries freed. Whoever holds the bitplanes is told which superchunks
 //! were flushed, since only then may it drop their evicted bitmaps.
 
-use crate::coordinates::{ChunkPosition, SuperChunkPosition};
+use coordinates::{ChunkPosition, SuperChunkPosition};
 use crate::height_map::HeightMap;
 use crate::layer_codec::LayerType;
 use crate::superchunk_image::{LayerChange, SuperChunkImage};

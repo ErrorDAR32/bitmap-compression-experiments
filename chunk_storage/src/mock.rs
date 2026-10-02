@@ -5,7 +5,7 @@
 //! Two layer types, [`DIRT`] and [`GRASS`]: a cell is one or the other,
 //! never both, never neither.
 
-use crate::coordinates::{CHUNKS_IN_SUPERCHUNK, CHUNK_SIDE};
+use coordinates::{CHUNKS_IN_SUPERCHUNK, CHUNK_SIDE};
 use crate::height_map::HeightMap;
 use crate::layer_codec::{LayerCodec, LayerType};
 use crate::superchunk_image::{LayerChange, SuperChunkImage};

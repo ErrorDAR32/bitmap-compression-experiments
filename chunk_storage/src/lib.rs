@@ -6,7 +6,6 @@
 //!
 //! | file | what is in it |
 //! |---|---|
-//! | `coordinates` | where things are: a cell in the world, a superchunk in the world, a chunk in its superchunk, a cell in its chunk, the conversions between them, and Morton indices |
 //! | `height_map` | a superchunk's heights, one a cell |
 //! | `layer_codec` | what a layer is, and the codec that encodes and decodes its bitmap |
 //! | `superchunk_image` | a superchunk's words: its chunk table, its height map, its chunks' bitmap tables and bitmaps |
@@ -24,7 +23,6 @@
 #![warn(missing_docs, clippy::missing_docs_in_private_items)]
 
 mod chunk_storage;
-mod coordinates;
 pub mod diagnostics;
 mod height_map;
 mod layer_codec;
@@ -34,10 +32,6 @@ pub mod transient_data;
 mod writeback_ring;
 
 pub use chunk_storage::ChunkStorage;
-pub use coordinates::{
-    CartesianCell, CellAddress, CellIndex, CellPlace, ChunkPlace, ChunkPosition, SuperChunkPosition, CHUNKS_IN_SUPERCHUNK, CHUNK_SIDE, SUPERCHUNK_SIDE,
-    SUPERCHUNK_SIDE_CELLS, WORLD_SIDE_SUPERCHUNKS,
-};
 pub use height_map::{Height, HeightMap, HEIGHT_WORDS};
 pub use layer_codec::{LayerCodec, LayerType};
 pub use superchunk_image::{InvalidImage, LayerChange, SuperChunkImage};

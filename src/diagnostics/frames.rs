@@ -5,7 +5,7 @@ use bitmap::morton::morton_coordinates;
 use bitmap::BITS_PER_WORD;
 use bitplane_manager::{BitmapArena, BucketKey};
 use chunk_storage::mock::GRASS;
-use chunk_storage::{ChunkPlace, ChunkPosition, SuperChunkPosition, CHUNK_SIDE, SUPERCHUNK_SIDE_CELLS};
+use coordinates::{ChunkPlace, ChunkPosition, SuperChunkPosition, CHUNK_SIDE, SUPERCHUNK_SIDE_CELLS};
 
 /// Dirt's colour.
 pub const BROWN: [u8; 3] = [116, 80, 46];

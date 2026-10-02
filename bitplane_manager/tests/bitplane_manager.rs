@@ -7,10 +7,8 @@
 use bitmap::{Bitmap, CellWords, WORDS};
 use bitplane_manager::{Applied, BitmapArena, BucketKey, NotHot, Write, WriteOp};
 use chunk_storage::mock::{grass_on_dirt, DIRT, GRASS};
-use chunk_storage::{
-    CellPlace, ChunkPlace, ChunkPosition, ChunkStorage, HeightMap, LayerChange, LayerCodec, LayerType, SuperChunkImage, SuperChunkPosition,
-    CartesianCell, SUPERCHUNK_SIDE, WORLD_SIDE_SUPERCHUNKS,
-};
+use chunk_storage::{ChunkStorage, HeightMap, LayerChange, LayerCodec, LayerType, SuperChunkImage};
+use coordinates::{CartesianCell, CellPlace, ChunkPlace, ChunkPosition, SuperChunkPosition, SUPERCHUNK_SIDE, WORLD_SIDE_SUPERCHUNKS};
 
 /// A cell of a chunk.
 const CELL: CellPlace = CellPlace { x: 3, y: 200 };
@@ -38,7 +36,7 @@ fn write(arena: &mut BitmapArena, layer_type: LayerType, op: WriteOp, cell: Cart
 
 /// The cell at `cell` in the chunk at `place` of `superchunk`.
 fn cell_in(superchunk: SuperChunkPosition, place: ChunkPlace, cell: CellPlace) -> CartesianCell {
-    CartesianCell::at(chunk_storage::CellAddress { superchunk, chunk: place, cell })
+    CartesianCell::at(coordinates::CellAddress { superchunk, chunk: place, cell })
 }
 
 /// A bitmap's cells with only `cell` set.

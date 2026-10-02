@@ -20,6 +20,7 @@ dependencies = [
  "allocator",
  "bitmap",
  "chunk_storage",
+ "coordinates",
  "utilities",
 ]
 
@@ -28,8 +29,16 @@ name = "chunk_storage"
 version = "0.1.0"
 dependencies = [
  "bitmap",
+ "coordinates",
  "tessera",
  "utilities",
+]
+
+[[package]]
+name = "coordinates"
+version = "0.1.0"
+dependencies = [
+ "bitmap",
 ]
 
 [[package]]

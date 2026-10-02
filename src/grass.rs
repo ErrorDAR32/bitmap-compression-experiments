@@ -26,7 +26,7 @@
 
 use bitplane_manager::{BitmapArena, SuperChunkTick, TickReport, Write, WriteOp};
 use chunk_storage::mock::{DIRT, GRASS};
-use chunk_storage::CellIndex;
+use coordinates::CellIndex;
 use std::ops::AddAssign;
 
 /// The chance, each tick, that a cell of grass tries to spread.

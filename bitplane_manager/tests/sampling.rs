@@ -5,7 +5,8 @@
 //! `cargo test`
 
 use bitplane_manager::{BitmapArena, BucketKey, Random, Shape, Write, WriteOp};
-use chunk_storage::{ChunkPosition, LayerCodec, LayerType, CartesianCell};
+use chunk_storage::{LayerCodec, LayerType};
+use coordinates::{CartesianCell, ChunkPosition};
 
 /// The layer type the tests sample.
 const STONE: LayerType = LayerType(4);

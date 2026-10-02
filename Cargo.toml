@@ -6,6 +6,7 @@ description = "TileSim, a 2D procedural simulation game: its rules, so far grass
 publish = false
 
 [dependencies]
+coordinates = { path = "coordinates" }
 utilities = { path = "utilities" }
 bitmap = { path = "bitmap" }
 bitplane_manager = { path = "bitplane_manager" }

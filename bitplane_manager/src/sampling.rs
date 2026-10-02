@@ -16,7 +16,8 @@
 use crate::random::Random;
 use crate::{contains, BitmapArena, SuperChunkLayer};
 use bitmap::BITS_PER_WORD;
-use chunk_storage::{CellIndex, LayerType, CHUNKS_IN_SUPERCHUNK};
+use chunk_storage::LayerType;
+use coordinates::{CellIndex, CHUNKS_IN_SUPERCHUNK};
 
 /// Draws how many set cells to pass over before the next chosen one,
 /// each chosen with the probability whose complement's natural

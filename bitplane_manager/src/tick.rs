@@ -24,7 +24,8 @@ use crate::random::Random;
 use crate::sampling::sample_layer;
 use crate::writes::{apply_in, Applied, TypeQueues};
 use crate::{BitmapArena, Lookup, NotHot, Shape, SuperChunkEntry, Write};
-use chunk_storage::{CellIndex, LayerType, SuperChunkPosition, WORLD_SIDE_SUPERCHUNKS};
+use chunk_storage::LayerType;
+use coordinates::{CellIndex, SuperChunkPosition, WORLD_SIDE_SUPERCHUNKS};
 use std::ops::AddAssign;
 use std::time::{Duration, Instant};
 

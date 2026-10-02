@@ -16,7 +16,7 @@
 //! superchunk at the tail ([`WritebackRing::tail_superchunk`]) until it
 //! does.
 
-use crate::coordinates::{ChunkPosition, SuperChunkPosition, CHUNKS_IN_SUPERCHUNK};
+use coordinates::{ChunkPosition, SuperChunkPosition, CHUNKS_IN_SUPERCHUNK};
 use crate::layer_codec::LayerType;
 use std::ops::Range;
 

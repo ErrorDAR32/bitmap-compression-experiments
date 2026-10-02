@@ -9,7 +9,8 @@
 
 use bitplane_manager::BitmapArena;
 use chunk_storage::mock::{grass_on_dirt, DIRT, GRASS};
-use chunk_storage::{ChunkPlace, ChunkPosition, ChunkStorage, LayerCodec, SuperChunkPosition, WORLD_SIDE_SUPERCHUNKS};
+use chunk_storage::{ChunkStorage, LayerCodec};
+use coordinates::{ChunkPlace, ChunkPosition, SuperChunkPosition, WORLD_SIDE_SUPERCHUNKS};
 use std::time::Instant;
 use tilesim::grass;
 

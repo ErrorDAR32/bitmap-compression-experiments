@@ -1,4 +1,4 @@
-//! Where things are, by cascade: a cell anywhere in the world is a
+//! TileSim's coordinates: where things are, by cascade: a cell anywhere in the world is a
 //! [`CartesianCell`]; it lies in one superchunk ([`SuperChunkPosition`]), in
 //! one chunk of it ([`ChunkPlace`]), at one cell of that chunk
 //! ([`CellPlace`]). A chunk anywhere in the world is a
@@ -13,6 +13,13 @@
 //! ([`CartesianCell::morton_index`]) is a `u64`, and the cascade is that
 //! index's bits, from the lowest: 16 for the cell in its chunk, 4 for
 //! the chunk in its superchunk, 44 for the superchunk in the world.
+//!
+//! The design: `docs/coordinates.md`; function by function:
+//! `docs/reference.md`.
+
+// Every item is documented, private ones included; `cargo clippy`
+// checks the private ones.
+#![warn(missing_docs, clippy::missing_docs_in_private_items)]
 
 use bitmap::morton::{morton_coordinates, morton_index};
 

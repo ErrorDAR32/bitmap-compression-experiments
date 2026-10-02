@@ -17,7 +17,7 @@
 //! An image is never changed in place: changes to it make a new one
 //! ([`SuperChunkImage::rewritten`]).
 
-use crate::coordinates::{CellPlace, ChunkPlace, CHUNKS_IN_SUPERCHUNK};
+use coordinates::{CellPlace, ChunkPlace, CHUNKS_IN_SUPERCHUNK};
 use crate::height_map::{height_in, Height, HeightMap, HEIGHT_WORDS};
 use crate::layer_codec::LayerType;
 

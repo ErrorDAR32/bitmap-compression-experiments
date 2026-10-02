@@ -6,7 +6,8 @@
 //! `cargo test`
 
 use bitplane_manager::{BitmapArena, BucketKey, Shape, SuperChunkTick, Write, WriteOp};
-use chunk_storage::{CartesianCell, CellIndex, ChunkPlace, ChunkPosition, LayerCodec, LayerType, SuperChunkPosition, SUPERCHUNK_SIDE_CELLS};
+use chunk_storage::{LayerCodec, LayerType};
+use coordinates::{CartesianCell, CellIndex, ChunkPlace, ChunkPosition, SuperChunkPosition, SUPERCHUNK_SIDE_CELLS};
 
 /// The layer type the tests run on.
 const STONE: LayerType = LayerType(6);

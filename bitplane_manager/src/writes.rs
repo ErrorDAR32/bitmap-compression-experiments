@@ -15,7 +15,8 @@
 
 use crate::{contains, BitmapArena, SuperChunkLayer};
 use bitmap::morton::morton_index;
-use chunk_storage::{CellIndex, ChunkPosition, LayerType, SuperChunkPosition, CHUNK_SIDE, SUPERCHUNK_SIDE_CELLS};
+use chunk_storage::LayerType;
+use coordinates::{CellIndex, ChunkPosition, SuperChunkPosition, CHUNK_SIDE, SUPERCHUNK_SIDE_CELLS};
 
 /// What a write does to each cell it covers.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

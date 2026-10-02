@@ -6,7 +6,8 @@
 
 use bitplane_manager::{Applied, BitmapArena, BucketKey, Shape, Write, WriteOp};
 use chunk_storage::mock::{grass_on_dirt, DIRT, GRASS};
-use chunk_storage::{ChunkPlace, ChunkPosition, ChunkStorage, LayerCodec, LayerType, SuperChunkPosition, CartesianCell, SUPERCHUNK_SIDE_CELLS, WORLD_SIDE_SUPERCHUNKS};
+use chunk_storage::{ChunkStorage, LayerCodec, LayerType};
+use coordinates::{CartesianCell, ChunkPlace, ChunkPosition, SuperChunkPosition, SUPERCHUNK_SIDE_CELLS, WORLD_SIDE_SUPERCHUNKS};
 
 /// The layer type the tests write.
 const STONE: LayerType = LayerType(9);
