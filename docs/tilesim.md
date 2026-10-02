@@ -282,30 +282,37 @@ word by its bits' count, and only the word holding a chosen cell is
 searched. A chunk is so sampled in proportion to its set cells against
 the rest of its superchunk.
 
-The first rule built on it is grass (`src/grass.rs`): each tick every
-cell of grass is sampled with a chance of 0.1%; a sampled cell looks at
-one of its eight neighbours, drawn at random, and if it is dirt, grass
-spreads onto it. Every sample reads the world as the tick found it: the
-writes are applied at the tick's end.
+The first rule built on it is grass (`src/grass.rs`). Each tick a
+cell of grass tries to spread with a chance of 0.1%, onto one of its
+eight neighbours drawn at random, if that one is dirt; and turns back
+to dirt with `k / 8` of 0.2%, `k` its grass neighbours -- none alone,
+the whole 0.2% with grass all round. One sampling pass serves both, at
+0.3%: each sample draws one neighbour, and spreads (a third of the
+time) or decays (two thirds) if that neighbour lets it, so decay comes
+at `k / 8` of its chance from one neighbour read, not eight. Every
+sample reads the world as the tick found it: the writes are applied at
+the tick's end. Spreading at `0.1% x (dirt share)` and decay at
+`0.2% x (grass share)` balance, roughly, at a third of the cells grass.
 
 Measured, ticking as fast as one core goes (`examples/throughput.rs`,
-1,000 ticks, grass starting scattered over a quarter of the cells, or a
-twentieth), nanoseconds a write -- a write is one cell set or cleared;
-grass spreading onto a cell is two:
+500 ticks, grass starting scattered over a third of the cells, near
+its balance), nanoseconds a write -- a write is one cell set or
+cleared; a spread or a decay is two:
 
-| superchunks | grass | writes a tick | sampling | computing | applying | the tick | writes a second |
+| superchunks | writes a tick | sampling | computing | applying | the tick | writes a second | ticks a second |
 |---|---|---|---|---|---|---|---|
-| 1 | 1/20 | 132 | 199 | 25 | 34 | 258 | 3.9 million |
-| 1 | 1/4 | 410 | 117 | 36 | 36 | 189 | 5.3 million |
-| 16 | 1/4 | 6,567 | 118 | 91 | 92 | 301 | 3.3 million |
-| 64 | 1/4 | 26,274 | 115 | 126 | 125 | 366 | 2.7 million |
+| 1 | 798 | 96 | 52 | 36 | 184 | 5.4 million | 6,823 |
+| 16 | 12,711 | 104 | 132 | 94 | 330 | 3.0 million | 238 |
+| 64 | 50,822 | 104 | 175 | 131 | 409 | 2.4 million | 48 |
 
-Sampling costs about 145 ns a sample at a quarter grass, 320 ns at a
-twentieth (more empty words between chosen cells): a logarithm a
-sample, the words' bits counted on the way, and the chosen word's bits
-cleared one by one to the one asked. Computing and applying each find
-a cell's bucket afresh -- a directory search a cell -- which costs more
-the more superchunks there are.
+At the target of 256 ticks a second, one core keeps about 15
+superchunks of grass ticking.
+
+Sampling costs about 85 ns a sample: a logarithm a sample, the words'
+bits counted on the way, and the chosen word's bits cleared one by one
+to the one asked. Computing and applying each find a cell's bucket
+afresh -- a directory search a cell -- which costs more the more
+superchunks there are.
 
 Every thread works sequentially within a superchunk; across superchunks
 the perimeter to area ratio keeps synchronization rare. How overlapping

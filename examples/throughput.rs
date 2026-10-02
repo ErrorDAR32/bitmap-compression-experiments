@@ -1,5 +1,5 @@
-//! How many writes a second one core handles, ticking grass as fast as
-//! it goes: each step of the tick timed apart -- sampling, computing
+//! How many writes a second one core handles, ticking grass -- spreading
+//! and decay -- as fast as it goes: each step of the tick timed apart -- sampling, computing
 //! the writes, applying them.
 //!
 //! `cargo run --release --example throughput -- [ticks] [grass, in thousandths of the cells] [superchunks]`
@@ -42,7 +42,8 @@ fn main() {
         let start = Instant::now();
         sampled += grass::sample(&arena, &mut random, &mut samples);
         let sampled_at = Instant::now();
-        writes += grass::spread(&mut arena, &mut random, &samples);
+        let (spreads, decays) = grass::compute(&mut arena, &mut random, &samples);
+        writes += 2 * (spreads + decays);
         let computed_at = Instant::now();
         changed += arena.apply().changed;
         let applied_at = Instant::now();
