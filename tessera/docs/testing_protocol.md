@@ -66,7 +66,9 @@ Three parts, kept apart:
 
 Plain `cargo test` runs fine and fast, and the unit tests of the
 library's private internals (`tests/unit/`, compiled into the library
-under `cfg(test)`).`tests/allocations.rs` runs with it: a sample encoded and decoded
+under `cfg(test)`).
+
+`tests/allocations.rs` runs with it: a sample encoded and decoded
 through one `Tessera`, the first bitmap included, with every allocation
 counted by a global allocator of its own -- there must be none.
 `cargo test --release -- --ignored` runs complete. While the algorithm is
