@@ -67,7 +67,7 @@ use bitmap::Bitmap;
 use bit_stream::{Counter, Sink};
 use greedy_tiler::greedy_tiler;
 use last_pass::{BlockPlan, LastPass, Pricing};
-use quadtree_writer::{read_tree, write_tree, FLAG_WIDTH};
+use quadtree_writer::{read_tree_and_plan_last_pass, write_tree_and_plan_last_pass, FLAG_WIDTH};
 use tree::Tree;
 use patterns::Patterns;
 use set_cells_before_each_word::SetCellsBeforeEachWord;
@@ -144,7 +144,7 @@ impl Tessera {
             return;
         }
         stream.push_value(TREE_STREAM, FLAG_WIDTH);
-        write_tree(stream, &self.tree, bitmap, &mut self.block_plan, start_level);
+        write_tree_and_plan_last_pass(stream, &self.tree, bitmap, &mut self.block_plan, start_level);
         if cfg!(debug_assertions) {
             let mut prices = 0;
             self.block_plan.residual_blocks(|index| prices += self.pricing.of(index));
@@ -161,7 +161,7 @@ impl Tessera {
             binary_count_tree::read(&mut reader, bitmap);
             return;
         }
-        read_tree(&mut reader, bitmap, &mut self.block_plan);
+        read_tree_and_plan_last_pass(&mut reader, bitmap, &mut self.block_plan);
         self.last_pass.decode(&mut self.block_plan, bitmap, &mut reader);
     }
 }

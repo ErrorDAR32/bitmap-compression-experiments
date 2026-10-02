@@ -162,16 +162,16 @@ fn write_complex_tile_header(sink: &mut impl Sink, level: u8, size_offset: u8, c
 /// Writes `tree`, which starts at `start_level`, for `bitmap`: the start
 /// level, then every node from there -- and fills `plan`, whatever it
 /// held, with the blocks the tree leaves to the last pass.
-pub fn write_tree(stream: &mut BitStream, tree: &Tree, bitmap: &Bitmap, plan: &mut BlockPlan, start_level: u8) {
+pub fn write_tree_and_plan_last_pass(stream: &mut BitStream, tree: &Tree, bitmap: &Bitmap, plan: &mut BlockPlan, start_level: u8) {
     plan.clear();
     stream.push_value(start_level as u64, START_LEVEL_WIDTH);
     for tile in Tile::all_of_level(start_level) {
-        write_subtree(stream, tree, bitmap, plan, tile);
+        write_subtree_and_plan_last_pass(stream, tree, bitmap, plan, tile);
     }
 }
 
 /// Writes `tile`'s node and everything under it.
-fn write_subtree(stream: &mut BitStream, tree: &Tree, bitmap: &Bitmap, plan: &mut BlockPlan, tile: Tile) {
+fn write_subtree_and_plan_last_pass(stream: &mut BitStream, tree: &Tree, bitmap: &Bitmap, plan: &mut BlockPlan, tile: Tile) {
     let node = tree.get(tile);
     write_node(stream, tree, bitmap, tile, node);
     match node {
@@ -184,38 +184,38 @@ fn write_subtree(stream: &mut BitStream, tree: &Tree, bitmap: &Bitmap, plan: &mu
             match (child_node, node) {
                 (Node::Absent, Node::Copied { far, direction, .. }) => plan.add_copied_blocks(tile, child, far, direction),
                 (Node::Absent, _) => {}
-                _ => write_subtree(stream, tree, bitmap, plan, child),
+                _ => write_subtree_and_plan_last_pass(stream, tree, bitmap, plan, child),
             }
         }
     }
 }
 
-/// Reads back what [`write_tree`] wrote into `cells`, which start
+/// Reads back what [`write_tree_and_plan_last_pass`] wrote into `cells`, which start
 /// clear: every cell the tree says -- and fills `plan`, whatever it
 /// held, as writing did.
-pub fn read_tree(reader: &mut BitReader, cells: &mut Bitmap, plan: &mut BlockPlan) {
+pub fn read_tree_and_plan_last_pass(reader: &mut BitReader, cells: &mut Bitmap, plan: &mut BlockPlan) {
     plan.clear();
     let start_level = reader.value(START_LEVEL_WIDTH) as u8;
     for tile in Tile::all_of_level(start_level) {
-        read_subtree(reader, cells, plan, tile, BOUND_AT_THE_TOP);
+        read_subtree_and_plan_last_pass(reader, cells, plan, tile, BOUND_AT_THE_TOP);
     }
 }
 
 /// Reads `tile`'s node and everything under it, `bound_above` the value
 /// bound above it.
-fn read_subtree(reader: &mut BitReader, cells: &mut Bitmap, plan: &mut BlockPlan, tile: Tile, bound_above: bool) {
+fn read_subtree_and_plan_last_pass(reader: &mut BitReader, cells: &mut Bitmap, plan: &mut BlockPlan, tile: Tile, bound_above: bool) {
     if read_flag(reader) == DIVIDE {
         if tile.level == FLOOR_LEVEL {
             plan.add_residual_block(tile);
         } else if read_flag(reader) != NAMES_CHILDREN {
             for child in tile.children() {
-                read_subtree(reader, cells, plan, child, bound_above);
+                read_subtree_and_plan_last_pass(reader, cells, plan, child, bound_above);
             }
         } else {
             let bound_inside = bound_above != (read_flag(reader) == BINDING_FLIPPED);
             for (child, is_node) in tile.children().into_iter().zip(read_child_mask(reader)) {
                 if is_node {
-                    read_subtree(reader, cells, plan, child, bound_inside);
+                    read_subtree_and_plan_last_pass(reader, cells, plan, child, bound_inside);
                 } else if bound_inside {
                     cells.set_square(child.top_left_cell(), child.side_in_cells());
                 }
@@ -230,7 +230,7 @@ fn read_subtree(reader: &mut BitReader, cells: &mut Bitmap, plan: &mut BlockPlan
         }
         for (child, is_node) in tile.children().into_iter().zip(read_child_mask(reader)) {
             if is_node {
-                read_subtree(reader, cells, plan, child, bound_above);
+                read_subtree_and_plan_last_pass(reader, cells, plan, child, bound_above);
             } else {
                 plan.add_copied_blocks(tile, child, far, direction);
             }
