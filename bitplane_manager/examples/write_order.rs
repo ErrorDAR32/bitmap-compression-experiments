@@ -28,7 +28,7 @@ impl Random {
 
     /// A number below `bound`.
     fn below(&mut self, bound: u32) -> u32 {
-        ((self.next() >> 32) * bound as u64 >> 32) as u32
+        (((self.next() >> 32) * bound as u64) >> 32) as u32
     }
 }
 
