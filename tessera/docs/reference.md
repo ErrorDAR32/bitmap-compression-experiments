@@ -393,10 +393,12 @@ later carry could still turn to `0x00`: then it is counted as held too.
 **`write_held(carry, stream)`**: the held byte and every held `0xFF`,
 each with the carry added.
 
-**`finish(stream)`**: the number in the final interval with the most
-trailing zeros: the held bytes, carried, then the window's bits down to
-its last one. The reader reads zeros past the end, so the rest is
-implied.
+**`finish(stream)`**: the widest aligned run of numbers inside the
+final interval -- its free low bits are the run's width -- and the
+bits that name the run: the held bytes, carried, then the window's
+bits above the free ones. Whatever follows the stream fills the free
+bits and stays inside the interval, so a stream ends itself: streams
+can lie one after another, byte-aligned, with no length kept.
 
 **`push_byte`**, **`read_byte`**: a byte highest bit first, so the
 stream can end inside one.

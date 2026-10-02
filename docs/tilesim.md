@@ -184,8 +184,9 @@ pool needs variable-size allocations, the area allocator's job.
 A superchunk, in the pool and on disk alike:
 
 1. **Its chunks, in Morton order**, each:
-   1. **its bitmap table**: one entry a bitmap, sorted by type id, each
-      with the bitmap's offset into the bitmaps;
+   1. **its bitmap table**: its entry count, then one entry a bitmap,
+      sorted by type id, each with the bitmap's offset into the
+      bitmaps;
    2. **its height map**, raw for now.
 2. **The bitmaps**, compressed, each starting byte-aligned, in no
    particular order: the tables' offsets find them. No length is kept:
@@ -194,9 +195,9 @@ A superchunk, in the pool and on disk alike:
 On disk a superchunk is one file, named by its coordinates, its
 contents written sequentially as laid out in memory.
 
-Still open: Tessera's stream ends itself only once its range coder's
-end is changed to stand any bits after it (measured: 0.6 bits a bitmap
-more); today it needs zeros after its last bit.
+A Tessera stream ends itself: its range coder ends with bits that
+decode the same whatever follows them, at about 0.6 bits a bitmap
+more than ending on implied zeros.
 
 ### The tick
 

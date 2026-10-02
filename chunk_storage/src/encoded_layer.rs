@@ -4,8 +4,8 @@
 //! of it is needed.
 //!
 //! Its length is its words, the stream's bits rounded up to the next
-//! word: the last word's spare bits are 0, and decoding reads them as
-//! the 0s past a stream's end, so the exact bit count is not kept. On
+//! word: a Tessera stream ends itself, so the exact bit count is not
+//! kept. On
 //! disk a layer will be packed to the byte instead
 //! (`BitStream::to_bytes`).
 //!

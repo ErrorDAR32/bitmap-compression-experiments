@@ -41,8 +41,9 @@ impl ClearProbability {
 }
 
 /// Bits [`Encoder::finish`] takes beyond what the bits coded carry: the
-/// fewest that pin one number inside the final interval are at most two
-/// more than its width's `-log2`.
+/// final interval always holds an aligned run of numbers half its
+/// width's power of two wide, named by at most two bits more than its
+/// width's `-log2`.
 pub const FINISHING_BITS: usize = 2;
 
 /// Codes bits into a stream.
@@ -107,23 +108,25 @@ impl Encoder {
         self.held_all_ones = 0;
     }
 
-    /// Ends the stream: the number in the final interval with the most
-    /// clear bits at its end -- the bytes held back first, a carry into
-    /// them if it takes one, then the window's bits down to its last set
-    /// one, the rest read as 0.
+    /// Ends the stream: the fewest bits that keep every number they
+    /// start inside the final interval, whatever bits follow them -- the
+    /// bytes held back first, a carry into them if it takes one, then the
+    /// window's bits down to the last one not free. So the stream ends
+    /// itself: what follows it, zeros or another stream, decodes the
+    /// same.
     pub fn finish(mut self, stream: &mut BitStream) {
         let end = self.low + self.range as u64;
-        let pinned = (0..=WINDOW_BITS)
+        let (pinned, free_bits) = (0..=WINDOW_BITS)
             .rev()
-            .map(|clear_bits| {
-                let unit = (1u64 << clear_bits) - 1;
-                (self.low + unit) & !unit
+            .map(|free_bits| {
+                let unit = (1u64 << free_bits) - 1;
+                ((self.low + unit) & !unit, free_bits)
             })
-            .find(|&number| number < end)
-            .expect("a number with no clear bits at its end is the interval's own lower end");
+            .find(|&(number, free_bits)| number + (1u64 << free_bits) <= end)
+            .expect("the interval holds at least one whole unit of its last bit");
         self.write_held((pinned >> WINDOW_BITS) as u8, stream);
         let window = pinned as u32;
-        let significant = WINDOW_BITS - window.trailing_zeros().min(WINDOW_BITS);
+        let significant = WINDOW_BITS - free_bits;
         for bit in 0..significant {
             stream.push(window >> (WINDOW_BITS - 1 - bit) & 1 == 1);
         }

@@ -21,7 +21,8 @@ use turning::check_turned_bits;
 const MOST_TURNED_DRIFT_PERCENT: f64 = 5.0;
 
 /// Every shape and sparse shape, at its `tested` count, passes every check in
-/// `common::check`: covered, capped, costed as written, and decoded back.
+/// `common::check`: covered, capped, costed as written, and decoded back,
+/// whatever follows its stream.
 #[test]
 fn every_shape_round_trips() {
     for shape in SHAPES.iter().chain(&SPARSE) {
@@ -32,7 +33,8 @@ fn every_shape_round_trips() {
 }
 
 /// Every city plan, at its `tested` count, passes every check in
-/// `common::check`: covered, capped, costed as written, and decoded back.
+/// `common::check`: covered, capped, costed as written, and decoded back,
+/// whatever follows its stream.
 #[test]
 fn every_plan_round_trips() {
     for plan in &PLANS {
@@ -43,7 +45,8 @@ fn every_plan_round_trips() {
 }
 
 /// Every line set, at its `tested` count, passes every check in
-/// `common::check`: covered, capped, costed as written, and decoded back.
+/// `common::check`: covered, capped, costed as written, and decoded back,
+/// whatever follows its stream.
 #[test]
 fn every_line_set_round_trips() {
     for set in &LINE_SETS {

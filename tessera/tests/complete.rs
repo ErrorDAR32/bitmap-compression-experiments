@@ -22,7 +22,8 @@ const SECOND_SEED_OFFSET: u64 = 1_000_000;
 const SECOND_SAMPLE_EACH: u64 = 4;
 
 /// Every bitmap of every family, at its `timed` count, passes every check in
-/// `common::check`: covered, capped, costed as written, and decoded back.
+/// `common::check`: covered, capped, costed as written, and decoded back,
+/// whatever follows its stream.
 #[test]
 #[ignore]
 fn every_family_round_trips() {
@@ -35,7 +36,8 @@ fn every_family_round_trips() {
 
 /// A few bitmaps of every shape and plan from seeds the measurements
 /// never use, and each passes every check in `common::check`: covered,
-/// capped, costed as written, and decoded back.
+/// capped, costed as written, and decoded back,
+/// whatever follows its stream.
 #[test]
 #[ignore]
 fn a_second_seed_base_round_trips() {
@@ -54,7 +56,8 @@ fn a_second_seed_base_round_trips() {
 }
 
 /// Every checkerboard of odd-sided squares passes every check in
-/// `common::check`: covered, capped, costed as written, and decoded back.
+/// `common::check`: covered, capped, costed as written, and decoded back,
+/// whatever follows its stream.
 #[test]
 #[ignore]
 fn every_checkerboard_round_trips() {

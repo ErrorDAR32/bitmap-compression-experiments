@@ -334,8 +334,9 @@ the width at its probability of clear -- one multiply -- and keeps its
 part. When the width falls under `2^24`, the window's top byte is
 settled but for a carry and moves on; a byte a later carry could change
 is held back until the next byte shows. The stream ends with the fewest
-bits naming a number inside the final interval; the reader reads 0 past
-the end.
+bits that keep the number inside the final interval whatever bits
+follow them, so a stream ends itself: another stream may follow it,
+with no length kept.
 
 **Why the 4x4 floor.** At a 2x2 floor a 2x2 that was not one tile cost
 5 bits, and a 4x4 of them at least 9. At the 4x4 floor such a 4x4 is
@@ -345,8 +346,8 @@ well under a bit a cell along streets and lines.
 ## Tests
 
 `docs/testing_protocol.md`: the tiers in `tests/` -- `fine`, `fast`,
-`complete` -- check that every bitmap decodes to its own cells in at
-most the raw cells and 1%, and, built in debug, the encoder checks that
+`complete` -- check that every bitmap decodes to its own cells, whatever
+bytes follow its stream, in at most the raw cells and 1%, and, built in debug, the encoder checks that
 the tree it writes takes the bits it counted. Unit tests of the private
 internals are in `tests/unit/`, compiled into the library.
 
