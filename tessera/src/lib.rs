@@ -65,7 +65,7 @@ pub use bit_stream::BitStream;
 
 use bitmap::Bitmap;
 use bit_stream::{Counter, Sink};
-use greedy_tiler::greedy_tiler;
+use greedy_tiler::{complex_tiling, greedy_tiling};
 use last_pass::{BlockPlan, LastPass, Pricing};
 use quadtree_writer::{read_tree_and_plan_last_pass, write_tree_and_plan_last_pass, FLAG_WIDTH};
 use tree::Tree;
@@ -133,7 +133,8 @@ impl Tessera {
     pub fn encode(&mut self, bitmap: &Bitmap, stream: &mut BitStream) {
         self.set_cells_before_each_word.count(bitmap);
         self.patterns.build(bitmap);
-        let (tree_bits, start_level) = greedy_tiler(bitmap, &self.set_cells_before_each_word, &self.patterns, &mut self.tree, &mut self.pricing);
+        greedy_tiling(&self.patterns, &mut self.tree);
+        let (tree_bits, start_level) = complex_tiling(bitmap, &self.set_cells_before_each_word, &mut self.tree, &mut self.pricing);
         let mut binary_count_tree_bits = Counter::default();
         binary_count_tree::write(&mut binary_count_tree_bits, bitmap, &self.set_cells_before_each_word);
         stream.clear();

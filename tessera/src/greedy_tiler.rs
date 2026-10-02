@@ -1,12 +1,11 @@
-//! The greedy tiler: one walk over a bitmap's tiles, writing its tree,
-//! in two halves -- top down, the greedy tiling: tiles placed, biggest
-//! first; bottom up, the complex tiling: every tile's fewest bits
-//! counted, and a tile made one complex tile where that takes fewer.
-//! Each half could be a walk of its own; sharing one, each tile is
-//! visited once. The whole tree is counted to be weighed against the
-//! binary count tree, and is thrown away, both halves, when that wins.
+//! The greedy tiler, two walks writing a bitmap's tree: top down, the
+//! greedy tiling ([`greedy_tiling`]), tiles placed, biggest first; then
+//! bottom up, the complex tiling ([`complex_tiling`]), every tile's
+//! fewest bits counted, and a tile made one complex tile where that
+//! takes fewer. The whole tree is counted to be weighed against the
+//! binary count tree, and is thrown away, both walks, when that wins.
 //!
-//! On the way down, one rule, asked of the whole bitmap, then of every
+//! The greedy tiling asks one rule of the whole bitmap, then of every
 //! tile nothing coarser says, down to the 4x4 floor:
 //!
 //! 1. Homogeneous? Bind it.
@@ -26,7 +25,7 @@
 //! no node: the binding above says it. A 4x4 nothing is placed at is a
 //! residual block, priced as the last pass would code it.
 //!
-//! On the way back up, every tile is counted after its children: its
+//! The complex tiling counts every tile after its children: its
 //! node's own bits, as the grammar writes them, and each child node's
 //! fewest. A divide or a residual block may instead be one complex tile
 //! saying every cell under it -- at the one size every cell under it is
@@ -78,80 +77,94 @@ struct Visit {
     child_of_divide: bool,
 }
 
-/// What the walk knows of a tile once it is through everything under
-/// it.
+/// What the complex tiling knows of a tile once it is through everything
+/// under it.
 struct CountedSubtree {
-    /// Whether the binding above says it: no node, no bits.
-    left_to_binding_above: bool,
     /// The fewest bits it and everything under it take.
     fewest_bits: u64,
     /// The one size every cell under it is bound at, if any.
     bound_size: Option<u8>,
 }
 
-/// Tiles `bitmap` into `tree`, whatever it held: the bits the tree
-/// takes, its residual blocks at their prices in `pricing`, and its
-/// start level.
-pub fn greedy_tiler(bitmap: &Bitmap, set_cells_before_each_word: &SetCellsBeforeEachWord, patterns: &Patterns, tree: &mut Tree, pricing: &mut Pricing) -> (u64, u8) {
-    pricing.clear();
+/// The greedy tiling, the top-down pass: places tiles in `tree`, whatever
+/// it held, from the whole bitmap down -- each tile's node, as placed,
+/// and every child it names visited in turn; a child it does not name,
+/// and one a divide leaves to the binding above, [`Node::Absent`].
+pub fn greedy_tiling(patterns: &Patterns, tree: &mut Tree) {
     let whole = Tile::WHOLE_BITMAP;
-    let visit = Visit { tile: whole, pattern_number: patterns.number(whole), bound_above: BOUND_AT_THE_TOP, child_of_divide: false };
-    let fewest_bits = tile_subtree(bitmap, set_cells_before_each_word, patterns, tree, pricing, visit).fewest_bits;
+    place_subtree(patterns, tree, Visit { tile: whole, pattern_number: patterns.number(whole), bound_above: BOUND_AT_THE_TOP, child_of_divide: false });
+}
+
+/// Places at the visited tile, or divides it, then visits every child it
+/// names.
+fn place_subtree(patterns: &Patterns, tree: &mut Tree, visit: Visit) {
+    let tile = visit.tile;
+    let children_numbers = (tile.level < FLOOR_LEVEL).then(|| patterns.children_numbers(tile));
+    let unplaced = if tile.level == FLOOR_LEVEL { Node::Residual } else { Node::Divided };
+    let (node, named) = place(patterns, visit, children_numbers).unwrap_or((unplaced, ALL_CHILDREN));
+    let left_to_binding_above =
+        visit.child_of_divide && node == PLAIN_TILE && homogeneous_value_of(visit.pattern_number) == Some(visit.bound_above);
+    tree.set(tile, if left_to_binding_above { Node::Absent } else { node });
+    let Some(numbers) = children_numbers else { return };
+    let bound_inside = visit.bound_above != (node == Node::FlippingDivide);
+    for (index, child) in tile.children().into_iter().enumerate() {
+        if named >> index & 1 == 0 {
+            tree.set(child, Node::Absent);
+        } else {
+            let child_visit = Visit { tile: child, pattern_number: numbers[index], bound_above: bound_inside, child_of_divide: node == Node::Divided };
+            place_subtree(patterns, tree, child_visit);
+        }
+    }
+}
+
+/// The complex tiling, the bottom-up pass, over the greedy tiling in
+/// `tree`: every tile counted after its children, its residual blocks
+/// priced in `pricing`, and each divide or residual block made one
+/// complex tile where that takes fewer bits. The bits the tree takes,
+/// its residual blocks at their prices, and its start level.
+pub fn complex_tiling(bitmap: &Bitmap, set_cells_before_each_word: &SetCellsBeforeEachWord, tree: &mut Tree, pricing: &mut Pricing) -> (u64, u8) {
+    pricing.clear();
+    let fewest_bits = count_subtree(bitmap, set_cells_before_each_word, tree, pricing, Tile::WHOLE_BITMAP).fewest_bits;
     // The divides above the start level are never written.
     let start_level = start_level(tree);
     let trunk: u64 = (0..start_level).map(|level| tiles_in_level(level) as u64 * node_bits(tree, bitmap, Tile { level, x: 0, y: 0 }, Node::Divided)).sum();
     (START_LEVEL_WIDTH as u64 + fewest_bits - trunk, start_level)
 }
 
-/// Places at the visited tile, or divides it, then does the same for
-/// every child it names; on the way back up, writes its node and
-/// counts it.
-fn tile_subtree(bitmap: &Bitmap, set_cells_before_each_word: &SetCellsBeforeEachWord, patterns: &Patterns, tree: &mut Tree, pricing: &mut Pricing, visit: Visit) -> CountedSubtree {
-    // Top down, the greedy tiling: what is placed here, and the children
-    // it leaves to be visited.
-    let tile = visit.tile;
-    let children_numbers = (tile.level < FLOOR_LEVEL).then(|| patterns.children_numbers(tile));
-    let unplaced = if tile.level == FLOOR_LEVEL { Node::Residual } else { Node::Divided };
-    let (node, named) = place(patterns, visit, children_numbers).unwrap_or((unplaced, ALL_CHILDREN));
-    let (mut children_bits, mut bound_size) = (0, None);
+/// Counts `tile`'s node, placed, after every child that is a node, and
+/// makes it one complex tile if that takes fewer bits.
+fn count_subtree(bitmap: &Bitmap, set_cells_before_each_word: &SetCellsBeforeEachWord, tree: &mut Tree, pricing: &mut Pricing, tile: Tile) -> CountedSubtree {
+    let node = tree.get(tile);
+    let (mut fewest_bits, mut bound_size) = (0, None);
     if node == Node::Residual {
-        children_bits = pricing.price(bitmap, tile);
+        fewest_bits = pricing.price(bitmap, tile);
         bound_size = all_2x2s_homogeneous(bitmap, tile).then_some(FLOOR_LEVEL + 1);
     } else if node == PLAIN_TILE {
         bound_size = Some(tile.level);
-    }
-    if let Some(numbers) = children_numbers {
-        let bound_inside = visit.bound_above != (node == Node::FlippingDivide);
+    } else if node.has_children() {
         let mut sizes = [None; 4];
         for (index, child) in tile.children().into_iter().enumerate() {
-            if named >> index & 1 == 0 {
-                tree.set(child, Node::Absent);
-                continue;
+            if tree.get(child) == Node::Absent {
+                // A divide's child left to the binding above is bound whole.
+                sizes[index] = Some(child.level);
+            } else {
+                let counted = count_subtree(bitmap, set_cells_before_each_word, tree, pricing, child);
+                fewest_bits += counted.fewest_bits;
+                sizes[index] = counted.bound_size;
             }
-            let child_visit = Visit { tile: child, pattern_number: numbers[index], bound_above: bound_inside, child_of_divide: node == Node::Divided };
-            let counted = tile_subtree(bitmap, set_cells_before_each_word, patterns, tree, pricing, child_visit);
-            if !counted.left_to_binding_above {
-                children_bits += counted.fewest_bits;
-            }
-            sizes[index] = counted.bound_size;
         }
         if node == Node::Divided && sizes.iter().all(|&size| size == sizes[0]) {
             bound_size = sizes[0];
         }
     }
-    // Bottom up, the complex tiling: this tile counted, and made one
-    // complex tile if that takes fewer bits.
-    let left_to_binding_above =
-        visit.child_of_divide && node == PLAIN_TILE && homogeneous_value_of(visit.pattern_number) == Some(visit.bound_above);
-    let mut fewest_bits = node_bits(tree, bitmap, tile, node) + children_bits;
-    tree.set(tile, if left_to_binding_above { Node::Absent } else { node });
-    if node == unplaced {
+    fewest_bits += node_bits(tree, bitmap, tile, node);
+    if node == Node::Divided || node == Node::Residual {
         if let Some((complex_tile, bits)) = best_complex_tile(bitmap, set_cells_before_each_word, tree, tile, bound_size, fewest_bits) {
             tree.set(tile, complex_tile);
             fewest_bits = bits;
         }
     }
-    CountedSubtree { left_to_binding_above, fewest_bits, bound_size }
+    CountedSubtree { fewest_bits, bound_size }
 }
 
 /// `tile`'s cheapest complex tile, if one takes fewer than `to_beat`
