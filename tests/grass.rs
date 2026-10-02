@@ -29,8 +29,8 @@ fn mock(grass_cells: usize) -> BitmapArena {
 /// Turns the cells of `writes`' shapes to grass.
 fn plant(arena: &mut BitmapArena, writes: impl Iterator<Item = (CartesianCell, Shape)>) {
     for (at, shape) in writes {
-        arena.queue(GRASS, Write { at, op: WriteOp::Set, shape });
-        arena.queue(DIRT, Write { at, op: WriteOp::Unset, shape });
+        arena.queue(GRASS, Write { at: at.into(), op: WriteOp::Set, shape });
+        arena.queue(DIRT, Write { at: at.into(), op: WriteOp::Unset, shape });
     }
     assert_eq!(arena.apply().missed, 0);
 }

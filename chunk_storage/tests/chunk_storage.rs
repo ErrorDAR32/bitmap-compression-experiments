@@ -7,7 +7,7 @@
 use bitmap::morton::morton_index;
 use bitmap::{Bitmap, CellWords, WORDS};
 use chunk_storage::{
-    CellAddress, CellPlace, ChunkPlace, ChunkPosition, ChunkStorage, HeightMap, InvalidImage, LayerChange, LayerCodec, LayerType,
+    CellAddress, CellIndex, CellPlace, ChunkPlace, ChunkPosition, ChunkStorage, HeightMap, InvalidImage, LayerChange, LayerCodec, LayerType,
     SuperChunkImage, SuperChunkPosition, CartesianCell, WritebackRing, CHUNK_SIDE, SUPERCHUNK_SIDE_CELLS, WORLD_SIDE_SUPERCHUNKS,
 };
 
@@ -276,4 +276,29 @@ fn a_cells_morton_index_is_its_address() {
         assert_eq!(CartesianCell::from_morton_index(index), cell);
     }
     assert_eq!(CartesianCell { x: u32::MAX, y: u32::MAX }.morton_index(), u64::MAX);
+}
+
+/// A cell's Morton index splits into its superchunk, chunk and place by
+/// bit fields, and steps to its neighbours on the index itself, as the
+/// cartesian coordinates would -- refusing to step past the world's
+/// edges.
+#[test]
+fn cell_indices_step_like_coordinates() {
+    let edge = MIDDLE.x * SUPERCHUNK_SIDE_CELLS;
+    let cells = [(0, 0), (1, 0), (255, 256), (edge - 1, edge), (edge + 1023, edge + 1023), (u32::MAX, u32::MAX), (u32::MAX, 0), (0, u32::MAX), (12345, 678910)];
+    for (x, y) in cells {
+        let cartesian = CartesianCell { x, y };
+        let index = CellIndex::from(cartesian);
+        let address = cartesian.address();
+        assert_eq!(index.superchunk(), address.superchunk.morton_index());
+        assert_eq!(index.chunk_in_superchunk(), address.chunk.index());
+        assert_eq!(index.in_chunk(), morton_index(address.cell.x, address.cell.y));
+        assert_eq!(index.chunk(), cartesian.chunk_and_cell().0);
+        assert_eq!(CellIndex::of(index.superchunk(), index.chunk_in_superchunk(), index.in_chunk()), index);
+        assert_eq!(index.cartesian(), cartesian);
+        for (dx, dy) in [(-1, -1), (0, -1), (1, -1), (-1, 0), (1, 0), (-1, 1), (0, 1), (1, 1), (0, 0), (-300, 77), (1024, -1025)] {
+            let expected = x.checked_add_signed(dx).zip(y.checked_add_signed(dy)).map(|(x, y)| CellIndex::from(CartesianCell { x, y }));
+            assert_eq!(index.offset(dx, dy), expected, "({x}, {y}) by ({dx}, {dy})");
+        }
+    }
 }

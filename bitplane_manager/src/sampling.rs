@@ -15,9 +15,8 @@
 
 use crate::random::Random;
 use crate::{bucket_in, contains, BitmapArena};
-use bitmap::morton::morton_coordinates;
 use bitmap::BITS_PER_WORD;
-use chunk_storage::{ChunkPlace, ChunkPosition, LayerType, CartesianCell, CHUNKS_IN_SUPERCHUNK, CHUNK_SIDE};
+use chunk_storage::{CellIndex, LayerType, CHUNKS_IN_SUPERCHUNK};
 
 /// Draws how many set cells to pass over before the next chosen one,
 /// each chosen with the probability whose complement's natural
@@ -41,14 +40,14 @@ impl BitmapArena {
     /// `probability`, independently, and hands every chosen cell to
     /// `emit` in Morton order: how many were chosen. A probability of 1
     /// or more chooses every set cell; 0 or less, none.
-    pub fn sample(&self, layer_type: LayerType, probability: f64, random: &mut Random, mut emit: impl FnMut(CartesianCell)) -> usize {
+    pub fn sample(&self, layer_type: LayerType, probability: f64, random: &mut Random, mut emit: impl FnMut(CellIndex)) -> usize {
         if probability <= 0.0 {
             return 0;
         }
         let log_unchosen = (1.0 - probability.min(1.0)).ln();
         let draw = |random: &mut Random| if probability >= 1.0 { 0 } else { gap(random, log_unchosen) };
         let mut chosen = 0;
-        for allocation in self.layers_of(layer_type) {
+        for (superchunk, allocation) in self.layers_of(layer_type) {
             if allocation.hot_count == 0 {
                 continue;
             }
@@ -68,7 +67,6 @@ impl BitmapArena {
                     next -= count;
                     continue;
                 }
-                let chunk = ChunkPosition::of(allocation.superchunk, ChunkPlace::from_index(index));
                 let cells = bucket_in(words, index);
                 // Set cells in the words before `word`.
                 let (mut word, mut before) = (0, 0u64);
@@ -82,9 +80,7 @@ impl BitmapArena {
                         word += 1;
                     }
                     let bit = select(cells[word], (next - before) as u32);
-                    let (x, y) = morton_coordinates(word * BITS_PER_WORD + bit as usize);
-                    let side = CHUNK_SIDE as u32;
-                    emit(CartesianCell { x: chunk.x * side + x as u32, y: chunk.y * side + y as u32 });
+                    emit(CellIndex::of(superchunk, index, word * BITS_PER_WORD + bit as usize));
                     chosen += 1;
                     next += 1 + draw(random);
                 }

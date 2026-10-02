@@ -271,3 +271,84 @@ impl CartesianCell {
         Self { x: gather(index), y: gather(index >> 1) }
     }
 }
+
+/// The bits of a Morton index holding x: the even ones.
+const X_BITS: u64 = alternating_runs(1);
+/// The bits of a Morton index holding y: the odd ones.
+const Y_BITS: u64 = !X_BITS;
+/// Bits of a cell's Morton index that place it in its chunk.
+const CELL_INDEX_BITS: u32 = 2 * CELL_PLACE_BITS;
+/// Bits of a cell's Morton index that place it in its superchunk.
+const SUPERCHUNK_CELL_BITS: u32 = CELL_INDEX_BITS + 2 * CHUNK_PLACE_BITS;
+
+/// A cell anywhere in the world, as its Morton index: what locates it
+/// alone, and what the bitplanes are laid out by. From the lowest bit,
+/// 16 for its place in its chunk -- its bit's index in the chunk's
+/// bitmap words -- 4 for its chunk's place in its superchunk, 44 for its
+/// superchunk. Its parts are bit fields, so finding a cell's superchunk,
+/// chunk and bit takes shifts and masks; [`CartesianCell`] is the same
+/// cell as coordinates, for geometry.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct CellIndex(pub u64);
+
+impl CellIndex {
+    /// The cell's superchunk's Morton index
+    /// ([`SuperChunkPosition::morton_index`]).
+    pub fn superchunk(self) -> u64 {
+        self.0 >> SUPERCHUNK_CELL_BITS
+    }
+
+    /// The cell's chunk's place in its superchunk, in Morton order
+    /// ([`ChunkPlace::index`]).
+    pub fn chunk_in_superchunk(self) -> usize {
+        ((self.0 >> CELL_INDEX_BITS) as usize) & (CHUNKS_IN_SUPERCHUNK - 1)
+    }
+
+    /// The cell's place in its chunk, in Morton order: its bit's index in
+    /// the chunk's bitmap words.
+    pub fn in_chunk(self) -> usize {
+        (self.0 & ((1 << CELL_INDEX_BITS) - 1)) as usize
+    }
+
+    /// The cell's chunk, anywhere in the world.
+    pub fn chunk(self) -> ChunkPosition {
+        ChunkPosition::from_morton_index(self.0 >> CELL_INDEX_BITS)
+    }
+
+    /// The cell at `in_chunk`, in Morton order, of the chunk at `chunk`
+    /// of the superchunk whose Morton index is `superchunk`.
+    pub fn of(superchunk: u64, chunk: usize, in_chunk: usize) -> Self {
+        Self(superchunk << SUPERCHUNK_CELL_BITS | (chunk as u64) << CELL_INDEX_BITS | in_chunk as u64)
+    }
+
+    /// The same cell as cartesian coordinates.
+    pub fn cartesian(self) -> CartesianCell {
+        CartesianCell::from_morton_index(self.0)
+    }
+
+    /// The cell `dx` across and `dy` down from this one, if it is in the
+    /// world: added on the Morton index itself, each coordinate's bits
+    /// apart -- the other's filled with ones so a carry passes over them,
+    /// or cleared so a borrow does -- with no cartesian coordinates made.
+    pub fn offset(self, dx: i32, dy: i32) -> Option<Self> {
+        let x = step(self.0 & X_BITS, dx, X_BITS)?;
+        let y = step(self.0 & Y_BITS, dy, Y_BITS)?;
+        Some(Self(x | y))
+    }
+}
+
+/// `part` -- one coordinate's bits of a Morton index, in `bits` -- moved
+/// by `by`, if it stays in the world.
+fn step(part: u64, by: i32, bits: u64) -> Option<u64> {
+    let distance = spread(by.unsigned_abs()) << (bits & 1 ^ 1);
+    let moved = if by >= 0 { (part | !bits).wrapping_add(distance) & bits } else { (part.wrapping_sub(distance)) & bits };
+    let wrapped = if by >= 0 { moved < part } else { moved > part };
+    (!wrapped).then_some(moved)
+}
+
+impl From<CartesianCell> for CellIndex {
+    /// The cell's Morton index.
+    fn from(cell: CartesianCell) -> Self {
+        Self(cell.morton_index())
+    }
+}

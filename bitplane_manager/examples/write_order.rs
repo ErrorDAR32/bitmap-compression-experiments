@@ -60,7 +60,7 @@ fn draw_writes(random: &mut Random, superchunks: &[SuperChunkPosition], count: u
                 _ => Shape::Cell,
             };
             let op = [WriteOp::Set, WriteOp::Unset, WriteOp::Flip][random.below(3) as usize];
-            (if random.below(2) == 0 { DIRT } else { GRASS }, Write { at: cell, op, shape })
+            (if random.below(2) == 0 { DIRT } else { GRASS }, Write { at: cell.into(), op, shape })
         })
         .collect()
 }
@@ -106,7 +106,7 @@ fn main() {
         let start = Instant::now();
         // Each key computed once; ties keep the order drawn, so the
         // latest of two writes at one anchor still wins.
-        let mut keys: Vec<(u64, u32)> = writes.iter().enumerate().map(|(index, (_, write))| (write.at.morton_index(), index as u32)).collect();
+        let mut keys: Vec<(u64, u32)> = writes.iter().enumerate().map(|(index, (_, write))| ({ write.at }.0, index as u32)).collect();
         keys.sort_unstable();
         let sorted: Vec<(LayerType, Write)> = keys.iter().map(|&(_, index)| writes[index as usize]).collect();
         sorting.push(start.elapsed());

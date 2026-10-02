@@ -41,6 +41,14 @@ Every cell, chunk and superchunk has a Morton index, and they nest:
 a chunk's is its cells' without the low 16 bits, a superchunk's without
 the low 20.
 
+The Morton index is a cell's identity everywhere it is cheaper
+(`CellIndex`): writes are anchored at one, sampling hands them out, and
+reads take them. Its superchunk, chunk and bit are bit fields -- shifts
+and masks, no coordinates -- and a neighbour is a step on the index
+itself, each coordinate's bits added apart (`CellIndex::offset`).
+Cartesian coordinates (`CartesianCell`) are kept where they are the
+cheaper: a rectangle's or a disc's geometry, and drawing.
+
 Superchunks are 4x4 chunks because a hot superchunk bitmap holds a
 bucket for every chunk of its superchunk, even for a single set cell:
 at 16x16 chunks that is 2 MiB, at 4x4 it is 128 KiB, so 8 GiB holds
@@ -303,11 +311,11 @@ cleared; a spread or a decay is two:
 
 | superchunks | writes a tick | sampling | computing | applying | the tick | writes a second | ticks a second |
 |---|---|---|---|---|---|---|---|
-| 1 | 798 | 98 | 40 | 25 | 163 | 6.1 million | 7,679 |
-| 16 | 12,711 | 102 | 49 | 30 | 181 | 5.5 million | 434 |
-| 64 | 50,822 | 107 | 60 | 43 | 210 | 4.8 million | 94 |
+| 1 | 798 | 102 | 47 | 13 | 161 | 6.2 million | 7,780 |
+| 16 | 12,711 | 101 | 53 | 15 | 169 | 5.9 million | 467 |
+| 64 | 50,822 | 103 | 63 | 23 | 189 | 5.3 million | 104 |
 
-At the target of 256 ticks a second, one core keeps about 27
+At the target of 256 ticks a second, one core keeps about 29
 superchunks of grass ticking.
 
 Sampling now costs the most, about 85 ns a sample: a logarithm a

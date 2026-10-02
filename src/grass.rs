@@ -23,7 +23,7 @@
 
 use bitplane_manager::{BitmapArena, Random, Write, WriteOp};
 use chunk_storage::mock::{DIRT, GRASS};
-use chunk_storage::CartesianCell;
+use chunk_storage::CellIndex;
 
 /// The chance, each tick, that a cell of grass tries to spread.
 pub const SPREAD_CHANCE: f64 = 0.001;
@@ -51,7 +51,7 @@ pub struct Tick {
 /// One tick of grass over the hot bitplanes: [`sample`], [`compute`],
 /// then the writes applied. `samples` is room for the cells sampled,
 /// kept between ticks so a tick allocates nothing once it has grown.
-pub fn tick(arena: &mut BitmapArena, random: &mut Random, samples: &mut Vec<CartesianCell>) -> Tick {
+pub fn tick(arena: &mut BitmapArena, random: &mut Random, samples: &mut Vec<CellIndex>) -> Tick {
     let sampled = sample(arena, random, samples);
     let (spreads, decays) = compute(arena, random, samples);
     arena.apply();
@@ -61,7 +61,7 @@ pub fn tick(arena: &mut BitmapArena, random: &mut Random, samples: &mut Vec<Cart
 /// The tick's first step: every cell of grass chosen with the chances of
 /// spreading and of decay together, into `samples`, in Morton order:
 /// how many.
-pub fn sample(arena: &BitmapArena, random: &mut Random, samples: &mut Vec<CartesianCell>) -> usize {
+pub fn sample(arena: &BitmapArena, random: &mut Random, samples: &mut Vec<CellIndex>) -> usize {
     samples.clear();
     arena.sample(GRASS, SPREAD_CHANCE + DECAY_CHANCE, random, |cell| samples.push(cell))
 }
@@ -69,16 +69,16 @@ pub fn sample(arena: &BitmapArena, random: &mut Random, samples: &mut Vec<Cartes
 /// The tick's second step: each sampled cell draws a neighbour, and
 /// whether it tries to spread or to decay, and queues the writes if the
 /// neighbour lets it: how many spreads and decays were queued.
-pub fn compute(arena: &mut BitmapArena, random: &mut Random, samples: &[CartesianCell]) -> (usize, usize) {
+pub fn compute(arena: &mut BitmapArena, random: &mut Random, samples: &[CellIndex]) -> (usize, usize) {
     let spread_share = SPREAD_CHANCE / (SPREAD_CHANCE + DECAY_CHANCE);
     let (mut spreads, mut decays) = (0, 0);
     for &cell in samples {
         let (dx, dy) = NEIGHBOURS[random.below(NEIGHBOURS.len() as u32) as usize];
         let spreading = random.unit() <= spread_share;
-        let (Some(x), Some(y)) = (cell.x.checked_add_signed(dx), cell.y.checked_add_signed(dy)) else {
+        // Stepped on the Morton index itself: no cartesian coordinates.
+        let Some(neighbour) = cell.offset(dx, dy) else {
             continue;
         };
-        let neighbour = CartesianCell { x, y };
         if spreading {
             if arena.holds(DIRT, neighbour) == Ok(true) {
                 arena.queue(GRASS, Write::cell(neighbour, WriteOp::Set));

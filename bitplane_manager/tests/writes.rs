@@ -26,12 +26,12 @@ fn arena_over(cells: &[CartesianCell]) -> BitmapArena {
 
 /// `op` over `shape` in the `STONE` bitplane.
 fn stone(arena: &mut BitmapArena, op: WriteOp, at: CartesianCell, shape: Shape) {
-    arena.queue(STONE, Write { at, op, shape });
+    arena.queue(STONE, Write { at: at.into(), op, shape });
 }
 
 /// Whether `STONE` holds at `(x, y)`.
 fn holds(arena: &BitmapArena, x: u32, y: u32) -> bool {
-    arena.holds(STONE, CartesianCell { x, y }).expect("hot")
+    arena.holds(STONE, CartesianCell { x, y }.into()).expect("hot")
 }
 
 #[test]
@@ -113,7 +113,7 @@ fn cold_bitmaps_are_missed() {
     let mut arena = arena_over(&[CartesianCell { x: 0, y: 0 }]);
     stone(&mut arena, WriteOp::Set, CartesianCell { x: 250, y: 0 }, Shape::Rect { width: 10, height: 2 });
     assert_eq!(arena.apply(), Applied { writes: 1, changed: 12, missed: 8 });
-    assert!(arena.holds(STONE, CartesianCell { x: 256, y: 0 }).is_err());
+    assert!(arena.holds(STONE, CartesianCell { x: 256, y: 0 }.into()).is_err());
 }
 
 /// Grass spreading over the mock superchunk's dirt, as writes: a cell
@@ -129,8 +129,8 @@ fn grass_spreads_over_dirt() {
     }
     let edge = MIDDLE.x * SUPERCHUNK_SIDE_CELLS;
     let at = CartesianCell { x: edge + 256, y: edge + 256 };
-    arena.queue(GRASS, Write { at, op: WriteOp::Set, shape: Shape::Disc { radius: 10 } });
-    arena.queue(DIRT, Write { at, op: WriteOp::Unset, shape: Shape::Disc { radius: 10 } });
+    arena.queue(GRASS, Write { at: at.into(), op: WriteOp::Set, shape: Shape::Disc { radius: 10 } });
+    arena.queue(DIRT, Write { at: at.into(), op: WriteOp::Unset, shape: Shape::Disc { radius: 10 } });
     let applied = arena.apply();
     assert_eq!(applied.missed, 0);
     assert_eq!(arena.superchunk_count(GRASS, MIDDLE) + arena.superchunk_count(DIRT, MIDDLE), 1 << 20, "dirt or grass, never both");

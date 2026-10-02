@@ -32,7 +32,7 @@ fn drawn() -> CellWords {
 /// Queues `op` on `cell` of `layer_type`'s bitplane, and applies it:
 /// what applying did.
 fn write(arena: &mut BitmapArena, layer_type: LayerType, op: WriteOp, cell: CartesianCell) -> Applied {
-    arena.queue(layer_type, Write::cell(cell, op));
+    arena.queue(layer_type, Write::cell(cell.into(), op));
     arena.apply()
 }
 
@@ -76,15 +76,15 @@ fn hot_bitmaps_hold_their_chunks_cells() {
     assert!(arena.bucket(absent_key).expect("hot").cells().iter().all(|&word| word == 0));
 
     let inside_the_circle = CartesianCell { x: 180, y: 180 };
-    assert_eq!(arena.holds(LayerType(1), inside_the_circle), Ok(true));
+    assert_eq!(arena.holds(LayerType(1), inside_the_circle.into()), Ok(true));
     write(&mut arena, LayerType(1), WriteOp::Unset, inside_the_circle);
-    assert_eq!(arena.holds(LayerType(1), inside_the_circle), Ok(false));
+    assert_eq!(arena.holds(LayerType(1), inside_the_circle.into()), Ok(false));
     // Turning it hot again keeps the change.
     assert!(!arena.make_hot(drawn_key, storage.layer(chunk_position, LayerType(1)), &mut codec));
-    assert_eq!(arena.holds(LayerType(1), inside_the_circle), Ok(false));
+    assert_eq!(arena.holds(LayerType(1), inside_the_circle.into()), Ok(false));
 
     let cold = BucketKey { layer_type: LayerType(3), chunk: chunk_position };
-    assert_eq!(arena.holds(LayerType(3), inside_the_circle), Err(NotHot(cold)));
+    assert_eq!(arena.holds(LayerType(3), inside_the_circle.into()), Err(NotHot(cold)));
     assert_eq!(write(&mut arena, LayerType(3), WriteOp::Set, inside_the_circle).missed, 1, "a write to a cold bitmap is missed");
 }
 
@@ -201,14 +201,14 @@ fn evicted_bitmaps_wait_for_the_ring() {
 
     assert!(storage.layer(key.chunk, key.layer_type).is_none(), "not in the pool yet");
     assert!(arena.make_hot(key, None, &mut codec));
-    assert_eq!(arena.holds(LayerType(1), cell), Ok(true), "the bucket as it was");
+    assert_eq!(arena.holds(LayerType(1), cell.into()), Ok(true), "the bucket as it was");
     assert!(arena.evict(key));
 
     storage.flush_all(&mut flushed);
     arena.flushed(&flushed);
     assert_eq!(arena.allocations(), 0, "released once flushed");
     arena.make_hot(key, storage.layer(key.chunk, key.layer_type), &mut codec);
-    assert_eq!(arena.holds(LayerType(1), cell), Ok(true), "decoded from the pool");
+    assert_eq!(arena.holds(LayerType(1), cell.into()), Ok(true), "decoded from the pool");
 }
 
 /// When writing back fills the ring, the superchunk at its tail is
