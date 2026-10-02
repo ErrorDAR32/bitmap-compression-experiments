@@ -3,10 +3,12 @@
 **Start with the [design statements](docs/design_statements.md).**
 Every design decision in this repository is weighed against them.
 
-TileSim is a 2D procedural simulation game, still to come. The world is
-cut into 256x256 chunks, each held as layers of bitmaps, and the
-simulation is built to run in parallel. What exists so far is the
-encoding of those layers, and what it is built from.
+TileSim is a 2D procedural simulation game. The world is cut into
+256x256 chunks, each held as layers of bitmaps, and the simulation is
+built to run in parallel. What exists so far: the encoding of those
+layers, chunk storage, the hot bitplanes with their batched writes and
+Monte Carlo sampling, and the first rule running on them -- grass
+spreading over dirt.
 
 ## What is here
 
@@ -14,7 +16,7 @@ encoding of those layers, and what it is built from.
 |---|---|
 | [`docs/design_statements.md`](docs/design_statements.md) | the design statements |
 | [`docs/tilesim.md`](docs/tilesim.md) | what TileSim is, and every decision about it so far: chunks, superchunks, layers, the simulation's plan |
-| [`src/`](src/) | the `tilesim` crate: the game, still to come |
+| [`src/`](src/) | the `tilesim` crate: the game -- its rules, so far grass spreading over a mock superchunk |
 | [`chunk_storage/`](chunk_storage/) | chunks as stored, what loading and saving work on: coordinates, height maps, the layer codec, superchunk images, the cold pool and the writeback ring |
 | [`bitplane_manager/`](bitplane_manager/) | the hot bitplanes: layers decoded from their chunks into the bitmap arena, where cells are read and changed, and written back |
 | [`allocator/`](allocator/) | the allocator: equal-size blocks that never move, taken back and handed out again |
@@ -25,5 +27,5 @@ encoding of those layers, and what it is built from.
 Each builds on its own: run cargo from its folder, as usual -- here,
 at the root, for the `tilesim` crate. Tessera depends on `bitmap/` and
 `utilities/` beside it; `chunk_storage/` on `bitmap/` and Tessera; `bitplane_manager/`
-on `chunk_storage/` and `allocator/`. TileSim itself, with its own tools, utilities
-and tests, is still to come.
+on `chunk_storage/` and `allocator/`. TileSim itself, `src/`, runs on `bitplane_manager/` and
+`chunk_storage/`.

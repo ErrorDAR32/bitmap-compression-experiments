@@ -260,6 +260,31 @@ it, then a cell, found by scanning the chunk's words for set bits. The
 counts it weighs by are built: per bitmap and per superchunk bitplane,
 in the bitplane manager.
 
+### Sampling (built)
+
+`BitmapArena::sample` chooses every hot set cell of a layer type with
+one probability, each independently, and hands the chosen cells out in
+Morton order: superchunk by superchunk, chunk by chunk, cell by cell.
+So the writes computed from them are queued in Morton order already,
+and never sorted.
+
+No sample is wasted: no cell is tossed a coin, and no draw lands on a
+clear cell to be thrown away. The set cells are ranked in Morton order,
+and the gap from one chosen rank to the next is drawn from the
+geometric law -- `floor(ln(u) / ln(1 - p))`, `u` uniform in `(0, 1]` --
+which chooses each set cell with probability `p`, independently. The
+counts then find each chosen rank without a linear scan: a superchunk
+bitplane is passed over whole by its count, a chunk by its count, a
+word by its bits' count, and only the word holding a chosen cell is
+searched. A chunk is so sampled in proportion to its set cells against
+the rest of its superchunk.
+
+The first rule built on it is grass (`src/grass.rs`): each tick every
+cell of grass is sampled with a chance of 0.1%; a sampled cell looks at
+one of its eight neighbours, drawn at random, and if it is dirt, grass
+spreads onto it. Every sample reads the world as the tick found it: the
+writes are applied at the tick's end.
+
 Every thread works sequentially within a superchunk; across superchunks
 the perimeter to area ratio keeps synchronization rare. How overlapping
 updates between superchunks are handled -- a before and after copy

@@ -2,7 +2,7 @@
 name = "tilesim"
 version = "0.1.0"
 edition = "2021"
-description = "TileSim, a 2D procedural simulation game, still to come"
+description = "TileSim, a 2D procedural simulation game: its rules, so far grass spreading over dirt"
 publish = false
 
 [dependencies]

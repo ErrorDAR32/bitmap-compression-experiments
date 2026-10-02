@@ -23,7 +23,8 @@
 //! released to the pool, which hands it out next.
 //!
 //! Cells are changed by writes, batched (`writes`): queued, then applied
-//! in order.
+//! in order. Cells are chosen to compute writes from by Monte Carlo
+//! sampling (`sampling`), in Morton order.
 //!
 //! A bucket changed since it was decoded is dirty, and
 //! [`BitmapArena::write_back`] encodes it into chunk storage's writeback
@@ -39,8 +40,11 @@
 // checks the private ones.
 #![warn(missing_docs, clippy::missing_docs_in_private_items)]
 
+mod random;
+mod sampling;
 mod writes;
 
+pub use random::Random;
 pub use writes::{Applied, Shape, Write, WriteOp};
 
 use allocator::{BlockId, BlockPool};
