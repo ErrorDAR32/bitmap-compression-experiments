@@ -12,6 +12,7 @@
 //! | `superchunk_image` | a superchunk's words: its chunk table, its height map, its chunks' bitmap tables and bitmaps |
 //! | `writeback_ring` | the ring of changed bitmaps, encoded, on their way to the pool |
 //! | `chunk_storage` | the pool and the ring together: what the bitplane manager reads from and writes back to |
+//! | `mock` | made-up superchunks to try the rest out on: dirt with grass scattered on it |
 
 // Every item is documented, private ones included; `cargo clippy`
 // checks the private ones.
@@ -21,6 +22,7 @@ mod chunk_storage;
 mod coordinates;
 mod height_map;
 mod layer_codec;
+pub mod mock;
 mod superchunk_image;
 mod writeback_ring;
 

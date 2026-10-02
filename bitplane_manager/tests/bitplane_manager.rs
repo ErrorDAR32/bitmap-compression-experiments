@@ -6,6 +6,7 @@
 
 use bitmap::{Bitmap, CellWords, WORDS};
 use bitplane_manager::{BitmapArena, BucketKey, NotHot};
+use chunk_storage::mock::{grass_on_dirt, DIRT, GRASS};
 use chunk_storage::{
     CellPlace, ChunkPlace, ChunkPosition, ChunkStorage, HeightMap, LayerChange, LayerCodec, LayerType, SuperChunkImage, SuperChunkPosition,
     WorldCell, SUPERCHUNK_SIDE, WORLD_SIDE_SUPERCHUNKS,
@@ -242,4 +243,72 @@ fn only_the_types_asked_for_turn_hot() {
     assert_eq!(hot, [LayerType(1), LayerType(3), LayerType(8)]);
     assert_eq!(arena.bucket(BucketKey { layer_type: LayerType(3), chunk: position }).expect("hot").cells(), &drawn());
     assert!(!arena.is_hot(BucketKey { layer_type: LayerType(2), chunk: position }));
+}
+
+/// The mock superchunk, made hot: every cell is dirt or grass, never
+/// both; each bitmap counts its set cells, a full chunk's 65,536
+/// included, and each superchunk bitplane the cells of its hot bitmaps.
+#[test]
+fn every_bitmap_counts_its_cells() {
+    let mut codec = LayerCodec::new();
+    let mut arena = BitmapArena::new();
+    let mut storage = ChunkStorage::new(1 << 12);
+    storage.insert(MIDDLE, grass_on_dirt(7, 8, &mut codec));
+    for place in ChunkPlace::all() {
+        arena.make_hot_layers(ChunkPosition::of(MIDDLE, place), &[DIRT, GRASS], &storage, &mut codec);
+    }
+    let (mut full_chunks, mut grass) = (0, 0);
+    for place in ChunkPlace::all() {
+        let chunk = ChunkPosition::of(MIDDLE, place);
+        let (dirt_bucket, grass_bucket) = (
+            arena.bucket(BucketKey { layer_type: DIRT, chunk }).expect("hot"),
+            arena.bucket(BucketKey { layer_type: GRASS, chunk }).expect("hot"),
+        );
+        let ones = |cells: &CellWords| cells.iter().map(|word| word.count_ones()).sum::<u32>();
+        assert_eq!(dirt_bucket.count(), ones(dirt_bucket.cells()));
+        assert_eq!(grass_bucket.count(), ones(grass_bucket.cells()));
+        assert_eq!(dirt_bucket.count() + grass_bucket.count(), 1 << 16, "chunk {place:?}");
+        assert!(dirt_bucket.cells().iter().zip(grass_bucket.cells()).all(|(dirt, grass)| dirt & grass == 0), "never both");
+        full_chunks += (dirt_bucket.count() == 1 << 16) as u32;
+        grass += grass_bucket.count();
+    }
+    assert!(full_chunks > 0, "a chunk with no grass: 65,536 cells of dirt");
+    assert!((6..=8).contains(&grass), "about 8 cells of grass, {grass}");
+    assert_eq!(arena.superchunk_count(GRASS, MIDDLE), grass);
+    assert_eq!(arena.superchunk_count(DIRT, MIDDLE), (1 << 20) - grass);
+    assert_eq!(arena.superchunk_count(GRASS, ORIGIN), 0, "nothing hot there");
+}
+
+/// Counts move by one a cell changed, not at all for a cell already so;
+/// an evicted bitmap's cells leave its superchunk's count, and come back
+/// with it.
+#[test]
+fn counts_follow_every_change() {
+    let mut codec = LayerCodec::new();
+    let mut arena = BitmapArena::new();
+    let mut storage = ChunkStorage::new(1 << 12);
+    storage.insert(MIDDLE, grass_on_dirt(11, 0, &mut codec));
+    let place = ChunkPlace::new(1, 3);
+    let chunk = ChunkPosition::of(MIDDLE, place);
+    arena.make_hot_layers(chunk, &[DIRT, GRASS], &storage, &mut codec);
+    let (dirt, grass) = (BucketKey { layer_type: DIRT, chunk }, BucketKey { layer_type: GRASS, chunk });
+    assert_eq!((arena.bucket(dirt).expect("hot").count(), arena.bucket(grass).expect("hot").count()), (1 << 16, 0));
+
+    let cell = WorldCell::at(chunk_storage::CellAddress { superchunk: MIDDLE, chunk: place, cell: CELL });
+    for _ in 0..2 {
+        arena.set(GRASS, cell).expect("hot");
+        arena.unset(DIRT, cell).expect("hot");
+    }
+    assert_eq!((arena.bucket(dirt).expect("hot").count(), arena.bucket(grass).expect("hot").count()), ((1 << 16) - 1, 1));
+    assert_eq!(arena.superchunk_count(GRASS, MIDDLE), 1);
+    arena.unset(GRASS, cell).expect("hot");
+    arena.set(DIRT, cell).expect("hot");
+    assert_eq!((arena.bucket(dirt).expect("hot").count(), arena.bucket(grass).expect("hot").count()), (1 << 16, 0));
+
+    arena.set(GRASS, cell).expect("hot");
+    arena.write_back(MIDDLE, &mut storage, &mut codec);
+    assert!(arena.evict(grass));
+    assert_eq!(arena.superchunk_count(GRASS, MIDDLE), 0, "evicted, waiting in the ring");
+    arena.make_hot(grass, None, &mut codec);
+    assert_eq!(arena.superchunk_count(GRASS, MIDDLE), 1, "back as it was");
 }

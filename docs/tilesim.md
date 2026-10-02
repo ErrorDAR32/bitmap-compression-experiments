@@ -140,6 +140,16 @@ written sequentially as laid out in memory.
    if no cell is left set. A dirty bucket must be written back before
    it is evicted. An allocation with no bucket hot or waiting in the
    ring leaves the directory, its block kept for the next one needed.
+6. Every bucket counts its set cells, kept in step with every change,
+   and every allocation the set cells of its hot buckets together (a
+   `u32`, up to 2^20): the weights sampling picks by. A bitmap with any
+   cell set has 1 to 65,536 of them, so its count is a `u16` holding
+   the count less one, beside a bit a chunk saying whether any cell is
+   set -- a hot bucket may be empty, though a stored layer never is.
+
+The mock superchunk (`chunk_storage::mock`) is the first world to try
+this on: two layer types, dirt and grass, dirt everywhere but a few
+cells of grass scattered at random.
 
 ### The tick budget
 
@@ -224,9 +234,9 @@ Two steps a tick:
    of their coordinates, and are applied in that order.
 
 Sampling picks, by weight of set cells, a superchunk, then a chunk in
-it, then a cell, found by scanning the chunk's words for set bits. It
-needs counters of set cells per chunk and per superchunk, per layer
-type: a small cost.
+it, then a cell, found by scanning the chunk's words for set bits. The
+counts it weighs by are built: per bitmap and per superchunk bitplane,
+in the bitplane manager.
 
 Every thread works sequentially within a superchunk; across superchunks
 the perimeter to area ratio keeps synchronization rare. How overlapping

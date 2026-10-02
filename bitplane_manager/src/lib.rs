@@ -100,9 +100,29 @@ struct SuperChunkLayer {
     /// The chunks written back to the ring and not yet flushed: their
     /// buckets hold their newest cells, hot or not.
     in_ring: ChunkSet,
+    /// The chunks whose buckets have a cell set.
+    nonempty: ChunkSet,
+    /// How many cells each bucket has set, less one, by Morton index --
+    /// a bucket with any cell set has 1 to 65,536 of them, so a `u16`
+    /// holds the count -- meaningful where the bucket is in `nonempty`
+    /// and hot or waiting in the ring.
+    counts_less_one: [u16; CHUNKS_IN_SUPERCHUNK],
+    /// How many cells the hot buckets have set, together.
+    hot_count: u32,
 }
 
 impl SuperChunkLayer {
+    /// How many cells the bucket at `index` has set.
+    fn count(&self, index: usize) -> u32 {
+        if contains(self.nonempty, index) { self.counts_less_one[index] as u32 + 1 } else { 0 }
+    }
+
+    /// Makes `count` the bucket at `index`'s count of cells set.
+    fn set_count(&mut self, index: usize, count: u32) {
+        put(&mut self.nonempty, index, count > 0);
+        self.counts_less_one[index] = count.saturating_sub(1) as u16;
+    }
+
     /// Where it sorts in the directory.
     fn order(&self) -> (LayerType, u64) {
         (self.layer_type, self.superchunk.morton_index())
@@ -129,9 +149,16 @@ fn word_and_bit(cell: CellPlace) -> (usize, u64) {
 pub struct Bucket<'a> {
     /// Its cells.
     cells: &'a CellWords,
+    /// How many of them are set.
+    count: u32,
 }
 
 impl Bucket<'_> {
+    /// How many cells are set.
+    pub fn count(&self) -> u32 {
+        self.count
+    }
+
     /// Whether `cell` is set.
     pub fn get(&self, cell: CellPlace) -> bool {
         let (word, bit) = word_and_bit(cell);
@@ -144,17 +171,44 @@ impl Bucket<'_> {
     }
 }
 
-/// One hot bitmap, to change: any change marks it dirty.
+/// One hot bitmap, to change: a change marks it dirty, and keeps its
+/// count and its allocation's in step.
 pub struct BucketMut<'a> {
     /// Its cells.
     cells: &'a mut CellWords,
-    /// Its allocation's dirty chunks.
-    dirty: &'a mut ChunkSet,
+    /// Its allocation's dirty chunks, counts and hot count.
+    allocation: &'a mut SuperChunkLayer,
     /// Its chunk's Morton index there.
     index: usize,
 }
 
 impl BucketMut<'_> {
+    /// How many cells are set.
+    pub fn count(&self) -> u32 {
+        self.allocation.count(self.index)
+    }
+
+    /// Makes `cell` set or clear, if it is not already: the bitmap is
+    /// then dirty, and its count and its allocation's hot count move by
+    /// one.
+    fn put_cell(&mut self, cell: CellPlace, set: bool) {
+        let (word, bit) = word_and_bit(cell);
+        if (self.cells[word] & bit != 0) == set {
+            return;
+        }
+        self.cells[word] ^= bit;
+        let allocation = &mut *self.allocation;
+        put(&mut allocation.dirty, self.index, true);
+        let count = allocation.count(self.index);
+        if set {
+            allocation.set_count(self.index, count + 1);
+            allocation.hot_count += 1;
+        } else {
+            allocation.set_count(self.index, count - 1);
+            allocation.hot_count -= 1;
+        }
+    }
+
     /// Whether `cell` is set.
     pub fn get(&self, cell: CellPlace) -> bool {
         let (word, bit) = word_and_bit(cell);
@@ -163,16 +217,12 @@ impl BucketMut<'_> {
 
     /// Sets `cell`.
     pub fn set(&mut self, cell: CellPlace) {
-        let (word, bit) = word_and_bit(cell);
-        self.cells[word] |= bit;
-        put(self.dirty, self.index, true);
+        self.put_cell(cell, true);
     }
 
     /// Clears `cell`.
     pub fn unset(&mut self, cell: CellPlace) {
-        let (word, bit) = word_and_bit(cell);
-        self.cells[word] &= !bit;
-        put(self.dirty, self.index, true);
+        self.put_cell(cell, false);
     }
 
     /// Every cell, in Morton order, 64 a word.
@@ -243,7 +293,7 @@ impl BitmapArena {
     fn allocation(&mut self, layer_type: LayerType, superchunk: SuperChunkPosition) -> usize {
         self.find(layer_type, superchunk).unwrap_or_else(|entry| {
             let block = self.pool.allocate();
-            self.directory.insert(entry, SuperChunkLayer { layer_type, superchunk, block, hot: 0, dirty: 0, in_ring: 0 });
+            self.directory.insert(entry, SuperChunkLayer { layer_type, superchunk, block, hot: 0, dirty: 0, in_ring: 0, nonempty: 0, counts_less_one: [0; CHUNKS_IN_SUPERCHUNK], hot_count: 0 });
             entry
         })
     }
@@ -261,16 +311,16 @@ impl BitmapArena {
         if contains(allocation.hot, index) {
             return false;
         }
-        if contains(allocation.in_ring, index) {
-            put(&mut allocation.hot, index, true);
-            return true;
-        }
-        let bucket = bucket_in_mut(self.pool.block_mut(allocation.block), index);
-        match layer {
-            Some(layer) => codec.decode(layer, bucket),
-            None => bucket.fill(0),
+        if !contains(allocation.in_ring, index) {
+            let bucket = bucket_in_mut(self.pool.block_mut(allocation.block), index);
+            match layer {
+                Some(layer) => codec.decode(layer, bucket),
+                None => bucket.fill(0),
+            }
+            allocation.set_count(index, bucket.iter().map(|word| word.count_ones()).sum());
         }
         put(&mut allocation.hot, index, true);
+        allocation.hot_count += allocation.count(index);
         true
     }
 
@@ -283,16 +333,25 @@ impl BitmapArena {
         types.iter().filter(|&&layer_type| self.make_hot(BucketKey { layer_type, chunk }, storage.layer(chunk, layer_type), codec)).count()
     }
 
+    /// How many cells of `layer_type` are set over `superchunk`, in its
+    /// hot bitmaps: what weighs the superchunk when sampling.
+    pub fn superchunk_count(&self, layer_type: LayerType, superchunk: SuperChunkPosition) -> u32 {
+        self.find(layer_type, superchunk).map_or(0, |entry| self.directory[entry].hot_count)
+    }
+
     /// `key`'s bitmap, to read, if it is hot.
     pub fn bucket(&self, key: BucketKey) -> Option<Bucket<'_>> {
-        self.hot(key).map(|(entry, index)| Bucket { cells: bucket_in(self.pool.block(self.directory[entry].block), index) })
+        self.hot(key).map(|(entry, index)| {
+            let allocation = &self.directory[entry];
+            Bucket { cells: bucket_in(self.pool.block(allocation.block), index), count: allocation.count(index) }
+        })
     }
 
     /// `key`'s bitmap, to change, if it is hot.
     pub fn bucket_mut(&mut self, key: BucketKey) -> Option<BucketMut<'_>> {
         let (entry, index) = self.hot(key)?;
         let allocation = &mut self.directory[entry];
-        Some(BucketMut { cells: bucket_in_mut(self.pool.block_mut(allocation.block), index), dirty: &mut allocation.dirty, index })
+        Some(BucketMut { cells: bucket_in_mut(self.pool.block_mut(allocation.block), index), allocation, index })
     }
 
     /// Whether `layer_type` holds at `cell`, anywhere in the world.
@@ -325,7 +384,7 @@ impl BitmapArena {
             let words = self.pool.block(allocation.block);
             members(allocation.hot).map(move |index| {
                 let chunk = ChunkPosition::of(allocation.superchunk, ChunkPlace::from_index(index));
-                (chunk, Bucket { cells: bucket_in(words, index) })
+                (chunk, Bucket { cells: bucket_in(words, index), count: allocation.count(index) })
             })
         })
     }
@@ -408,6 +467,7 @@ impl BitmapArena {
         let allocation = &mut self.directory[entry];
         assert!(!contains(allocation.dirty, index), "{key:?} changed and was not written back");
         put(&mut allocation.hot, index, false);
+        allocation.hot_count -= allocation.count(index);
         if allocation.hot | allocation.in_ring == 0 {
             let block = self.directory.remove(entry).block;
             self.pool.release(block);
