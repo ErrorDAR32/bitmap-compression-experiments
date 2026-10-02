@@ -9,7 +9,7 @@ use bitplane_manager::{Applied, BitmapArena, BucketKey, NotHot, Write, WriteOp};
 use chunk_storage::mock::{grass_on_dirt, DIRT, GRASS};
 use chunk_storage::{
     CellPlace, ChunkPlace, ChunkPosition, ChunkStorage, HeightMap, LayerChange, LayerCodec, LayerType, SuperChunkImage, SuperChunkPosition,
-    WorldCell, SUPERCHUNK_SIDE, WORLD_SIDE_SUPERCHUNKS,
+    CartesianCell, SUPERCHUNK_SIDE, WORLD_SIDE_SUPERCHUNKS,
 };
 
 /// A cell of a chunk.
@@ -31,14 +31,14 @@ fn drawn() -> CellWords {
 
 /// Queues `op` on `cell` of `layer_type`'s bitplane, and applies it:
 /// what applying did.
-fn write(arena: &mut BitmapArena, layer_type: LayerType, op: WriteOp, cell: WorldCell) -> Applied {
+fn write(arena: &mut BitmapArena, layer_type: LayerType, op: WriteOp, cell: CartesianCell) -> Applied {
     arena.queue(layer_type, Write::cell(cell, op));
     arena.apply()
 }
 
 /// The cell at `cell` in the chunk at `place` of `superchunk`.
-fn cell_in(superchunk: SuperChunkPosition, place: ChunkPlace, cell: CellPlace) -> WorldCell {
-    WorldCell::at(chunk_storage::CellAddress { superchunk, chunk: place, cell })
+fn cell_in(superchunk: SuperChunkPosition, place: ChunkPlace, cell: CellPlace) -> CartesianCell {
+    CartesianCell::at(chunk_storage::CellAddress { superchunk, chunk: place, cell })
 }
 
 /// A bitmap's cells with only `cell` set.
@@ -75,7 +75,7 @@ fn hot_bitmaps_hold_their_chunks_cells() {
     assert_eq!(arena.bucket(drawn_key).expect("hot").cells(), &drawn());
     assert!(arena.bucket(absent_key).expect("hot").cells().iter().all(|&word| word == 0));
 
-    let inside_the_circle = WorldCell { x: 180, y: 180 };
+    let inside_the_circle = CartesianCell { x: 180, y: 180 };
     assert_eq!(arena.holds(LayerType(1), inside_the_circle), Ok(true));
     write(&mut arena, LayerType(1), WriteOp::Unset, inside_the_circle);
     assert_eq!(arena.holds(LayerType(1), inside_the_circle), Ok(false));
@@ -240,7 +240,7 @@ fn evicting_an_unwritten_change_panics() {
     let (mut codec, mut arena) = (LayerCodec::new(), BitmapArena::new());
     let key = BucketKey { layer_type: LayerType(1), chunk: ChunkPosition { x: 0, y: 0 } };
     arena.make_hot(key, None, &mut codec);
-    write(&mut arena, LayerType(1), WriteOp::Set, WorldCell { x: 0, y: 0 });
+    write(&mut arena, LayerType(1), WriteOp::Set, CartesianCell { x: 0, y: 0 });
     arena.evict(key);
 }
 

@@ -28,7 +28,7 @@ mod writeback_ring;
 
 pub use chunk_storage::ChunkStorage;
 pub use coordinates::{
-    CellAddress, CellPlace, ChunkPlace, ChunkPosition, SuperChunkPosition, WorldCell, CHUNKS_IN_SUPERCHUNK, CHUNK_SIDE, SUPERCHUNK_SIDE,
+    CellAddress, CellPlace, ChunkPlace, ChunkPosition, SuperChunkPosition, CartesianCell, CHUNKS_IN_SUPERCHUNK, CHUNK_SIDE, SUPERCHUNK_SIDE,
     SUPERCHUNK_SIDE_CELLS, WORLD_SIDE_SUPERCHUNKS,
 };
 pub use height_map::{Height, HeightMap, HEIGHT_WORDS};

@@ -6,7 +6,7 @@
 
 use bitplane_manager::{BitmapArena, Random, Shape, Write, WriteOp};
 use chunk_storage::mock::{grass_on_dirt, DIRT, GRASS};
-use chunk_storage::{ChunkPlace, ChunkPosition, ChunkStorage, LayerCodec, SuperChunkPosition, WorldCell, SUPERCHUNK_SIDE_CELLS};
+use chunk_storage::{ChunkPlace, ChunkPosition, ChunkStorage, LayerCodec, SuperChunkPosition, CartesianCell, SUPERCHUNK_SIDE_CELLS};
 use tilesim::grass::{tick, DECAY_CHANCE, SPREAD_CHANCE};
 
 /// The superchunk the tests run on.
@@ -27,7 +27,7 @@ fn mock(grass_cells: usize) -> BitmapArena {
 }
 
 /// Turns the cells of `writes`' shapes to grass.
-fn plant(arena: &mut BitmapArena, writes: impl Iterator<Item = (WorldCell, Shape)>) {
+fn plant(arena: &mut BitmapArena, writes: impl Iterator<Item = (CartesianCell, Shape)>) {
     for (at, shape) in writes {
         arena.queue(GRASS, Write { at, op: WriteOp::Set, shape });
         arena.queue(DIRT, Write { at, op: WriteOp::Unset, shape });
@@ -36,8 +36,8 @@ fn plant(arena: &mut BitmapArena, writes: impl Iterator<Item = (WorldCell, Shape
 }
 
 /// The superchunk's first cell, at its top left.
-fn origin() -> WorldCell {
-    WorldCell { x: SUPERCHUNK.x * SUPERCHUNK_SIDE_CELLS, y: SUPERCHUNK.y * SUPERCHUNK_SIDE_CELLS }
+fn origin() -> CartesianCell {
+    CartesianCell { x: SUPERCHUNK.x * SUPERCHUNK_SIDE_CELLS, y: SUPERCHUNK.y * SUPERCHUNK_SIDE_CELLS }
 }
 
 /// Grass alone, with no grass around, never decays: a lattice of grass
@@ -45,7 +45,7 @@ fn origin() -> WorldCell {
 #[test]
 fn lone_grass_never_decays() {
     let mut arena = mock(0);
-    let cells = (0..64).flat_map(|y| (0..64).map(move |x| WorldCell { x: origin().x + 16 * x, y: origin().y + 16 * y }));
+    let cells = (0..64).flat_map(|y| (0..64).map(move |x| CartesianCell { x: origin().x + 16 * x, y: origin().y + 16 * y }));
     plant(&mut arena, cells.map(|cell| (cell, Shape::Cell)));
     assert_eq!(arena.superchunk_count(GRASS, SUPERCHUNK), 4096);
     let done = tick(&mut arena, &mut Random::new(3), &mut Vec::new());
@@ -60,7 +60,7 @@ fn lone_grass_never_decays() {
 #[test]
 fn surrounded_grass_decays_at_its_chance() {
     let mut arena = mock(0);
-    let pieces = (0..8).flat_map(|y| (0..8).map(move |x| WorldCell { x: origin().x + 128 * x, y: origin().y + 128 * y }));
+    let pieces = (0..8).flat_map(|y| (0..8).map(move |x| CartesianCell { x: origin().x + 128 * x, y: origin().y + 128 * y }));
     plant(&mut arena, pieces.map(|at| (at, Shape::Rect { width: 128, height: 128 })));
     assert_eq!(arena.superchunk_count(GRASS, SUPERCHUNK), CELLS);
     let done = tick(&mut arena, &mut Random::new(4), &mut Vec::new());

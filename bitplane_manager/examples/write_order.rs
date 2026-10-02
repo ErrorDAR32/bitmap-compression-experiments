@@ -14,7 +14,7 @@
 
 use bitplane_manager::{BitmapArena, Shape, Write, WriteOp};
 use chunk_storage::mock::{grass_on_dirt, DIRT, GRASS};
-use chunk_storage::{ChunkPlace, ChunkPosition, ChunkStorage, LayerCodec, LayerType, SuperChunkPosition, WorldCell, SUPERCHUNK_SIDE_CELLS, WORLD_SIDE_SUPERCHUNKS};
+use chunk_storage::{ChunkPlace, ChunkPosition, ChunkStorage, LayerCodec, LayerType, SuperChunkPosition, CartesianCell, SUPERCHUNK_SIDE_CELLS, WORLD_SIDE_SUPERCHUNKS};
 use std::time::{Duration, Instant};
 
 /// A xorshift64* generator: enough for drawing writes.
@@ -50,7 +50,7 @@ fn draw_writes(random: &mut Random, superchunks: &[SuperChunkPosition], count: u
     (0..count)
         .map(|_| {
             let superchunk = superchunks[random.below(superchunks.len() as u32) as usize];
-            let cell = WorldCell {
+            let cell = CartesianCell {
                 x: superchunk.x * SUPERCHUNK_SIDE_CELLS + random.below(SUPERCHUNK_SIDE_CELLS),
                 y: superchunk.y * SUPERCHUNK_SIDE_CELLS + random.below(SUPERCHUNK_SIDE_CELLS),
             };

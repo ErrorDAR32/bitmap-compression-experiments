@@ -53,7 +53,7 @@ pub use writes::{Applied, Shape, Write, WriteOp};
 use allocator::{BlockId, BlockPool};
 use std::cell::Cell;
 use bitmap::morton::morton_index;
-use chunk_storage::{CellPlace, ChunkPlace, ChunkPosition, ChunkStorage, LayerCodec, LayerType, SuperChunkPosition, WorldCell, CHUNKS_IN_SUPERCHUNK};
+use chunk_storage::{CellPlace, ChunkPlace, ChunkPosition, ChunkStorage, LayerCodec, LayerType, SuperChunkPosition, CartesianCell, CHUNKS_IN_SUPERCHUNK};
 use bitmap::{CellWords, BITS_PER_WORD, WORDS};
 
 /// Which bitmap a bucket holds: a layer type, in a chunk.
@@ -441,7 +441,7 @@ impl BitmapArena {
     }
 
     /// Whether `layer_type` holds at `cell`, anywhere in the world.
-    pub fn holds(&self, layer_type: LayerType, cell: WorldCell) -> Result<bool, NotHot> {
+    pub fn holds(&self, layer_type: LayerType, cell: CartesianCell) -> Result<bool, NotHot> {
         let (chunk, place) = cell.chunk_and_cell();
         let key = BucketKey { layer_type, chunk };
         self.bucket(key).map(|bucket| bucket.get(place)).ok_or(NotHot(key))

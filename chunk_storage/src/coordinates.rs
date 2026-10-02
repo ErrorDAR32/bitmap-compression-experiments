@@ -1,8 +1,8 @@
 //! Where things are, by cascade: a cell anywhere in the world is a
-//! [`WorldCell`]; it lies in one superchunk ([`SuperChunkPosition`]), in
+//! [`CartesianCell`]; it lies in one superchunk ([`SuperChunkPosition`]), in
 //! one chunk of it ([`ChunkPlace`]), at one cell of that chunk
 //! ([`CellPlace`]). A chunk anywhere in the world is a
-//! [`ChunkPosition`]. [`WorldCell::address`] and [`WorldCell::at`]
+//! [`ChunkPosition`]. [`CartesianCell::address`] and [`CartesianCell::at`]
 //! convert between the two, both ways, for every cell.
 //!
 //! Every coordinate is a non-negative integer, counted from the world's
@@ -10,7 +10,7 @@
 //! bitmap. The world starts roughly in the middle of both.
 //!
 //! A cell's coordinates are a `u32` each, so its Morton index
-//! ([`WorldCell::morton_index`]) is a `u64`, and the cascade is that
+//! ([`CartesianCell::morton_index`]) is a `u64`, and the cascade is that
 //! index's bits, from the lowest: 16 for the cell in its chunk, 4 for
 //! the chunk in its superchunk, 44 for the superchunk in the world.
 
@@ -221,17 +221,18 @@ pub struct CellAddress {
     pub cell: CellPlace,
 }
 
-/// A cell anywhere in the world, counted in cells from the world's top
-/// left. Every pair of `u32`s is a cell.
+/// A cell's cartesian coordinates: anywhere in the world, counted in
+/// cells from the world's top left. Every pair of `u32`s is a cell. The
+/// same cell's Morton index is [`CartesianCell::morton_index`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct WorldCell {
+pub struct CartesianCell {
     /// Cells from the world's left edge.
     pub x: u32,
     /// Cells from the world's top edge.
     pub y: u32,
 }
 
-impl WorldCell {
+impl CartesianCell {
     /// Where the cell is, by cascade: its superchunk, its chunk there,
     /// its place in the chunk.
     pub fn address(self) -> CellAddress {
@@ -249,7 +250,7 @@ impl WorldCell {
         )
     }
 
-    /// The cell at `address`: [`WorldCell::address`] undone.
+    /// The cell at `address`: [`CartesianCell::address`] undone.
     pub fn at(address: CellAddress) -> Self {
         let chunk = ChunkPosition::of(address.superchunk, address.chunk);
         Self { x: chunk.x << CELL_PLACE_BITS | address.cell.x as u32, y: chunk.y << CELL_PLACE_BITS | address.cell.y as u32 }
@@ -264,7 +265,7 @@ impl WorldCell {
         interleave(self.x, self.y)
     }
 
-    /// The cell at `index` in Morton order: [`WorldCell::morton_index`]
+    /// The cell at `index` in Morton order: [`CartesianCell::morton_index`]
     /// undone.
     pub fn from_morton_index(index: u64) -> Self {
         Self { x: gather(index), y: gather(index >> 1) }

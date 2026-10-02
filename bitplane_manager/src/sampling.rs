@@ -17,7 +17,7 @@ use crate::random::Random;
 use crate::{bucket_in, contains, BitmapArena};
 use bitmap::morton::morton_coordinates;
 use bitmap::BITS_PER_WORD;
-use chunk_storage::{ChunkPlace, ChunkPosition, LayerType, WorldCell, CHUNKS_IN_SUPERCHUNK, CHUNK_SIDE};
+use chunk_storage::{ChunkPlace, ChunkPosition, LayerType, CartesianCell, CHUNKS_IN_SUPERCHUNK, CHUNK_SIDE};
 
 /// Draws how many set cells to pass over before the next chosen one,
 /// each chosen with the probability whose complement's natural
@@ -41,7 +41,7 @@ impl BitmapArena {
     /// `probability`, independently, and hands every chosen cell to
     /// `emit` in Morton order: how many were chosen. A probability of 1
     /// or more chooses every set cell; 0 or less, none.
-    pub fn sample(&self, layer_type: LayerType, probability: f64, random: &mut Random, mut emit: impl FnMut(WorldCell)) -> usize {
+    pub fn sample(&self, layer_type: LayerType, probability: f64, random: &mut Random, mut emit: impl FnMut(CartesianCell)) -> usize {
         if probability <= 0.0 {
             return 0;
         }
@@ -84,7 +84,7 @@ impl BitmapArena {
                     let bit = select(cells[word], (next - before) as u32);
                     let (x, y) = morton_coordinates(word * BITS_PER_WORD + bit as usize);
                     let side = CHUNK_SIDE as u32;
-                    emit(WorldCell { x: chunk.x * side + x as u32, y: chunk.y * side + y as u32 });
+                    emit(CartesianCell { x: chunk.x * side + x as u32, y: chunk.y * side + y as u32 });
                     chosen += 1;
                     next += 1 + draw(random);
                 }

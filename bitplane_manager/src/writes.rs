@@ -10,7 +10,7 @@
 //! radius are a byte each. A larger area is several writes.
 
 use crate::{BitmapArena, BucketKey};
-use chunk_storage::{CellPlace, ChunkPosition, LayerType, WorldCell, CHUNK_SIDE};
+use chunk_storage::{CellPlace, ChunkPosition, LayerType, CartesianCell, CHUNK_SIDE};
 
 /// What a write does to each cell it covers.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -50,7 +50,7 @@ pub enum Shape {
 pub struct Write {
     /// The anchor cell: the cell, the rectangle's top left, the disc's
     /// centre.
-    pub at: WorldCell,
+    pub at: CartesianCell,
     /// What is done to each cell.
     pub op: WriteOp,
     /// Which cells.
@@ -61,7 +61,7 @@ const _: () = assert!(size_of::<Write>() == 12, "a write is fixed in size, 12 by
 
 impl Write {
     /// `op` on the cell `at`.
-    pub fn cell(at: WorldCell, op: WriteOp) -> Self {
+    pub fn cell(at: CartesianCell, op: WriteOp) -> Self {
         Self { at, op, shape: Shape::Cell }
     }
 

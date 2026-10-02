@@ -5,7 +5,7 @@
 //! `cargo test`
 
 use bitplane_manager::{BitmapArena, BucketKey, Random, Shape, Write, WriteOp};
-use chunk_storage::{ChunkPosition, LayerCodec, LayerType, WorldCell};
+use chunk_storage::{ChunkPosition, LayerCodec, LayerType, CartesianCell};
 
 /// The layer type the tests sample.
 const STONE: LayerType = LayerType(4);
@@ -15,7 +15,7 @@ const STONE: LayerType = LayerType(4);
 fn rect(x: u32, y: u32, width: u32, height: u32) -> Vec<Write> {
     let piece = |start: u32, length: u32| (0..length.div_ceil(128)).map(move |at| (start + at * 128, (length - at * 128).min(128) as u8));
     piece(y, height)
-        .flat_map(|(y, height)| piece(x, width).map(move |(x, width)| Write { at: WorldCell { x, y }, op: WriteOp::Set, shape: Shape::Rect { width, height } }))
+        .flat_map(|(y, height)| piece(x, width).map(move |(x, width)| Write { at: CartesianCell { x, y }, op: WriteOp::Set, shape: Shape::Rect { width, height } }))
         .collect()
 }
 
@@ -34,7 +34,7 @@ fn arena_with(chunks: &[ChunkPosition], writes: &[Write]) -> BitmapArena {
 }
 
 /// Every cell sampled, with `probability`.
-fn sampled(arena: &BitmapArena, probability: f64, seed: u64) -> Vec<WorldCell> {
+fn sampled(arena: &BitmapArena, probability: f64, seed: u64) -> Vec<CartesianCell> {
     let mut cells = Vec::new();
     let count = arena.sample(STONE, probability, &mut Random::new(seed), |cell| cells.push(cell));
     assert_eq!(count, cells.len());
@@ -51,9 +51,9 @@ fn two_superchunks() -> Vec<ChunkPosition> {
 #[test]
 fn certain_sampling_finds_every_set_cell_in_morton_order() {
     let writes = [
-        Write { at: WorldCell { x: 102_900, y: 102_600 }, op: WriteOp::Set, shape: Shape::Disc { radius: 40 } },
-        Write { at: WorldCell { x: 103_300, y: 103_000 }, op: WriteOp::Set, shape: Shape::Rect { width: 200, height: 3 } },
-        Write::cell(WorldCell { x: 102_400, y: 102_400 }, WriteOp::Set),
+        Write { at: CartesianCell { x: 102_900, y: 102_600 }, op: WriteOp::Set, shape: Shape::Disc { radius: 40 } },
+        Write { at: CartesianCell { x: 103_300, y: 103_000 }, op: WriteOp::Set, shape: Shape::Rect { width: 200, height: 3 } },
+        Write::cell(CartesianCell { x: 102_400, y: 102_400 }, WriteOp::Set),
     ];
     let arena = arena_with(&two_superchunks(), &writes);
     let cells = sampled(&arena, 1.0, 1);

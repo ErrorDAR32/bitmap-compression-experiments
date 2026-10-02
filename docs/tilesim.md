@@ -163,7 +163,7 @@ structures cost decides where each operation may run:
   encoding one back each cost a large share of a tick or more. They run
   between ticks or on other threads, and bitmaps are made hot ahead of
   the ticks that touch them.
-- **Updates are applied bucket by bucket.** A lookup by world cell pays
+- **Updates are applied bucket by bucket.** A lookup by cell pays
   for the coordinate split, the directory search and the chunk's index
   every time, and random updates across the arena miss the cache on
   nearly every one. Updates grouped by bucket, in the arena's order --
