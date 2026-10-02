@@ -140,14 +140,49 @@ from a small array.
   kept in a sorted list. A few lines of `unsafe` hand out the memory;
   an allocation is an owning handle that frees itself when dropped.
   Nothing is ever resized in place by moving it.
-- **The disk chunk area** is a variable-sized ring buffer: pieces --
-  encoded layers, height maps -- are appended in sequence. One list
-  tracks the ring buffer's allocations; another links every piece to its
-  chunk and superchunk. Freeing from the tail drops everything of the
-  superchunk whose data is at the tail. This area may be messy and may
-  move data: a piece that does not fit is compacted into new space.
+- **The disk chunk area** is chunk storage's cold pool and writeback
+  ring (below). It may move data: a superchunk rewritten is written
+  into new space, never resized in place.
 - **The hot bitmap area** never moves, which is why it is cut into
   superchunk-sized allocations, at the cost of a lot of memory.
+
+### Chunk storage: the cold pool and the writeback ring
+
+Chunk storage is two parts in memory:
+
+1. **The cold pool**: superchunks, compressed, each one sequential run:
+   its encoded bitmaps one after another, every one tagged with its
+   chunk and type. When the bitplane manager asks for a bitmap, it is
+   decoded from here into the bitmap planes.
+2. **The writeback ring**: a dynamic ring buffer of changed bitmaps,
+   compressed, each tagged with its chunk's coordinates and its type.
+   Writing back a dirty bucket appends to the ring; it never touches the
+   pool.
+
+The ring is a sponge for writes into the pool. A superchunk is
+sequential even in memory, so changing one bitmap in place would mean
+resizing it and moving everything after it. Instead the ring absorbs
+writes until enough of a superchunk's have gathered, then the
+superchunk is rewritten once, its pool run merged with its ring entries
+into new space, and those entries are dropped from the ring.
+
+Every compressed bitmap starts byte-aligned, on disk and, so the pool
+is the disk's format, in memory too: a superchunk goes to disk as it
+is, and comes off it the same way.
+
+What follows from it:
+
+- **Reads look in the ring first**: a bitmap's newest version is its
+  latest ring entry, if any, else the pool's. The ring keeps an index
+  from chunk and type to its latest entry; an earlier entry for the
+  same bitmap is dead space.
+- **An emptied bitmap** is a ring entry of no bytes: the rewrite drops
+  its layer.
+- **The ring frees from its tail**: when it fills, the superchunk whose
+  entry is at the tail is rewritten, which frees every entry of that
+  superchunk; the tail then skips entries already freed.
+- **A rewrite allocates a run of a new size** and frees the old: the
+  pool needs variable-size allocations, the area allocator's job.
 
 ### The tick
 
