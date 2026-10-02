@@ -4,7 +4,9 @@
 //!
 //! `cargo test`
 
-use bitplane_manager::{BitmapArena, BucketKey, Random, Shape, Write, WriteOp};
+use bitplane_manager::{BitmapArena, BucketKey, Shape, Write, WriteOp};
+use simulation::sample;
+use utilities::rng::Rng;
 use chunk_storage::{LayerCodec, LayerType};
 use coordinates::{CartesianCell, ChunkPosition};
 
@@ -37,7 +39,7 @@ fn arena_with(chunks: &[ChunkPosition], writes: &[Write]) -> BitmapArena {
 /// Every cell sampled, with `probability`.
 fn sampled(arena: &BitmapArena, probability: f64, seed: u64) -> Vec<CartesianCell> {
     let mut cells = Vec::new();
-    let count = arena.sample(STONE, probability, &mut Random::new(seed), |cell| cells.push(cell.cartesian()));
+    let count = sample(arena, STONE, probability, &mut Rng::new(seed), |cell| cells.push(cell.cartesian()));
     assert_eq!(count, cells.len());
     cells
 }

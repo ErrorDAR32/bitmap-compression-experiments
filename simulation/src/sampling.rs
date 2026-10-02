@@ -1,4 +1,4 @@
-//! Monte Carlo sampling of the hot bitplanes: every set cell of a layer
+//! Monte Carlo sampling of the hot bitplanes (`../bitplane_manager`): every set cell of a layer
 //! type chosen with one probability, independently, and handed out in
 //! Morton order -- superchunk by superchunk, chunk by chunk, cell by
 //! cell -- so what is computed from the samples, and the writes it
@@ -13,17 +13,19 @@
 //! passed over whole, a chunk by its count, a word by its bits' count,
 //! and only the word holding a chosen cell is searched.
 
-use crate::random::Random;
-use crate::{contains, BitmapArena, SuperChunkLayer};
 use bitmap::BITS_PER_WORD;
-use chunk_storage::LayerType;
+use bitplane_manager::{BitmapArena, LayerView};
 use coordinates::{CellIndex, CHUNKS_IN_SUPERCHUNK};
+use chunk_storage::LayerType;
+use utilities::rng::Rng;
 
 /// Draws how many set cells to pass over before the next chosen one,
 /// each chosen with the probability whose complement's natural
 /// logarithm is `log_unchosen`.
-fn gap(random: &mut Random, log_unchosen: f64) -> u64 {
-    let gap = (random.unit().ln() / log_unchosen).floor();
+fn gap(random: &mut Rng, log_unchosen: f64) -> u64 {
+    // In (0, 1]: never 0, so its logarithm is finite.
+    let uniform = 1.0 - random.unit();
+    let gap = (uniform.ln() / log_unchosen).floor();
     if gap < u64::MAX as f64 / 2.0 { gap as u64 } else { u64::MAX / 2 }
 }
 
@@ -39,22 +41,23 @@ fn select(mut word: u64, rank: u32) -> u32 {
 /// Chooses each hot set cell of `layer` -- of the superchunk whose
 /// Morton index is `superchunk` -- with `probability`, independently,
 /// and hands every chosen cell to `emit` in Morton order: how many were
-/// chosen.
-pub(crate) fn sample_layer(superchunk: u64, layer: &SuperChunkLayer, probability: f64, random: &mut Random, emit: &mut impl FnMut(CellIndex)) -> usize {
-    if probability <= 0.0 || layer.hot_count == 0 {
+/// chosen. A probability of 1 or more chooses every set cell; 0 or
+/// less, none.
+pub fn sample_layer(superchunk: u64, layer: LayerView, probability: f64, random: &mut Rng, emit: &mut impl FnMut(CellIndex)) -> usize {
+    if probability <= 0.0 || layer.hot_count() == 0 {
         return 0;
     }
     let log_unchosen = (1.0 - probability.min(1.0)).ln();
-    let draw = |random: &mut Random| if probability >= 1.0 { 0 } else { gap(random, log_unchosen) };
+    let draw = |random: &mut Rng| if probability >= 1.0 { 0 } else { gap(random, log_unchosen) };
     // The rank, among the layer's hot set cells still ahead, of the next
     // one chosen.
     let mut next = draw(random);
-    if next >= layer.hot_count as u64 {
+    if next >= layer.hot_count() as u64 {
         return 0;
     }
     let mut chosen = 0;
     for chunk in 0..CHUNKS_IN_SUPERCHUNK {
-        if !contains(layer.flags.hot, chunk) {
+        if !layer.is_hot(chunk) {
             continue;
         }
         let count = layer.count(chunk) as u64;
@@ -84,12 +87,14 @@ pub(crate) fn sample_layer(superchunk: u64, layer: &SuperChunkLayer, probability
     chosen
 }
 
-impl BitmapArena {
-    /// Chooses each set cell of `layer_type`'s hot bitmaps with
-    /// `probability`, independently, and hands every chosen cell to
-    /// `emit` in Morton order: how many were chosen. A probability of 1
-    /// or more chooses every set cell; 0 or less, none.
-    pub fn sample(&self, layer_type: LayerType, probability: f64, random: &mut Random, mut emit: impl FnMut(CellIndex)) -> usize {
-        self.layers_of(layer_type).map(|(superchunk, layer)| sample_layer(superchunk, layer, probability, random, &mut emit)).sum()
-    }
+/// Chooses each set cell of `layer_type`'s hot bitmaps in `arena` with
+/// `probability`, independently, and hands every chosen cell to `emit`
+/// in Morton order -- superchunk by superchunk: how many were chosen.
+pub fn sample(arena: &BitmapArena, layer_type: LayerType, probability: f64, random: &mut Rng, mut emit: impl FnMut(CellIndex)) -> usize {
+    arena
+        .superchunks()
+        .iter()
+        .filter_map(|superchunk| superchunk.layer(layer_type).map(|layer| (superchunk.morton(), layer)))
+        .map(|(superchunk, layer)| sample_layer(superchunk, layer, probability, random, &mut emit))
+        .sum()
 }

@@ -1,0 +1,13 @@
+[package]
+name = "simulation"
+version = "0.1.0"
+edition = "2021"
+description = "TileSim's simulation: Monte Carlo sampling, the two-phase tick and its thread dispatcher"
+publish = false
+
+[dependencies]
+bitmap = { path = "../bitmap" }
+bitplane_manager = { path = "../bitplane_manager" }
+chunk_storage = { path = "../chunk_storage" }
+coordinates = { path = "../coordinates" }
+utilities = { path = "../utilities" }

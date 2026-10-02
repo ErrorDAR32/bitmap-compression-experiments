@@ -19,7 +19,8 @@ spreading over dirt.
 | [`src/`](src/) | the `tilesim` crate: the game -- its rules, so far grass over dirt, ticked in two phases on as many threads as asked -- and its diagnostics tool |
 | [`coordinates/`](coordinates/) | where things are: cells, chunks and superchunks, cartesian and by Morton index |
 | [`chunk_storage/`](chunk_storage/) | chunks as stored, what loading and saving work on: height maps, the layer codec, superchunk images, the cold pool and the writeback ring |
-| [`bitplane_manager/`](bitplane_manager/) | the hot bitplanes: layers decoded into the bitmap arena, where cells are sampled, read and written -- batched, in a two-phase tick -- and written back |
+| [`simulation/`](simulation/) | the simulation: Monte Carlo sampling, the two-phase tick and its outboxes, and the thread dispatcher |
+| [`bitplane_manager/`](bitplane_manager/) | the hot bitplanes: layers decoded into the bitmap arena, where cells are read and written -- writes batched -- and written back |
 | [`allocator/`](allocator/) | the allocator: equal-size blocks that never move, owned by their holder, taken back and handed out again |
 | [`tessera/`](tessera/) | Tessera, the lossless encoding of a 256x256 bitmap: a project of its own, with its own [README](tessera/README.md), tests, tools and docs |
 | [`bitmap/`](bitmap/) | the 256x256 bitmap every layer is, laid out in Morton order |
@@ -29,12 +30,13 @@ Every crate is laid out as Tessera is: `docs/` -- its design, and
 `reference.md`, function by function, which the code points to --
 `tests/`, and, where it has something to measure, `src/diagnostics/`,
 which gathers data and judges nothing, and `transient_data/`, out of
-git, which holds what runs leave behind. `bitmap/`, `coordinates/` and
-`utilities/` measure nothing of their own, so have neither of the last
-two.
+git, which holds what runs leave behind. `bitmap/`, `coordinates/`,
+`simulation/` and `utilities/` measure nothing of their own yet, so have
+neither of the last two.
 
 Each builds on its own: run cargo from its folder, as usual -- here,
 at the root, for the `tilesim` crate. Tessera depends on `bitmap/` and
-`utilities/` beside it; `chunk_storage/` on `bitmap/` and Tessera; `bitplane_manager/`
-on `chunk_storage/` and `allocator/`. TileSim itself, `src/`, runs on `bitplane_manager/` and
-`chunk_storage/`.
+`utilities/` beside it; `coordinates/` on `bitmap/`; `chunk_storage/` on
+those and Tessera; `bitplane_manager/` on `chunk_storage/`,
+`coordinates/` and `allocator/`; `simulation/` on `bitplane_manager/`;
+TileSim itself, `src/`, on all of them.

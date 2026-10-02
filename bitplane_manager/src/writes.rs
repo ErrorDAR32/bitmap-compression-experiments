@@ -125,16 +125,16 @@ impl std::ops::AddAssign for Applied {
 /// order queued; the queue last written to is found again without a
 /// search, since rules queue runs of writes to one type.
 #[derive(Default)]
-pub(crate) struct TypeQueues {
+pub struct WriteQueues {
     /// The queues, by type.
     queues: Vec<(LayerType, Vec<Write>)>,
     /// The queue last written to.
     last: usize,
 }
 
-impl TypeQueues {
+impl WriteQueues {
     /// Queues `write` into `layer_type`'s queue.
-    pub(crate) fn push(&mut self, layer_type: LayerType, write: Write) {
+    pub fn push(&mut self, layer_type: LayerType, write: Write) {
         let queue = match self.queues.get(self.last) {
             Some((held, _)) if *held == layer_type => self.last,
             _ => match self.queues.binary_search_by_key(&layer_type, |(held, _)| *held) {
@@ -150,17 +150,22 @@ impl TypeQueues {
     }
 
     /// How many writes are queued.
-    pub(crate) fn len(&self) -> usize {
+    pub fn len(&self) -> usize {
         self.queues.iter().map(|(_, writes)| writes.len()).sum()
     }
 
+    /// Whether no write is queued.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
     /// Every queue, by type.
-    pub(crate) fn iter(&self) -> impl Iterator<Item = (LayerType, &[Write])> {
+    pub fn iter(&self) -> impl Iterator<Item = (LayerType, &[Write])> {
         self.queues.iter().map(|(layer_type, writes)| (*layer_type, writes.as_slice()))
     }
 
     /// Empties every queue, keeping its room.
-    pub(crate) fn clear(&mut self) {
+    pub fn clear(&mut self) {
         self.queues.iter_mut().for_each(|(_, writes)| writes.clear());
     }
 }
@@ -171,7 +176,7 @@ const CHUNK_SIDE_U32: u32 = CHUNK_SIDE as u32;
 impl Write {
     /// The Morton indices of the superchunks the write's cells lie in:
     /// one, or for a shape across a border up to four.
-    pub(crate) fn superchunks(self) -> impl Iterator<Item = u64> {
+    pub fn superchunks(self) -> impl Iterator<Item = u64> {
         let at = { self.at };
         let ([left, right], [top, bottom]) = match self.shape {
             Shape::Cell => ([at.cartesian().x; 2], [at.cartesian().y; 2]),
@@ -184,6 +189,12 @@ impl Write {
             .filter(move |_| !empty)
             .map(|(x, y)| SuperChunkPosition { x, y }.morton_index())
     }
+}
+
+/// Counts the cells of the part of `write` in the superchunk whose Morton
+/// index is `superchunk` -- which has no bitmap in use -- as missed.
+pub fn count_missed(superchunk: u64, write: Write, applied: &mut Applied) {
+    apply_in(None, superchunk, LayerType(0), write, applied);
 }
 
 /// Applies the part of `write`, to `layer_type`'s bitplane, that lies in
@@ -253,7 +264,7 @@ impl BitmapArena {
     /// Queues `write` into `layer_type`'s queue, to be applied with every
     /// other queued, in order, by [`BitmapArena::apply`]: until then no
     /// cell changes. For writes from outside a tick -- setting up, say;
-    /// a tick's rules queue theirs through [`crate::SuperChunkTick`].
+    /// a simulation's rules queue theirs through its own queues.
     pub fn queue(&mut self, layer_type: LayerType, write: Write) {
         self.queued.push(layer_type, write);
     }

@@ -16,6 +16,7 @@ use std::io::Write;
 use tilesim::diagnostics::frames::{frame, FRAME_BYTES};
 use tilesim::diagnostics::throughput;
 use tilesim::diagnostics::world::World;
+use simulation::Simulation;
 use tilesim::grass;
 use tilesim::transient_data::publish;
 use utilities::memory::mebibytes;
@@ -75,6 +76,7 @@ fn video(arguments: &[String]) {
     let superchunk = world.superchunks[0];
     let mut pixels = vec![0u8; FRAME_BYTES];
     let mut out = std::io::BufWriter::new(std::io::stdout().lock());
+    let mut simulation = Simulation::new(1);
     for tick in 0..=ticks {
         if tick % every == 0 {
             frame(&world.arena, superchunk, &mut pixels);
@@ -83,7 +85,7 @@ fn video(arguments: &[String]) {
                 eprintln!("tick {tick:>7}: grass {}", world.grass());
             }
         }
-        grass::tick(&mut world.arena, 1, tick as u64);
+        grass::tick(&mut simulation, &mut world.arena, tick as u64);
     }
 }
 

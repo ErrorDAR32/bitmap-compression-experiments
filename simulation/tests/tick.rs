@@ -5,7 +5,8 @@
 //!
 //! `cargo test`
 
-use bitplane_manager::{BitmapArena, BucketKey, Shape, SuperChunkTick, Write, WriteOp};
+use bitplane_manager::{BitmapArena, BucketKey, Shape, Write, WriteOp};
+use simulation::{Simulation, SuperChunkTick};
 use chunk_storage::{LayerCodec, LayerType};
 use coordinates::{CartesianCell, CellIndex, ChunkPlace, ChunkPosition, SuperChunkPosition, SUPERCHUNK_SIDE_CELLS};
 
@@ -67,7 +68,7 @@ fn scattered() -> impl Iterator<Item = CartesianCell> {
 fn any_number_of_threads_ticks_the_same() {
     let (mut one, mut four) = (arena(3, scattered()), arena(3, scattered()));
     for seed in 0..20 {
-        let (a, b) = (one.tick(1, seed, creep), four.tick(4, seed, creep));
+        let (a, b) = (Simulation::new(1).tick(&mut one, seed, creep), Simulation::new(4).tick(&mut four, seed, creep));
         assert_eq!((a.rules, a.applied), (b.rules, b.applied), "tick {seed}");
     }
     assert_eq!(every_cell(&one), every_cell(&four));
@@ -80,7 +81,7 @@ fn writes_cross_borders_and_reads_see_the_tick_start() {
     let edge = CartesianCell { x: corner(11, 10).x - 1, y: corner(10, 10).y + 500 };
     let mut arena = arena(2, [edge].into_iter());
     let across: CellIndex = CartesianCell { x: edge.x + 1, y: edge.y }.into();
-    let report = arena.tick(1, 0, |turn, samples| {
+    let report = Simulation::new(1).tick(&mut arena, 0, |turn, samples| {
         turn.sample(STONE, 1.0, samples);
         for &cell in samples.iter() {
             let right = cell.offset(1, 0).expect("in the world");
@@ -100,7 +101,7 @@ fn writes_cross_borders_and_reads_see_the_tick_start() {
 fn shapes_split_over_the_superchunks_they_cover() {
     let meet = corner(11, 11);
     let mut arena = arena(2, [CartesianCell { x: meet.x - 1, y: meet.y - 1 }].into_iter());
-    let report = arena.tick(2, 0, |turn, samples| {
+    let report = Simulation::new(2).tick(&mut arena, 0, |turn, samples| {
         turn.sample(STONE, 1.0, samples);
         for &cell in samples.iter() {
             turn.queue(STONE, Write { at: cell.offset(-1, -1).expect("in the world"), op: WriteOp::Set, shape: Shape::Rect { width: 4, height: 4 } });
@@ -119,7 +120,7 @@ fn shapes_split_over_the_superchunks_they_cover() {
 fn writes_to_cold_neighbours_are_missed() {
     let edge = CartesianCell { x: corner(11, 10).x - 1, y: corner(10, 10).y + 3 };
     let mut arena = arena(1, [edge].into_iter());
-    let report = arena.tick(1, 0, |turn, samples| {
+    let report = Simulation::new(1).tick(&mut arena, 0, |turn, samples| {
         turn.sample(STONE, 1.0, samples);
         for &cell in samples.iter() {
             turn.queue(STONE, Write::cell(cell.offset(1, 0).expect("in the world"), WriteOp::Set));
@@ -134,7 +135,7 @@ fn writes_to_cold_neighbours_are_missed() {
 #[should_panic(expected = "past the speed of light")]
 fn writes_past_the_speed_of_light_panic() {
     let mut arena = arena(1, [corner(10, 10)].into_iter());
-    arena.tick(1, 0, |turn, samples| {
+    Simulation::new(1).tick(&mut arena, 0, |turn, samples| {
         turn.sample(STONE, 1.0, samples);
         for &cell in samples.iter() {
             turn.queue(STONE, Write::cell(cell.offset(2 * SUPERCHUNK_SIDE_CELLS as i32, 0).expect("in the world"), WriteOp::Set));

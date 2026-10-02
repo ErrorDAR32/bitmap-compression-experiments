@@ -17,14 +17,15 @@
 //! neighbour read rather than eight.
 //!
 //! The rule runs on each superchunk in a tick's first phase
-//! ([`bitplane_manager::BitmapArena::tick`]): its writes are queued as
+//! ([`simulation::Simulation::tick`]): its writes are queued as
 //! the samples come, in Morton order -- grass spreading over a border
 //! into the neighbour's queue -- and applied in the second phase, so
 //! every sample reads the world as the tick found it. The two never
 //! touch one cell in a tick: decay clears cells that were grass,
 //! spreading fills cells that were dirt.
 
-use bitplane_manager::{BitmapArena, SuperChunkTick, TickReport, Write, WriteOp};
+use bitplane_manager::{BitmapArena, Write, WriteOp};
+use simulation::{Simulation, SuperChunkTick, TickReport};
 use chunk_storage::mock::{DIRT, GRASS};
 use coordinates::CellIndex;
 use std::ops::AddAssign;
@@ -60,10 +61,10 @@ impl AddAssign for Grass {
 }
 
 /// One tick of grass over every superchunk with a bitmap in use, on
-/// `threads` threads, `seed` its random numbers' seed -- a new one a
+/// `simulation`'s threads, `seed` its random numbers' seed -- a new one a
 /// tick.
-pub fn tick(arena: &mut BitmapArena, threads: usize, seed: u64) -> TickReport<Grass> {
-    arena.tick(threads, seed, rule)
+pub fn tick(simulation: &mut Simulation, arena: &mut BitmapArena, seed: u64) -> TickReport<Grass> {
+    simulation.tick(arena, seed, rule)
 }
 
 /// The rule, on one superchunk's turn: every cell of grass chosen with
@@ -75,7 +76,7 @@ pub fn rule(turn: &mut SuperChunkTick, samples: &mut Vec<CellIndex>) -> Grass {
     let spread_share = SPREAD_CHANCE / (SPREAD_CHANCE + DECAY_CHANCE);
     let (mut spreads, mut decays) = (0, 0);
     for &cell in samples.iter() {
-        let (dx, dy) = NEIGHBOURS[turn.random().below(NEIGHBOURS.len() as u32) as usize];
+        let (dx, dy) = NEIGHBOURS[turn.random().below(NEIGHBOURS.len() as u64) as usize];
         let spreading = turn.random().unit() <= spread_share;
         // Stepped on the Morton index itself: no cartesian coordinates.
         let Some(neighbour) = cell.offset(dx, dy) else {

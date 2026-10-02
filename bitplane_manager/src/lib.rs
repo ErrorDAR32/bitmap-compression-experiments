@@ -26,14 +26,11 @@
 //! released to the pool, which hands it out next.
 //!
 //! Cells are changed by writes, batched (`writes`): queued, then applied
-//! in order. Cells are chosen to compute writes from by Monte Carlo
-//! sampling (`sampling`), in Morton order. A tick (`tick`) runs rules
-//! superchunk by superchunk in two phases, on as many threads as asked:
-//! computing, every superchunk reading the world as the tick found it
-//! and queueing writes for itself and its eight neighbours; then
-//! applying, every superchunk the writes queued for it. Each superchunk
-//! owns its blocks and its queues, so the threads never share what they
-//! change.
+//! in order. Each superchunk ([`SuperChunk`]) owns its blocks, so
+//! superchunks are read and changed apart: the simulation
+//! (`../simulation`) samples and reads them on as many threads as it
+//! likes ([`LayerView`], [`Reader`]), and applies writes to each
+//! ([`SuperChunk::apply`]).
 //!
 //! A bucket changed since it was decoded is dirty, and
 //! [`BitmapArena::write_back`] encodes it into chunk storage's writeback
@@ -53,15 +50,10 @@
 #![warn(missing_docs, clippy::missing_docs_in_private_items)]
 
 pub mod diagnostics;
-mod random;
-mod sampling;
-mod tick;
 pub mod transient_data;
 mod writes;
 
-pub use random::Random;
-pub use tick::{SuperChunkTick, TickReport};
-pub use writes::{Applied, Shape, Write, WriteOp};
+pub use writes::{count_missed, Applied, Shape, Write, WriteOp, WriteQueues};
 
 use allocator::{Block, BlockPool};
 use bitmap::morton::morton_index;
@@ -69,8 +61,7 @@ use bitmap::{CellWords, BITS_PER_WORD, WORDS};
 use chunk_storage::{ChunkStorage, LayerCodec, LayerType};
 use coordinates::{CellIndex, CellPlace, ChunkPlace, ChunkPosition, SuperChunkPosition, CHUNKS_IN_SUPERCHUNK};
 use std::cell::Cell;
-use tick::Outbox;
-use writes::TypeQueues;
+use writes::apply_in;
 
 /// Which bitmap a bucket holds: a layer type, in a chunk.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -234,22 +225,99 @@ impl Bucket<'_> {
     }
 }
 
-/// One superchunk in the directory: its layers, hot or waiting in the
-/// ring, sorted by type, and the writes a tick's first phase queues
-/// from it, for it and its eight neighbours.
-struct SuperChunkEntry {
+/// One superchunk of the arena: its layers, hot or waiting in the ring,
+/// sorted by type. It owns them, blocks and all, so superchunks are
+/// changed apart -- on different threads, say: a simulation reads any
+/// through [`SuperChunk::layer`] or a [`Reader`], and changes one only
+/// through [`SuperChunk::apply`].
+pub struct SuperChunk {
     /// Its Morton index, kept so a search never computes it again.
     morton: u64,
     /// Its layers, sorted by type, one a type.
     layers: Vec<SuperChunkLayer>,
-    /// Its writes queued by a tick, by the superchunk they land in.
-    outbox: Outbox,
 }
 
-impl SuperChunkEntry {
+impl SuperChunk {
     /// Where `layer_type` is among the layers, if it has one.
-    fn layer(&self, layer_type: LayerType) -> Option<usize> {
+    fn layer_index(&self, layer_type: LayerType) -> Option<usize> {
         self.layers.binary_search_by_key(&layer_type, |layer| layer.layer_type).ok()
+    }
+
+    /// Its Morton index ([`SuperChunkPosition::morton_index`]).
+    pub fn morton(&self) -> u64 {
+        self.morton
+    }
+
+    /// Where it is in the world.
+    pub fn position(&self) -> SuperChunkPosition {
+        SuperChunkPosition::from_morton_index(self.morton)
+    }
+
+    /// Its layer of `layer_type`, to read, if it has one in use.
+    pub fn layer(&self, layer_type: LayerType) -> Option<LayerView<'_>> {
+        self.layer_index(layer_type).map(|layer| LayerView(&self.layers[layer]))
+    }
+
+    /// Applies the part of `write`, to `layer_type`'s bitplane, that
+    /// lies in this superchunk: cells in bitmaps not hot counted missed.
+    pub fn apply(&mut self, layer_type: LayerType, write: Write, applied: &mut Applied) {
+        apply_in(Some(&mut self.layers), self.morton, layer_type, write, applied);
+    }
+}
+
+/// One superchunk's layer of one type, to read: its hot buckets, their
+/// counts and their cells -- what sampling finds its cells by.
+#[derive(Clone, Copy)]
+pub struct LayerView<'a>(&'a SuperChunkLayer);
+
+impl LayerView<'_> {
+    /// How many cells the hot buckets have set, together.
+    pub fn hot_count(&self) -> u32 {
+        self.0.hot_count
+    }
+
+    /// Whether the bucket of the chunk at `chunk`, in Morton order, is
+    /// hot.
+    pub fn is_hot(&self, chunk: usize) -> bool {
+        contains(self.0.flags.hot, chunk)
+    }
+
+    /// How many cells the bucket of the chunk at `chunk` has set.
+    pub fn count(&self, chunk: usize) -> u32 {
+        self.0.count(chunk)
+    }
+
+    /// The cells of the chunk at `chunk`, in Morton order, 64 a word.
+    pub fn cells(&self, chunk: usize) -> &CellWords {
+        self.0.cells(chunk)
+    }
+}
+
+/// Reads cells from superchunks, remembering its last lookup -- one a
+/// thread -- so runs of reads in one superchunk search nothing.
+pub struct Reader<'a> {
+    /// The superchunks read, sorted by Morton index.
+    superchunks: &'a [SuperChunk],
+    /// The lookups, remembering the last.
+    lookup: Lookup,
+}
+
+impl<'a> Reader<'a> {
+    /// A reader of `superchunks`: an arena's ([`BitmapArena::superchunks`]).
+    pub fn new(superchunks: &'a [SuperChunk]) -> Self {
+        Self { superchunks, lookup: Lookup::default() }
+    }
+
+    /// Whether `layer_type` holds at `cell`: its superchunk, chunk and
+    /// bit taken from its Morton index's fields.
+    pub fn holds(&self, layer_type: LayerType, cell: CellIndex) -> Result<bool, NotHot> {
+        self.lookup.holds(self.superchunks, layer_type, cell)
+    }
+
+    /// Where the superchunk whose Morton index is `superchunk` is among
+    /// the superchunks, if there.
+    pub fn superchunk(&self, superchunk: u64) -> Option<usize> {
+        self.lookup.superchunk(self.superchunks, superchunk).ok()
     }
 }
 
@@ -286,7 +354,7 @@ impl Lookup {
 
     /// Where the superchunk whose Morton index is `superchunk` is in
     /// `directory`, or where it would go.
-    fn superchunk(&self, directory: &[SuperChunkEntry], superchunk: u64) -> Result<usize, usize> {
+    fn superchunk(&self, directory: &[SuperChunk], superchunk: u64) -> Result<usize, usize> {
         match self.0.get() {
             Some(last) if last.superchunk == superchunk => Ok(last.entry),
             _ => directory.binary_search_by_key(&superchunk, |entry| entry.morton),
@@ -295,21 +363,21 @@ impl Lookup {
 
     /// Where the allocation for `layer_type` over the superchunk whose
     /// Morton index is `superchunk` is in `directory`, if in use.
-    fn find(&self, directory: &[SuperChunkEntry], layer_type: LayerType, superchunk: u64) -> Option<Place> {
+    fn find(&self, directory: &[SuperChunk], layer_type: LayerType, superchunk: u64) -> Option<Place> {
         if let Some(last) = self.0.get() {
             if last.superchunk == superchunk && last.layer_type == layer_type {
                 return last.layer.map(|layer| (last.entry, layer));
             }
         }
         let entry = self.superchunk(directory, superchunk).ok()?;
-        let layer = directory[entry].layer(layer_type);
+        let layer = directory[entry].layer_index(layer_type);
         self.0.set(Some(LastLookup { superchunk, entry, layer_type, layer }));
         layer.map(|layer| (entry, layer))
     }
 
     /// Whether `layer_type` holds at `cell` in `directory`: its
     /// superchunk, chunk and bit taken from its Morton index's fields.
-    fn holds(&self, directory: &[SuperChunkEntry], layer_type: LayerType, cell: CellIndex) -> Result<bool, NotHot> {
+    fn holds(&self, directory: &[SuperChunk], layer_type: LayerType, cell: CellIndex) -> Result<bool, NotHot> {
         let chunk = cell.chunk_in_superchunk();
         match self.find(directory, layer_type, cell.superchunk()) {
             Some((entry, layer)) if contains(directory[entry].layers[layer].flags.hot, chunk) => {
@@ -323,13 +391,13 @@ impl Lookup {
 /// The hot bitmaps, in allocations a superchunk each.
 pub struct BitmapArena {
     /// Every superchunk with a layer in use, sorted by Morton index.
-    directory: Vec<SuperChunkEntry>,
+    directory: Vec<SuperChunk>,
     /// The arena's own lookups, remembering the last.
     lookup: Lookup,
     /// The blocks the allocations' buckets live in, taken and given back.
     pool: BlockPool,
     /// Writes queued from outside a tick, not yet applied.
-    queued: TypeQueues,
+    queued: WriteQueues,
 }
 
 impl Default for BitmapArena {
@@ -342,7 +410,7 @@ impl Default for BitmapArena {
 impl BitmapArena {
     /// An arena with no bitmap hot.
     pub fn new() -> Self {
-        Self { directory: Vec::new(), lookup: Lookup::default(), pool: BlockPool::new(ALLOCATION_WORDS), queued: TypeQueues::default() }
+        Self { directory: Vec::new(), lookup: Lookup::default(), pool: BlockPool::new(ALLOCATION_WORDS), queued: WriteQueues::default() }
     }
 
     /// Every allocation in use, superchunk by superchunk in Morton order,
@@ -399,7 +467,7 @@ impl BitmapArena {
         }
         self.lookup.forget();
         let entry = self.lookup.superchunk(&self.directory, superchunk).unwrap_or_else(|entry| {
-            self.directory.insert(entry, SuperChunkEntry { morton: superchunk, layers: Vec::new(), outbox: Outbox::default() });
+            self.directory.insert(entry, SuperChunk { morton: superchunk, layers: Vec::new() });
             entry
         });
         let layers = &mut self.directory[entry].layers;
@@ -469,7 +537,20 @@ impl BitmapArena {
     /// Every allocation of `layer_type`, with its superchunk's Morton
     /// index, superchunk by superchunk in Morton order.
     fn layers_of(&self, layer_type: LayerType) -> impl Iterator<Item = (u64, &SuperChunkLayer)> {
-        self.directory.iter().filter_map(move |entry| entry.layer(layer_type).map(|layer| (entry.morton, &entry.layers[layer])))
+        self.directory.iter().filter_map(move |entry| entry.layer_index(layer_type).map(|layer| (entry.morton, &entry.layers[layer])))
+    }
+
+    /// Every superchunk with an allocation in use, sorted by Morton
+    /// index: to read, from as many threads as like.
+    pub fn superchunks(&self) -> &[SuperChunk] {
+        &self.directory
+    }
+
+    /// Every superchunk with an allocation in use, sorted by Morton
+    /// index: to change, each apart from the others. Superchunks are
+    /// neither added nor removed through it.
+    pub fn superchunks_mut(&mut self) -> &mut [SuperChunk] {
+        &mut self.directory
     }
 
     /// Every hot bitmap of `layer_type`: superchunk by superchunk in their

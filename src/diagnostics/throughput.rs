@@ -5,6 +5,7 @@
 
 use crate::diagnostics::world::World;
 use crate::grass;
+use simulation::Simulation;
 use bitplane_manager::diagnostics::arena::ArenaStats;
 use chunk_storage::diagnostics::storage::StorageStats;
 use std::time::Duration;
@@ -47,8 +48,9 @@ pub fn run(ticks: usize, thousandths: usize, superchunks: u32, threads: usize) -
     let mut world = World::grass_on_dirt(superchunks, (1 << 20) * thousandths / 1000);
     let start_grass = world.grass();
     let (mut computing, mut applying, mut writes, mut sampled, mut missed) = (Duration::ZERO, Duration::ZERO, 0, 0, 0);
+    let mut simulation = Simulation::new(threads);
     for tick in 0..ticks {
-        let report = grass::tick(&mut world.arena, threads, tick as u64);
+        let report = grass::tick(&mut simulation, &mut world.arena, tick as u64);
         computing += report.computing;
         applying += report.applying;
         writes += report.applied.writes;

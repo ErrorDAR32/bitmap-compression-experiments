@@ -8,6 +8,7 @@
 #![warn(missing_docs, clippy::missing_docs_in_private_items)]
 
 use bitplane_manager::BitmapArena;
+use simulation::Simulation;
 use chunk_storage::mock::{grass_on_dirt, DIRT, GRASS};
 use chunk_storage::{ChunkStorage, LayerCodec};
 use coordinates::{ChunkPlace, ChunkPosition, SuperChunkPosition, WORLD_SIDE_SUPERCHUNKS};
@@ -27,11 +28,12 @@ fn main() {
         arena.make_hot_layers(ChunkPosition::of(superchunk, place), &[DIRT, GRASS], &storage, &mut codec);
     }
 
+    let mut simulation = Simulation::new(1);
     println!("{:>8} {:>10} {:>10} {:>12}", "tick", "grass", "dirt", "µs a tick");
     let start = Instant::now();
     let report_every = (ticks / 10).max(1);
     for tick in 1..=ticks {
-        grass::tick(&mut arena, 1, tick as u64);
+        grass::tick(&mut simulation, &mut arena, tick as u64);
         if tick % report_every == 0 {
             let micros = start.elapsed().as_secs_f64() * 1e6 / tick as f64;
             println!("{tick:>8} {:>10} {:>10} {micros:>12.2}", arena.superchunk_count(GRASS, superchunk), arena.superchunk_count(DIRT, superchunk));

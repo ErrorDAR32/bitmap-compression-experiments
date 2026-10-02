@@ -262,7 +262,7 @@ Two steps a tick:
    of their coordinates, and are applied in that order.
 
    Built: the tick runs superchunk by superchunk, in two phases, on as
-   many threads as asked (`BitmapArena::tick`). In the first, each
+   many threads as asked (`Simulation::tick`, in `simulation/`). In the first, each
    superchunk runs the rules on itself -- samples its own cells, reads
    any cell, queues writes -- and nothing changes, so every read sees
    the world as the tick found it and the threads share the arena
@@ -311,7 +311,7 @@ in the bitplane manager.
 
 ### Sampling (built)
 
-`BitmapArena::sample` chooses every hot set cell of a layer type with
+`simulation::sample` chooses every hot set cell of a layer type with
 one probability, each independently, and hands the chosen cells out in
 Morton order: superchunk by superchunk, chunk by chunk, cell by cell.
 So the writes computed from them are queued in Morton order already,
@@ -370,11 +370,20 @@ on 4 threads: a peak of 99 MiB -- 16 MiB of arena blocks (two layers
 of 128 KiB a superchunk) and 79 MiB of stored images, most of it the
 1 MiB raw height map a superchunk.
 
+Threads kept between ticks (the simulation's dispatcher), against
+started afresh each phase, ticks a second:
+
+| superchunks | threads | started each phase | kept |
+|---|---|---|---|
+| 16 | 2 | 593 | 683 |
+| 16 | 4 | 947 | 1,095 |
+| 64 | 2 | 171 | 185 |
+| 64 | 4 | 307 | 303 |
+
 Four threads tick 64 superchunks at 307 ticks a second, 15 million
-writes a second: about 75 superchunks at 256 ticks a second. The
-threads are started afresh each phase, which a tick of 16 superchunks
--- about 2 ms -- feels: kept between ticks, a pool of them would cost
-less.
+writes a second: about 75 superchunks at 256 ticks a second. Started
+afresh each phase, the threads cost a tick of 16 superchunks -- about
+2 ms -- a share of its time; kept, they no longer do.
 
 Sampling now costs the most, about 85 ns a sample: a logarithm a
 sample, the words' bits counted on the way, and the chosen word's bits

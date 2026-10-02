@@ -8,6 +8,7 @@ use bitplane_manager::{BitmapArena, Shape, Write, WriteOp};
 use chunk_storage::mock::{grass_on_dirt, DIRT, GRASS};
 use chunk_storage::{ChunkStorage, LayerCodec};
 use coordinates::{CartesianCell, ChunkPlace, ChunkPosition, SuperChunkPosition, SUPERCHUNK_SIDE_CELLS};
+use simulation::Simulation;
 use tilesim::grass::{tick, DECAY_CHANCE, SPREAD_CHANCE};
 
 /// The superchunk the tests run on.
@@ -49,7 +50,7 @@ fn lone_grass_never_decays() {
     let cells = (0..64).flat_map(|y| (0..64).map(move |x| CartesianCell { x: origin().x + 16 * x, y: origin().y + 16 * y }));
     plant(&mut arena, cells.map(|cell| (cell, Shape::Cell)));
     assert_eq!(arena.superchunk_count(GRASS, SUPERCHUNK), 4096);
-    let done = tick(&mut arena, 1, 3).rules;
+    let done = tick(&mut Simulation::new(1), &mut arena, 3).rules;
     assert!(done.sampled > 0);
     assert_eq!(done.decays, 0);
 }
@@ -64,7 +65,7 @@ fn surrounded_grass_decays_at_its_chance() {
     let pieces = (0..8).flat_map(|y| (0..8).map(move |x| CartesianCell { x: origin().x + 128 * x, y: origin().y + 128 * y }));
     plant(&mut arena, pieces.map(|at| (at, Shape::Rect { width: 128, height: 128 })));
     assert_eq!(arena.superchunk_count(GRASS, SUPERCHUNK), CELLS);
-    let done = tick(&mut arena, 1, 4).rules;
+    let done = tick(&mut Simulation::new(1), &mut arena, 4).rules;
     let expected = CELLS as f64 * DECAY_CHANCE;
     assert_eq!(done.spreads, 0);
     assert!((done.decays as f64 / expected - 1.0).abs() < 0.15, "{} decays, about {expected:.0} expected", done.decays);
@@ -78,9 +79,9 @@ fn surrounded_grass_decays_at_its_chance() {
 fn every_cell_stays_dirt_or_grass() {
     let mut arena = mock(400);
     let start = arena.superchunk_count(GRASS, SUPERCHUNK);
-    let mut grass = start;
+    let (mut grass, mut simulation) = (start, Simulation::new(1));
     for seed in 0..1000 {
-        let done = tick(&mut arena, 1, seed).rules;
+        let done = tick(&mut simulation, &mut arena, seed).rules;
         let now = arena.superchunk_count(GRASS, SUPERCHUNK);
         assert!(now + done.decays as u32 >= grass && now + done.decays as u32 <= grass + done.spreads as u32, "grown by what spread, less what decayed");
         assert_eq!(now + arena.superchunk_count(DIRT, SUPERCHUNK), CELLS, "dirt or grass");
