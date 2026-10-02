@@ -1,0 +1,11 @@
+[package]
+name = "bitplane_manager"
+version = "0.1.0"
+edition = "2021"
+description = "TileSim's hot bitplanes: decoded layers, where cells are read and changed"
+publish = false
+
+[dependencies]
+allocator = { path = "../allocator" }
+bitmap = { path = "../bitmap" }
+chunk_storage = { path = "../chunk_storage" }

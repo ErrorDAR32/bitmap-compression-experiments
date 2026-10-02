@@ -1,8 +1,8 @@
 [package]
-name = "chunks"
+name = "chunk_storage"
 version = "0.1.0"
 edition = "2021"
-description = "TileSim's world data in memory: disk chunks, superchunks and the bitmap arena"
+description = "TileSim's chunks as stored: coordinates, height maps, encoded layers, disk chunks and superchunks"
 publish = false
 
 [dependencies]

@@ -1,5 +1,5 @@
 //! TileSim: a 2D procedural simulation game, still to come. The world
-//! is cut into 256x256 chunks (`chunks/`), each held as layers of
+//! is cut into 256x256 chunks (`chunk_storage/`), each held as layers of
 //! bitmaps (`bitmap/`), encoded by Tessera (`tessera/`). What every decision
 //! here is weighed against is `docs/design_statements.md`.
 //!

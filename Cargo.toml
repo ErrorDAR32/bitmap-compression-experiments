@@ -6,4 +6,5 @@ description = "TileSim, a 2D procedural simulation game, still to come"
 publish = false
 
 [dependencies]
-chunks = { path = "chunks" }
+bitplane_manager = { path = "bitplane_manager" }
+chunk_storage = { path = "chunk_storage" }

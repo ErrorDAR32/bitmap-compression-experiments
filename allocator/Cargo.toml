@@ -1,0 +1,8 @@
+[package]
+name = "allocator"
+version = "0.1.0"
+edition = "2021"
+description = "TileSim's allocator: equal-size blocks of zeroed memory, handed out and taken back"
+publish = false
+
+[dependencies]

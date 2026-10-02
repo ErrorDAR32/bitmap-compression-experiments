@@ -6,7 +6,7 @@
 //! has no layer.
 //!
 //! A chunk has no cell operations: only whole layers, by type. Cells
-//! are read and changed in the bitmap arena (`bitmap_arena`), which
+//! are read and changed in the bitmap arena (`../bitplane_manager`), which
 //! decodes the layers it needs and encodes them back.
 //!
 //! Layers are kept in a list sorted by type: found by a binary search,

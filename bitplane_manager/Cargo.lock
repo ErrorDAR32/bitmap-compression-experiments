@@ -36,13 +36,5 @@ dependencies = [
 ]
 
 [[package]]
-name = "tilesim"
-version = "0.1.0"
-dependencies = [
- "bitplane_manager",
- "chunk_storage",
-]
-
-[[package]]
 name = "utilities"
 version = "0.1.0"

@@ -101,7 +101,9 @@ types asked for are decoded, and the chunk's other layers stay encoded.
 
 ### Built so far
 
-The in-memory structures and their API (`chunks/`): the disk chunk,
+The in-memory structures and their API, in three projects: chunks as
+stored (`chunk_storage/`), the hot bitplanes (`bitplane_manager/`) and
+the allocator their buckets live in (`allocator/`): the disk chunk,
 the disk superchunk, the encoded layer and its codec, the bitmap arena,
 and the coordinates between the world, a superchunk, a chunk and a
 cell. Nothing is read from or written to disk yet: disk access comes

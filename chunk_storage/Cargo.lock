@@ -7,7 +7,7 @@ name = "bitmap"
 version = "0.1.0"
 
 [[package]]
-name = "chunks"
+name = "chunk_storage"
 version = "0.1.0"
 dependencies = [
  "bitmap",
