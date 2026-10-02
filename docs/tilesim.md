@@ -150,39 +150,44 @@ from a small array.
 
 Chunk storage is two parts in memory:
 
-1. **The cold pool**: superchunks, compressed, each one sequential run:
-   its encoded bitmaps one after another, every one tagged with its
-   chunk and type. When the bitplane manager asks for a bitmap, it is
-   decoded from here into the bitmap planes.
+1. **The cold pool**: superchunks, compressed, each one sequential run.
+   When the bitplane manager asks for a bitmap, it is decoded from here
+   into the bitmap planes.
 2. **The writeback ring**: a dynamic ring buffer of changed bitmaps,
    compressed, each tagged with its chunk's coordinates and its type.
    Writing back a dirty bucket appends to the ring; it never touches the
-   pool.
+   pool. Evicting a superchunk from the bitplanes fills the ring with
+   compressed versions of its bitmaps, tagged.
+
+The ring is cold writeback only: it is never read to make a bitmap
+hot. A bitmap with an entry in the ring is still hot, so its newest
+version is in the bitplanes.
 
 The ring is a sponge for writes into the pool. A superchunk is
 sequential even in memory, so changing one bitmap in place would mean
 resizing it and moving everything after it. Instead the ring absorbs
-writes until enough of a superchunk's have gathered, then the
-superchunk is rewritten once, its pool run merged with its ring entries
-into new space, and those entries are dropped from the ring.
+writes, and a superchunk is rewritten once, its pool run merged with
+its ring entries into new space. The ring frees from its tail: when it
+fills, the superchunk whose entry is at the tail is rewritten, which
+frees every entry of that superchunk; the tail then skips entries
+already freed. A later entry for the same bitmap replaces an earlier
+one. A rewrite allocates a run of a new size and frees the old: the
+pool needs variable-size allocations, the area allocator's job.
 
-Every compressed bitmap starts byte-aligned, on disk and, so the pool
-is the disk's format, in memory too: a superchunk goes to disk as it
-is, and comes off it the same way.
+A superchunk, in the pool and on disk alike:
 
-What follows from it:
+1. **The bitmap table**: one entry a bitmap, sorted by type id, each
+   with the bitmap's offset into the bitmaps.
+2. **The height maps**: one a chunk, raw for now.
+3. **The bitmaps**, compressed, each starting byte-aligned, in no
+   particular order: the table's offsets find them.
 
-- **Reads look in the ring first**: a bitmap's newest version is its
-  latest ring entry, if any, else the pool's. The ring keeps an index
-  from chunk and type to its latest entry; an earlier entry for the
-  same bitmap is dead space.
-- **An emptied bitmap** is a ring entry of no bytes: the rewrite drops
-  its layer.
-- **The ring frees from its tail**: when it fills, the superchunk whose
-  entry is at the tail is rewritten, which frees every entry of that
-  superchunk; the tail then skips entries already freed.
-- **A rewrite allocates a run of a new size** and frees the old: the
-  pool needs variable-size allocations, the area allocator's job.
+On disk a superchunk is one file, named by its coordinates, its
+contents written sequentially as laid out in memory.
+
+Still open: what an entry tags besides the type (its chunk), how a
+bitmap's length is known, and a superchunk evicted and needed again
+before its ring entries reach the pool.
 
 ### The tick
 
