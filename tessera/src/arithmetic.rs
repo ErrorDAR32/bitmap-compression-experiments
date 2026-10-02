@@ -1,24 +1,5 @@
-//! Range coding of single bits, each at the probability the caller gives
-//! it: a bit the probability expects costs well under one bit, a surprise
-//! more.
-//!
-//! The coder keeps an interval of the numbers in `[0, 1)`: its lower end
-//! `low`, and its width `range`, a 32-bit window of a number whose bits
-//! above the window are already written. A bit splits the interval at
-//! its probability, clear below the split and set above it, and keeps
-//! the part it is: one multiply. Whenever the width falls under `2^24`,
-//! the top byte of the window is settled but for a carry, and the window
-//! moves a byte on: the width is never under `2^24`, so a part is never
-//! under `2^13` of it and never rounds away. A byte that a
-//! later carry could still change is held back -- the last one settled,
-//! and any `0xFF` bytes after it, which a carry turns to `0x00` -- and
-//! written once the next byte shows whether it carries.
-//!
-//! The stream is the bits of one number inside the final interval,
-//! every byte's highest bit first: enough of them that any bits after
-//! them -- the reader reads 0 past the end -- stay inside it. Decoding
-//! replays every split with the same probabilities, and reads each bit
-//! off which part that number is in.
+//! A range coder of single bits, each at the probability given:
+//! `docs/tessera.md`, "The last pass", the coder.
 
 use crate::bit_stream::{BitReader, BitStream, Sink};
 

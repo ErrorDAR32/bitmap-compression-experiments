@@ -1,33 +1,8 @@
-//! The last pass, after the tree, shared by encoding and decoding: the
-//! 4x4 blocks the tree leaves unsaid, in Morton order. A block a copy
-//! covers is copied from its source block; a residual block has its
-//! cells coded one by one, in Morton order, each at the odds its
-//! context has had so far. Everything else the tree has already said.
-//!
-//! A cell's context is six cells before it: top left, above and left,
-//! and the same two cells away ([`CONTEXT_CELLS`]). Left and above never
-//! come later in Morton order, so each of them is final when the cell is
-//! coded -- but for a cell a copy covers whose source is still to come:
-//! a copy's source is always before it in reading order, but a top right
-//! one comes after it in Morton order, and when it is a residual block
-//! not coded yet the copy waits until the end of the pass. A cell not
-//! final reads as clear. Encoding works on the cells as decoding will
-//! have them at each step, so both read the same contexts.
-//!
-//! Each context's odds are how often its cell was clear and how often
-//! set so far, each starting at a half (the Krichevsky-Trofimov
-//! estimate), both halved whenever either reaches 512 cells: a context
-//! learns from its bitmap alone, and nothing about the odds is written.
-//! Bounded so, a context's weights make its probability with one lookup
-//! and one multiply -- no division -- and a cell's price with two
-//! lookups.
-//!
-//! The greedy tiler prices each residual block before the tree is
-//! decided ([`Pricing`]): its cells coded as the pass codes them, each
-//! at its context's odds, read off the bitmap itself. A residual block
-//! costs about the same whatever the tree above it: its contexts hold
-//! the same cells whichever node says them; only the odds learned by
-//! then differ.
+//! The last pass, both directions: the blocks the block plan names, in
+//! Morton order -- each copied block copied from its source, each
+//! residual block's cells range-coded at the odds of their contexts --
+//! and the pricing of residual blocks for the complex tiling, by the same
+//! block coder. `docs/tessera.md`, "The last pass".
 
 use crate::arithmetic::{ClearProbability, Decoder, Encoder, FINISHING_BITS};
 use crate::bit_stream::{BitReader, BitStream};
@@ -138,12 +113,8 @@ impl ContextOdds {
     }
 }
 
-/// The most bits the pass takes over one a residual cell: for each
-/// context, what learning its odds costs over the fewest bits its cells
-/// could be said in -- under `log2(n) / 2 + 1 + n / 1024` for `n` cells
-/// in it (the Krichevsky-Trofimov bound, and what the halvings forget,
-/// found by value iteration over every pair of counts) -- then the
-/// coder's rounding, under 2^-12 bits a cell, and its finishing bits.
+/// The most bits the pass takes over one a residual cell
+/// (`docs/tessera.md`, "The odds").
 pub const MOST_EXTRA_BITS: usize = CONTEXTS * (CELLS.ilog2() as usize / 2 + 1) + (CELLS >> 10) + (CELLS >> 12) + FINISHING_BITS;
 
 /// Blocks in the bitmap: the 4x4 floor's tiles. A copy is 4x4 or
@@ -198,13 +169,10 @@ fn each_block(set: impl Fn(usize) -> u64, mut visit: impl FnMut(usize)) {
     }
 }
 
-/// Codes the cells of the residual block at `index`, in Morton order,
-/// each at the odds of its context in `cells`, which `odds` learn: the
-/// block's cells, as one run. `code` codes the cell at a Morton index
-/// at the odds given -- encoding, decoding or pricing it -- and says
-/// whether it is set. Every context cell lies in the block or the
-/// blocks left of it, above it and above left, read once, as one
-/// [`Window`].
+/// Codes the residual block at `index` in Morton order, each cell at its
+/// context's odds in `cells`, which `odds` learn; `code` encodes, decodes
+/// or prices a cell and says whether it is set. The block's cells, as
+/// one run.
 fn code_residual_block(odds: &mut [ContextOdds; CONTEXTS], cells: &Bitmap, index: usize, code: &mut impl FnMut(ContextOdds, usize) -> bool) -> u64 {
     let mut window = Window::around(cells, index);
     let mut block_run = 0;

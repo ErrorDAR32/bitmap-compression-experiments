@@ -1,14 +1,7 @@
-//! The quadtree writer, and its reader beside it: every node's bits,
-//! and the walks that write and read the whole tree. Counting a node's
-//! bits is writing it to a [`Counter`]: one spelling of every rule.
-//! `docs/tessera.md` has every bit, with its costs.
-//!
-//! The tree is the start level, then from every tile of that level its
-//! node and everything under it, depth first -- each node's bits, its
-//! child mask and payload, then its children's nodes. Writing or
-//! reading it, the walk also fills the last pass's [`BlockPlan`]: each
-//! copied block's source and the residual blocks, gathered here, where
-//! the tree is walked anyway, and the same way on both sides.
+//! The quadtree writer, its reader beside it: every node's bits, and the
+//! walks writing and reading the tree that gather the last pass's block
+//! plan. Counting a node's bits is writing it to a [`Counter`].
+//! `docs/tessera.md`, "The quadtree grammar".
 
 use crate::bit_stream::{BitReader, BitStream, Counter, Sink};
 use crate::last_pass::BlockPlan;

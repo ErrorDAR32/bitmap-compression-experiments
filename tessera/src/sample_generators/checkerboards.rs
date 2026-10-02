@@ -3,7 +3,7 @@
 //! power-of-two tiles the quadtree cuts along: tiles inside a square
 //! are homogeneous, tiles across a cut subdivide, and the pattern
 //! repeats at an offset no tile size matches exactly, so copies and
-//! masking copies turn up everywhere. No seed: a checkerboard is
+//! copies naming children turn up everywhere. No seed: a checkerboard is
 //! settled by its square side alone.
 
 use bitmap::Bitmap;

@@ -1,18 +1,7 @@
-//! The pattern pyramid: every tile from the whole bitmap down to the
-//! 4x4 floor gets a pattern number, and two tiles of the same size share
-//! it exactly when they hold the same cells. It answers both questions
-//! the greedy tiler asks of a tile:
-//!
-//! - homogeneous? Its number is [`ALL_CLEAR`] or [`ALL_SET`];
-//! - copyable? A tile at one of the copy offsets has its number -- one
-//!   comparison, at any size ([`Patterns::copy_source`]).
-//!
-//! Numbers are handed out in the order patterns first appear, a level at
-//! a time, finest first: a 4x4's pattern is its 16 cells, a coarser
-//! tile's its four children's numbers -- one word. A number is found
-//! from its pattern by a hash table per level, twice as many slots as
-//! the level has tiles, probed in order; a slot holds only the number,
-//! its pattern read back off the tile it first appeared at.
+//! The pattern pyramid: a number per tile, whole bitmap to 4x4, equal for
+//! two tiles of one size exactly when they hold the same cells -- so
+//! whether a tile is homogeneous, and whether it is copyable, is one
+//! comparison. `docs/tessera.md`, "The pattern pyramid".
 
 use crate::tile::{cells_in_tile, copy_offset, tiles_in_level, Pyramid, Tile, FLOOR_LEVEL};
 use bitmap::Bitmap;

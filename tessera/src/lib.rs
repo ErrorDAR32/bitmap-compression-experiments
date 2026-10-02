@@ -1,11 +1,4 @@
-//! Tessera: a lossless encoding of a fixed size 256 by 256 bitmap.
-//!
-//! A tessera is one tile of a mosaic, from the Greek for four, for its
-//! four corners. Tessera tiles a bitmap greedily, biggest tile first --
-//! each bound to one value or copied from another -- divides every
-//! tile it does not place into its four children, makes a tile one
-//! complex tile where that takes fewer bits, and writes the result as a
-//! tree, its leftover cells coded from the cells around them.
+//! Tessera: a lossless encoding of a 256x256 bitmap.
 //!
 //! ```
 //! use bitmap::Bitmap;
@@ -21,31 +14,10 @@
 //! assert_eq!(back.words(), bitmap.words());
 //! ```
 //!
-//! A [`Tessera`] holds everything encoding and decoding need, allocated
-//! once: every bitmap after the first is encoded and decoded without
-//! allocating. Encoding runs these steps, each reading only what the
-//! steps before it made; `docs/tessera.md` describes each, and every
-//! bit.
-//!
-//! 1. `set_cells_before_each_word`: how many cells are set before each
-//!    word.
-//! 2. `patterns`: every tile's pattern number, which says both whether
-//!    it is homogeneous and whether it is copyable.
-//! 3. `greedy_tiler`: one walk writing the tree -- tiles placed biggest
-//!    first on the way down, residual blocks priced, and on the way back
-//!    up every tile counted, and made one complex tile where that takes
-//!    fewer bits.
-//! 4. The mode: the `binary_count_tree`, unless the tree is more than
-//!    [`BINARY_COUNT_TREE_TOLERANCE_PERCENT`] shorter; the tree is then
-//!    thrown away.
-//! 5. The binary count tree, or the tree, by the `quadtree_writer`, its
-//!    payloads by the `payload_writer`, filling the last pass's block
-//!    plan as it goes.
-//! 6. The `last_pass`: copies resolved, and the residual blocks' cells
-//!    arithmetic-coded from the cells around them.
-//!
-//! Decoding reads the mode, then the binary count tree, or the tree and
-//! the same last pass.
+//! A [`Tessera`] allocates once and never again. Encoding: set cells
+//! before each word, the pattern pyramid, the greedy tiling, the complex
+//! tiling, the stream's mode, the writers, the last pass. Every step and
+//! every bit: `docs/tessera.md`, "The steps".
 
 #![warn(missing_docs, clippy::missing_docs_in_private_items)]
 

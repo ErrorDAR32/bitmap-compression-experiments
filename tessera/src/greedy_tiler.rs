@@ -1,41 +1,8 @@
-//! The greedy tiler, two walks writing a bitmap's tree: top down, the
-//! greedy tiling ([`greedy_tiling`]), tiles placed, biggest first; then
-//! bottom up, the complex tiling ([`complex_tiling`]), every tile's
-//! fewest bits counted, and a tile made one complex tile where that
-//! takes fewer. The whole tree is counted to be weighed against the
-//! binary count tree, and is thrown away, both walks, when that wins.
-//!
-//! The greedy tiling asks one rule of the whole bitmap, then of every
-//! tile nothing coarser says, down to the 4x4 floor:
-//!
-//! 1. Homogeneous? Bind it.
-//! 2. Copyable (a same-size tile at one of the copy offsets holds the
-//!    same cells)? Copy it.
-//! 3. Coarser than 4x4, does a copy copy at least
-//!    [`MIN_COPIED_CHILDREN`] of its children, or at least
-//!    [`MIN_COPIED_NON_HOMOGENEOUS_CHILDREN`] that are not homogeneous?
-//!    Copy it, naming the others as nodes of their own.
-//! 4. Coarser than 4x4, are at least [`MIN_FLIPPED_CHILDREN`] children
-//!    homogeneous with the value not bound above? Make it a flipping
-//!    divide: everything under it not named is bound to that value.
-//!    Clear is bound at the top.
-//! 5. Else divide it: its four children try for themselves.
-//!
-//! A child a divide leaves, bound whole to the value bound above it, is
-//! no node: the binding above says it. A 4x4 nothing is placed at is a
-//! residual block, priced as the last pass would code it.
-//!
-//! The complex tiling counts every tile after its children: its
-//! node's own bits, as the grammar writes them, and each child node's
-//! fewest. A divide or a residual block may instead be one complex tile
-//! saying every cell under it -- at the one size every cell under it is
-//! bound at, if any, or raw, or as a cell list -- made one where that
-//! takes fewer bits. Tiles that do not overlap cost bits independently,
-//! so each tile's fewest bits, found from its children's, are the
-//! fewest the whole tree can take from the tiles placed.
-//!
-//! Making a tile one complex tile leaves the nodes already written under
-//! it in the tree pyramid, stale: nothing reads under a complex tile.
+//! The greedy tiler: the greedy tiling, top down, places tiles by one
+//! rule; the complex tiling, bottom up, counts every tile and makes
+//! complex tiles where they take fewer bits. Both are thrown away when
+//! the binary count tree wins. `docs/tessera.md`, "The greedy tiling"
+//! and "The complex tiling".
 
 use crate::payload_writer::cell_list_least_bits;
 use crate::quadtree_writer::{node_bits, raw_resolution_fits, START_LEVEL_WIDTH};
@@ -117,11 +84,8 @@ fn place_subtree(patterns: &Patterns, tree: &mut Tree, visit: Visit) {
     }
 }
 
-/// The complex tiling, the bottom-up pass, over the greedy tiling in
-/// `tree`: every tile counted after its children, its residual blocks
-/// priced in `pricing`, and each divide or residual block made one
-/// complex tile where that takes fewer bits. The bits the tree takes,
-/// its residual blocks at their prices, and its start level.
+/// The complex tiling, bottom up over the placed `tree`: the tree's bits,
+/// residual blocks at their prices in `pricing`, and its start level.
 pub fn complex_tiling(bitmap: &Bitmap, set_cells_before_each_word: &SetCellsBeforeEachWord, tree: &mut Tree, pricing: &mut Pricing) -> (u64, u8) {
     pricing.clear();
     let fewest_bits = count_subtree(bitmap, set_cells_before_each_word, tree, pricing, Tile::WHOLE_BITMAP).fewest_bits;
@@ -211,11 +175,8 @@ fn place(patterns: &Patterns, visit: Visit, children_numbers: Option<[u16; 4]>) 
     copy_naming_children(patterns, visit, numbers).or_else(|| flipping_divide(numbers, visit.bound_above))
 }
 
-/// The copy of the visited tile that copies the most of its
-/// children, naming the rest, if it copies enough of them: near
-/// before far, then in direction order, on a tie. A child is copied
-/// when it holds the same cells as the same child of the copy's
-/// source.
+/// The copy of the visited tile copying the most children, naming the
+/// rest, if it copies enough: the first on a tie.
 fn copy_naming_children(patterns: &Patterns, visit: Visit, numbers: [u16; 4]) -> Option<(Node, u8)> {
     let values = numbers.map(homogeneous_value_of);
     let child_level = visit.tile.level + 1;

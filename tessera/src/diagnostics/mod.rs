@@ -5,9 +5,9 @@
 //!
 //! | file | what it gathers |
 //! |---|---|
-//! | `examination.rs` | one bitmap encoded and decoded: how each cell is said, what is placed where, the reference bit count and the bits written, the tree read back, the cells decoded |
+//! | `examination.rs` | one bitmap encoded and decoded: the bits written, the stream's mode, the first cell decoded wrong |
 //! | `measured.rs` | bits, cells set and encode time over many bitmaps |
-//! | `tree_stats.rs` | what a tree holds: tiles, complex tiles and their payloads, masking nodes, cell lists |
+//! | `tree_stats.rs` | what a tree holds: tiles, complex tiles and their payloads, nodes naming children, cell lists |
 //! | `census.rs` | a tree's nodes, by kind and level |
 //! | `bitmaps.rs` | the bitmaps a diagnostic looks at by name: adversarial records, saved bitmaps, one named by the caller |
 //! | `png.rs` | a bitmap as a PNG image |

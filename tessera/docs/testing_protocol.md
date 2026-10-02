@@ -64,7 +64,9 @@ Three parts, kept apart:
 | fast | a small sample from the seed: every shape, sparse shape, plan and line set at its `tested` count; and every family and the saved adversarial bitmaps turned a quarter, a half and three quarters, each turn's total bits within 5% of the total as drawn | `cargo test --test fast` |
 | complete | every family at its `timed` count, plus a second sample of 4 bitmaps of each shape and plan from the seed plus a million, plus every checkerboard of odd square side 3 to 31; and every family and the saved adversarial bitmaps turned each way, within 2% | `cargo test --release --test complete -- --ignored` |
 
-Plain `cargo test` runs fine and fast, and the library's own unit tests.
+Plain `cargo test` runs fine and fast, and the unit tests of the
+library's private internals (`tests/unit/`, compiled into the library
+under `cfg(test)`).
 `cargo test --release -- --ignored` runs complete. While the algorithm is
 being optimized, the fast tier can run on a fresh seed every time, so
 every run checks bitmaps never seen and a failure names the seed that
@@ -75,14 +77,10 @@ TESSERA_SEED=fresh cargo test --release --test fast
 ```
 
 Every tier's check (`tests/common`) examines each bitmap
-(`diagnostics::examination`) and fails on anything wrong: a cell said
-wrongly, a tile placed or copied too fine, the reference bit count
-(`bit_cost.rs`) off the encoder's, the divides above the top tiles
-spending other than the grammar says, more than the raw cells and 1%,
-the tree read back not the tree written, a cell decoded wrong. Debug
-builds -- the fine and fast tiers, unless run in release -- also hold the
-greedy tiler's count of every tile of 16x16 and finer, and of the whole
-tree, to the reference count.
+(`diagnostics::examination`) and fails on more than the raw cells and
+1%, or a cell decoded wrong. Debug builds -- the fine and fast tiers,
+unless run in release -- also have the encoder check that the tree it
+writes takes the bits it counted, its residual blocks at their prices.
 
 ### The diagnostics tool
 
@@ -99,8 +97,7 @@ cargo run --release --bin diagnostics -- <tool> [<argument>]
 | `census` | node kinds by level, for each bitmap looked at | |
 | `per_shape` | Tessera's bits on every shape, plan and line set | |
 | `noise` | Tessera's bits on noise at several densities, against the raw cells | |
-| `sparse` | the tree against the count split on sparse bitmaps, density by density, scattered and clustered, beside the least scattered cells can take | |
-| `copy_offsets` | a search for better copy offsets, near and far, on the fast sample -- climbs from several starts, single changes then pairs -- the best set against the current offsets on the timed sample | |
+| `sparse` | the tree against the binary count tree on sparse bitmaps, density by density, scattered and clustered, beside the least scattered cells can take | |
 | `timing` | encode and decode times over a large sample, family by family | bitmaps a generator (100) |
 | `instruction_count` | instructions to encode and to decode a sample, counted by callgrind | |
 | `instruction_sample` | encodes and decodes that sample alone, uncounted: what callgrind runs; keeps nothing | |
@@ -263,14 +260,12 @@ Each is set, beside its reason, at the place given.
 | a turned family's drift, complete tier | 2% | `MOST_TURNED_DRIFT_PERCENT`, `tests/complete.rs` |
 | the complete tier's second sample | 4 bitmaps a shape and plan, from the seed plus 1,000,000 | `SECOND_SAMPLE_EACH`, `SECOND_SEED_OFFSET`, `tests/complete.rs` |
 | checkerboards | odd square sides 3 to 31 | `SMALLEST_SQUARE_SIDE`, `LARGEST_SQUARE_SIDE`, `src/sample_generators/checkerboards.rs` |
-| the tiles debug builds check against the reference count | 16x16 and finer | `FINEST_CHECKED_LEVEL`, `src/greedy_tiler/mod.rs` |
 | timing's bitmaps a generator | 100, or the argument | `TIMING_PER_GENERATOR`, `src/sample_generators/mod.rs` |
 | timing's saved adversarial repeats | 20 | `RECORD_REPEATS`, `src/bin/diagnostics/timing.rs` |
 | timing's percentiles | median, 90th | `MEDIAN_PERCENT`, `TAIL_PERCENT`, same file |
 | the instruction count's sample | 5 bitmaps a generator, 1 of noise at half density, a checkerboard of 7-cell squares | `BITMAPS_PER_GENERATOR`, `NOISE_BITMAPS`, `NOISE_DENSITY`, `CHECKERBOARD_SQUARE`, `src/bin/diagnostics/instruction_count.rs` |
 | `noise`'s densities | 0.5, 0.35, 0.2, 0.1, 3 bitmaps each | `DENSITIES`, `EACH`, `src/bin/diagnostics/noise.rs` |
 | `sparse`'s densities and clusterings | 15 densities, clustering 0, 0.7, 0.95, 20 bitmaps each | `DENSITIES`, `CLUSTERS`, `EACH`, `src/bin/diagnostics/sparse.rs` |
-| `copy_offsets`' search | reach 8 tiles; 3 random starts; 6 best singles tried in pairs; 16 rounds at most; 4 sets scored at once | `REACH`, `RANDOM_STARTS`, `PAIR_CANDIDATES`, `MOST_ROUNDS`, `THREADS`, `src/bin/diagnostics/copy_offsets.rs` |
 | `render`'s pixels a cell | 2 | `PIXELS_A_CELL`, `src/diagnostics/png.rs` |
 | searches at once | 4 | `SEARCHES_AT_ONCE`, `src/adversarial/mod.rs` |
 | the searched window | the top left 64x64 | `WINDOW`, same file |

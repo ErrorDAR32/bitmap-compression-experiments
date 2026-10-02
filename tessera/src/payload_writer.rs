@@ -1,18 +1,6 @@
-//! A complex tile's payload, written and read: a value for each tile of
-//! its resolution -- at 1x1, its cells raw -- or a cell list.
-//!
-//! A cell list: a tile's set cells said one by one, for a tile where
-//! few are set -- the payload of a complex tile of 1x1 resolution that
-//! masks nothing, when cheaper than saying every cell raw.
-//!
-//! How many cells are set, `k`, in Elias gamma code (of `k + 1`, so zero
-//! can be said); then each set cell's place in the tile's own Morton
-//! order, as the gap since the last one -- the cells skipped -- in Rice
-//! code: the gap's high part in unary, then as many of its low bits as
-//! the Rice parameter says. The parameter follows from the tile's cell
-//! count and `k`, so it is never written. That comes to about
-//! `k * (log2(cells / k) + 1.5)` bits: near what `k` cells scattered at
-//! random need at least.
+//! Complex tiles' payloads, written and read: a value for every tile of
+//! the resolution, or, at 1x1, a cell list of the set cells.
+//! `docs/tessera.md`, "Payloads and cell lists".
 
 use crate::bit_stream::{gamma_bits, BitReader, Sink};
 use crate::tile::{cells_in_tile, tiles_in_level, Tile, CELL_LEVEL};

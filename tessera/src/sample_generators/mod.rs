@@ -4,7 +4,7 @@
 //! pin a known case, never to measure; and [`checkerboards`] are drawn,
 //! the one family the same on every seed -- squares of an odd side never
 //! line up with the power-of-two grid, so one board exercises homogeneous
-//! tiles, cuts, copies and masking at once.
+//! tiles, cuts, copies and copies naming children at once.
 //!
 //! A sample is settled by its seed and its generator's parameters: the
 //! same ones give the same bitmap on every run and every machine.

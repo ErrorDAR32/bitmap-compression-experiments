@@ -16,12 +16,7 @@ const BYTE_BITS: usize = u8::BITS as usize;
 /// Bytes a word holds.
 const WORD_BYTES: usize = WORD_BITS / BYTE_BITS;
 
-/// The most bits a stream takes: a node at every tile down to the 4x4
-/// floor -- more than the mode and start level take -- and each cell's value said at most
-/// once -- in a payload, a cell list (only ever chosen when cheaper than
-/// a bit a cell) or the last pass, which may take a little more than a
-/// bit a cell. A stream that is a binary count tree is only ever shorter than
-/// the tree.
+/// The most bits a stream takes (`docs/tessera.md`, "Memory").
 pub const MOST_BITS: usize = tiles_down_to(FLOOR_LEVEL) * MOST_NODE_BITS + CELLS + MOST_EXTRA_BITS;
 
 /// Words the most bits a stream takes fill.

@@ -31,7 +31,7 @@ folder. Every command below runs from here, `tessera/`.
 - **Never much over the raw cells.** Every bitmap the tests check takes
   at most the raw 65,536 bits and 1%. The tests hold it to that; the
   code does not enforce it. The stream's hard bound is looser: the most
-  bits the grammar can spell out (`MOST_BITS`).
+  bits the stream can take (`MOST_BITS`).
 - **Measured, not claimed.** No number is written into a document here.
   The tools keep every measurement in `transient_data/measurements/`,
   out of git, with the command, seed and commit it came from.
@@ -40,8 +40,7 @@ folder. Every command below runs from here, `tessera/`.
 
 ```rust
 use bitmap::Bitmap;
-use tessera::grammar::bit_stream::BitStream;
-use tessera::Tessera;
+use tessera::{BitStream, Tessera};
 
 let mut bitmap = Bitmap::new();
 bitmap.set_rect(10, 10, 40, 30);
@@ -58,32 +57,30 @@ for a single bitmap, with a `Tessera` of their own.
 
 ## How it works
 
-Encoding runs eight steps. A tree takes seven of them; a count split,
-for sparse bitmaps, takes five. The first four decide and write
-nothing; the last four write and decide nothing.
+Encoding runs these steps:
 
-1. **Set counts**: how many cells are set before each 64-cell word.
-2. **Patterns**: every tile, 4x4 to the whole bitmap, gets a number
-   that two tiles of one size share exactly when they hold the same
-   cells.
-3. **Greedy tiling**, in one walk over the tiles:
-   - On the way down, each tile is bound, copied, or left to its four
-     children.
-   - A 4x4 block left unplaced is a residual block, priced at what the
-     last pass would take for it.
-   - On the way back up, each tile is counted. A tile nothing was
-     placed at becomes one complex tile where that takes fewer bits.
-4. **The mode**: the count split, unless the tree is more than 1%
-   shorter.
-5. **The count split**, if chosen: the whole stream, and the end.
-6. **The tree**, read off the tiling: one node per tile.
-7. **The grammar**: the tree spelled out in bits.
-8. **The last pass**: blocks copies cover are copied, and residual
-   blocks' cells are range-coded, each at the odds its six neighbours'
-   context has had so far.
+1. **Set cells before each word**: a running count over the bitmap's
+   1024 words.
+2. **The pattern pyramid**: every tile, 4x4 to the whole bitmap, gets a
+   number two tiles of one size share exactly when they hold the same
+   cells -- which says whether a tile is homogeneous, and whether it is
+   copyable.
+3. **The greedy tiling**, top down: each tile is bound, copied, or
+   divided into its four children; a 4x4 left unplaced is a residual
+   block.
+4. **The complex tiling**, bottom up: each tile is counted, residual
+   blocks priced at what the last pass would take, and a divide or
+   residual block made one complex tile where that takes fewer bits.
+5. **The stream**: the binary count tree, for sparse bitmaps, unless
+   the tree is more than 1% shorter.
+6. **The writers**: the binary count tree, or the tree, gathering the
+   last pass's block plan as it goes.
+7. **The last pass**: blocks copies cover are copied, and residual
+   blocks' cells are range-coded in Morton order, each at the odds its
+   six neighbours' context has had so far.
 
-Decoding reads the mode, then either the count split, or the tree and
-the same last pass.
+Decoding reads the mode, then either the binary count tree, or the tree
+and the same last pass.
 
 [`docs/tessera.md`](docs/tessera.md) describes every step and every
 bit of the stream.
@@ -98,14 +95,13 @@ Three tiers:
 | fast | a small seeded sample of every generator, and every family turned each way | `cargo test --test fast` |
 | complete | everything the measurements run on, a second seed base, every checkerboard | `cargo test --release --test complete -- --ignored` |
 
-Plain `cargo test` runs fine, fast and the unit tests. Every check
-covers the same ground:
+Plain `cargo test` runs fine, fast and the unit tests of the private
+internals (`tests/unit/`). Every check covers the same ground:
 
-- every cell is said exactly once;
-- the bit count the encoder makes matches a reference count;
+- every cell decodes back;
 - the bits stay within the cap;
-- the tree read back is the tree written;
-- every cell decodes back.
+- in debug builds, the encoder checks that the tree it writes takes the
+  bits it counted.
 
 Sampled bitmaps come from a seed kept in `transient_data/seed`, outside git.
 It rolls by itself every five runs, so no corpus is measured against for
@@ -120,7 +116,7 @@ them in `transient_data/measurements/`.
 
 | command | does |
 |---|---|
-| `cargo run --release --bin diagnostics` | lists the diagnostics tools: bits by generator and shape, node census, noise, sparse bitmaps, copy offsets, timing, instruction counts, PNG renders |
+| `cargo run --release --bin diagnostics` | lists the diagnostics tools: bits by generator and shape, node census, noise, sparse bitmaps, timing, instruction counts, PNG renders |
 | `cargo run --release --bin diagnostics -- show` | prints every kept measurement without measuring |
 | `cargo run --release --bin adversarial` | searches for the bitmaps Tessera does worst on against the raw cells |
 | `cargo run --release --manifest-path external_benchmarks/Cargo.toml` | Tessera against CCITT G4, JBIG and zstd 3 and 19: bits and times, family by family |
@@ -136,7 +132,7 @@ libjbig-dev`), and the instruction count needs valgrind.
 tessera/
   src/                  the crate: the encoding, and what measures it
     bin/                the diagnostics tool and the adversarial search
-  tests/                the three tiers
+  tests/                the three tiers, and unit/: the private internals' unit tests
   docs/
     tessera.md          every step and every bit
     testing_protocol.md how a change gets measured

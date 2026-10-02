@@ -1,19 +1,7 @@
-//! The binary count tree: what the stream says instead of the tree for a
-//! bitmap whose binary count tree takes fewer bits than its tree would --
-//! sparse cells, clustered, with nothing to copy: the tree's worst case.
-//! Only one of the two is ever made: which is judged from the greedy
-//! tiler's count of the tree ([`Tessera::encode`](crate::Tessera::encode)).
-//!
-//! How many cells are set, `k`, in Elias gamma code (of `k + 1`, so zero
-//! can be said); then the bitmap's cells in Morton order, halved again
-//! and again. Every run holding some set cells and some clear says how
-//! many of its set cells lie in its first half: one of the counts its
-//! halves could hold between them, each taken as equally likely, in
-//! truncated binary. A run all set or all clear says nothing more, and
-//! nothing inside it is said: an empty region costs nothing, and a run
-//! holding one set cell a bit a halving. Halving the Morton order splits
-//! a square into two rectangles, and each of those into two squares, so
-//! the runs are the regions of a binary partition of the plane.
+//! The binary count tree, written and read: the stream for sparse
+//! bitmaps, the Morton order halved again and again, each run saying how
+//! many of its set cells lie in its first half. `docs/tessera.md`, "The
+//! stream: tree or binary count tree".
 
 use crate::bit_stream::{truncated_binary_bits, truncated_binary_shape, BitReader, Sink};
 use crate::set_cells_before_each_word::SetCellsBeforeEachWord;
@@ -274,11 +262,8 @@ fn read_word(reader: &mut BitReader, cells: usize, set: u64) -> u64 {
     first_half | read_word(reader, half, set - first_half_set) << half
 }
 
-/// Reads where the one set cell of a run of `cells` cells is. Each
-/// halving of such a run says a bit -- whether the cell is in its first
-/// half, one of two counts -- and only the half holding it is halved
-/// again: so the run says the cell's place, from its top bit down, each
-/// bit flipped, read here at once.
+/// Reads where the one set cell of a run of `cells` cells is: a bit a
+/// halving, its place from the top bit down, each bit flipped.
 fn read_lone_cell_place(reader: &mut BitReader, cells: usize) -> usize {
     let halvings = cells.ilog2();
     let said = reader.value(halvings as u8);

@@ -47,12 +47,9 @@ impl Node {
     }
 }
 
-/// The tree: a node a tile, down to the 4x4 floor, written by the greedy
-/// tiler. Stale nodes are left in it: when the tiler makes a tile one
-/// complex tile, the nodes it already wrote under that tile stay, as
-/// nothing reads under a complex tile -- the quadtree writer stops at
-/// it -- so a scan of the pyramid, rather than a walk from the top,
-/// would find nodes that are not in the tree.
+/// The tree: a node a tile, down to the 4x4 floor. Walk it from the top:
+/// nodes under a complex tile are stale (`docs/tessera.md`, "Stale
+/// nodes").
 pub type Tree = Pyramid<Node, FLOOR_LEVEL>;
 
 /// The value bound at the top of the bitmap, before any flipping

@@ -81,8 +81,8 @@ fn paint_a_rectangle(rng: &mut Rng, bitmap: &mut Bitmap, area: Tile) {
 }
 
 /// A tile made a copy of a neighbour it could copy from, then one cell
-/// of it changed: a copy that almost fits, for the copies, the masking
-/// copies and the complex tiles to argue over.
+/// of it changed: a copy that almost fits, for the copies, the copies
+/// naming children and the complex tiles to argue over.
 fn copy_almost(rng: &mut Rng, bitmap: &mut Bitmap, area: Tile) {
     if area.level + 1 > FLOOR_LEVEL {
         return flip_a_cell(rng, bitmap, area);
