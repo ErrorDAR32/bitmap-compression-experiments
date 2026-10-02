@@ -2,7 +2,7 @@
 //! table a generator and one row a parameter set, then what its trees
 //! are made of, family by family.
 
-use tessera::adversarial::record;
+use tessera::diagnostics::adversarial::record;
 use tessera::diagnostics::measured::Measured;
 use tessera::diagnostics::tree_stats::TreeStats;
 use tessera::diagnostics::RAW_CELLS;

@@ -17,7 +17,7 @@
 //!
 //! Records are plain PBM images (`record.rs`).
 //!
-//! Function by function: `docs/lab.md`, "`adversarial/`".
+//! Function by function: `docs/lab.md`, "`diagnostics/adversarial/`".
 
 mod anneal;
 mod moves;

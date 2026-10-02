@@ -1,7 +1,7 @@
 //! Adversarial bitmaps against each external codec: for each of CCITT
 //! G4, JBIG and zstd, four searches at once, one a core, for the bitmap
 //! where Tessera's bits most exceed that codec's -- the library's search
-//! (`tessera::adversarial`), scored as Tessera's bits less the codec's. The
+//! (`tessera::diagnostics::adversarial`), scored as Tessera's bits less the codec's. The
 //! worst found for each codec is kept as a PBM image in
 //! `transient_data/records/`, replaced only when beaten, and carried on
 //! from by the next run; every recorded bitmap is checked to round trip
@@ -22,7 +22,7 @@
 
 #![warn(missing_docs, clippy::missing_docs_in_private_items)]
 
-use tessera::adversarial::{record, search_at_once, Effort, Score, SEARCHES_AT_ONCE};
+use tessera::diagnostics::adversarial::{record, search_at_once, Effort, Score, SEARCHES_AT_ONCE};
 use tessera::sample_generators::sample_seed;
 use tessera::transient_data;
 use utilities::table::report::Report;

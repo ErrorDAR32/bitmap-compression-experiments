@@ -7,7 +7,7 @@
 //! |---|---|---|
 //! | `seed` | the seed sampled bitmaps grow from, and how many runs have used it | every run that grows a sample ([`crate::sample_generators::seed`]) |
 //! | `measurements/` | every measuring tool's latest tables, as CSV, with what they were measured on | the diagnostics tools, the searches and the external benchmarks, through [`publish`] |
-//! | `records/` | the worst bitmap each adversarial search has found so far, as PBM | the adversarial searches ([`crate::adversarial::record`]) |
+//! | `records/` | the worst bitmap each adversarial search has found so far, as PBM | the adversarial searches ([`crate::diagnostics::adversarial::record`]) |
 //! | `renders/` | PNG images of the bitmaps looked at | `diagnostics render` |
 //! | `callgrind/` | each instruction count's callgrind output, to see where the instructions go | `diagnostics instruction_count` |
 //!

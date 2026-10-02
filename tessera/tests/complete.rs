@@ -9,7 +9,7 @@ mod common;
 
 mod turning;
 
-use tessera::adversarial::record;
+use tessera::diagnostics::adversarial::record;
 use tessera::sample_generators::checkerboards::checkerboards;
 use tessera::sample_generators::{families, grown, one_laid_out, sample_seed, HowMany, PLANS, SHAPES};
 use common::check;

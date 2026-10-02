@@ -1,7 +1,7 @@
 //! The bitmaps a diagnostic looks at by name: every adversarial record
 //! and saved bitmap, and the PBM image named in `TESSERA_DIAGNOSE`, if any.
 
-use crate::adversarial::record;
+use super::adversarial::record;
 use bitmap::Bitmap;
 use std::path::Path;
 

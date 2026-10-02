@@ -271,14 +271,14 @@ Each is set, beside its reason, at the place given.
 | `noise`'s densities | 0.5, 0.35, 0.2, 0.1, 3 bitmaps each | `DENSITIES`, `EACH`, `src/bin/diagnostics/noise.rs` |
 | `sparse`'s densities and clusterings | 15 densities, clustering 0, 0.7, 0.95, 20 bitmaps each | `DENSITIES`, `CLUSTERS`, `EACH`, `src/bin/diagnostics/sparse.rs` |
 | `render`'s pixels a cell | 2 | `PIXELS_A_CELL`, `src/diagnostics/png.rs` |
-| searches at once | 4 | `SEARCHES_AT_ONCE`, `src/adversarial/mod.rs` |
+| searches at once | 4 | `SEARCHES_AT_ONCE`, `src/diagnostics/adversarial/mod.rs` |
 | the searched window | the top left 64x64 | `WINDOW`, same file |
 | a noisy start's density | half | `NOISE_DENSITY_DIVISOR`, same file |
-| the search's starting temperature | 8 bits, cooling linearly to nothing | `START_TEMPERATURE`, `src/adversarial/anneal.rs` |
-| the search's changes | flip a cell, flip a tile, paint a rectangle, copy almost, xor a checkerboard | `CHANGES`, `src/adversarial/moves.rs` |
+| the search's starting temperature | 8 bits, cooling linearly to nothing | `START_TEMPERATURE`, `src/diagnostics/adversarial/anneal.rs` |
+| the search's changes | flip a cell, flip a tile, paint a rectangle, copy almost, xor a checkerboard | `CHANGES`, `src/diagnostics/adversarial/moves.rs` |
 | a painted rectangle or checkerboard patch | up to a quarter of the area's side; odd checker periods 3 to 15 | `PATCH_SHARE_OF_SIDE`, `SHORTEST_CHECKER_PERIOD`, `LONGEST_CHECKER_PERIOD`, same file |
-| a window's variants on the plane | 16: 4 turns, mirrored or not, inverted or not | `ROTATIONS`, `MIRRORINGS`, `INVERSIONS`, `src/adversarial/plane.rs` |
-| changes a search tries from each start | 400 on the window, then 100 on the plane, or the argument | `Effort::default`, `src/adversarial/mod.rs` |
+| a window's variants on the plane | 16: 4 turns, mirrored or not, inverted or not | `ROTATIONS`, `MIRRORINGS`, `INVERSIONS`, `src/diagnostics/adversarial/plane.rs` |
+| changes a search tries from each start | 400 on the window, then 100 on the plane, or the argument | `Effort::default`, `src/diagnostics/adversarial/mod.rs` |
 | zstd's levels | 3 and 19 | `ZSTD_LEVELS`, `external_benchmarks/src/main.rs` |
 | timings of each record against a codec | 21, the median kept | `TIMINGS`, `external_benchmarks/src/bin/adversarial.rs` |
 

@@ -1,7 +1,7 @@
 //! Adversarial bitmaps against the raw cells: a search for the bitmaps
 //! Tessera does worst on -- what it costs beyond the raw cells -- four
 //! searches at once, one a core, each from its own seed. The search
-//! itself is the library's (`tessera::adversarial`); this scores it. See
+//! itself is the library's (`tessera::diagnostics::adversarial`); this scores it. See
 //! `docs/testing_protocol.md`.
 //!
 //! The worst plane of all four is recorded when it beats the record,
@@ -29,7 +29,7 @@
 
 #![warn(missing_docs, clippy::missing_docs_in_private_items)]
 
-use tessera::adversarial::{record, search_at_once, Effort, Score, SEARCHES_AT_ONCE};
+use tessera::diagnostics::adversarial::{record, search_at_once, Effort, Score, SEARCHES_AT_ONCE};
 use tessera::diagnostics::examination::Examination;
 use tessera::encode;
 use tessera::BitStream;

@@ -88,7 +88,7 @@ fn all_set_is_one_tile_in_eight_bits() {
 /// working on Tessera against.
 #[test]
 fn adversarial_bitmaps_pass_every_check() {
-    use tessera::adversarial::record;
+    use tessera::diagnostics::adversarial::record;
     let (records, saved) = (record::all(), record::saved());
     assert!(!records.is_empty(), "no adversarial records in external_benchmarks/adversarial");
     assert!(!saved.is_empty(), "no saved adversarial bitmaps in external_benchmarks/adversarial/saved");

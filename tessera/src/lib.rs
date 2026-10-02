@@ -36,7 +36,6 @@ pub mod tile;
 pub mod tree;
 
 // What measures and tests it.
-pub mod adversarial;
 pub mod diagnostics;
 pub mod sample_generators;
 pub mod transient_data;

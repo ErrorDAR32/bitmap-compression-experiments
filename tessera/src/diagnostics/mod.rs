@@ -9,11 +9,13 @@
 //! | `measured.rs` | bits, cells set and encode time over many bitmaps |
 //! | `tree_stats.rs` | what a tree holds: tiles, complex tiles and their payloads, nodes naming children, cell lists |
 //! | `census.rs` | a tree's nodes, by kind and level |
+//! | `adversarial/` | searches for the bitmaps Tessera does worst on, by any score, and the PBM records and saved bitmaps they leave |
 //! | `bitmaps.rs` | the bitmaps a diagnostic looks at by name: adversarial records, saved bitmaps, one named by the caller |
 //! | `png.rs` | a bitmap as a PNG image |
 //!
 //! Function by function: `docs/lab.md`, "`diagnostics/`".
 
+pub mod adversarial;
 pub mod bitmaps;
 pub mod census;
 pub mod examination;

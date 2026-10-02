@@ -15,7 +15,7 @@
 //! The argument after the tool's name, if given, is how many bitmaps
 //! each generator makes.
 
-use tessera::adversarial::record;
+use tessera::diagnostics::adversarial::record;
 use tessera::diagnostics::examination::first_difference;
 use tessera::BitStream;
 use tessera::Tessera;

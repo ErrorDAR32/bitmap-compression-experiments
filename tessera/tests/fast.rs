@@ -7,7 +7,7 @@
 mod common;
 mod turning;
 
-use tessera::adversarial::record;
+use tessera::diagnostics::adversarial::record;
 use tessera::sample_generators::{families, HowMany, LINE_SETS, PLANS, SHAPES, SPARSE};
 use common::check;
 use turning::check_turned_bits;

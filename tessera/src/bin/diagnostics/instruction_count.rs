@@ -32,7 +32,7 @@
 
 use std::path::Path;
 use std::process::Command;
-use tessera::adversarial::record;
+use tessera::diagnostics::adversarial::record;
 use tessera::diagnostics::examination::first_difference;
 use tessera::diagnostics::RAW_CELLS;
 use tessera::transient_data;

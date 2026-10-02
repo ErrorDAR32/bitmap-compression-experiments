@@ -1,7 +1,8 @@
 # The lab, function by function
 
 What measures and tests Tessera rather than encodes: the sample
-generators, the diagnostics, the adversarial search, `transient_data`,
+generators, the diagnostics -- the adversarial search among them --
+`transient_data`,
 and the tools in `src/bin/`. `docs/testing_protocol.md` says how they
 are used; this file says what each function does. The encoder is in
 `docs/reference.md`.
@@ -96,7 +97,7 @@ with no library: the image data in stored (uncompressed) deflate blocks
 inside a zlib stream (`stored_zlib`, `adler32`), each PNG chunk with
 its CRC (`chunk`, `crc32`).
 
-## `adversarial/`: searching for the bitmaps Tessera does worst on
+## `diagnostics/adversarial/`: searching for the bitmaps Tessera does worst on
 
 **`search(seed, recorded, effort, score)`**: two stages, each the best
 of several annealed starts (`best_of`). First a 64x64 window in an

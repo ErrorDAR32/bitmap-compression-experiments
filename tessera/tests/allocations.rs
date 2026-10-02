@@ -8,7 +8,7 @@
 use bitmap::Bitmap;
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
-use tessera::adversarial::record;
+use tessera::diagnostics::adversarial::record;
 use tessera::sample_generators::checkerboards::checkerboard;
 use tessera::sample_generators::{families, HowMany};
 use tessera::{BitStream, Tessera};
