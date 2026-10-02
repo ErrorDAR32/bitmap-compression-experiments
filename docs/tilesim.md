@@ -241,6 +241,20 @@ Two steps a tick:
    are left unwritten, and counted. Not yet: queues by layer type, the
    Morton sort, and writing a word at a time rather than a cell.
 
+   Measured (`bitplane_manager/examples/write_order.rs`: 100,000 random
+   writes a run, nine in ten a single cell, 50 runs, dirt and grass hot
+   everywhere), in nanoseconds a write, mean:
+
+   | superchunks | bitmaps' size | as drawn | Morton order | the sort |
+   |---|---|---|---|---|
+   | 1 | 256 KiB | 76 | 74 | 44 |
+   | 16 | 4 MiB | 141 | 127 | 53 |
+   | 64 | 16 MiB | 189 | 157 | 50 |
+
+   Ordering pays more the more memory the writes spread over, but not
+   yet as much as sorting random writes costs: apply spends most of a
+   write on finding its bucket, which it does afresh for every write.
+
 Sampling picks, by weight of set cells, a superchunk, then a chunk in
 it, then a cell, found by scanning the chunk's words for set bits. The
 counts it weighs by are built: per bitmap and per superchunk bitplane,
