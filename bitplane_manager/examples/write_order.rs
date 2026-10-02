@@ -3,7 +3,10 @@
 //! anchor cell, timed over many runs on mock superchunks of dirt and
 //! grass, every chunk of both hot.
 //!
-//! `cargo run --release --example write_order -- [writes a run] [runs] [superchunks]`
+//! `cargo run --release --example write_order -- [writes a run] [runs] [superchunks] [both|drawn|morton]`
+//!
+//! `drawn` or `morton` applies the writes one way only, for counting
+//! instructions under callgrind, collecting inside `apply` alone.
 //!
 //! Only `apply` is timed, and the sort on its own. Each run draws new
 //! writes and applies them both ways, the order of the two alternating
@@ -88,10 +91,11 @@ fn summary(times: &mut [Duration], writes: usize) -> (f64, f64, f64) {
 }
 
 fn main() {
-    let arguments: Vec<usize> = std::env::args().skip(1).map(|argument| argument.parse().expect("a number")).collect();
+    let arguments: Vec<usize> = std::env::args().skip(1).take(3).map(|argument| argument.parse().expect("a number")).collect();
     let writes_a_run = arguments.first().copied().unwrap_or(100_000);
     let runs = arguments.get(1).copied().unwrap_or(50);
     let superchunk_count = arguments.get(2).copied().unwrap_or(1) as u32;
+    let only = std::env::args().nth(4).unwrap_or_else(|| "both".into());
 
     let (mut codec, mut arena, mut storage) = (LayerCodec::new(), BitmapArena::new(), ChunkStorage::new(1 << 16));
     let superchunks = superchunks(superchunk_count);
@@ -118,7 +122,11 @@ fn main() {
             times.push(time);
             missed += cells;
         };
-        if run % 2 == 0 {
+        if only == "drawn" {
+            apply(&mut unordered, &writes);
+        } else if only == "morton" {
+            apply(&mut ordered, &sorted);
+        } else if run % 2 == 0 {
             apply(&mut unordered, &writes);
             apply(&mut ordered, &sorted);
         } else {
@@ -130,6 +138,9 @@ fn main() {
     println!("{writes_a_run} writes a run, {runs} runs, {superchunk_count} superchunk(s) of dirt and grass, every chunk hot");
     println!("{:<22} {:>10} {:>10} {:>10}", "ns a write", "mean", "median", "least");
     for (name, times) in [("apply, as drawn", &mut unordered), ("apply, Morton order", &mut ordered), ("the sort alone", &mut sorting)] {
+        if times.is_empty() {
+            continue;
+        }
         let (mean, median, least) = summary(times, writes_a_run);
         println!("{name:<22} {mean:>10.1} {median:>10.1} {least:>10.1}");
     }
