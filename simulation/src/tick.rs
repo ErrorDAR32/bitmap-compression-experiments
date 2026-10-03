@@ -29,7 +29,9 @@
 //! tick comes out the same on any number of threads.
 
 use crate::dispatcher::Dispatcher;
-use crate::entities::{Attribute, Commands, Entities, EntitiesApplied, EntityId, EntityReader, EntityRef, Header, SuperChunkEntities, NEVER, OCCUPIED_SIDE};
+use crate::around::{squeeze, Around};
+use crate::entities::{Attribute, AttributeType, Commands, Edit, Entities, EntitiesApplied, EntityId, EntityReader, EntityRef, EntityType, Header, SuperChunkEntities, NEVER, OCCUPIED_SIDE};
+use pathfinding::{a_star, step_towards, Cell, Rows};
 use coordinates::ChunkPosition;
 use crate::sampling::sample_layer;
 use bitplane_manager::{count_missed, Applied, BitmapArena, NotHot, Reader, Shape, SuperChunk, Tile, Write, WriteQueues};
@@ -55,6 +57,17 @@ pub struct Area {
     /// The cells in hot bitmaps: in the world, and read.
     pub hot: [u16; AREA_SIDE],
 }
+
+impl Area {
+    /// How many of its cells the type holds at.
+    pub fn count(&self) -> u32 {
+        self.set.iter().map(|row| row.count_ones()).sum()
+    }
+}
+
+// The area a turn reads is the area paths are found over, and the cells
+// entities stand on are asked for over the same.
+const _: () = assert!(pathfinding::SIDE == AREA_SIDE && OCCUPIED_SIDE == AREA_SIDE);
 
 /// A superchunk's outbox slots: itself and its eight neighbours.
 const SLOTS: usize = 9;
@@ -166,6 +179,78 @@ impl<'a> SuperChunkTick<'a> {
         areas
     }
 
+    /// The 3x3 cells around `at`, of `layer_type`, as the tick found
+    /// them, nine bits ([`crate::around`]): one window read. At the
+    /// world's edge, none.
+    pub fn around(&self, layer_type: LayerType, at: CellIndex) -> Around {
+        let Some(corner) = at.offset(-1, -1) else {
+            return Around::default();
+        };
+        let window = self.reader.window(layer_type, corner, 3, 3);
+        Around { set: squeeze(window.set), hot: squeeze(window.hot) }
+    }
+
+    /// Which of the 3x3 cells around `at` an entity stands on, as the
+    /// tick found them, nine bits ([`crate::around`]) -- `at`'s own
+    /// among them, if one stands there. Asked when a cell must be had,
+    /// not before a step, which is turned back if its cell is taken.
+    pub fn around_occupied(&self, at: CellIndex) -> u16 {
+        at.offset(-1, -1).map_or(0, |corner| {
+            let rows = self.occupied(corner, 3, 3);
+            rows[0] | rows[1] << 3 | rows[2] << 6
+        })
+    }
+
+    /// One of the neighbours of `at` among `open` -- nine bits
+    /// ([`crate::around`]) -- that no entity stood on as the tick found
+    /// them, drawn at random: where to make an entity, which must have
+    /// its cell. None if every one is taken.
+    pub fn free_beside(&mut self, at: CellIndex, open: u16) -> Option<u32> {
+        let free = open & !self.around_occupied(at);
+        crate::around::pick(&mut self.random, free)
+    }
+
+    /// The cells entities stand on among the [`AREA_SIDE`] by
+    /// [`AREA_SIDE`] around `centre`, laid out as an [`Area`] is. Off
+    /// the world's edge, none.
+    pub fn occupied_about(&self, centre: CellIndex) -> Rows {
+        let reach = AREA_CENTRE as i32;
+        centre.offset(-reach, -reach).map_or([0; AREA_SIDE], |corner| self.occupied(corner, AREA_SIDE as u32, AREA_SIDE as u32))
+    }
+
+    /// The cell to step to from `at` to come, by the shortest way, to
+    /// the nearest of `goals` -- cells of the area around `at`, laid out
+    /// as an [`Area`] is -- over the cells `passable`; no entity's cell
+    /// is walked on or to. One pathfinding step: no route is kept, the
+    /// next asked afresh of the world as the next tick finds it. None if
+    /// no goal can be come to.
+    pub fn step_towards(&mut self, at: CellIndex, goals: &Rows, passable: &Rows) -> Option<CellIndex> {
+        let occupied = self.occupied_about(at);
+        let passable: Rows = std::array::from_fn(|row| passable[row] & !occupied[row]);
+        let goals: Rows = std::array::from_fn(|row| goals[row] & !occupied[row]);
+        let here = Cell { x: AREA_CENTRE as u8, y: AREA_CENTRE as u8 };
+        let first = step_towards(&passable, &goals, here, self.random.draw())?.first;
+        at.offset(first.x as i32 - AREA_CENTRE as i32, first.y as i32 - AREA_CENTRE as i32)
+    }
+
+    /// The cell to step to from `at` to come, by the shortest way, to
+    /// `to` -- a cell of the area around `at` -- over the cells
+    /// `passable`, no entity's cell walked on. None if `to` is out of
+    /// the area, or cannot be come to.
+    pub fn step_to(&mut self, at: CellIndex, to: CellIndex, passable: &Rows) -> Option<CellIndex> {
+        let (from, target) = (at.cartesian(), to.cartesian());
+        let across = target.x as i64 - from.x as i64 + AREA_CENTRE as i64;
+        let down = target.y as i64 - from.y as i64 + AREA_CENTRE as i64;
+        if !(0..AREA_SIDE as i64).contains(&across) || !(0..AREA_SIDE as i64).contains(&down) {
+            return None;
+        }
+        let occupied = self.occupied_about(at);
+        let passable: Rows = std::array::from_fn(|row| passable[row] & !occupied[row]);
+        let here = Cell { x: AREA_CENTRE as u8, y: AREA_CENTRE as u8 };
+        let first = a_star(&passable, here, Cell { x: across as u8, y: down as u8 })?.first;
+        at.offset(first.x as i32 - AREA_CENTRE as i32, first.y as i32 - AREA_CENTRE as i32)
+    }
+
     /// Whether `layer_type` holds at `cell`, as the tick found it.
     pub fn holds(&self, layer_type: LayerType, cell: CellIndex) -> Result<bool, NotHot> {
         self.reader.holds(layer_type, cell)
@@ -240,6 +325,66 @@ impl<'a> SuperChunkTick<'a> {
         debug_assert!(header.wake > self.now, "an entity put to wake at tick {}, not after {}", header.wake, self.now);
         let slot = self.slot_of(header.at.superchunk());
         self.outbox.commands[slot].put(header, header.at, attributes);
+    }
+
+    /// Queues making an entity of type `kind` on `at`, with
+    /// `attributes` sorted by type, to wake at `wake`: its ID, drawn
+    /// here. It is not made if an entity stands on the cell by then.
+    pub fn spawn(&mut self, kind: EntityType, at: CellIndex, wake: u64, attributes: &[Attribute]) -> EntityId {
+        let id = self.new_id();
+        self.put(Header { id, kind, at, wake }, attributes);
+        id
+    }
+
+    /// Queues `entity` sleeping where it stands until `wake`: its
+    /// attributes as they are, none carried.
+    pub fn sleep(&mut self, entity: &Header, wake: u64) {
+        self.step(entity, entity.at, wake);
+    }
+
+    /// Queues `entity` stepping to `to`, to wake at `wake`, its
+    /// attributes as they are: none are carried, unless it crosses to
+    /// another superchunk, where it goes whole
+    /// ([`SuperChunkTick::update`]). If an entity stands on `to` by then
+    /// it stays where it stood, and wakes at `wake` all the same.
+    pub fn step(&mut self, entity: &Header, to: CellIndex, wake: u64) {
+        debug_assert!(wake > self.now, "an entity put to wake at tick {wake}, not after {}", self.now);
+        let after = Header { at: to, wake, ..*entity };
+        if entity.at.superchunk() == to.superchunk() {
+            let slot = self.slot_of(to.superchunk());
+            self.outbox.commands[slot].shift(after, entity.at);
+        } else if let Some(whole) = self.entity_reader.get(entity.id, entity.at) {
+            self.update(entity, after, whole.attributes);
+        }
+    }
+
+    /// Queues setting the attribute of type `kind` of `entity` -- any
+    /// entity in reach, the rule's own or another -- to `value`. An
+    /// entity changing itself whole does so by [`SuperChunkTick::commit`];
+    /// this is one entity acting on another: only the one attribute is
+    /// written, so two acting on one in a tick do not undo each other.
+    pub fn set_attribute(&mut self, entity: &Header, kind: AttributeType, value: u64) {
+        let slot = self.slot_of(entity.at.superchunk());
+        self.outbox.commands[slot].edit(entity.id, entity.at, kind, Some(value));
+    }
+
+    /// Queues removing the attribute of type `kind` of `entity`, any in
+    /// reach.
+    pub fn unset_attribute(&mut self, entity: &Header, kind: AttributeType) {
+        let slot = self.slot_of(entity.at.superchunk());
+        self.outbox.commands[slot].edit(entity.id, entity.at, kind, None);
+    }
+
+    /// Queues what `edit`'s entity came to: on `to`, to wake at `wake`,
+    /// by the instruction that carries least -- moved or put to sleep
+    /// with the attributes it has if none was changed, else put whole.
+    pub fn commit(&mut self, edit: Edit, to: CellIndex, wake: u64) {
+        let before = *edit.header();
+        if edit.edited() {
+            self.update(&before, Header { at: to, wake, ..before }, edit.attributes());
+        } else {
+            self.step(&before, to, wake);
+        }
     }
 
     /// Queues `before`'s entity becoming `after`, with `attributes`:

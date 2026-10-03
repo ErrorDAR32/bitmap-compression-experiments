@@ -21,7 +21,7 @@
 //! garbage, swept out once there is as much garbage as attributes in
 //! use.
 
-use super::record::{Attribute, EntityId, EntityRef, Header};
+use super::record::{Attribute, AttributeType, EntityId, EntityRef, Header};
 use coordinates::CellIndex;
 
 /// Blocks of places a bucket's are searched by: a 64x64 square of cells
@@ -130,13 +130,15 @@ impl Bucket {
         self.slot(place).1
     }
 
-    /// `header`'s entity, now with `attributes`, which stood on the cell
-    /// at `was` of the chunk, and what came of it ([`Put`]): changed
+    /// `header`'s entity, now with `attributes` -- or, with none given,
+    /// those it has: it is then not made if it is not there -- which
+    /// stood on the cell at `was` of the chunk, and what came of it
+    /// ([`Put`]): changed
     /// where it stands; moved to its cell, if that is another and no
     /// entity stands on it -- else left where it was, changed all the
     /// same; or added, if it is new -- it stood where it stands, and is
     /// not there -- and the cell is free. A cell holds one entity, ever.
-    pub(crate) fn put(&mut self, header: Header, was: u16, attributes: &[Attribute]) -> Put {
+    pub(crate) fn put(&mut self, header: Header, was: u16, attributes: Option<&[Attribute]>) -> Put {
         let to = place(header.at);
         let (at, put) = match (self.find(was, header.id), was == to) {
             (Ok(at), true) => (at, Put::InPlace),
@@ -150,8 +152,10 @@ impl Bucket {
                 }
                 (self.shift(from, goes, to), Put::Moved)
             }
+            (Err(_), true) if attributes.is_none() => return Put::PassedOver,
             (Err((_, true)), true) => return Put::Refused,
             (Err((at, false)), true) => {
+                let attributes = attributes.unwrap_or_default();
                 self.places.insert(at, to);
                 self.starts[block(to) + 1..].iter_mut().for_each(|start| *start += 1);
                 self.records.insert(at, Record { header, first: self.attributes.len() as u32, count: attributes.len() as u32 });
@@ -164,11 +168,15 @@ impl Bucket {
         put
     }
 
-    /// Makes the record at `at` `header`'s, with `attributes`: in place
-    /// when their number is the same, else a new run at the list's end.
-    fn rewrite(&mut self, at: usize, header: Header, attributes: &[Attribute]) {
+    /// Makes the record at `at` `header`'s, with `attributes` if any are
+    /// given: in place when their number is the same, else a new run at
+    /// the list's end.
+    fn rewrite(&mut self, at: usize, header: Header, attributes: Option<&[Attribute]>) {
         let record = &mut self.records[at];
         record.header = header;
+        let Some(attributes) = attributes else {
+            return;
+        };
         if record.count as usize == attributes.len() {
             let first = record.first as usize;
             self.attributes[first..first + attributes.len()].copy_from_slice(attributes);
@@ -178,6 +186,41 @@ impl Bucket {
         (record.first, record.count) = (self.attributes.len() as u32, attributes.len() as u32);
         self.attributes.extend_from_slice(attributes);
         self.sweep();
+    }
+
+    /// Sets the attribute of type `kind` of the entity whose ID is `id`,
+    /// on the cell at `place`, to `value` -- or, with none, removes it:
+    /// whether the entity is there. A value changed is changed where it
+    /// is; an attribute added or removed makes the entity's run anew at
+    /// the list's end.
+    pub(crate) fn edit(&mut self, id: EntityId, place: u16, kind: AttributeType, value: Option<u64>) -> bool {
+        let Ok(at) = self.find(place, id) else {
+            return false;
+        };
+        let (first, count) = (self.records[at].first as usize, self.records[at].count as usize);
+        let found = self.attributes[first..first + count].binary_search_by_key(&kind, |attribute| attribute.kind);
+        let start = self.attributes.len();
+        match (found, value) {
+            (Ok(index), Some(value)) => {
+                self.attributes[first + index].value = value;
+                return true;
+            }
+            (Err(_), None) => return true,
+            (Ok(index), None) => {
+                self.attributes.extend_from_within(first..first + index);
+                self.attributes.extend_from_within(first + index + 1..first + count);
+            }
+            (Err(index), Some(value)) => {
+                self.attributes.extend_from_within(first..first + index);
+                self.attributes.push(Attribute { kind, value });
+                self.attributes.extend_from_within(first + index..first + count);
+            }
+        }
+        let record = &mut self.records[at];
+        (record.first, record.count) = (start as u32, (self.attributes.len() - start) as u32);
+        self.garbage += count;
+        self.sweep();
+        true
     }
 
     /// Removes the entity whose ID is `id` standing on `at`: whether it

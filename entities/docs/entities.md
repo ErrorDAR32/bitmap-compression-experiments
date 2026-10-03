@@ -22,6 +22,14 @@ What each kind *does* is here: a file a kind, holding
 - what it did, counted, to be added up over the superchunks;
 - how a world is given some to start with.
 
+What every kind needs is the simulation's, and not written again here
+(`../simulation/docs/simulation.md`, "What a rule is given"): the 3x3
+cells beside an entity as masks, the area about it, a free cell for a
+newborn, the step towards a goal round whatever is in the way, and
+`Edit`, which takes what an entity is to be and queues the instruction
+that carries least. The sheep's rule is 100 lines of what a sheep
+decides.
+
 A kind knows the cells it reads and writes, and no other rule. The game
 (`src/pasture.rs`) is what runs the entities' rules and the cells' in
 one tick.

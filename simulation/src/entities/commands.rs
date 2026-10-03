@@ -1,12 +1,23 @@
 //! Changes to entities, queued in a tick's first phase and carried out
 //! in its second by the superchunk they land in -- as writes are to the
-//! bitplanes. A change carries all it needs: an entity moving to a
+//! bitplanes. There is an instruction for each thing a rule does to an
+//! entity, so each carries, and costs, no more than it changes:
+//!
+//! | instruction | what it does | what it carries |
+//! |---|---|---|
+//! | put | an entity made, or made anew whole: header and attributes | its attributes |
+//! | move | an entity moved to another cell, or left where it is, to wake at another tick; its attributes as they are | nothing |
+//! | edit | one attribute of an entity set, or removed: by the entity itself or by another | the one value |
+//! | remove | an entity removed | nothing |
+//!
+//! Whatever puts an entity on a cell checks it as it is carried out: a
+//! cell holds one entity, ever. A change carries all it needs: an entity moving to a
 //! neighbour goes as a whole copy, made in the first phase from the
 //! world as the tick found it, so the second never reads another
 //! superchunk's entities while that one changes them.
 
 use super::bucket::Put;
-use super::record::{Attribute, EntityId, Header};
+use super::record::{Attribute, AttributeType, EntityId, Header};
 use super::store::SuperChunkEntities;
 use coordinates::CellIndex;
 use std::ops::AddAssign;
@@ -30,6 +41,27 @@ enum Command {
         first: u32,
         /// How many attributes it has.
         count: u32,
+    },
+    /// Moves an entity to `header`'s cell, to wake at its tick, its
+    /// attributes as they are -- or, the cell being the one it stands
+    /// on, only sets when it next wakes.
+    Move {
+        /// Its fixed part, as it is to be.
+        header: Header,
+        /// The cell it stands on, in its cell's superchunk.
+        from: CellIndex,
+    },
+    /// Sets one attribute of the entity whose ID is `id` standing on
+    /// `at`, or removes it.
+    Edit {
+        /// Its ID.
+        id: EntityId,
+        /// Its cell.
+        at: CellIndex,
+        /// The attribute's type.
+        kind: AttributeType,
+        /// Its value, or none to remove it.
+        value: Option<u64>,
     },
     /// Removes the entity whose ID is `id` standing on `at`.
     Remove {
@@ -72,6 +104,21 @@ impl Commands {
         self.attributes.extend_from_slice(attributes);
     }
 
+    /// Queues moving `header`'s entity, standing on `from` -- a cell of
+    /// its cell's superchunk -- to its cell, to wake at its tick, with
+    /// the attributes it has: none are carried. Its cell `from` itself,
+    /// it only sleeps until then.
+    pub fn shift(&mut self, header: Header, from: CellIndex) {
+        debug_assert_eq!(header.at.superchunk(), from.superchunk(), "an entity moved from another superchunk: a crossing");
+        self.commands.push(Command::Move { header, from });
+    }
+
+    /// Queues setting the attribute of type `kind` of the entity whose
+    /// ID is `id` standing on `at` to `value`, or with none removing it.
+    pub fn edit(&mut self, id: EntityId, at: CellIndex, kind: AttributeType, value: Option<u64>) {
+        self.commands.push(Command::Edit { id, at, kind, value });
+    }
+
     /// Queues removing the entity whose ID is `id` standing on `at`.
     pub fn remove(&mut self, id: EntityId, at: CellIndex) {
         self.commands.push(Command::Remove { id, at });
@@ -102,8 +149,8 @@ impl Commands {
     pub fn apply(&self, superchunks: &mut [SuperChunkEntities], earliest: u64, applied: &mut EntitiesApplied) {
         for &command in &self.commands {
             let at = match command {
-                Command::Put { header, .. } => header.at,
-                Command::Remove { at, .. } => at,
+                Command::Put { header, .. } | Command::Move { header, .. } => header.at,
+                Command::Edit { at, .. } | Command::Remove { at, .. } => at,
             };
             let morton = at.superchunk();
             let found = match superchunks {
@@ -117,7 +164,7 @@ impl Commands {
             let superchunk = &mut superchunks[place];
             match command {
                 Command::Put { header, from, crossing, first, count } => {
-                    let put = superchunk.put(earliest, header, from, &self.attributes[first as usize..(first + count) as usize]);
+                    let put = superchunk.put(earliest, header, from, Some(&self.attributes[first as usize..(first + count) as usize]));
                     match put {
                         Put::New | Put::InPlace | Put::Moved => applied.puts += 1,
                         Put::Stayed => (applied.puts, applied.stayed) = (applied.puts + 1, applied.stayed + 1),
@@ -128,6 +175,12 @@ impl Commands {
                         superchunk.cross(header.id, header.at, to);
                     }
                 }
+                Command::Move { header, from } => match superchunk.put(earliest, header, from, None) {
+                    Put::Stayed => (applied.moves, applied.stayed) = (applied.moves + 1, applied.stayed + 1),
+                    Put::PassedOver => {}
+                    _ => applied.moves += 1,
+                },
+                Command::Edit { id, at, kind, value } => applied.edits += superchunk.edit(id, at, kind, value) as usize,
                 Command::Remove { id, at } => {
                     applied.removes += superchunk.remove(id, at) as usize;
                 }
@@ -144,14 +197,19 @@ impl Commands {
 /// What carrying out the changes did.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct EntitiesApplied {
-    /// Entities put: made, changed, or moved in.
+    /// Entities put: made, or made anew whole.
     pub puts: usize,
+    /// Entities moved, or set to wake at another tick, their attributes
+    /// as they were.
+    pub moves: usize,
+    /// Attributes set or removed, one at a time.
+    pub edits: usize,
     /// Entities removed: died, or moved out of their chunk.
     pub removes: usize,
     /// Entities put in a superchunk holding no entities, so lost.
     pub lost: usize,
-    /// Of the entities put, those whose cell was taken: left where they
-    /// stood.
+    /// Of the entities put or moved, those whose cell was taken: left
+    /// where they stood.
     pub stayed: usize,
     /// New entities whose cell was taken: not put.
     pub refused: usize,
@@ -161,6 +219,8 @@ impl AddAssign for EntitiesApplied {
     /// Both added up.
     fn add_assign(&mut self, other: Self) {
         self.puts += other.puts;
+        self.moves += other.moves;
+        self.edits += other.edits;
         self.removes += other.removes;
         self.lost += other.lost;
         self.stayed += other.stayed;

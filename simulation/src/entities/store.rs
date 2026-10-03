@@ -12,7 +12,7 @@
 
 use super::bucket::{place, Bucket, Put};
 use super::commands::{Commands, EntitiesApplied};
-use super::record::{sorted, Attribute, EntityId, EntityRef, Header, NEVER};
+use super::record::{sorted, Attribute, AttributeType, EntityId, EntityRef, Header, NEVER};
 use super::wheel::{Wake, Wheel};
 use coordinates::{CellIndex, ChunkPosition, SuperChunkPosition, CHUNKS_IN_SUPERCHUNK};
 
@@ -27,6 +27,9 @@ pub struct SuperChunkEntities {
     wheel: Wheel,
     /// The entities crossing to another superchunk.
     crossings: Vec<Crossing>,
+    /// Room for the attributes of an entity moving, with those it has,
+    /// from one chunk's bucket to another's.
+    carried: Vec<Attribute>,
 }
 
 /// An entity crossing to another superchunk: it asked, last tick, to be
@@ -48,7 +51,7 @@ pub struct Crossing {
 impl SuperChunkEntities {
     /// No entities, in the superchunk whose Morton index is `morton`.
     pub fn new(morton: u64) -> Self {
-        Self { morton, chunks: Default::default(), wheel: Wheel::default(), crossings: Vec::new() }
+        Self { morton, chunks: Default::default(), wheel: Wheel::default(), crossings: Vec::new(), carried: Vec::new() }
     }
 
     /// The superchunk's Morton index.
@@ -97,34 +100,56 @@ impl SuperChunkEntities {
         self.wheel.due(tick).iter().filter_map(move |wake| self.get(wake.id, wake.at).filter(|entity| entity.header.wake == tick))
     }
 
-    /// Puts `header`'s entity, with `attributes` sorted by type, which
-    /// stood on `from`, a cell of this superchunk -- its own cell, if it
+    /// Puts `header`'s entity, with `attributes` sorted by type -- or,
+    /// with none given, those it has: it is then not made if it is not
+    /// there -- which stood on `from`, a cell of this superchunk -- its own cell, if it
     /// has not moved or is new -- and files its wake, no earlier than
     /// `earliest`: what came of it. One whose cell is taken stays on
     /// `from`, changed all the same, and wakes there; a new one is not
     /// put.
-    pub(crate) fn put(&mut self, earliest: u64, header: Header, from: CellIndex, attributes: &[Attribute]) -> Put {
+    pub(crate) fn put(&mut self, earliest: u64, header: Header, from: CellIndex, attributes: Option<&[Attribute]>) -> Put {
         debug_assert_eq!(header.at.superchunk(), self.morton, "an entity put in a superchunk it is not in");
         debug_assert_eq!(from.superchunk(), self.morton, "an entity put from another superchunk: a crossing");
-        debug_assert!(sorted(attributes), "attributes sorted by type, each type once");
+        debug_assert!(attributes.is_none_or(sorted), "attributes sorted by type, each type once");
         let (origin, target) = (from.chunk_in_superchunk(), header.at.chunk_in_superchunk());
         let put = if origin == target {
             self.chunks[target].put(header, place(from), attributes)
-        } else if self.chunks[origin].get(header.id, from).is_none() {
-            Put::PassedOver
-        } else if self.chunks[target].occupied(place(header.at)) {
-            self.chunks[origin].put(Header { at: from, ..header }, place(from), attributes);
-            Put::Stayed
+        } else if let Some(stood) = self.chunks[origin].get(header.id, from) {
+            // Those it has go with it to the other bucket.
+            self.carried.clear();
+            self.carried.extend_from_slice(attributes.unwrap_or(stood.attributes));
+            self.move_between(origin, target, header, from)
         } else {
-            self.chunks[origin].remove(header.id, from);
-            self.chunks[target].put(header, place(header.at), attributes);
-            Put::Moved
+            Put::PassedOver
         };
         let stands = if put == Put::Stayed { from } else { header.at };
         if !matches!(put, Put::Refused | Put::PassedOver) && header.wake != NEVER {
             self.wheel.file(earliest, header.wake, Wake { id: header.id, at: stands });
         }
         put
+    }
+
+    /// Moves `header`'s entity, standing on `from` in the chunk at
+    /// `origin`, to its cell in the chunk at `target`, with the
+    /// attributes `carried` -- unless an entity stands there, when it
+    /// stays, changed all the same.
+    fn move_between(&mut self, origin: usize, target: usize, header: Header, from: CellIndex) -> Put {
+        if self.chunks[target].occupied(place(header.at)) {
+            self.chunks[origin].put(Header { at: from, ..header }, place(from), Some(&self.carried));
+            Put::Stayed
+        } else {
+            self.chunks[origin].remove(header.id, from);
+            self.chunks[target].put(header, place(header.at), Some(&self.carried));
+            Put::Moved
+        }
+    }
+
+    /// Sets the attribute of type `kind` of the entity whose ID is `id`
+    /// standing on `at` to `value`, or with none removes it: whether the
+    /// entity is there.
+    pub(crate) fn edit(&mut self, id: EntityId, at: CellIndex, kind: AttributeType, value: Option<u64>) -> bool {
+        debug_assert_eq!(at.superchunk(), self.morton);
+        self.chunks[at.chunk_in_superchunk()].edit(id, place(at), kind, value)
     }
 
     /// The places, in the chunk at `chunk`, of the entities standing on

@@ -17,6 +17,7 @@
 // checks the private ones.
 #![warn(missing_docs, clippy::missing_docs_in_private_items)]
 
+pub mod around;
 pub mod diagnostics;
 mod dispatcher;
 pub mod entities;
@@ -25,4 +26,5 @@ mod tick;
 
 pub use dispatcher::Dispatcher;
 pub use sampling::{sample, sample_layer};
+pub use around::Around;
 pub use tick::{threads_for, Area, Simulation, SuperChunkTick, TickReport, AREA_CENTRE, AREA_SIDE};

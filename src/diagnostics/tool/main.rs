@@ -88,7 +88,7 @@ fn pasture(arguments: &[String]) {
         "{ticks} ticks over {superchunks} superchunk(s) on {threads} thread(s); sheep {} -> {}; grass {} -> {}; {} entities lost past the superchunks used",
         run.sheep.0, run.sheep.1, run.grass.0, run.grass.1, run.entities.lost
     ));
-    let mut flock = Table::new(&["wakes", "wakes a tick", "eaten", "born", "starved", "entities put", "entities removed"]);
+    let mut flock = Table::new(&["wakes", "wakes a tick", "eaten", "born", "died", "put whole", "moved or slept", "removed"]);
     flock.row(&[
         sheep.woken.to_string(),
         format!("{:.1}", sheep.woken as f64 / ticks as f64),
@@ -96,6 +96,7 @@ fn pasture(arguments: &[String]) {
         sheep.births.to_string(),
         sheep.deaths.to_string(),
         run.entities.puts.to_string(),
+        run.entities.moves.to_string(),
         run.entities.removes.to_string(),
     ]);
     report.add("sheep", flock);
@@ -105,7 +106,7 @@ fn pasture(arguments: &[String]) {
     phases.row(&["computing".to_string(), format!("{:.1}", run.computing.as_secs_f64() * 1e3), share(run.computing, total), "-".to_string()]);
     phases.row(&["  grass rule, a sample (all threads)".to_string(), format!("{:.1}", run.grass_time.as_secs_f64() * 1e3), "-".to_string(), per(run.grass_time, run.done.grass.sampled)]);
     phases.row(&["  sheep rule, a wake (all threads)".to_string(), format!("{:.1}", run.sheep_time.as_secs_f64() * 1e3), "-".to_string(), per(run.sheep_time, sheep.woken)]);
-    phases.row(&["applying, a write or change".to_string(), format!("{:.1}", run.applying.as_secs_f64() * 1e3), share(run.applying, total), per(run.applying, run.writes + run.entities.puts + run.entities.removes)]);
+    phases.row(&["applying, a write or change".to_string(), format!("{:.1}", run.applying.as_secs_f64() * 1e3), share(run.applying, total), per(run.applying, run.writes + run.entities.puts + run.entities.moves + run.entities.edits + run.entities.removes)]);
     phases.row(&["the tick".to_string(), format!("{:.1}", total.as_secs_f64() * 1e3), share(total, total), "-".to_string()]);
     report.add("time", phases);
     let mut rates = Table::new(&["ticks a second", "wakes a second"]);

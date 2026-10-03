@@ -62,6 +62,71 @@ impl EntityRef<'_> {
     }
 }
 
+/// An entity being changed by its rule: its attributes read, set and
+/// removed as if they were its own already, and nothing copied until
+/// one is. What it comes to is queued by `SuperChunkTick::commit`,
+/// which picks the instruction: an entity whose attributes were left
+/// alone is moved, or put back to sleep, and carries none.
+pub struct Edit<'a, 'b> {
+    /// The entity as the tick found it.
+    entity: EntityRef<'a>,
+    /// Its attributes as changed, once one is: the rule's room for them,
+    /// used again for every entity.
+    changed: &'b mut Vec<Attribute>,
+    /// Whether one was.
+    edited: bool,
+}
+
+impl<'a, 'b> Edit<'a, 'b> {
+    /// `entity`, to be changed, with `room` for its attributes.
+    pub fn of(entity: EntityRef<'a>, room: &'b mut Vec<Attribute>) -> Self {
+        Self { entity, changed: room, edited: false }
+    }
+
+    /// Its header, as the tick found it.
+    pub fn header(&self) -> &Header {
+        &self.entity.header
+    }
+
+    /// Whether an attribute was set or removed.
+    pub fn edited(&self) -> bool {
+        self.edited
+    }
+
+    /// Its attributes, as changed so far.
+    pub fn attributes(&self) -> &[Attribute] {
+        if self.edited { self.changed } else { self.entity.attributes }
+    }
+
+    /// The value of its attribute of type `kind`, as changed so far.
+    pub fn get(&self, kind: AttributeType) -> Option<u64> {
+        attribute(self.attributes(), kind)
+    }
+
+    /// Sets its attribute of type `kind` to `value`.
+    pub fn set(&mut self, kind: AttributeType, value: u64) {
+        if self.get(kind) != Some(value) {
+            set_attribute(self.own(), kind, value);
+        }
+    }
+
+    /// Removes its attribute of type `kind`: its value, if it had one.
+    pub fn unset(&mut self, kind: AttributeType) -> Option<u64> {
+        self.get(kind)?;
+        remove_attribute(self.own(), kind)
+    }
+
+    /// Its attributes, copied to be changed if they have not been.
+    fn own(&mut self) -> &mut Vec<Attribute> {
+        if !self.edited {
+            self.changed.clear();
+            self.changed.extend_from_slice(self.entity.attributes);
+            self.edited = true;
+        }
+        self.changed
+    }
+}
+
 /// The value of the attribute of type `kind` in `attributes`, sorted by
 /// type, if there is one.
 pub fn attribute(attributes: &[Attribute], kind: AttributeType) -> Option<u64> {

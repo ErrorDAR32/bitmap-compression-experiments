@@ -70,7 +70,7 @@ They tick in the same two phases as the cells. In the first, a
 superchunk's entities waking run the rule (`SuperChunkTick::woken`) in
 Morton order -- each tick's wakes sorted by cell, then ID, once all are
 filed -- so they read and write forwards through memory,
-and their changes -- `put`, `update`, `remove` -- are queued in the
+and their changes -- an instruction each, below -- are queued in the
 outbox slot of the superchunk they land in, in the Morton order of the
 cells the entities were found on, which is the order the buckets hold
 them in: the second phase goes forwards through each bucket, as writes
@@ -83,6 +83,55 @@ An entity sees the world about it at once: `SuperChunkTick::area`
 reads the 16x16 cells of a layer about a cell as masks, a row a word,
 which is what `../../pathfinding/` finds a way over. An entity takes
 one pathfinding step each time it ticks, and keeps no route.
+
+### What a rule is given
+
+A kind of entity (`../../entities/`) writes only what is its own: the
+rest is here, the same for every kind.
+
+**Instructions**, one for each thing done to an entity, each carrying
+no more than it changes (`entities/commands.rs`):
+
+| instruction | queued by | what it does | carries |
+|---|---|---|---|
+| put | `spawn`, `put`, `update` | an entity made, or made anew whole | its attributes |
+| move | `step`, `sleep` | moved to a cell, or left where it stands, to wake at a tick; its attributes as they are | nothing |
+| edit | `set_attribute`, `unset_attribute` | one attribute set or removed, of any entity in reach | the one value |
+| remove | `remove` | removed | nothing |
+
+A walking entity is a move a step: 32 bytes queued and none of its
+attributes read or written, however many it has -- until it crosses to
+another superchunk, where it goes whole. An edit is how one entity acts
+on another: two wounding one in a tick each write their own attribute,
+where two whole copies would undo each other. Every instruction that
+puts an entity on a cell is checked as it is carried out.
+
+**An entity being changed** (`Edit`): its attributes read, set and
+removed as if already its own, nothing copied until one is changed, and
+`SuperChunkTick::commit` picks the instruction -- a move if none was,
+else a put. A rule states what the entity is to be; what that costs is
+not its concern.
+
+**The cells beside it** (`around`): the 3x3 about a cell as nine bits,
+read in one window (`SuperChunkTick::around`); sets of neighbours are
+masks narrowed with `&`, one drawn with `pick` or `prefer`.
+`around_occupied` gives those entities stand on, `free_beside` one that
+none does -- for what must have its cell, as a newborn; a step need not
+ask.
+
+**The area about it, and the way**: `area` reads 16x16 cells of a layer
+as masks, `Area::count` how many are set, `occupied_about` the entities
+on them. `step_towards(at, goals, passable)` gives the cell to step to
+for the nearest goal, `step_to(at, to, passable)` for one cell -- waves
+and A* of `../../pathfinding/`, round the entities in the way, one step
+a wake.
+
+Measured on the sheep, the first kind written on them
+(`diagnostics pasture 20000 333 4000 16 1`): the rule went from 363
+lines to 266, its neighbourhood, path and attribute handling gone; of a
+million wakes 283,000 are put whole where all were; the run's
+instructions the same within 0.2% -- a wake is bound by memory, not by
+what is carried.
 
 Their API follows the bitplanes': outside a tick, changes are queued
 (`Entities::queue_put`, `queue_remove`) and applied (`apply`), as the
@@ -115,9 +164,10 @@ for now, to be weighed again once entities join the simulation.
 | `src/sampling.rs` | Monte Carlo sampling |
 | `src/tick.rs` | the two-phase tick, its outboxes, a superchunk's turn |
 | `src/dispatcher.rs` | the threads |
-| `src/entities/` | entities: records, buckets, the timer wheel, changes queued |
+| `src/entities/` | entities: records, buckets, the timer wheel, the instructions queued |
+| `src/around.rs` | the 3x3 cells about a cell, as nine bits |
 | `src/diagnostics/` | what the entities hold |
-| `tests/` | sampling, the tick and the dispatcher, judged |
+| `tests/` | sampling, the tick, the entities, their instructions and the dispatcher, judged |
 | `docs/` | this, and the reference, function by function |
 
 Its diagnostics only gather what the entities hold; it has no transient

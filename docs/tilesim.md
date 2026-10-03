@@ -674,14 +674,29 @@ about the sheep -- a quarter of them grass -- read at a meal, once in
 6,912 ticks: grass left alone covers a third of the dirt and grows
 fastest covering a sixth, so the flock stops growing while the grass
 still gains on it. And a sheep that eats where it is not lush leaves:
-hungry again, it walks 48 steps one way, eating nothing, before it
-looks for grass (`ROAMING`, an attribute: steps left and the way).
+hungry again, it walks one way for 3,456 ticks -- 48 steps or so --
+eating nothing, before it looks for grass (`ROAMING`, an attribute:
+the tick it roams until and the way, set once, so a step on the way
+changes nothing but its cell).
 
 Measured, headless, 4 superchunks from 4,000 sheep each, 2 million
 ticks: the flock rises to 43,800, falls to 2,900, and comes round to
 about 10,000 with the grass near a fifth of the cells, the swings
 smaller each time. Without the roaming the same run ends at 232 sheep
 and falling; at one in three and no roaming, at none.
+
+### An instruction for each thing done to an entity
+
+The sheep did everything by one instruction -- the whole entity put
+again, attributes and all, each wake -- and held in its own file what
+every entity will want: the nine cells beside it as bits, a free one
+for a lamb, the path to grass round the others. All of it is now the
+simulation's (`simulation/docs/simulation.md`, "What a rule is given"):
+four instructions -- put, move, edit, remove -- the neighbourhood and
+the path asked of the turn, and `Edit`, which picks the instruction
+from what changed. An entity acts on another by an edit, an attribute
+at a time. The sheep, written on them again, is a third shorter and
+does what it did.
 
 ### Pathfinding (built, first form)
 

@@ -2302,7 +2302,6 @@ dependencies = [
  "bitplane_manager",
  "chunk_storage",
  "coordinates",
- "pathfinding",
  "simulation",
  "utilities",
 ]
@@ -4346,6 +4345,7 @@ dependencies = [
  "bitplane_manager",
  "chunk_storage",
  "coordinates",
+ "pathfinding",
  "utilities",
 ]
 

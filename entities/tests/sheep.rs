@@ -11,7 +11,7 @@ use coordinates::{CartesianCell, SUPERCHUNK_SIDE_CELLS};
 use simulation::entities::{Attribute, EntityId, EntityRef, Header};
 use simulation::Simulation;
 use entities::diagnostics::world::World;
-use entities::sheep::{rule, tick, SheepTickMetrics, HUNGRY_AT, LAMB, MEAL_TICKS, PREGNANT, ROAMING, ROAM_STEPS, SHEEP, STARVE_TICKS, STEP_JITTER, STEP_TICKS};
+use entities::sheep::{rule, tick, SheepTickMetrics, HUNGRY_AT, LAMB, MEAL_TICKS, PREGNANT, ROAMING, ROAM_TICKS, SHEEP, STARVE_TICKS, STEP_JITTER, STEP_TICKS};
 
 /// Every sheep knows when it is next hungry, is a sheep, and is
 /// never both a lamb and pregnant.
@@ -93,7 +93,7 @@ fn hungry_sheep_walk_to_the_nearest_grass() {
 }
 
 /// A sheep that eats on thin pasture leaves it: hungry again, it walks
-/// [`ROAM_STEPS`] cells one way, a step a wake, before it looks for
+/// one way for [`ROAM_TICKS`], a step a wake, before it looks for
 /// grass.
 #[test]
 fn sheep_on_thin_pasture_roam_away() {
@@ -107,7 +107,7 @@ fn sheep_on_thin_pasture_roam_away() {
     world.entities.apply();
     let mut simulation = Simulation::new(1);
     let (mut eaten, mut set_off, mut came_to) = (0, false, None);
-    for seed in 0..MEAL_TICKS + (ROAM_STEPS + 4) * (STEP_TICKS + STEP_JITTER) {
+    for seed in 0..MEAL_TICKS + ROAM_TICKS + 4 * (STEP_TICKS + STEP_JITTER) {
         eaten += tick(&mut simulation, &mut world.arena, &mut world.entities, seed).rules.eaten;
         let sheep = world.entities.iter().next().expect("the sheep, alive");
         let roaming = sheep.attribute(ROAMING).is_some();
@@ -119,7 +119,8 @@ fn sheep_on_thin_pasture_roam_away() {
     let came_to = came_to.expect("it set off, and its steps ran out");
     assert_eq!(eaten, 1, "the one cell of grass, eaten: thin pasture");
     let apart = (came_to.x.abs_diff(start.x)).max(came_to.y.abs_diff(start.y));
-    assert_eq!(apart as u64, ROAM_STEPS, "one way, every step");
+    let steps = ROAM_TICKS / (STEP_TICKS + STEP_JITTER)..=ROAM_TICKS / STEP_TICKS + 1;
+    assert!(steps.contains(&(apart as u64)), "{apart} cells off: one way, every step");
 }
 
 /// Grass and sheep over four superchunks, across their borders, come out

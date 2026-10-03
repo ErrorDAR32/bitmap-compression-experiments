@@ -37,7 +37,21 @@ attributes)`**: an entity made or changed where it stands, waking after
 this tick; **`update(before, after, attributes)`**: changed, and moved
 to its cell if that is free -- staying if not; passed over if no longer
 where the tick found it -- or, to another superchunk, crossing;
-**`remove(header)`**. **`settle_crossings`**: before the rule, each of
+**`remove(header)`**. **`spawn(kind, at, wake, attributes)`**: a new
+entity, its ID drawn and returned. **`step(entity, to, wake)`**,
+**`sleep(entity, wake)`**: a move, no attributes carried -- whole, as
+`update`, to another superchunk. **`set_attribute(entity, kind,
+value)`**, **`unset_attribute(entity, kind)`**: an edit of any entity in
+reach. **`commit(edit, to, wake)`**: an `Edit`'s entity moved if no
+attribute changed, else put whole. **`around(type, at)`**: the 3x3
+cells about `at`, an **`Around`** `{set, hot}` of nine bits;
+**`around_occupied(at)`**: those entities stand on;
+**`free_beside(at, open)`**: one of `open` none stands on, drawn.
+**`occupied_about(centre)`**: the entities on an area's cells.
+**`step_towards(at, goals, passable)`**, **`step_to(at, to,
+passable)`**: the cell to step to for the nearest goal, or for one
+cell, round the entities in the way. **`Area::count`**.
+**`settle_crossings`**: before the rule, each of
 last tick's crossings removed here if found there, else woken. **`slot_of`**: the slot of a
 superchunk, past the neighbours panicking.
 
@@ -65,7 +79,16 @@ in the world.
 `NEVER`; **`EntityRef`** `{header, attributes}` with
 **`attribute(kind)`**; free functions on a list sorted by type:
 **`attribute`**, **`set_attribute`** (added if absent),
-**`remove_attribute`**; **`sorted`**.
+**`remove_attribute`**; **`sorted`**. **`Edit::of(entity, room)`**: an
+entity being changed -- **`header`**, **`get(kind)`**, **`set(kind,
+value)`**, **`unset(kind)`**, **`attributes`**, **`edited`**: its
+attributes copied into `room` when first one changes, not before.
+
+**`around.rs`**: `CENTRE`, `ALL`, `RING`; **`Around`** `{set, hot}`;
+**`squeeze(rows)`**: a 3x3 window's rows as nine bits;
+**`cell(at, bit)`**, **`bit_of(at, cell)`**; **`pick(random,
+choices)`**: one of the set bits, none and nothing drawn if there is
+none; **`prefer(random, wanted, open)`**: of `wanted` if any is open.
 
 **`bucket.rs`**: **`place(cell)`**: a cell's place in its chunk, a
 `u16`. **`Bucket`**: `Record`s (a header, its attributes' first index
@@ -74,13 +97,15 @@ beside, which is what is searched, among one block's at a time (`starts`,
 `BLOCKS`); the attributes; the garbage count.
 **`get(id, at)`**, **`iter`**, **`occupied(place)`**,
 **`in_tile(first)`** (the places on an aligned 8x8 tile, a run),
-**`put(header, was, attributes)`** -- a **`Put`**: `InPlace`; `Moved`
+**`put(header, was, attributes)`** -- with no attributes given, those it
+has kept, and not made if not there -- a **`Put`**: `InPlace`; `Moved`
 (**`shift`**) to its cell if that is another and free, else `Stayed`;
 `New` if it is not there, `was` is its cell and it is free, else
 `Refused`; `PassedOver` if it was to have moved and is not where it
 stood. **`rewrite`**: attributes in place when the count is the same,
 else a new run at the end. **`remove(id, at)`**, **`slot(place)`**,
-**`find(place, id)`**, **`sweep`** once garbage reaches the attributes
+**`edit(id, place, kind, value)`** (one attribute set in place, or the
+run made anew with it added or removed), **`find(place, id)`**, **`sweep`** once garbage reaches the attributes
 in use (and 64).
 
 **`wheel.rs`**: `WHEEL_TICKS` (1024); **`Wake`** `{id, at}`;
@@ -110,15 +135,16 @@ bitplanes' `Reader`: **`get(id, at)`**, **`chunk(position)`**,
 among up to 16x16 (`OCCUPIED_SIDE`), a row a word, from the up to nine
 tiles' runs of places (**`in_tile`**).
 
-**`commands.rs`**: **`Commands`**: puts and removes queued for one
-superchunk, the puts' attributes in a list beside:
-**`put(header, from, attributes)`**, **`cross(header, to,
-attributes)`**, **`remove`**, **`apply(superchunks, earliest,
+**`commands.rs`**: **`Commands`**: the instructions queued for one
+superchunk -- put, move, edit, remove -- the puts' attributes in a list
+beside: **`put(header, from, attributes)`**, **`cross(header, to,
+attributes)`**, **`shift(header, from)`** (a move),
+**`edit(id, at, kind, value)`**, **`remove`**, **`apply(superchunks, earliest,
 applied)`** in order, each on its cell's superchunk (a put elsewhere
 lost, one of an entity no longer where it stood passed over, a new
 one on a cell taken refused, a mover to one staying),
-**`count_lost`**, **`clear`**. **`EntitiesApplied`** `{puts, removes,
-lost, stayed, refused}`, added with `+=`.
+**`count_lost`**, **`clear`**. **`EntitiesApplied`** `{puts, moves,
+edits, removes, lost, stayed, refused}`, added with `+=`.
 
 ## `diagnostics/entities.rs`
 
