@@ -34,7 +34,7 @@ use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use coordinates::SUPERCHUNK_SIDE_CELLS;
 use paint::Picture;
-use sim::{side, start, Request, Viewport, TARGET_PACE};
+use sim::{side, start, Ask, Request, Viewport, TARGET_PACE};
 use std::sync::mpsc::{Receiver, Sender};
 use std::sync::Mutex;
 use tilesim::diagnostics::frames::BROWN;
@@ -51,6 +51,23 @@ const WHEEL_ZOOM: f32 = 0.85;
 /// Seconds from one frame asked for to the next, at least: no oftener
 /// than a screen shows them.
 const SYNC_EVERY: f32 = 1.0 / 60.0;
+/// The coarsest the world is drawn: a pixel `2^6` cells a side, a
+/// superchunk 16 pixels.
+const COARSEST: u32 = 6;
+/// Pixels along the side of an image kept when its superchunk goes out
+/// of view, at most: a finer one is dropped, to be asked for again.
+const KEPT_SIDE: u32 = 64;
+
+/// Superchunks a frame carries at most, drawn at `detail`: fewer the
+/// finer, a fine one being more to paint and to send to the graphics
+/// card. The window goes round those in view, so many frames.
+const fn frame_holds(detail: u32) -> u32 {
+    match detail {
+        0 | 1 => 8,
+        2 => 16,
+        _ => 32,
+    }
+}
 
 /// The simulation, as the window holds it: where to ask, where the
 /// answers come, and what it was last told.
@@ -64,6 +81,9 @@ struct Link {
     waiting: bool,
     /// Seconds since a frame was last asked for.
     since: f32,
+    /// What was last asked for: the next frame goes on from it, round
+    /// the superchunks in view.
+    asked: Option<Ask>,
     /// Whether the simulation is paused.
     paused: bool,
     /// Ticks a second it is held to, or flat out.
@@ -80,6 +100,8 @@ struct Tiles {
     side: u32,
     /// Each superchunk's image.
     images: Vec<Handle<Image>>,
+    /// Pixels along each image's side, as last drawn.
+    sides: Vec<u32>,
 }
 
 /// What the last frame said of the world.
@@ -95,6 +117,10 @@ struct Seen {
     grass: u64,
     /// Superchunks the frame held.
     tiles: usize,
+    /// Superchunks in view.
+    in_view: u32,
+    /// How coarsely they are drawn: a pixel `2^detail` cells a side.
+    detail: u32,
     /// Seconds of the simulation's thread the frame took.
     sync_seconds: f64,
     /// The share of that thread's time frames take.
@@ -138,12 +164,21 @@ fn main() {
                 .set(ImagePlugin::default_nearest())
                 .set(WindowPlugin { primary_window: Some(Window { title: "TileSim".to_string(), ..default() }), ..default() }),
         )
-        .insert_resource(Link { requests, frames: Mutex::new(paint::start(frames)), waiting: false, since: SYNC_EVERY, paused: false, pace, watch_for })
-        .insert_resource(Tiles { side: side(superchunks), images: Vec::new() })
+        .insert_resource(Link { requests, frames: Mutex::new(paint::start(frames)), waiting: false, since: SYNC_EVERY, asked: None, paused: false, pace, watch_for })
+        .insert_resource(Tiles { side: side(superchunks), images: Vec::new(), sides: Vec::new() })
         .init_resource::<Seen>()
         .add_systems(Startup, setup)
         .add_systems(Update, (steer, keys, sync, hud).chain())
         .run();
+}
+
+/// Dirt, one pixel of it: a superchunk not drawn yet.
+const DIRT: [u8; 4] = [BROWN[0], BROWN[1], BROWN[2], u8::MAX];
+
+/// An image `side` pixels a side, of `pixels`.
+fn picture(side: u32, pixels: Vec<u8>) -> Image {
+    let size = Extent3d { width: side, height: side, depth_or_array_layers: 1 };
+    Image::new(size, TextureDimension::D2, pixels, TextureFormat::Rgba8UnormSrgb, RenderAssetUsages::default())
 }
 
 /// The camera over the world's middle, the whole of it in view; an
@@ -156,14 +191,14 @@ fn setup(mut commands: Commands, mut images: ResMut<Assets<Image>>, mut tiles: R
         Projection::Orthographic(OrthographicProjection { scale, ..OrthographicProjection::default_2d() }),
         Transform::from_xyz(world_side / 2.0, -world_side / 2.0, 0.0),
     ));
-    let size = Extent3d { width: SUPERCHUNK_SIDE_CELLS, height: SUPERCHUNK_SIDE_CELLS, depth_or_array_layers: 1 };
-    let dirt = [BROWN[0], BROWN[1], BROWN[2], u8::MAX];
     for index in 0..tiles.side * tiles.side {
-        let image = images.add(Image::new_fill(size, TextureDimension::D2, &dirt, TextureFormat::Rgba8UnormSrgb, RenderAssetUsages::default()));
+        let image = images.add(picture(1, DIRT.to_vec()));
         let (x, y) = ((index % tiles.side) as f32, (index / tiles.side) as f32);
-        // The world's y grows downwards, the screen's plane's upwards.
-        commands.spawn((Sprite::from_image(image.clone()), Transform::from_xyz((x + 0.5) * TILE_SIDE, -(y + 0.5) * TILE_SIDE, 0.0)));
+        // A superchunk's side on the screen's plane whatever its image's; the world's y grows downwards, the plane's upwards.
+        let sprite = Sprite { image: image.clone(), custom_size: Some(Vec2::splat(TILE_SIDE)), ..default() };
+        commands.spawn((sprite, Transform::from_xyz((x + 0.5) * TILE_SIDE, -(y + 0.5) * TILE_SIDE, 0.0)));
         tiles.images.push(image);
+        tiles.sides.push(1);
     }
     commands.spawn((
         Text::new(""),
@@ -190,7 +225,7 @@ fn steer(
     let held = |these: [KeyCode; 2]| keys.any_pressed(these) as i32 as f32;
     let nearer = held([KeyCode::KeyE, KeyCode::Equal]) - held([KeyCode::KeyQ, KeyCode::Minus]);
     view.scale *= WHEEL_ZOOM.powf(scroll.delta.y) * ZOOM_SPEED.powf(-nearer * time.delta_secs());
-    view.scale = view.scale.clamp(0.02, 64.0);
+    view.scale = view.scale.clamp(0.02, 256.0);
     let across = held([KeyCode::KeyD, KeyCode::ArrowRight]) - held([KeyCode::KeyA, KeyCode::ArrowLeft]);
     let up = held([KeyCode::KeyW, KeyCode::ArrowUp]) - held([KeyCode::KeyS, KeyCode::ArrowDown]);
     let step = PAN_SPEED * window.height() * view.scale * time.delta_secs();
@@ -224,7 +259,7 @@ fn keys(mut link: ResMut<Link>, keys: Res<ButtonInput<KeyCode>>) {
 /// for the next: the superchunks now in view.
 fn sync(
     mut link: ResMut<Link>,
-    tiles: Res<Tiles>,
+    mut tiles: ResMut<Tiles>,
     mut images: ResMut<Assets<Image>>,
     mut seen: ResMut<Seen>,
     camera: Single<(&Transform, &Projection), With<Camera2d>>,
@@ -241,14 +276,17 @@ fn sync(
             sheep: frame.sheep,
             grass: frame.grass,
             tiles: frame.tiles.len(),
+            in_view: seen.in_view,
+            detail: seen.detail,
             sync_seconds: frame.sync_seconds,
             sync_share: frame.sync_share,
             paint_seconds: frame.paint_seconds,
         };
         for tile in frame.tiles {
-            let handle = &tiles.images[(tile.at.1 * tiles.side + tile.at.0) as usize];
-            if let Some(mut image) = images.get_mut(handle) {
-                image.data = Some(tile.pixels);
+            let index = (tile.at.1 * tiles.side + tile.at.0) as usize;
+            if let Some(mut image) = images.get_mut(&tiles.images[index]) {
+                *image = picture(tile.side, tile.pixels);
+                tiles.sides[index] = tile.side;
             }
         }
     }
@@ -269,7 +307,30 @@ fn sync(
         return;
     }
     let viewport = Viewport { first: (superchunk(left), superchunk(top)), last: (superchunk(right), superchunk(bottom)) };
-    link.waiting = link.requests.send(Request::Sync(viewport)).is_ok();
+    // A pixel of the screen is `scale` cells: drawn no finer than that.
+    let detail = (view.scale.max(1.0).log2().floor() as u32).min(COARSEST);
+    let in_view = (viewport.last.0 - viewport.first.0 + 1) * (viewport.last.1 - viewport.first.1 + 1);
+    let most = frame_holds(detail);
+    // On round the superchunks in view from the last frame's, or from the first if the view changed.
+    let skip = match link.asked {
+        Some(last) if last.viewport == viewport && last.detail == detail && last.skip + last.most < in_view => last.skip + last.most,
+        _ => 0,
+    };
+    let ask = Ask { viewport, detail, skip, most };
+    (seen.in_view, seen.detail) = (in_view, detail);
+    // Fine images of superchunks gone out of view are dropped: each is 4 MiB here and as much on the graphics card.
+    for index in 0..tiles.sides.len() {
+        let (x, y) = (index as u32 % tiles.side, index as u32 / tiles.side);
+        let out_of_view = x < viewport.first.0 || x > viewport.last.0 || y < viewport.first.1 || y > viewport.last.1;
+        if out_of_view && tiles.sides[index] > KEPT_SIDE {
+            if let Some(mut image) = images.get_mut(&tiles.images[index]) {
+                *image = picture(1, DIRT.to_vec());
+                tiles.sides[index] = 1;
+            }
+        }
+    }
+    link.waiting = link.requests.send(Request::Sync(ask)).is_ok();
+    link.asked = Some(ask);
     link.since = 0.0;
 }
 
@@ -286,11 +347,13 @@ fn hud(mut text: Single<&mut Text, With<Hud>>, seen: Res<Seen>, link: Res<Link>)
         None => String::new(),
     };
     text.0 = format!(
-        "tick {}{watched}\n{} ticks a second ({pace})\n{} sheep   {} cells of grass\na frame, {} superchunk(s): {:.0} us of the simulation ({:.2}% of its time), {:.1} ms painting\nmove: arrows, WASD, drag   zoom: wheel, Q E   space: pause   F: flat out   [ ]: pace",
+        "tick {}{watched}\n{} ticks a second ({pace})\n{} sheep   {} cells of grass\n{} superchunk(s) in view, a pixel {} cell(s) a side\na frame, {} of them: {:.0} us of the simulation ({:.2}% of its time), {:.1} ms painting\nmove: arrows, WASD, drag   zoom: wheel, Q E   space: pause   F: flat out   [ ]: pace",
         grouped(seen.tick),
         grouped(seen.ticks_a_second as u64),
         grouped(seen.sheep as u64),
         grouped(seen.grass),
+        seen.in_view,
+        1u32 << seen.detail,
         seen.tiles,
         seen.sync_seconds * 1e6,
         seen.sync_share * 100.0,

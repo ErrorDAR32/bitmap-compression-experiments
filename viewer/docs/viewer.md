@@ -46,14 +46,33 @@ window replaying writes would have to hold the world again and apply
 every one as the arena does, and one lost would leave it wrong for
 good.
 
+## Many superchunks
+
+A world of 1,024 superchunks -- 32,768 cells a side -- is seen whole,
+which a pixel a cell cannot do: that would be 4 GiB of pixels a frame.
+
+- **From far off, a pixel is a block of cells**, `2^detail` a side, as
+  many as a screen pixel covers, up to 64: the block's colours mixed,
+  brown and green by its grass, white by its sheep. An aligned block is
+  a run of bits in Morton order, so its grass is counted from the words
+  with no cell looked at.
+- **A frame carries only so many superchunks** -- 8 drawn fine, 32
+  coarse -- and the window goes round those in view, frame after frame.
+  So what a frame costs the simulation is the same however many are in
+  view; the whole view is drawn afresh in half a second at most.
+- **A fine image is dropped when its superchunk leaves the view**: it
+  is 4 MiB here and as much on the graphics card.
+
+Measured, 1,024 superchunks with 1,000 sheep each, flat out on 12
+threads: 150 ticks a second, 2.3 GiB held, 45 seconds to make the mock
+world; a frame of one superchunk 111 us of the simulation's thread.
+
 ## Still to come
 
-A frame is every superchunk in view, whole: its words copied, 4 MiB of
-pixels painted and sent to the graphics card. To come: only the chunks
-changed since the frame before; the words coloured by the graphics
-card itself, with no pixels made here; and, from far off, where a cell
-is less than a pixel, the chunks' counts of set cells, which the arena
-already keeps.
+The words of every superchunk a frame carries are still copied whole,
+and painted here: to come, only the chunks changed since they were last
+sent, and the words coloured by the graphics card itself, with no
+pixels made here.
 
 ## Keys
 

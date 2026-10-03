@@ -7,7 +7,9 @@
 //! superchunks in view as the last tick left them -- their grass's
 //! words, copied as they are, and where their sheep stand. It copies and
 //! nothing more: turning cells into pixels is [`crate::paint`]'s, on
-//! another thread, so what is in view costs the ticks next to nothing.
+//! another thread, so what is in view costs the ticks next to nothing
+//! -- and a frame carries only so many superchunks, the window going
+//! round those in view, so it costs no more however many there are.
 //! It sends nothing unasked, so it is the window that sets how often
 //! the world is drawn, and a window that falls behind slows no tick.
 //!
@@ -68,11 +70,28 @@ pub struct Viewport {
     pub last: (u32, u32),
 }
 
+/// What the window wants of the world, one frame: some of the
+/// superchunks in view -- as many as a frame may carry, the window
+/// going round them frame after frame -- and how finely it will draw
+/// them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Ask {
+    /// The superchunks in view.
+    pub viewport: Viewport,
+    /// How coarsely they are drawn: a pixel `2^detail` cells a side.
+    /// Passed on to the painter; the simulation copies the same.
+    pub detail: u32,
+    /// Superchunks of the view, row by row, to pass over first.
+    pub skip: u32,
+    /// Superchunks to answer with, at most.
+    pub most: u32,
+}
+
 /// What the window asks of the simulation.
 #[derive(Clone, Copy, Debug)]
 pub enum Request {
-    /// The superchunks in view, as pixels: answered with a [`Frame`].
-    Sync(Viewport),
+    /// Some of the superchunks in view: answered with a [`Frame`].
+    Sync(Ask),
     /// Stop ticking, or go on.
     Pause(bool),
     /// Tick so many times a second, or flat out.
@@ -106,6 +125,8 @@ pub struct Frame {
     pub sync_seconds: f64,
     /// The share of the thread's time that is, at the rate asked.
     pub sync_share: f64,
+    /// How coarsely the window will draw them ([`Ask::detail`]).
+    pub detail: u32,
     /// The superchunks asked for.
     pub cells: Vec<Cells>,
 }
@@ -143,15 +164,15 @@ fn run(superchunks: u32, thousandths: usize, flock: usize, asked: &Receiver<Requ
         let mut request = if paused { asked.recv().ok() } else { None };
         loop {
             match request.take().map_or_else(|| asked.try_recv(), Ok) {
-                Ok(Request::Sync(viewport)) => {
+                Ok(Request::Sync(ask)) => {
                     let asked_at = Instant::now();
                     let elapsed = last_frame.elapsed().as_secs_f64();
                     let ticks_a_second = if elapsed > 0.0 { (tick - last_frame_tick) as f64 / elapsed } else { 0.0 };
                     (last_frame, last_frame_tick) = (asked_at, tick);
-                    let (sheep, grass, cells) = (world.entities.len(), world.grass(), copy(&world, superchunks, viewport));
+                    let (sheep, grass, cells) = (world.entities.len(), world.grass(), copy(&world, superchunks, ask));
                     let sync_seconds = asked_at.elapsed().as_secs_f64();
                     let sync_share = if elapsed > 0.0 { sync_seconds / elapsed } else { 0.0 };
-                    let frame = Frame { tick, ticks_a_second, sheep, grass, sync_seconds, sync_share, cells };
+                    let frame = Frame { tick, ticks_a_second, sheep, grass, sync_seconds, sync_share, detail: ask.detail, cells };
                     if answers.send(frame).is_err() {
                         return;
                     }
@@ -186,16 +207,16 @@ fn run(superchunks: u32, thousandths: usize, flock: usize, asked: &Receiver<Requ
     }
 }
 
-/// The superchunks of `world` in `viewport`, copied: each one's grass,
-/// words as they are, and its sheep's cells.
-fn copy(world: &World, superchunks: u32, viewport: Viewport) -> Vec<Cells> {
+/// The superchunks of `world` that `ask` asks for, copied: each one's
+/// grass, words as they are, and its sheep's cells.
+fn copy(world: &World, superchunks: u32, ask: Ask) -> Vec<Cells> {
     let side = side(superchunks);
+    let (first, last) = (ask.viewport.first, ask.viewport.last);
+    let in_view = (first.1..=last.1.min(side - 1)).flat_map(|y| (first.0..=last.0.min(side - 1)).map(move |x| (x, y)));
     let mut copied = Vec::new();
-    for y in viewport.first.1..=viewport.last.1.min(side - 1) {
-        for x in viewport.first.0..=viewport.last.0.min(side - 1) {
-            if let Some(&superchunk) = world.superchunks.get((y * side + x) as usize) {
-                copied.push(Cells { at: (x, y), grass: grass(world, superchunk), sheep: sheep(world, superchunk) });
-            }
+    for (x, y) in in_view.skip(ask.skip as usize).take(ask.most as usize) {
+        if let Some(&superchunk) = world.superchunks.get((y * side + x) as usize) {
+            copied.push(Cells { at: (x, y), grass: grass(world, superchunk), sheep: sheep(world, superchunk) });
         }
     }
     copied
