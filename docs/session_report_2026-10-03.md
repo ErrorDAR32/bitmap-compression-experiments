@@ -79,6 +79,7 @@ streams share no draw.
 | prefetch the dirt beside samples and the words writes land in | nothing: 348 against 350 ns a sample | no |
 | `target-cpu=native` (hardware popcount) | 9.5% more ticks a second at 64 and at 400 superchunks | yes |
 | block counts over 16 words, not 64 | neutral to -4% up to 144 superchunks; +9% at 400, +14% at 1,024 | yes |
+| prefetch the grass and walls about sheep to wake (`woken_reading`) | +5.5% on a generated 64-superchunk world (13,964 ticks a second); -4% on the mock, which has no walls | yes |
 
 ## Layout now
 
@@ -123,6 +124,5 @@ streams share no draw.
 
 1. Two wall layers instead of four, if the diagonal rule above is
    acceptable: half the walls' memory and reads.
-2. Prefetch the 3x3 window of a woken sheep (10% at the flock's peak).
-3. Save and load from the viewer.
-4. Heights compressed in the image: most of a save's bytes.
+2. Save and load from the viewer.
+3. Heights compressed in the image: most of a save's bytes.

@@ -7,6 +7,7 @@ publish = false
 
 [dependencies]
 simulation = { path = "../simulation" }
+terrain = { path = "../terrain" }
 coordinates = { path = "../coordinates" }
 utilities = { path = "../utilities" }
 bitplane_manager = { path = "../bitplane_manager" }

@@ -418,6 +418,14 @@ impl<'a> SuperChunkTick<'a> {
         entities.woken(self.now)
     }
 
+    /// [`SuperChunkTick::woken`], for a rule that reads the cells of
+    /// `layers` about each entity woken: they are asked of memory a few
+    /// wakes ahead.
+    pub fn woken_reading<const N: usize>(&self, layers: [LayerType; N]) -> impl Iterator<Item = EntityRef<'a>> + 'a {
+        let (entities, reader): (&'a SuperChunkEntities, &'a Reader<'a>) = (self.entities, self.reader);
+        entities.woken_asking(self.now, move |cell| layers.iter().for_each(|&layer_type| reader.prefetch(layer_type, cell)))
+    }
+
     /// The entity whose ID is `id`, standing on `at` -- in any
     /// superchunk held -- as the tick found it.
     pub fn entity(&self, id: EntityId, at: CellIndex) -> Option<EntityRef<'a>> {

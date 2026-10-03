@@ -103,7 +103,28 @@ entities are now asked of memory ahead: a wake 271 ns where it was 359
 (`simulation/docs/simulation.md`, "Woken entities are asked of memory
 ahead").
 
+## The cells about a woken sheep, asked for ahead
+
+`SuperChunkTick::woken_reading(layers)`: as woken entities are asked of
+memory ahead, so are the cells about them, of the layers the rule says
+it reads -- the sheep's grass and the four walls.
+
+| world | before | after |
+|---|---|---|
+| generated, 64 superchunks, walls (`tilesim run <dir> 30000`) | 13,236 ticks a second | 13,964 |
+| mock, 400 superchunks, no walls (`diagnostics pasture 20000 333 4000 400 12`) | a wake 695 ns, 2,381 ticks a second | 645 ns, 2,375 |
+| mock, 64 superchunks, no walls | a wake 439 ns, 15,131 ticks a second | 477 ns, 14,566 |
+
+Kept for the world that is played: 5% more ticks a second with walls
+to read. On the mock, which has no walls, asking for four layers that
+are not there is pure cost at 64 superchunks.
+
 ## Terrain
+
+A generated 64-superchunk world now runs 13,964 ticks a second, with
+the native build, the smaller blocks and the cells asked for ahead; the
+figures below were taken before those.
+
 
 `tilesim new <dir> Perf 1 64`, `tilesim run <dir> 50000`: a generated
 world, walls read by every hungry sheep, 10,399 ticks a second; the

@@ -102,7 +102,15 @@ impl SuperChunkEntities {
     /// and sorted -- as the tick sees them -- those no longer due passed
     /// over. Those to come are asked of memory ahead ([`RECORD_AHEAD`]).
     pub fn woken(&self, tick: u64) -> impl Iterator<Item = EntityRef<'_>> {
+        self.woken_asking(tick, |_| {})
+    }
+
+    /// [`SuperChunkEntities::woken`], `ask` called with the cell of each
+    /// entity [`RECORD_AHEAD`] wakes before it is given: for whoever
+    /// will read the cells about it to ask memory for them.
+    pub fn woken_asking<'a>(&'a self, tick: u64, ask: impl Fn(CellIndex) + 'a) -> impl Iterator<Item = EntityRef<'a>> {
         let due = self.wheel.due(tick);
+        due[..due.len().min(RECORD_AHEAD)].iter().for_each(|ahead| ask(ahead.at));
         // The first have none before them to be asked for from.
         for ahead in &due[..due.len().min(RECORD_AHEAD)] {
             self.chunks[ahead.at.chunk_in_superchunk()].prefetch_record(ahead.at);
@@ -112,6 +120,7 @@ impl SuperChunkEntities {
         }
         due.iter().enumerate().filter_map(move |(at, wake)| {
             if let Some(ahead) = due.get(at + RECORD_AHEAD) {
+                ask(ahead.at);
                 self.chunks[ahead.at.chunk_in_superchunk()].prefetch_record(ahead.at);
             }
             if let Some(ahead) = due.get(at + ATTRIBUTES_AHEAD) {

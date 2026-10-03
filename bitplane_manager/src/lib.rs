@@ -60,6 +60,7 @@ use allocator::{Block, BlockPool};
 use bitmap::morton::morton_index;
 use bitmap::tile::{left_columns, rows_from_morton, top_rows, window, TILE_SIDE};
 use bitmap::{CellWords, BITS_PER_WORD, WORDS};
+use utilities::memory::prefetch;
 use chunk_storage::{ChunkStorage, LayerCodec, LayerType};
 use coordinates::{CellIndex, CellPlace, ChunkPlace, ChunkPosition, SuperChunkPosition, CHUNKS_IN_SUPERCHUNK};
 use std::cell::Cell;
@@ -364,6 +365,14 @@ impl<'a> Reader<'a> {
     /// it lies being worked out once.
     pub fn windows<const N: usize>(&self, types: [LayerType; N], origin: CellIndex, width: u32, height: u32) -> [Tile; N] {
         self.lookup.windows(self.superchunks, types, origin, width, height)
+    }
+
+    /// Asks memory for the word `cell` is in, of `layer_type`, ahead of
+    /// its being read: nothing if its bitmap is not hot.
+    pub fn prefetch(&self, layer_type: LayerType, cell: CellIndex) {
+        if let Some(cells) = self.lookup.bucket(self.superchunks, layer_type, cell) {
+            prefetch(&cells[cell.in_chunk() / BITS_PER_WORD]);
+        }
     }
 
     /// Whether `layer_type` holds at any cell of the block `cell` is

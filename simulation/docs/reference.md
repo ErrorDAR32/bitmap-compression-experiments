@@ -27,7 +27,8 @@ write)`** -- into the slot of each superchunk it lands in.
 `u16`: what pathfinding is handed. **`windows(types, ...)`**,
 **`areas(types, centre)`**: of several types at once.
 **`occupied(origin, width, height)`**: the cells entities stand on, as
-the tick found them. **`now`**, **`woken()`**: its entities
+the tick found them. **`now`**, **`woken_reading(layers)`** (the cells about each asked of
+memory ahead), **`woken()`**: its entities
 waking this tick, in Morton order, borrowed from
 the world as the tick found it, not from the turn, so changes can be
 queued while going through them. **`entity(id, at)`**,
