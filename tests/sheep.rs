@@ -12,13 +12,13 @@ use simulation::entities::{Attribute, EntityId, EntityRef, Header};
 use simulation::Simulation;
 use tilesim::diagnostics::world::World;
 use tilesim::pasture::tick;
-use tilesim::sheep::{rule, SheepTickMetrics, HUNGER, LAMB, MEAL_WAKES, PREGNANT, SHEEP, STARVE_WAKES, STEP_JITTER, STEP_TICKS};
+use tilesim::sheep::{rule, SheepTickMetrics, HUNGRY_AT, LAMB, MEAL_TICKS, PREGNANT, SHEEP, STARVE_TICKS, STEP_JITTER, STEP_TICKS};
 
-/// Every sheep is hungry no longer than it starves at, is a sheep, and is
+/// Every sheep knows when it is next hungry, is a sheep, and is
 /// never both a lamb and pregnant.
 fn well_formed(sheep: EntityRef) {
     assert_eq!(sheep.header.kind, SHEEP);
-    assert!(sheep.attribute(HUNGER).expect("hunger, always") < STARVE_WAKES);
+    assert!(sheep.attribute(HUNGRY_AT).is_some(), "when it is next hungry, always");
     assert!(sheep.attribute(LAMB).is_none() || sheep.attribute(PREGNANT).is_none(), "a lamb, pregnant");
 }
 
@@ -29,7 +29,7 @@ fn sheep_without_grass_starve() {
     let mut world = World::with_sheep(1, 0, 500);
     let mut simulation = Simulation::new(1);
     let (mut eaten, mut deaths) = (0, 0);
-    for seed in 0..STARVE_WAKES * (STEP_TICKS + STEP_JITTER) + STEP_TICKS {
+    for seed in 0..MEAL_TICKS + STARVE_TICKS + 2 * (STEP_TICKS + STEP_JITTER) {
         let done = tick(&mut simulation, &mut world.arena, &mut world.entities, seed).rules.sheep;
         (eaten, deaths) = (eaten + done.eaten, deaths + done.deaths);
     }
@@ -58,7 +58,7 @@ fn sheep_eat_breed_and_grow_up() {
     assert!(eaten > 5_000 && births > 100, "{eaten} eaten, {births} born");
     assert!(lambs_seen && pregnant_seen);
     assert_eq!(lost, 0, "no sheep walks off the superchunks held");
-    assert!(world.entities.iter().any(|sheep| sheep.attribute(LAMB).is_none() && sheep.attribute(HUNGER).is_some()), "grown sheep");
+    assert!(world.entities.iter().any(|sheep| sheep.attribute(LAMB).is_none() && sheep.attribute(HUNGRY_AT).is_some()), "grown sheep");
 }
 
 /// A hungry sheep with no grass beside it walks the shortest way to the
@@ -75,7 +75,7 @@ fn hungry_sheep_walk_to_the_nearest_grass() {
     world.arena.queue(DIRT, Write::cell(grass.into(), WriteOp::Unset));
     world.arena.apply();
     let header = Header { id: EntityId(1), kind: SHEEP, at: sheep.into(), wake: 0 };
-    world.entities.queue_put(header, &[Attribute { kind: HUNGER, value: MEAL_WAKES }]);
+    world.entities.queue_put(header, &[Attribute { kind: HUNGRY_AT, value: 0 }]);
     world.entities.apply();
     let mut simulation = Simulation::new(1);
     let (mut done, mut ate_at) = (SheepTickMetrics::default(), None);

@@ -20,34 +20,37 @@ every superchunk in use, on the simulation's threads.
 
 ## `sheep.rs`
 
-`SHEEP`, and its attributes `HUNGER`, `PREGNANT`, `LAMB`;
-`STEP_TICKS` (64) and `STEP_JITTER` (16) between wakes, `MEAL_WAKES`
-(96), `STARVE_WAKES` (288), `LUSH_CELLS` (4), `CONCEIVE_ONE_IN` (6),
-`LIFE_WAKES` (2400), `GESTATION_WAKES` (16), `LAMB_WAKES` (64).
+`SHEEP`, and its attributes `HUNGRY_AT`, `PREGNANT`, `LAMB`, each a
+tick; `STEP_TICKS` (64) and `STEP_JITTER` (16) between a walking
+sheep's steps, `MEAL_TICKS` (6,912), `STARVE_TICKS` (13,824),
+`LUSH_CELLS` (4), `CONCEIVE_ONE_IN` (6), `LIFE_TICKS` (172,800),
+`GESTATION_TICKS` (1,152), `LAMB_TICKS` (4,608).
 
-**`rule(turn)`**: every sheep waking on the superchunk's turn, hungry
-(`MEAL_WAKES` after its last meal) and on grass, eats it; dies at
-`STARVE_WAKES` without a meal, or of old age at one wake in
-`LIFE_WAKES`; counts its pregnancy down to a lamb born on its cell, or
-falls pregnant on a meal on lush pasture (`LUSH_CELLS` of the nine
-cells it stands amid grass, one in `CONCEIVE_ONE_IN`) if grown; counts
-its youth down; walks, and sleeps again (**`next_wake`**). A lamb is
-born on a cell seen free beside its mother
-(**`Around::clear_of_entities`**), who waits for one. Walking: hungry,
-onto a grass neighbour, else a step to the nearest grass no entity
-stands on in the area about it, round the entities in the way
-(**`path_to_grass`**: `SuperChunkTick::area` of grass, `occupied`, and
-`pathfinding::step_towards`, one step a wake); else onto any neighbour
-held (**`Around::step(turn, at, wanted)`**, **`pick`**, **`bit_of`**)
--- without looking whether an entity stands there: the step is turned
-back if one does. **`Around::read(turn, at)`**: the 3x3 cells around a
-sheep, its own in the middle (`CENTRE`), one window **`squeeze`**d to
-nine bits, grass and free. Returns
+**`rule(turn)`**: every sheep waking on the superchunk's turn sees to
+what it woke for and sleeps as long as it can. Hungry (past
+`HUNGRY_AT`) and on grass, it eats it, and is hungry again `MEAL_TICKS`
+on; hungry `STARVE_TICKS` with no meal, it dies. Its lamb due, it is
+born on a cell seen free beside it (**`Around::clear_of_entities`**),
+or waited for; it falls pregnant on a meal on lush pasture
+(`LUSH_CELLS` of the nine cells it stands amid grass, one in
+`CONCEIVE_ONE_IN`) if grown; a lamb past its tick is grown. Satisfied,
+it stays where it stands and wakes at the first of those ticks to come;
+hungry, it walks -- onto a grass neighbour, else a step to the nearest
+grass no entity stands on in the area about it, round the entities in
+the way (**`path_to_grass`**: `SuperChunkTick::area` of grass,
+`occupied`, and `pathfinding::step_towards`, one step a wake), else
+onto any neighbour held (**`Around::step(turn, at, wanted)`**,
+**`pick`**, **`bit_of`**), without looking whether an entity stands
+there: the step is turned back if one does -- and wakes a step's time
+on (**`next_step`**). Before a sleep it dies of old age at the sleep's
+ticks in `LIFE_TICKS`. **`Around::read(turn, at)`**: the 3x3 cells
+around a sheep, its own in the middle (`CENTRE`), one window
+**`squeeze`**d to nine bits, grass and free. Returns
 **`SheepTickMetrics`** `{woken, eaten, births, deaths, sought, paths}`
 -- paths looked for, and found -- added with `+=`.
 
 **`flock(entities, superchunk, count, random)`**: grown sheep, each
-some way from its last meal, queued each on a cell of its own drawn at
+some way from its next meal, queued each on a cell of its own drawn at
 random, waking
 over the next `STEP_TICKS` ticks.
 

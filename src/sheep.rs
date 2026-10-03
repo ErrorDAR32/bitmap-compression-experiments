@@ -1,33 +1,35 @@
-//! Sheep on the grass: TileSim's first entity. A sheep sleeps most of
-//! the time, waking every [`STEP_TICKS`] ticks or so -- a cell a wake
-//! at most, as a walker would -- and on each wake:
+//! Sheep on the grass: TileSim's first entity. A sheep sleeps until it
+//! next needs something, and wakes for that alone:
 //!
-//! - **Eats**: hungry -- [`MEAL_WAKES`] wakes after its last meal -- and
-//!   on grass, it eats it, the cell back to dirt; hungry and not, it
-//!   goes hungrier, and starves [`STARVE_WAKES`] wakes after its last
-//!   meal. Not hungry, it eats nothing.
+//! - **Rests while satisfied**: fed, it sleeps where it stands until it
+//!   is hungry again, [`MEAL_TICKS`] after its meal -- or until its lamb
+//!   is due, or it is grown, if that is sooner. It does not wake to
+//!   wander: a sheep with nothing to do costs nothing.
+//! - **Eats**: hungry and on grass, it eats it, the cell back to dirt.
+//!   Hungry and not, it walks, a step every [`STEP_TICKS`] ticks or so,
+//!   and starves [`STARVE_TICKS`] after it grew hungry.
 //! - **Breeds**: a grown sheep may fall pregnant on a meal taken on
 //!   lush pasture ([`LUSH_CELLS`]), at one in [`CONCEIVE_ONE_IN`];
-//!   [`GESTATION_WAKES`] wakes on, a lamb is born on its cell, grown
-//!   after [`LAMB_WAKES`] wakes. So a flock on thin grass stops
-//!   growing before it strips it.
-//! - **Dies**: of hunger, or of old age, at one wake in
-//!   [`LIFE_WAKES`].
+//!   [`GESTATION_TICKS`] on, a lamb is born on a free cell beside it,
+//!   grown [`LAMB_TICKS`] after. So a flock on thin grass stops growing
+//!   before it strips it.
+//! - **Dies**: of hunger, or of old age, [`LIFE_TICKS`] of sleep to a
+//!   life on average, whatever it sleeps by.
 //! - **Never stands where another does**: a step onto a cell an entity
 //!   stands on is turned back as it is carried out, and the sheep stays
 //!   where it is -- it does not look first, few cells having one; a
 //!   lamb is born on a cell seen free beside its mother, who waits for
 //!   one; and a path to grass goes round the entities in the way.
-//! - **Walks**: hungry, onto a neighbour with grass if there is one,
+//! - **Walks, hungry**: onto a neighbour with grass if there is one,
 //!   else a step along the shortest path to the nearest grass in the
 //!   [`AREA_SIDE`] by [`AREA_SIDE`] cells about it (`pathfinding`'s
-//!   waves) -- one pathfinding step a wake, no route kept;
-//!   not hungry, or with no grass in reach, onto any neighbour. Never
-//!   off the bitplanes held.
+//!   waves) -- one pathfinding step a wake, no route kept; with no
+//!   grass in reach, onto any neighbour. Never off the bitplanes held.
 //!
-//! Being pregnant or a lamb is an attribute the sheep has for a while:
-//! added and removed at run time, as attributes are meant to be. Hunger
-//! is one too, always there.
+//! When it is next hungry, when its lamb is due and when it is grown
+//! are attributes, each a tick: the last two added and removed at run
+//! time, as attributes are meant to be. They are ticks, not counts of
+//! wakes, because a sheep's wakes are as far apart as its needs.
 //!
 //! The rule runs in a tick's first phase, as grass does, reading the
 //! world as the tick found it: two sheep may eat one cell in a tick,
@@ -45,35 +47,36 @@ use utilities::rng::Rng;
 
 /// The sheep's type.
 pub const SHEEP: EntityType = EntityType(16);
-/// Wakes since a sheep last ate.
-pub const HUNGER: AttributeType = AttributeType(17);
-/// Wakes until a pregnant sheep gives birth.
+/// The tick a sheep is next hungry at.
+pub const HUNGRY_AT: AttributeType = AttributeType(17);
+/// The tick a pregnant sheep's lamb is due at.
 pub const PREGNANT: AttributeType = AttributeType(18);
-/// Wakes until a lamb is grown.
+/// The tick a lamb is grown at.
 pub const LAMB: AttributeType = AttributeType(19);
 
-/// Ticks between a sheep's wakes, at the least...
+/// Ticks between a walking sheep's steps, at the least...
 pub const STEP_TICKS: u64 = 64;
 /// ...and up to this many more, drawn each wake, so the flock's wakes
 /// spread over the ticks.
 pub const STEP_JITTER: u64 = 16;
-/// Wakes after a meal a sheep is hungry again at: until then it eats
-/// nothing, though it stands on grass.
-pub const MEAL_WAKES: u64 = 96;
-/// Wakes without a meal a sheep starves at.
-pub const STARVE_WAKES: u64 = 288;
+/// Ticks after a meal a sheep is hungry again at: until then it eats
+/// nothing, though it stands on grass, and sleeps.
+pub const MEAL_TICKS: u64 = 6912;
+/// Ticks a hungry sheep finds no meal in before it starves.
+pub const STARVE_TICKS: u64 = 13_824;
 /// Cells of grass among the nine a sheep stands amid, its own with
 /// them, for the pasture to be lush enough to breed on.
 pub const LUSH_CELLS: u32 = 4;
 /// A grown sheep falls pregnant at one meal on lush pasture in this
 /// many.
 pub const CONCEIVE_ONE_IN: u64 = 6;
-/// A sheep dies of old age at one wake in this many.
-pub const LIFE_WAKES: u64 = 2400;
-/// Wakes from falling pregnant to giving birth.
-pub const GESTATION_WAKES: u64 = 16;
-/// Wakes a lamb takes to grow.
-pub const LAMB_WAKES: u64 = 64;
+/// Ticks of sleep to a sheep's life, on average: before a sleep of so
+/// many ticks it dies of old age at so many in these.
+pub const LIFE_TICKS: u64 = 172_800;
+/// Ticks from falling pregnant to giving birth.
+pub const GESTATION_TICKS: u64 = 1152;
+/// Ticks a lamb takes to grow.
+pub const LAMB_TICKS: u64 = 4608;
 
 /// What the sheep did in a tick.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -104,20 +107,22 @@ impl AddAssign for SheepTickMetrics {
     }
 }
 
-/// The rule, on one superchunk's turn: every sheep waking eats, breeds
-/// and walks, and sleeps again.
+/// The rule, on one superchunk's turn: every sheep waking sees to what
+/// it woke for -- a meal, a lamb, growing up -- and sleeps again, as
+/// long as it can.
 pub fn rule(turn: &mut SuperChunkTick) -> SheepTickMetrics {
     let mut done = SheepTickMetrics::default();
     let mut attributes = Vec::new();
+    let now = turn.now();
     for sheep in turn.woken() {
         done.woken += 1;
         let (header, at) = (sheep.header, sheep.header.at);
         attributes.clear();
         attributes.extend_from_slice(sheep.attributes);
         let mut around = Around::read(turn, at);
-        let hunger = sheep.attribute(HUNGER).unwrap_or(0) + 1;
-        let fed = hunger >= MEAL_WAKES && around.grass & CENTRE != 0;
-        if !fed && hunger >= STARVE_WAKES || turn.random().below(LIFE_WAKES) == 0 {
+        let hungry_at = sheep.attribute(HUNGRY_AT).unwrap_or(now);
+        let fed = now >= hungry_at && around.grass & CENTRE != 0;
+        if !fed && now >= hungry_at + STARVE_TICKS {
             turn.remove(&header);
             done.deaths += 1;
             continue;
@@ -125,34 +130,41 @@ pub fn rule(turn: &mut SuperChunkTick) -> SheepTickMetrics {
         if fed {
             turn.queue(GRASS, Write::cell(at, WriteOp::Unset));
             turn.queue(DIRT, Write::cell(at, WriteOp::Set));
+            set_attribute(&mut attributes, HUNGRY_AT, now + MEAL_TICKS);
             done.eaten += 1;
         }
-        set_attribute(&mut attributes, HUNGER, if fed { 0 } else { hunger });
-        let lamb = sheep.attribute(LAMB);
+        let hungry = !fed && now >= hungry_at;
+        // What it next has to wake for, were it to sleep as long as it can.
+        let mut needs = if fed { now + MEAL_TICKS } else { hungry_at };
+        let grown_at = sheep.attribute(LAMB);
         match sheep.attribute(PREGNANT) {
-            // With no free cell beside it for the lamb, it waits a wake more.
-            Some(1) if around.clear_of_entities(turn, at) != 0 => {
+            Some(due) if now < due => needs = needs.min(due),
+            // With no free cell beside it for the lamb, it waits a step's time more.
+            Some(_) if around.clear_of_entities(turn, at) == 0 => needs = now,
+            Some(_) => {
                 remove_attribute(&mut attributes, PREGNANT);
                 let beside = around.pick(turn, at, around.free);
                 // The lamb's cell is no longer one to step to.
                 around.free &= !around.bit_of(at, beside);
-                let born = Header { id: turn.new_id(), kind: SHEEP, at: beside, wake: next_wake(turn) };
-                turn.put(born, &[Attribute { kind: HUNGER, value: 0 }, Attribute { kind: LAMB, value: LAMB_WAKES }]);
+                let born = Header { id: turn.new_id(), kind: SHEEP, at: beside, wake: next_step(turn) };
+                turn.put(born, &[Attribute { kind: HUNGRY_AT, value: now + MEAL_TICKS }, Attribute { kind: LAMB, value: now + LAMB_TICKS }]);
                 done.births += 1;
             }
-            Some(1) => {}
-            Some(left) => set_attribute(&mut attributes, PREGNANT, left - 1),
-            None if fed && lamb.is_none() && around.grass.count_ones() >= LUSH_CELLS && turn.random().below(CONCEIVE_ONE_IN) == 0 => set_attribute(&mut attributes, PREGNANT, GESTATION_WAKES),
+            None if fed && grown_at.is_none() && around.grass.count_ones() >= LUSH_CELLS && turn.random().below(CONCEIVE_ONE_IN) == 0 => {
+                set_attribute(&mut attributes, PREGNANT, now + GESTATION_TICKS);
+                needs = needs.min(now + GESTATION_TICKS);
+            }
             None => {}
         }
-        match lamb {
-            Some(1) => _ = remove_attribute(&mut attributes, LAMB),
-            Some(left) => set_attribute(&mut attributes, LAMB, left - 1),
+        match grown_at {
+            Some(grown_at) if now >= grown_at => _ = remove_attribute(&mut attributes, LAMB),
+            Some(grown_at) => needs = needs.min(grown_at),
             None => {}
         }
+        // Hungry, it walks to grass; satisfied, it stays, and sleeps until it needs something.
         let grass_beside = around.grass & around.free;
-        let to = if fed || hunger < MEAL_WAKES {
-            around.step(turn, at, 0)
+        let to = if !hungry {
+            at
         } else if grass_beside != 0 {
             around.step(turn, at, grass_beside)
         } else if around.free == 0 {
@@ -168,14 +180,20 @@ pub fn rule(turn: &mut SuperChunkTick) -> SheepTickMetrics {
                 None => around.step(turn, at, 0),
             }
         };
-        let wake = next_wake(turn);
+        let wake = if hungry { next_step(turn) } else { next_step(turn).max(needs + turn.random().below(STEP_JITTER)) };
+        // Old age comes by the tick, not the wake: a long sleep is as much of a life as many short ones.
+        if turn.random().below(LIFE_TICKS) < wake - now {
+            turn.remove(&header);
+            done.deaths += 1;
+            continue;
+        }
         turn.update(&header, Header { at: to, wake, ..header }, &attributes);
     }
     done
 }
 
-/// The tick a sheep waking now wakes next.
-fn next_wake(turn: &mut SuperChunkTick) -> u64 {
+/// The tick a sheep taking a step now wakes next.
+fn next_step(turn: &mut SuperChunkTick) -> u64 {
     turn.now() + STEP_TICKS + turn.random().below(STEP_JITTER)
 }
 
@@ -269,7 +287,7 @@ fn path_to_grass(turn: &mut SuperChunkTick, at: CellIndex) -> Option<CellIndex> 
     at.offset(first.x as i32 - AREA_CENTRE as i32, first.y as i32 - AREA_CENTRE as i32)
 }
 
-/// Queues `count` grown sheep, each some way from its last meal, each
+/// Queues `count` grown sheep, each some way from its next meal, each
 /// on a cell of its own of `superchunk` drawn from `random` -- at most
 /// half its cells' worth of them -- waking over the next [`STEP_TICKS`]
 /// ticks: put in the world by [`Entities::apply`].
@@ -286,6 +304,6 @@ pub fn flock(entities: &mut Entities, superchunk: SuperChunkPosition, count: usi
             continue;
         }
         let header = Header { id: EntityId(random.draw()), kind: SHEEP, at: at.into(), wake: now + random.below(STEP_TICKS) };
-        entities.queue_put(header, &[Attribute { kind: HUNGER, value: random.below(MEAL_WAKES) }]);
+        entities.queue_put(header, &[Attribute { kind: HUNGRY_AT, value: now + random.below(MEAL_TICKS) }]);
     }
 }

@@ -578,7 +578,7 @@ grazed-out patch stays bare, and a sheep in one starves before it
 walks out. The sheep since:
 
 - **Graze when hungry**: a meal every 96 wakes, not every wake;
-  starving 288 wakes after the last.
+  starving 288 wakes after the last. (Since held as ticks: below.)
 - **Breed on lush pasture only**: on a meal taken where at least 4 of
   the 9 cells it stands amid are grass, at one in 6. Thin grass stops
   a flock growing before it is stripped: the brake a flock lacked.
@@ -643,6 +643,21 @@ from the next. What was tried on the way, each measured: the bitplane
 written through the write queues' own path, 36% slower on one thread;
 written a bit at a time, and read with the grass in one window, 10%
 slower on one thread and 20% on 12.
+
+### A sheep sleeps until it needs something
+
+A satisfied sheep used to wake every 64 ticks to wander, and count its
+hunger, its pregnancy and its youth a wake at a time: nearly every wake
+was a sheep with nothing to do. Now what a sheep has coming is held as
+ticks -- when it is next hungry, when its lamb is due, when it is grown
+-- and, satisfied, it stays where it stands and wakes at the first of
+them. Only a hungry sheep walks, a step every 64 ticks or so, to grass.
+Old age comes by the tick slept, not the wake. This is what the timer
+wheel was for: a tick costs the entities with something to do.
+
+Measured (`diagnostics pasture 20000 333 4000 64`, 12 threads): 88
+wakes a tick where there were about 3,600, and 17,400 ticks a second
+against 5,300.
 
 ### Pathfinding (built, first form)
 
