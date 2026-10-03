@@ -9,6 +9,7 @@ publish = false
 simulation = { path = "../simulation" }
 entity_rules = { path = "../entity_rules" }
 world = { path = "../world" }
+terrain = { path = "../terrain" }
 coordinates = { path = "../coordinates" }
 bitmap = { path = "../bitmap" }
 bitplane_manager = { path = "../bitplane_manager" }

@@ -4928,6 +4928,7 @@ dependencies = [
  "coordinates",
  "entity_rules",
  "simulation",
+ "terrain",
  "world",
 ]
 

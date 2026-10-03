@@ -15,6 +15,7 @@ spreading over dirt -- and the first entities: sheep eating it.
 | folder | what it is |
 |---|---|
 | [`docs/design_statements.md`](docs/design_statements.md) | the design statements |
+| [`docs/performance.md`](docs/performance.md) | what TileSim costs, measured: where memory takes over from the processor, what a tick is made of |
 | [`docs/testing_protocol.md`](docs/testing_protocol.md) | how TileSim is tested: diagnostics, tests and tools apart, and three tiers of test -- fine, fast, complete |
 | [`docs/tilesim.md`](docs/tilesim.md) | what TileSim is, and every decision about it so far: chunks, superchunks, layers, the simulation's plan |
 | [`src/`](src/) | the `tilesim` crate: the program -- worlds made from a seed, run and saved, from the command line |

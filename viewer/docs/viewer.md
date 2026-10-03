@@ -2,7 +2,10 @@
 
 TileSim on the screen: a pasture ticking on a thread of its own, and a
 Bevy window showing it, a cell a pixel, each in one solid colour --
-dirt brown, grass green, a sheep white, one pixel as it is one cell.
+dirt brown, grass green, a sheep white, one pixel as it is one cell;
+the world is a generated one (`world::generate_with`, seed 1), and its
+cliffs -- the cells keeping a wall to their east or south
+(`../terrain/`) -- are drawn darker, close up.
 
 `cargo run --release -p viewer -- [superchunks] [grass, thousandths] [sheep a superchunk] [ticks a second, 0 flat out] [ticks to watch for]`;
 16 superchunks, a third grass, 4,000 sheep each and 256

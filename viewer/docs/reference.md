@@ -4,7 +4,7 @@ The design is in `viewer.md`.
 
 ## `sim.rs`
 
-`TARGET_PACE` (256 ticks a second), `CHUNK_WORDS`, `CENSUS_EVERY`
+`TARGET_PACE` (256 ticks a second), `SEED` (1), `CHUNK_WORDS`, `CENSUS_EVERY`
 (1,000 ticks). **`census_path()`**: where the run's census is kept;
 **`census`**: its file, started afresh.
 
@@ -13,7 +13,8 @@ them counted from the world's top left, both corners in it.
 **`Ask`** `{viewport, detail, skip, most}`: what a frame is to carry --
 some of the superchunks in view, and how coarsely they will be drawn.
 **`Request`**: `Sync(ask)`, `Pause(bool)`, `Pace(ticks a second, or
-flat out)`. **`Cells`** `{at, grass, sheep}`: a superchunk's grass, its
+flat out)`. **`Cells`** `{at, grass, cliffs, sheep}`: a superchunk's grass and
+cliffs (**`layer`**), its
 16 chunks' words one after another, and its sheep's cells.
 **`Frame`** `{tick, ticks_a_second, sheep, grass, sync_seconds,
 sync_share, detail, cells}`: with what answering took of the thread.

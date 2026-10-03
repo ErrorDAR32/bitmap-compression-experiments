@@ -5,7 +5,8 @@ The design is in `world.md`.
 ## `lib.rs`
 
 `GRASS_CELLS` (400,000), `FLOCK` (4,000): what a superchunk generated
-is given. **`generate(seed, superchunks)`**: a square of them from the
+is given. **`generate(seed, superchunks)`**, **`generate_with(seed, superchunks,
+grass_cells, flock)`**: a square of them from the
 world's middle, each from the seed and its Morton index -- a
 **`World`** `{info, arena, storage, entities, simulation}`.
 **`save(directory, name, seed, arena, storage, entities, simulation)`**:

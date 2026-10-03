@@ -105,6 +105,19 @@ fn paint(cells: &Cells) -> Tile {
             }
         }
     }
+    // Cliffs over the ground: a cell keeping a wall, darkened.
+    for (place, chunk) in ChunkPlace::all().zip(cells.cliffs.as_chunks::<CHUNK_WORDS>().0) {
+        let (left, top) = (place.x() as usize * CHUNK_SIDE, place.y() as usize * CHUNK_SIDE);
+        for (word_index, &word) in chunk.iter().enumerate() {
+            let mut bits = word;
+            while bits != 0 {
+                let (x, y) = morton_coordinates(word_index * BITS_PER_WORD + bits.trailing_zeros() as usize);
+                let pixel = &mut pixels[(top + y as usize) * SIDE + left + x as usize];
+                *pixel = [pixel[0] / 2, pixel[1] / 2, pixel[2] / 2, pixel[3]];
+                bits &= bits - 1;
+            }
+        }
+    }
     let white = opaque(WHITE);
     for &(x, y) in &cells.sheep {
         let (x, y) = (x as usize, y as usize);

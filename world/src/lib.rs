@@ -62,6 +62,12 @@ pub struct World {
 /// and on it, for now, pasture: dirt, a third of it grass, and a flock
 /// on each. Every superchunk's from the seed and where it is.
 pub fn generate(seed: u64, superchunks: u32) -> World {
+    generate_with(seed, superchunks, GRASS_CELLS, FLOCK)
+}
+
+/// [`generate`], with `grass_cells` cells of grass drawn and `flock`
+/// sheep on each superchunk.
+pub fn generate_with(seed: u64, superchunks: u32, grass_cells: usize, flock_size: usize) -> World {
     let (mut codec, mut arena, mut storage) = (LayerCodec::new(), BitmapArena::new(), ChunkStorage::new(1 << 16));
     let side = (superchunks as f64).sqrt().ceil() as u32;
     let middle = WORLD_SIDE_SUPERCHUNKS / 2;
@@ -78,7 +84,7 @@ pub fn generate(seed: u64, superchunks: u32) -> World {
             }
         }
         let changes: Vec<LayerChange> = walls.iter().map(|(chunk, layer_type, words)| LayerChange { chunk: *chunk, layer_type: *layer_type, words }).collect();
-        storage.insert(superchunk, grass_on_dirt(own, GRASS_CELLS, &mut codec).with_heights(&terrain.heights).rewritten(&changes));
+        storage.insert(superchunk, grass_on_dirt(own, grass_cells, &mut codec).with_heights(&terrain.heights).rewritten(&changes));
         for place in ChunkPlace::all() {
             arena.make_hot_layers(ChunkPosition::of(superchunk, place), &layers, &storage, &mut codec);
         }
@@ -88,7 +94,7 @@ pub fn generate(seed: u64, superchunks: u32) -> World {
     entities.align(&mortons);
     for &superchunk in &held {
         let mut own = Rng::for_stream(!seed, superchunk.morton_index());
-        flock(&mut entities, superchunk, FLOCK, &mut own);
+        flock(&mut entities, superchunk, flock_size, &mut own);
     }
     entities.apply();
     let info = WorldInfo { name: String::new(), seed, tick: 0, layers };
