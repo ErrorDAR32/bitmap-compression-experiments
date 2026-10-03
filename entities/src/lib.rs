@@ -4,7 +4,7 @@
 //!
 //! What an entity *is* -- its record, the bucket a chunk that holds it,
 //! the timer wheel that wakes it, the changes it queues -- is the
-//! simulation's (`simulation/src/entities/`), and knows no kind of
+//! simulation's (`simulation/src/entity_store/`), and knows no kind of
 //! entity. What each kind *does* is here, and knows no other rule: the
 //! game (`src/`, `tilesim`) ticks them together with the rules of the
 //! cells.

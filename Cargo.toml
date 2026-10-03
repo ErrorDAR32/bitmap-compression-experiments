@@ -2,22 +2,11 @@
 name = "tilesim"
 version = "0.1.0"
 edition = "2021"
-description = "TileSim, a 2D procedural simulation game: the rules of its cells, so far grass spreading over dirt, ticked with its entities"
+description = "TileSim, a 2D procedural simulation game: the program, and its diagnostics"
 publish = false
 
-# The diagnostics tool is kept with the diagnostics it prints: there is
-# no `src/bin/`.
-[[bin]]
-name = "diagnostics"
-path = "src/diagnostics/tool/main.rs"
-
 [dependencies]
-simulation = { path = "simulation" }
-entities = { path = "entities" }
-coordinates = { path = "coordinates" }
-utilities = { path = "utilities" }
-bitmap = { path = "bitmap" }
-bitplane_manager = { path = "bitplane_manager" }
+world = { path = "world" }
 chunk_storage = { path = "chunk_storage" }
 
 # Every crate of TileSim, built together: one lock file and one `target/`
@@ -36,10 +25,12 @@ members = [
     "coordinates",
     "entities",
     "pathfinding",
+    "mt_rules",
     "simulation",
     "tessera",
     "utilities",
     "viewer",
+    "world",
 ]
 default-members = [
     ".",
@@ -50,9 +41,11 @@ default-members = [
     "coordinates",
     "entities",
     "pathfinding",
+    "mt_rules",
     "simulation",
     "tessera",
     "utilities",
+    "world",
 ]
 exclude = ["tessera/external_benchmarks"]
 

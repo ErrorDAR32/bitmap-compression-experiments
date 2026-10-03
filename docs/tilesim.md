@@ -130,8 +130,8 @@ on a word:
    2. **its bitmaps**, encoded, each starting on a word, in no
       particular order: the table's offsets find them.
 
-On disk a superchunk is one file, named by its coordinates, its words
-written sequentially as laid out in memory.
+On disk a superchunk's image is one file, named by its Morton index,
+its words written sequentially as laid out in memory ("Saves", below).
 
 ### From the disk to the cells
 
@@ -336,7 +336,7 @@ block of 64 words -- 64x64 cells -- by its count, a word by its bits'
 count, and only the word holding a chosen cell is searched. A chunk is so sampled in proportion to its set cells against
 the rest of its superchunk.
 
-The first rule built on it is grass (`src/grass.rs`). Each tick a
+The first rule built on it is grass (`mt_rules/src/grass.rs`). Each tick a
 cell of grass tries to spread with a chance of 0.001%, onto one of its
 eight neighbours drawn at random, if that one is dirt; and turns back
 to dirt with `k / 8` of 0.002%, `k` its grass neighbours -- none alone,
@@ -418,7 +418,7 @@ The height map is ignored for now.
 ### Entities (built, first form)
 
 An entity is a capability unit, not necessarily alive. The first form
-is built in the simulation (`simulation/src/entities/`), with sheep on
+is built in the simulation (`simulation/src/entity_store/`), with sheep on
 it (`entities/src/sheep.rs`):
 
 - **A record**: a header -- a random 64-bit ID, a type, the cell it
@@ -722,6 +722,20 @@ rest; the ticks a second follow the flock -- 5,500 at 300,000 sheep,
 for memory, not computing: so woken entities are now asked for ahead
 (`simulation/docs/simulation.md`, "Woken entities are asked of memory
 ahead"), a quarter off a wake.
+
+### Saves (built)
+
+A world is a directory: a `world` file in text -- name, seed, tick,
+layer types -- and two files a superchunk, named by its 44-bit Morton
+index: its image, and its state -- its random numbers, its entities.
+A world loaded goes on exactly as the one saved would have, which is
+why each superchunk's random numbers are now its own and kept from
+tick to tick, not made anew from a tick's seed. The whole of it:
+`world/docs/world.md`.
+
+The code is where its parts are: the files in `chunk_storage::disk`,
+the entities' words in `simulation`, and the save itself, which needs
+them all, in `world/`. The `tilesim` crate is the program alone.
 
 ### Pathfinding (built, first form)
 

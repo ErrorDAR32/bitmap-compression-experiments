@@ -25,7 +25,7 @@
 //! spreading fills cells that were dirt.
 
 use bitplane_manager::{BitmapArena, Write, WriteOp};
-use simulation::entities::Entities;
+use simulation::entity_store::Entities;
 use simulation::{Simulation, SuperChunkTick, TickReport};
 use chunk_storage::mock::{DIRT, GRASS};
 use coordinates::{CellIndex, NEIGHBOURS};

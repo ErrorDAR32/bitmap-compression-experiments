@@ -22,6 +22,12 @@ impl Rng {
         Self(seed)
     }
 
+    /// Its whole state: a generator made from it draws what this one
+    /// would have. What a save keeps.
+    pub fn state(&self) -> u64 {
+        self.0
+    }
+
     /// The next draw: any 64-bit value.
     pub fn draw(&mut self) -> u64 {
         self.0 = self.0.wrapping_add(GOLDEN_GAMMA);

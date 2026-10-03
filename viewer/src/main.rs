@@ -37,7 +37,7 @@ use paint::Picture;
 use sim::{side, start, Ask, Request, Viewport, TARGET_PACE};
 use std::sync::mpsc::{Receiver, Sender};
 use std::sync::Mutex;
-use tilesim::diagnostics::frames::BROWN;
+use world::diagnostics::frames::BROWN;
 
 /// A superchunk's side on the screen's plane: a cell a unit.
 const TILE_SIDE: f32 = SUPERCHUNK_SIDE_CELLS as f32;

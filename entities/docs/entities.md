@@ -6,7 +6,7 @@ the sheep.
 ## What is here, and what is not
 
 What an entity *is* belongs to the simulation
-(`simulation/src/entities/`): its record and attributes, the bucket a
+(`simulation/src/entity_store/`): its record and attributes, the bucket a
 chunk that holds it sorted by cell, the timer wheel a superchunk that
 wakes it, the changes it queues in a tick's first phase and the check,
 as each is carried out in the second, that no two stand on one cell.
@@ -30,8 +30,8 @@ newborn, the step towards a goal round whatever is in the way, and
 that carries least. The sheep's rule is 100 lines of what a sheep
 decides.
 
-A kind knows the cells it reads and writes, and no other rule. The game
-(`src/pasture.rs`) is what runs the entities' rules and the cells' in
+A kind knows the cells it reads and writes, and no other rule. The world
+(`world/src/tick.rs`) is what runs the entities' rules and the cells' in
 one tick.
 
 | file | entity |

@@ -47,12 +47,23 @@ walking entries from the tail, over wrap markers.
 ## `chunk_storage.rs`
 
 **`ChunkStorage::new(ring_words)`**. **`insert(superchunk, image)`**,
-**`image(superchunk)`**, **`layer(chunk, type)`**: the cold pool.
+**`image(superchunk)`**, **`superchunks()`**, **`layer(chunk, type)`**: the cold pool.
 **`write_back(chunk, type, bitmap, flushed)`**: into the ring, the
 superchunk at its tail flushed until it fits, each added to `flushed`
 -- before the bitmap went in. **`flush(superchunk)`**: its image
 rewritten with its ring entries, which are freed; a superchunk not held
 is made flat. **`flush_all`**, **`nothing_to_flush`**.
+
+## `disk.rs`
+
+**`WorldInfo`** `{name, seed, tick, layers}`; **`DiskError`**: `Io(path,
+error)` or `Invalid(path, what)`. **`write_world(directory, info)`**,
+**`read_world(directory)`**; **`write_image(directory, superchunk,
+image)`**, **`read_image`**; **`write_state(directory, superchunk,
+words)`**, **`read_state`** -- the words, and the file's path;
+**`superchunks_in(directory)`**: those with an image, in Morton order.
+Private: `superchunk_file`, `make_folder`, `write`, `write_words`,
+`read`, `read_words`, `images_in`, `WorldInfo::to_text`, `from_text`.
 
 ## `mock.rs`
 

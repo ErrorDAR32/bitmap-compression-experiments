@@ -36,8 +36,11 @@ sample costs the same few counts however rare samples are.
    bitmaps only, so the threads change disjoint superchunks. Writes
    landing where no bitmap is in use are counted missed.
 
-Random numbers come from the seed and each superchunk's Morton index,
-so a tick is the same on any number of threads. The outboxes and room
+Each superchunk has random numbers of its own, kept from tick to tick
+(`Simulation`): first seeded from the seed and its Morton index, then
+going on from where the last tick left them -- so a tick is the same
+on any number of threads, and a save can keep them (`random_states`,
+`restore_random`). The outboxes and room
 for samples are kept between ticks.
 
 ## Entities
@@ -90,7 +93,7 @@ A kind of entity (`../../entities/`) writes only what is its own: the
 rest is here, the same for every kind.
 
 **Instructions**, one for each thing done to an entity, each carrying
-no more than it changes (`entities/commands.rs`):
+no more than it changes (`entity_store/commands.rs`):
 
 | instruction | queued by | what it does | carries |
 |---|---|---|---|
@@ -214,7 +217,7 @@ for now, to be weighed again once entities join the simulation.
 | `src/sampling.rs` | Monte Carlo sampling |
 | `src/tick.rs` | the two-phase tick, its outboxes, a superchunk's turn |
 | `src/dispatcher.rs` | the threads |
-| `src/entities/` | entities: records, buckets, the timer wheel, the instructions queued |
+| `src/entity_store/` | entities: records, buckets, the timer wheel, the instructions queued |
 | `src/around.rs` | the 3x3 cells about a cell, as nine bits |
 | `src/diagnostics/` | what the entities hold |
 | `tests/` | sampling, the tick, the entities, their instructions and the dispatcher, judged |

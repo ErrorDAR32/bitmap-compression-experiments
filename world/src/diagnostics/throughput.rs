@@ -4,7 +4,7 @@
 //! own.
 
 use entities::diagnostics::world::World;
-use crate::grass;
+use mt_rules::grass;
 use simulation::Simulation;
 use bitplane_manager::diagnostics::arena::ArenaStats;
 use chunk_storage::diagnostics::storage::StorageStats;

@@ -4,11 +4,11 @@
 //! the threads -- and the memory held.
 
 use entities::diagnostics::world::World;
-use crate::grass;
-use crate::pasture::Pasture;
+use mt_rules::grass;
+use crate::Ticked;
 use entities::sheep;
 use simulation::diagnostics::entities::EntityStats;
-use simulation::entities::EntitiesApplied;
+use simulation::entity_store::EntitiesApplied;
 use simulation::Simulation;
 use std::ops::AddAssign;
 use std::time::{Duration, Instant};
@@ -28,7 +28,7 @@ pub struct PastureRun {
     /// Cells of grass at the start, and at the end.
     pub grass: (u64, u64),
     /// What grass and sheep did, added up.
-    pub done: Pasture,
+    pub done: Ticked,
     /// What carrying out the changes to entities did, added up.
     pub entities: EntitiesApplied,
     /// Writes applied.
@@ -74,7 +74,7 @@ pub struct Census {
 #[derive(Clone, Copy, Default)]
 struct Timed {
     /// What they did.
-    done: Pasture,
+    done: Ticked,
     /// The grass rule's time.
     grass: Duration,
     /// The sheep rule's time.
@@ -108,7 +108,7 @@ pub fn run(ticks: usize, thousandths: usize, sheep: usize, superchunks: u32, thr
             let grass = grass::rule(turn, samples);
             let grassed = Instant::now();
             let sheep = sheep::rule(turn);
-            Timed { done: Pasture { grass, sheep }, grass: grassed - start, sheep: grassed.elapsed() }
+            Timed { done: Ticked { grass, sheep }, grass: grassed - start, sheep: grassed.elapsed() }
         });
         timed += report.rules;
         since += report.rules.done.sheep;

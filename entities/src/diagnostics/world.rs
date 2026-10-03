@@ -7,7 +7,7 @@ use chunk_storage::mock::{grass_on_dirt, DIRT, GRASS};
 use chunk_storage::{ChunkStorage, LayerCodec};
 use coordinates::{ChunkPlace, ChunkPosition, SuperChunkPosition, WORLD_SIDE_SUPERCHUNKS};
 use crate::sheep::{flock, SHEEP};
-use simulation::entities::Entities;
+use simulation::entity_store::Entities;
 use utilities::rng::Rng;
 
 /// A mock world: its hot bitmaps, its storage, and its superchunks.

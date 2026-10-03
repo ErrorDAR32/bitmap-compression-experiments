@@ -3246,6 +3246,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "mt_rules"
+version = "0.1.0"
+dependencies = [
+ "bitplane_manager",
+ "chunk_storage",
+ "coordinates",
+ "simulation",
+]
+
+[[package]]
 name = "naga"
 version = "29.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4624,13 +4634,8 @@ dependencies = [
 name = "tilesim"
 version = "0.1.0"
 dependencies = [
- "bitmap",
- "bitplane_manager",
  "chunk_storage",
- "coordinates",
- "entities",
- "simulation",
- "utilities",
+ "world",
 ]
 
 [[package]]
@@ -4913,7 +4918,7 @@ dependencies = [
  "coordinates",
  "entities",
  "simulation",
- "tilesim",
+ "world",
 ]
 
 [[package]]
@@ -5694,6 +5699,20 @@ dependencies = [
  "wayland-client",
  "wayland-protocols",
  "wayland-protocols-wlr",
+]
+
+[[package]]
+name = "world"
+version = "0.1.0"
+dependencies = [
+ "bitmap",
+ "bitplane_manager",
+ "chunk_storage",
+ "coordinates",
+ "entities",
+ "mt_rules",
+ "simulation",
+ "utilities",
 ]
 
 [[package]]

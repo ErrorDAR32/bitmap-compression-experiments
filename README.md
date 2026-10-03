@@ -16,7 +16,9 @@ spreading over dirt -- and the first entities: sheep eating it.
 |---|---|
 | [`docs/design_statements.md`](docs/design_statements.md) | the design statements |
 | [`docs/tilesim.md`](docs/tilesim.md) | what TileSim is, and every decision about it so far: chunks, superchunks, layers, the simulation's plan |
-| [`src/`](src/) | the `tilesim` crate: the game -- the rules of its cells, so far grass over dirt, ticked with its entities in two phases on every thread the machine has -- and its diagnostics tool |
+| [`src/`](src/) | the `tilesim` crate: the program -- worlds made from a seed, run and saved, from the command line |
+| [`world/`](world/) | the world as a whole: made from a seed, ticked -- rules and entities together -- saved and loaded; and its diagnostics tool |
+| [`mt_rules/`](mt_rules/) | the Monte Carlo rules of the cells, a file each: so far grass over dirt |
 | [`entities/`](entities/) | the entities, a file each: so far the sheep, eating the grass |
 | [`coordinates/`](coordinates/) | where things are: cells, chunks and superchunks, cartesian and by Morton index |
 | [`chunk_storage/`](chunk_storage/) | chunks as stored, what loading and saving work on: height maps, the layer codec, superchunk images, the cold pool and the writeback ring |
@@ -46,7 +48,7 @@ the root, whichever folder cargo is run from, on the toolchain
 `rust-toolchain.toml` names. `cargo test` at the root tests every crate
 but the viewer, which brings Bevy and is asked for by name:
 `cargo run --release -p viewer`. Run from a crate's folder, cargo keeps
-to that crate. Two crates have a `diagnostics` tool: TileSim's is
+to that crate. Two crates have a `diagnostics` tool: the world's is
 `--bin diagnostics`, Tessera's `--bin tessera_diagnostics`. Tessera's
 external benchmarks are a workspace of their own, so the codecs they
 compare against never enter this build.

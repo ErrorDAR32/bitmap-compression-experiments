@@ -8,7 +8,7 @@
 use bitplane_manager::{Write, WriteOp};
 use chunk_storage::mock::{DIRT, GRASS};
 use coordinates::{CartesianCell, SUPERCHUNK_SIDE_CELLS};
-use simulation::entities::{Attribute, EntityId, EntityRef, Header};
+use simulation::entity_store::{Attribute, EntityId, EntityRef, Header};
 use simulation::Simulation;
 use entities::diagnostics::world::World;
 use entities::sheep::{rule, tick, SheepTickMetrics, HUNGRY_AT, LAMB, MEAL_TICKS, PREGNANT, ROAMING, ROAM_TICKS, SHEEP, STARVE_TICKS, STEP_JITTER, STEP_TICKS};

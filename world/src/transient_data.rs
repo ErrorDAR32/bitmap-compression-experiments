@@ -7,6 +7,7 @@
 //! |---|---|
 //! | `measurements/` | every measurement's latest tables, as CSV, through [`publish`] |
 //! | `renders/` | videos of the world ticking (`diagnostics video`) |
+//! | `saves/` | worlds saved, a directory each: the tests' |
 //!
 //! Every path is relative to the crate's folder, found from it wherever
 //! a run starts from.
@@ -30,6 +31,11 @@ pub fn measurements() -> PathBuf {
 /// Where the renders go.
 pub fn renders() -> PathBuf {
     under("renders")
+}
+
+/// Where worlds are saved, a directory each.
+pub fn saves() -> PathBuf {
+    under("saves")
 }
 
 /// Publishes `report` in [`measurements`]: printed, and kept in its file.

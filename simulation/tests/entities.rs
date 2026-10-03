@@ -9,7 +9,7 @@
 use bitplane_manager::{BitmapArena, BucketKey};
 use chunk_storage::{LayerCodec, LayerType};
 use coordinates::{CartesianCell, CellIndex, ChunkPlace, ChunkPosition, SuperChunkPosition, SUPERCHUNK_SIDE_CELLS};
-use simulation::entities::{remove_attribute, set_attribute, AttributeType, Entities, EntityId, EntityReader, EntityType, Header, NEVER, WHEEL_TICKS};
+use simulation::entity_store::{remove_attribute, set_attribute, AttributeType, Entities, EntityId, EntityReader, EntityType, Header, NEVER, WHEEL_TICKS};
 use simulation::{Simulation, SuperChunkTick};
 use std::sync::Mutex;
 
@@ -129,13 +129,13 @@ fn entities_wake_at_their_tick() {
 fn entities_cross_borders_and_stay_at_the_edge_of_the_world_held() {
     let (mut arena, mut entities) = world(2);
     let start = SUPERCHUNK_SIDE_CELLS - 3;
-    entities.queue_put(walker(9, cell(start, 100), 0), &[simulation::entities::Attribute { kind: WOKEN, value: 0 }]);
+    entities.queue_put(walker(9, cell(start, 100), 0), &[simulation::entity_store::Attribute { kind: WOKEN, value: 0 }]);
     entities.apply();
     let mut simulation = Simulation::new(2);
     let step = |turn: &mut SuperChunkTick, _: &mut Vec<CellIndex>| {
         for entity in turn.woken() {
             let after = Header { at: entity.header.at.offset(1, 0).unwrap(), wake: turn.now() + 1, ..entity.header };
-            turn.update(&entity.header, after, &[simulation::entities::Attribute { kind: WOKEN, value: entity.attribute(WOKEN).unwrap() + 1 }]);
+            turn.update(&entity.header, after, &[simulation::entity_store::Attribute { kind: WOKEN, value: entity.attribute(WOKEN).unwrap() + 1 }]);
         }
         0
     };
@@ -272,7 +272,7 @@ fn entities_stay_in_morton_order_as_they_step() {
     let (mut arena, mut entities) = world(1);
     for id in 0..600u64 {
         let at = cell(200 + (id % 20) as u32 * 3, 240 + (id / 20) as u32 * 3);
-        entities.queue_put(walker(id + 1, at, 0), &[simulation::entities::Attribute { kind: WOKEN, value: id }]);
+        entities.queue_put(walker(id + 1, at, 0), &[simulation::entity_store::Attribute { kind: WOKEN, value: id }]);
     }
     entities.apply();
     let mut simulation = Simulation::new(1);

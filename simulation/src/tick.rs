@@ -24,13 +24,13 @@
 //! The threads hold contiguous runs of the superchunks, so each works
 //! through them in Morton order, and the outboxes need no
 //! synchronization: in the first phase each is written by its own
-//! superchunk alone, in the second only read. Each superchunk draws its
-//! random numbers from the tick's seed and its own Morton index, so a
-//! tick comes out the same on any number of threads.
+//! superchunk alone, in the second only read. Each superchunk has random
+//! numbers of its own, kept from tick to tick, so a tick comes out the
+//! same on any number of threads.
 
 use crate::dispatcher::Dispatcher;
 use crate::around::{squeeze, Around};
-use crate::entities::{Attribute, AttributeType, Commands, Edit, Entities, EntitiesApplied, EntityId, EntityReader, EntityRef, EntityType, Header, SuperChunkEntities, NEVER, OCCUPIED_SIDE};
+use crate::entity_store::{Attribute, AttributeType, Commands, Edit, Entities, EntitiesApplied, EntityId, EntityReader, EntityRef, EntityType, Header, SuperChunkEntities, NEVER, OCCUPIED_SIDE};
 use pathfinding::{a_star, step_towards, Cell, Rows};
 use coordinates::ChunkPosition;
 use crate::sampling::sample_layer;
@@ -103,6 +103,10 @@ struct Outbox {
     commands: [Commands; SLOTS],
 }
 
+/// A thread's part of the first phase: where its superchunks start among
+/// them all, their outboxes, and their random numbers.
+type PartOfTurns<'a> = (usize, &'a mut [Outbox], &'a mut [(u64, Rng)]);
+
 /// One superchunk's turn in a tick's first phase: what the rule sees and
 /// does. It samples the superchunk's own cells, wakes its entities due,
 /// reads any cell in reach, and queues writes and changes to entities,
@@ -130,9 +134,8 @@ impl<'a> SuperChunkTick<'a> {
         self.superchunk.position()
     }
 
-    /// The superchunk's random numbers this tick: drawn from the tick's
-    /// seed and the superchunk's Morton index, the same on any number of
-    /// threads.
+    /// The superchunk's random numbers: its own, going on from the last
+    /// tick's.
     pub fn random(&mut self) -> &mut Rng {
         &mut self.random
     }
@@ -577,6 +580,9 @@ pub struct Simulation {
     outboxes: Vec<Outbox>,
     /// Room for samples, a part each.
     samples: Vec<Mutex<Vec<CellIndex>>>,
+    /// Each superchunk's random numbers, with its Morton index, in the
+    /// arena's order: kept from tick to tick, and by a save.
+    random: Vec<(u64, Rng)>,
 }
 
 /// The threads `superchunks` superchunks are ticked on unless told
@@ -599,7 +605,36 @@ impl Simulation {
     pub fn new(threads: usize) -> Self {
         let dispatcher = Dispatcher::new(threads);
         let samples = (0..dispatcher.threads()).map(|_| Mutex::new(Vec::new())).collect();
-        Self { dispatcher, outboxes: Vec::new(), samples }
+        Self { dispatcher, outboxes: Vec::new(), samples, random: Vec::new() }
+    }
+
+    /// Each superchunk's random numbers as they stand: its Morton index
+    /// and its generator's state, in Morton order.
+    pub fn random_states(&self) -> impl Iterator<Item = (u64, u64)> + '_ {
+        self.random.iter().map(|(morton, random)| (*morton, random.state()))
+    }
+
+    /// Takes up `states` as each superchunk's random numbers -- Morton
+    /// index and state, sorted -- as a save kept them.
+    pub fn restore_random(&mut self, states: &[(u64, u64)]) {
+        debug_assert!(states.is_sorted_by_key(|state| state.0));
+        self.random = states.iter().map(|&(morton, state)| (morton, Rng::new(state))).collect();
+    }
+
+    /// Every superchunk in `mortons` given its random numbers: those it
+    /// had, or new ones from `seed` and where it is.
+    fn align_random(&mut self, mortons: &[u64], seed: u64) {
+        if self.random.len() == mortons.len() && self.random.iter().zip(mortons).all(|(held, &morton)| held.0 == morton) {
+            return;
+        }
+        let had = std::mem::take(&mut self.random);
+        self.random = mortons
+            .iter()
+            .map(|&morton| match had.binary_search_by_key(&morton, |held| held.0) {
+                Ok(at) => (morton, Rng::new(had[at].1.state())),
+                Err(_) => (morton, Rng::new(seed ^ morton.wrapping_mul(0x9E37_79B9_7F4A_7C15))),
+            })
+            .collect();
     }
 
     /// How many threads it ticks on.
@@ -610,8 +645,9 @@ impl Simulation {
     /// One tick of `rule`, over every superchunk of `arena` and its
     /// entities in `entities` -- made to hold the same superchunks: the
     /// first phase runs `rule` on each superchunk -- with room for
-    /// samples -- and the second applies what they queued. `seed` seeds
-    /// the tick's random numbers: a new one a tick.
+    /// samples -- and the second applies what they queued. `seed`, the
+    /// world's, seeds a superchunk's random numbers the first tick it
+    /// is in.
     pub fn tick<R, F>(&mut self, arena: &mut BitmapArena, entities: &mut Entities, seed: u64, rule: F) -> TickReport<R>
     where
         R: Default + AddAssign + Send,
@@ -625,27 +661,35 @@ impl Simulation {
         let start = Instant::now();
         let mortons: Vec<u64> = arena.superchunks().iter().map(SuperChunk::morton).collect();
         let mut entities_applied = EntitiesApplied { lost: entities.align(&mortons), ..EntitiesApplied::default() };
+        self.align_random(&mortons, seed);
         let now = entities.now();
         let superchunks = arena.superchunks();
         let held = entities.superchunks();
-        let outboxes: Vec<Mutex<(usize, &mut [Outbox])>> =
-            self.outboxes.chunks_mut(per_part).enumerate().map(|(part, outboxes)| Mutex::new((part * per_part, outboxes))).collect();
+        let outboxes: Vec<Mutex<PartOfTurns>> = self
+            .outboxes
+            .chunks_mut(per_part)
+            .zip(self.random.chunks_mut(per_part))
+            .enumerate()
+            .map(|(part, (outboxes, random))| Mutex::new((part * per_part, outboxes, random)))
+            .collect();
         let results: Vec<Mutex<R>> = (0..parts).map(|_| Mutex::new(R::default())).collect();
         let samples = &self.samples;
         self.dispatcher.run(&|part| {
             let Some(work) = outboxes.get(part) else {
                 return;
             };
-            let (first, ref mut outboxes) = *work.lock().expect("a part's outboxes");
+            let (first, ref mut outboxes, ref mut random) = *work.lock().expect("a part's outboxes");
             let (reader, entity_reader) = (Reader::new(superchunks), EntityReader::new(held));
             let mut samples = samples[part].lock().expect("a part's samples");
             let mut total = R::default();
-            for (offset, outbox) in outboxes.iter_mut().enumerate() {
+            for (offset, (outbox, kept)) in outboxes.iter_mut().zip(random.iter_mut()).enumerate() {
                 let superchunk = &superchunks[first + offset];
-                let random = Rng::new(seed ^ superchunk.morton().wrapping_mul(0x9E37_79B9_7F4A_7C15));
+                let random = Rng::new(kept.1.state());
                 let mut turn = SuperChunkTick { superchunk, entities: &held[first + offset], now, reader: &reader, entity_reader: &entity_reader, outbox, random };
                 turn.settle_crossings();
                 total += rule(&mut turn, &mut samples);
+                // Where its random numbers have come to: the next tick goes on from there.
+                kept.1 = turn.random;
             }
             *results[part].lock().expect("a part's result") = total;
         });

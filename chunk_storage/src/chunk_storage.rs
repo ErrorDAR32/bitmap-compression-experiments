@@ -47,6 +47,11 @@ impl ChunkStorage {
         }
     }
 
+    /// Every superchunk the pool holds, in Morton order.
+    pub fn superchunks(&self) -> impl Iterator<Item = SuperChunkPosition> + '_ {
+        self.pool.iter().map(|(position, _)| *position)
+    }
+
     /// The image of `superchunk`, if the pool holds it.
     pub fn image(&self, superchunk: SuperChunkPosition) -> Option<&SuperChunkImage> {
         self.find(superchunk).ok().map(|at| &self.pool[at].1)

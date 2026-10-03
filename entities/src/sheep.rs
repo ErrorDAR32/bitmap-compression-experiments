@@ -51,7 +51,7 @@ use bitplane_manager::{BitmapArena, Write, WriteOp};
 use chunk_storage::mock::{DIRT, GRASS};
 use coordinates::{SuperChunkPosition, SUPERCHUNK_SIDE_CELLS};
 use simulation::around::{self, CENTRE, RING};
-use simulation::entities::{Attribute, AttributeType, Edit, Entities, EntityId, EntityType, Header};
+use simulation::entity_store::{Attribute, AttributeType, Edit, Entities, EntityId, EntityType, Header};
 use simulation::{Simulation, SuperChunkTick, TickReport};
 use std::collections::HashSet;
 use std::ops::AddAssign;

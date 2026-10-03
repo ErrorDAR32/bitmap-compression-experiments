@@ -18,12 +18,11 @@
 
 use std::io::Write;
 use std::time::Duration;
-use tilesim::diagnostics::frames::{frame, sheep, FRAME_BYTES};
-use tilesim::diagnostics::{pasture as pasture_run, throughput};
+use world::diagnostics::frames::{frame, sheep, FRAME_BYTES};
+use world::diagnostics::{pasture as pasture_run, throughput};
 use entities::diagnostics::world::World;
 use simulation::{threads_for, Simulation};
-use tilesim::pasture;
-use tilesim::transient_data::{measurements, publish};
+use world::transient_data::{measurements, publish};
 use utilities::memory::mebibytes;
 use utilities::table::report::Report;
 use utilities::table::Table;
@@ -160,7 +159,7 @@ fn video(arguments: &[String]) {
                 eprintln!("tick {tick:>7}: grass {}, sheep {}", world.grass(), world.sheep());
             }
         }
-        since += pasture::tick(&mut simulation, &mut world.arena, &mut world.entities, tick as u64).rules.sheep;
+        since += world::tick(&mut simulation, &mut world.arena, &mut world.entities, tick as u64).rules.sheep;
     }
     // Standard output is the video: the census is kept, not printed.
     let mut report = Report::new("video", &format!("diagnostics video {ticks} {grass_cells} {every} {flock}"));

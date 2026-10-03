@@ -1,7 +1,7 @@
 //! What the entities hold: how many, their attributes -- in use, and
 //! left as garbage until swept -- and the wakes filed, good or not.
 
-use crate::entities::Entities;
+use crate::entity_store::Entities;
 
 /// What the entities hold.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

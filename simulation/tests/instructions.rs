@@ -12,7 +12,7 @@ use bitplane_manager::{BitmapArena, BucketKey, Write, WriteOp};
 use chunk_storage::{LayerCodec, LayerType};
 use coordinates::{CartesianCell, CellIndex, ChunkPlace, ChunkPosition, SuperChunkPosition, SUPERCHUNK_SIDE_CELLS};
 use simulation::around::{self, CENTRE, RING};
-use simulation::entities::{Attribute, AttributeType, Edit, Entities, EntityId, EntityType, Header, NEVER};
+use simulation::entity_store::{Attribute, AttributeType, Edit, Entities, EntityId, EntityType, Header, NEVER};
 use simulation::{Simulation, SuperChunkTick};
 use std::sync::Mutex;
 

@@ -20,7 +20,7 @@
 pub mod around;
 pub mod diagnostics;
 mod dispatcher;
-pub mod entities;
+pub mod entity_store;
 mod sampling;
 mod tick;
 

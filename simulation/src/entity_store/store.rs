@@ -248,6 +248,21 @@ impl Entities {
         self.now
     }
 
+    /// None, at tick `now`: what a save's entities are put back into.
+    pub fn at_tick(now: u64) -> Self {
+        Self { now, ..Self::default() }
+    }
+
+    /// Notes `crossing` again, as a save kept it: its entity stands in
+    /// a superchunk held. Whether it was.
+    pub fn restore_crossing(&mut self, crossing: Crossing) -> bool {
+        let Ok(at) = self.superchunks.binary_search_by_key(&crossing.at.superchunk(), |held| held.morton) else {
+            return false;
+        };
+        self.superchunks[at].cross(crossing.id, crossing.at, crossing.to);
+        true
+    }
+
     /// How many entities there are.
     pub fn len(&self) -> usize {
         self.superchunks.iter().map(SuperChunkEntities::len).sum()

@@ -1,0 +1,22 @@
+[package]
+name = "world"
+version = "0.1.0"
+edition = "2021"
+description = "TileSim's world as a whole: made from a seed, ticked -- its cells' rules and its entities together -- saved and loaded"
+publish = false
+
+# The diagnostics tool is kept with the diagnostics it prints: there is
+# no `src/bin/`.
+[[bin]]
+name = "diagnostics"
+path = "src/diagnostics/tool/main.rs"
+
+[dependencies]
+bitmap = { path = "../bitmap" }
+mt_rules = { path = "../mt_rules" }
+entities = { path = "../entities" }
+simulation = { path = "../simulation" }
+coordinates = { path = "../coordinates" }
+utilities = { path = "../utilities" }
+bitplane_manager = { path = "../bitplane_manager" }
+chunk_storage = { path = "../chunk_storage" }

@@ -6,7 +6,7 @@
 //! `cargo test`
 
 use bitplane_manager::{BitmapArena, BucketKey, Shape, Write, WriteOp};
-use simulation::entities::Entities;
+use simulation::entity_store::Entities;
 use simulation::{Simulation, SuperChunkTick, AREA_CENTRE, AREA_SIDE};
 use chunk_storage::{LayerCodec, LayerType};
 use coordinates::{CartesianCell, CellIndex, ChunkPlace, ChunkPosition, SuperChunkPosition, SUPERCHUNK_SIDE_CELLS};

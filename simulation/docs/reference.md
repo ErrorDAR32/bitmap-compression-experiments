@@ -65,7 +65,9 @@ superchunk, past the neighbours panicking.
 **`threads_for(superchunks)`**: every thread the machine has, no more
 than the superchunks. **`Simulation::for_superchunks(superchunks)`**: on
 those; **`Simulation::new(threads)`**: on a number given, to measure
-against another; **`threads`**. **`tick(arena, entities,
+against another; **`threads`**. **`random_states()`**: each
+superchunk's Morton index and generator's state; **`restore_random(
+states)`**: taken up, as a save kept them. **`tick(arena, entities,
 seed, rule)`**: the entities aligned to the arena's superchunks (those
 dropped counted lost); the superchunks split into a contiguous run a
 thread; the first phase runs the rule on each, a `Reader` a thread, the
@@ -77,7 +79,7 @@ the entities' tick advanced. **`neighbours`**: the nine
 offsets in a fixed order. **`offset`**: a superchunk position moved, if
 in the world.
 
-## `entities/`
+## `entity_store/`
 
 **`record.rs`**: `EntityId`, `EntityType`, `AttributeType` (`u64`s);
 **`Attribute`** `{kind, value}`; **`Header`** `{id, kind, at, wake}`,
@@ -151,6 +153,12 @@ lost, one of an entity no longer where it stood passed over, a new
 one on a cell taken refused, a mover to one staying),
 **`count_lost`**, **`clear`**. **`EntitiesApplied`** `{puts, moves,
 edits, removes, lost, stayed, refused}`, added with `+=`.
+
+**`saved.rs`**: a superchunk's state as words: **`encode(random,
+entities)`** -- the words, and how many entities -- and
+**`decode(words, now, entities, crossings)`**, its entities queued, a
+**`State`** `{random, entities}`. **`Entities::at_tick(now)`**,
+**`restore_crossing(crossing)`**: what a load puts them back with.
 
 ## `diagnostics/entities.rs`
 

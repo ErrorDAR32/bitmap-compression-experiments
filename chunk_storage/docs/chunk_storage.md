@@ -44,6 +44,19 @@ The ring is never read to make a bitmap hot: the bitplane manager keeps
 a written-back bitmap until its superchunk is flushed, and is told of
 every flush.
 
+## On disk
+
+A world is a directory (`disk.rs`): `world`, text, a line a thing --
+`name`, `seed`, `tick`, `layers` -- under a first line saying what it
+is; and `superchunks/`, two files a superchunk, named by its Morton
+index in 11 hexadecimal digits. `.image` is its image, word for word,
+checked when read (`from_words`). `.state` is words storage does not
+look into: whoever ticks the world keeps there what moves on the
+superchunk (`simulation`: its random numbers and entities). Words are
+eight bytes, the lowest first. A file is written beside itself and
+renamed, so one cut short never replaces a good one. What is saved
+when, and how it is read back: `../../world/docs/world.md`.
+
 ## The mock
 
 `mock::grass_on_dirt` makes a superchunk of dirt with grass scattered on
@@ -54,7 +67,7 @@ tried on until terrain is generated.
 
 | folder | what is in it |
 |---|---|
-| `src/` | height map, layer codec, superchunk image, writeback ring, chunk storage, mock |
+| `src/` | height map, layer codec, superchunk image, writeback ring, chunk storage, the world on disk, mock |
 | `src/diagnostics/` | what storage holds, gathered |
 | `src/transient_data.rs` | where runs leave what they make, out of git |
 | `tests/` | every part's behaviour, judged |

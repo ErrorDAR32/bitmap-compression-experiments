@@ -29,7 +29,6 @@ use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
 use std::thread;
 use std::time::{Duration, Instant};
 use entities::diagnostics::world::World;
-use tilesim::pasture;
 
 /// Ticks a second the simulation is held to unless told otherwise: the
 /// game's target.
@@ -192,7 +191,7 @@ fn run(superchunks: u32, thousandths: usize, flock: usize, asked: &Receiver<Requ
                 _ = writeln!(file, "{tick},{},{}", world.entities.len(), world.grass()).and_then(|()| file.flush());
             }
         }
-        pasture::tick(&mut simulation, &mut world.arena, &mut world.entities, tick);
+        world::tick(&mut simulation, &mut world.arena, &mut world.entities, tick);
         tick += 1;
         if let Some(pace) = pace {
             next_tick += Duration::from_secs_f64(1.0 / pace as f64);

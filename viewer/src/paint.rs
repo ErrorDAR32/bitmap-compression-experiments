@@ -16,7 +16,7 @@ use coordinates::{ChunkPlace, CHUNK_SIDE, SUPERCHUNK_SIDE_CELLS};
 use std::sync::mpsc::{channel, Receiver};
 use std::thread;
 use std::time::Instant;
-use tilesim::diagnostics::frames::{BROWN, GREEN, WHITE};
+use world::diagnostics::frames::{BROWN, GREEN, WHITE};
 
 /// Pixels along a superchunk's side: a cell each.
 const SIDE: usize = SUPERCHUNK_SIDE_CELLS as usize;

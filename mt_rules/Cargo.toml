@@ -1,0 +1,12 @@
+[package]
+name = "mt_rules"
+version = "0.1.0"
+edition = "2021"
+description = "TileSim's Monte Carlo rules of the cells, a file each: so far grass spreading over dirt"
+publish = false
+
+[dependencies]
+simulation = { path = "../simulation" }
+coordinates = { path = "../coordinates" }
+bitplane_manager = { path = "../bitplane_manager" }
+chunk_storage = { path = "../chunk_storage" }

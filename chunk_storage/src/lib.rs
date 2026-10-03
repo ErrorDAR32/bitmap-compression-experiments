@@ -24,6 +24,7 @@
 
 mod chunk_storage;
 pub mod diagnostics;
+pub mod disk;
 mod height_map;
 mod layer_codec;
 pub mod mock;
