@@ -40,7 +40,7 @@ const fn search_tile(place: u16) -> usize {
 /// A cell's place in its chunk, as a Morton index: what a bucket is
 /// sorted and searched by.
 pub(crate) fn place(cell: CellIndex) -> u16 {
-    cell.in_chunk() as u16
+    cell.place_in_chunk() as u16
 }
 
 /// An entity as its bucket keeps it: its header, and where its

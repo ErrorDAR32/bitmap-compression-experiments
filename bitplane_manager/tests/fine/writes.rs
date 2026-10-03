@@ -97,9 +97,9 @@ fn rectangles_cross_chunks_and_superchunks() {
 /// centre to centre; at the world's edge it is cut off.
 #[test]
 fn discs_cover_their_radius() {
-    let center = CartesianCell { x: 300, y: 300 };
-    let mut arena = arena_over(&[center, CartesianCell { x: 0, y: 0 }]);
-    stone(&mut arena, WriteOp::Set, center, Shape::Disc { radius: 3 });
+    let centre = CartesianCell { x: 300, y: 300 };
+    let mut arena = arena_over(&[centre, CartesianCell { x: 0, y: 0 }]);
+    stone(&mut arena, WriteOp::Set, centre, Shape::Disc { radius: 3 });
     assert_eq!(arena.apply().changed, 29, "the cells with dx² + dy² <= 9");
     assert!(holds(&arena, 303, 300) && holds(&arena, 302, 302) && holds(&arena, 297, 300));
     assert!(!holds(&arena, 303, 301) && !holds(&arena, 304, 300));

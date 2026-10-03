@@ -31,7 +31,7 @@ fn cartesian_cells_and_addresses_convert_both_ways() {
     for &x in &coordinates {
         for &y in &coordinates {
             let cell = CartesianCell { x, y };
-            assert_eq!(CartesianCell::at(cell.address()), cell, "cell ({x}, {y})");
+            assert_eq!(CartesianCell::from_address(cell.address()), cell, "cell ({x}, {y})");
             let (chunk, place) = cell.chunk_and_cell();
             let (superchunk, chunk_place) = chunk.superchunk_and_place();
             assert_eq!(CellAddress { superchunk, chunk: chunk_place, cell: place }, cell.address());
@@ -105,11 +105,11 @@ fn cell_indices_step_like_coordinates() {
         let cartesian = CartesianCell { x, y };
         let index = CellIndex::from(cartesian);
         let address = cartesian.address();
-        assert_eq!(index.superchunk(), address.superchunk.morton_index());
+        assert_eq!(index.superchunk_index(), address.superchunk.morton_index());
         assert_eq!(index.chunk_in_superchunk(), address.chunk.index());
-        assert_eq!(index.in_chunk(), morton_index(address.cell.x, address.cell.y));
+        assert_eq!(index.place_in_chunk(), morton_index(address.cell.x, address.cell.y));
         assert_eq!(index.chunk(), cartesian.chunk_and_cell().0);
-        assert_eq!(CellIndex::of(index.superchunk(), index.chunk_in_superchunk(), index.in_chunk()), index);
+        assert_eq!(CellIndex::from_parts(index.superchunk_index(), index.chunk_in_superchunk(), index.place_in_chunk()), index);
         assert_eq!(index.cartesian(), cartesian);
         for (dx, dy) in [(-1, -1), (0, -1), (1, -1), (-1, 0), (1, 0), (-1, 1), (0, 1), (1, 1), (0, 0), (-300, 77), (1024, -1025), (8, 0), (0, -8), (-8, 8), (256, 2), (-4, 64)] {
             let expected = x.checked_add_signed(dx).zip(y.checked_add_signed(dy)).map(|(x, y)| CellIndex::from(CartesianCell { x, y }));

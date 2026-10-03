@@ -1,10 +1,11 @@
 //! The bitmap itself: 256 by 256 bits, packed into machine words.
 //!
 //! In [Morton order](crate::morton): the cell at Morton index `i` is bit
-//! `i % 64` of word `i / 64`. Every aligned square of a power-of-two side
-//! -- every tile -- is then one contiguous run of bits: a 4x4 sixteen
-//! bits, an 8x8 exactly one word, anything bigger whole words. So
-//! whole-square questions are a few word operations, not one a row.
+//! `i % 64` of word `i / 64`. Every tile -- an aligned square whose side
+//! is a power of two -- is then one contiguous run of bits: a 4x4 tile
+//! sixteen bits, an 8x8 tile exactly one word, a bigger one whole words.
+//! So a question about a whole tile is a few word operations, not one
+//! per row.
 //!
 //! The drawing methods (`bitmap_drawing.rs`) take `i64` and clamp, so a
 //! caller can ask for a circle hanging off the edge without doing the
@@ -79,10 +80,10 @@ impl Bitmap {
         self.words.iter().all(|&word| word == 0)
     }
 
-    /// Sets the cells of an aligned square of fewer than a word of cells,
-    /// top left at `(x, y)`, `side` cells a side, whose bits are set in
-    /// `run`, in Morton order; its other cells stay as they are.
-    pub fn set_in_small_square(&mut self, (x, y): (u8, u8), side: usize, run: u64) {
+    /// Sets the cells of a tile smaller than a word -- top left at
+    /// `(x, y)`, `side` cells a side -- whose bits are set in `run`, in
+    /// Morton order; its other cells stay as they are.
+    pub fn set_in_small_tile(&mut self, (x, y): (u8, u8), side: usize, run: u64) {
         self.set_in_morton_run(morton_index(x, y), side * side, run);
     }
 
@@ -112,18 +113,17 @@ impl Bitmap {
         self.words[first_cell_index / BITS_PER_WORD] &= !(low_bits_mask(cells) << (first_cell_index % BITS_PER_WORD));
     }
 
-    /// The cells of an aligned square of a word of cells or more, top
-    /// left at `(x, y)`, `side` cells a side, to write: its words, in
-    /// Morton order.
-    pub fn square_words_mut(&mut self, (x, y): (u8, u8), side: usize) -> &mut [u64] {
+    /// The words of a tile of a word or more -- top left at `(x, y)`,
+    /// `side` cells a side -- to write, in Morton order.
+    pub fn tile_words_mut(&mut self, (x, y): (u8, u8), side: usize) -> &mut [u64] {
         let (first_cell_index, cells) = (morton_index(x, y), side * side);
-        debug_assert!(cells >= BITS_PER_WORD, "a {side}x{side} square is less than a word");
+        debug_assert!(cells >= BITS_PER_WORD, "a {side}x{side} tile is less than a word");
         &mut self.words[first_cell_index / BITS_PER_WORD..(first_cell_index + cells) / BITS_PER_WORD]
     }
 
-    /// An aligned square's cells, a word at a time in Morton order: its
-    /// words, or for a square of fewer than 64 cells, its one run.
-    pub fn square_words(&self, (x, y): (u8, u8), side: usize) -> impl Iterator<Item = u64> + '_ {
+    /// A tile's cells, a word at a time in Morton order: its words, or,
+    /// for a tile of fewer than 64 cells, its one run.
+    pub fn tile_words(&self, (x, y): (u8, u8), side: usize) -> impl Iterator<Item = u64> + '_ {
         let (first_cell_index, cells) = (morton_index(x, y), side * side);
         let (whole_words, small_run) = if cells >= BITS_PER_WORD {
             (&self.words[first_cell_index / BITS_PER_WORD..(first_cell_index + cells) / BITS_PER_WORD], None)
@@ -133,10 +133,10 @@ impl Bitmap {
         whole_words.iter().copied().chain(small_run)
     }
 
-    /// The set cells of an aligned square, each as its place in the
-    /// square's own Morton order, in that order.
-    pub fn set_cells_in_square(&self, corner: (u8, u8), side: usize) -> impl Iterator<Item = usize> + '_ {
-        self.square_words(corner, side).enumerate().flat_map(|(word_index, word)| {
+    /// The set cells of a tile, each as its place in the tile's own
+    /// Morton order, in that order.
+    pub fn set_cells_in_tile(&self, corner: (u8, u8), side: usize) -> impl Iterator<Item = usize> + '_ {
+        self.tile_words(corner, side).enumerate().flat_map(|(word_index, word)| {
             let mut remaining = word;
             std::iter::from_fn(move || {
                 (remaining != 0).then(|| {
@@ -148,22 +148,22 @@ impl Bitmap {
         })
     }
 
-    /// Sets the cell at place `place` in the own Morton order of the
-    /// aligned square whose top left cell is `(x, y)`.
-    pub fn set_in_square(&mut self, (x, y): (u8, u8), place: usize) {
+    /// Sets the cell at `place`, in the tile's own Morton order, of the
+    /// tile whose top left cell is `(x, y)`.
+    pub fn set_in_tile(&mut self, (x, y): (u8, u8), place: usize) {
         let cell_index = morton_index(x, y) + place;
         self.words[cell_index / BITS_PER_WORD] |= 1u64 << (cell_index % BITS_PER_WORD);
     }
 
-    /// Sets every cell of an aligned square.
-    pub fn set_square(&mut self, (x, y): (u8, u8), side: usize) {
-        self.set_morton_block(morton_index(x, y), side * side);
+    /// Sets every cell of a tile.
+    pub fn set_tile(&mut self, (x, y): (u8, u8), side: usize) {
+        self.fill_morton_run(morton_index(x, y), side * side);
     }
 
     /// Sets every one of the `cells` cells from Morton index
-    /// `first_cell_index`: an aligned block, `cells` a power of two and
-    /// the index a multiple of it -- a square, or two side by side.
-    pub fn set_morton_block(&mut self, first_cell_index: usize, cells: usize) {
+    /// `first_cell_index`: an aligned run, `cells` a power of two and the
+    /// index a multiple of it -- a tile, or two side by side.
+    fn fill_morton_run(&mut self, first_cell_index: usize, cells: usize) {
         if cells >= BITS_PER_WORD {
             self.words[first_cell_index / BITS_PER_WORD..(first_cell_index + cells) / BITS_PER_WORD].fill(u64::MAX);
         } else {

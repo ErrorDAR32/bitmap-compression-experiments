@@ -36,7 +36,7 @@ fn write(arena: &mut BitmapArena, layer_type: LayerType, op: WriteOp, cell: Cart
 
 /// The cell at `cell` in the chunk at `place` of `superchunk`.
 fn cell_in(superchunk: SuperchunkPosition, place: ChunkPlace, cell: CellPlace) -> CartesianCell {
-    CartesianCell::at(coordinates::CellAddress { superchunk, chunk: place, cell })
+    CartesianCell::from_address(coordinates::CellAddress { superchunk, chunk: place, cell })
 }
 
 /// A bitmap's cells with only `cell` set.

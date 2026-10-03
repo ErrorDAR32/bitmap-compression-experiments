@@ -22,18 +22,18 @@ fn squares_agree_with_their_cells() {
     bitmap.set_rect(8, 8, 15, 15);
     bitmap.set_rect(16, 0, 19, 3);
     bitmap.set(24, 4);
-    let places: Vec<usize> = bitmap.set_cells_in_square((16, 0), 8).collect();
+    let places: Vec<usize> = bitmap.set_cells_in_tile((16, 0), 8).collect();
     assert_eq!(places, (0..16).collect::<Vec<_>>(), "the 4x4 at (16, 0) is the first 16 of its 8x8");
-    assert_eq!(bitmap.set_cells_in_square((24, 4), 1).collect::<Vec<_>>(), vec![0]);
+    assert_eq!(bitmap.set_cells_in_tile((24, 4), 1).collect::<Vec<_>>(), vec![0]);
     let mut placed = Bitmap::new();
-    for place in bitmap.set_cells_in_square((0, 0), 32) {
-        placed.set_in_square((0, 0), place);
+    for place in bitmap.set_cells_in_tile((0, 0), 32) {
+        placed.set_in_tile((0, 0), place);
     }
     assert!((0..32).all(|y| (0..32).all(|x| placed.get(x, y) == bitmap.get(x, y))));
     let mut filled = Bitmap::new();
-    filled.set_square((8, 8), 8);
-    filled.set_square((16, 0), 4);
-    filled.set_square((24, 4), 1);
+    filled.set_tile((8, 8), 8);
+    filled.set_tile((16, 0), 4);
+    filled.set_tile((24, 4), 1);
     assert!((0..=u8::MAX).all(|y| (0..=u8::MAX).all(|x| filled.get(x, y) == bitmap.get(x, y))));
 }
 
@@ -81,7 +81,7 @@ fn rect_clamps_to_bounds() {
 /// A circle holds its centre and cells at its radius, not its bounding
 /// box's corners.
 #[test]
-fn circle_includes_center_and_excludes_far_corners() {
+fn circle_includes_centre_and_excludes_far_corners() {
     let mut bitmap = Bitmap::new();
     bitmap.set_circle(128, 128, 5);
     assert!(bitmap.get(128, 128));

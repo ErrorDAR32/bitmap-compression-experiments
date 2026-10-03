@@ -81,7 +81,7 @@ impl SuperchunkEntities {
 
     /// The entity whose ID is `id`, standing on `at`.
     pub fn get(&self, id: EntityId, at: CellIndex) -> Option<EntityRef<'_>> {
-        debug_assert_eq!(at.superchunk(), self.morton);
+        debug_assert_eq!(at.superchunk_index(), self.morton);
         self.chunks[at.chunk_in_superchunk()].get(id, at)
     }
 
@@ -138,8 +138,8 @@ impl SuperchunkEntities {
     /// `from`, changed all the same, and wakes there; a new one is not
     /// put.
     pub(crate) fn put(&mut self, earliest: u64, header: Header, from: CellIndex, attributes: Option<&[Attribute]>) -> Put {
-        debug_assert_eq!(header.at.superchunk(), self.morton, "an entity put in a superchunk it is not in");
-        debug_assert_eq!(from.superchunk(), self.morton, "an entity put from another superchunk: a crossing");
+        debug_assert_eq!(header.at.superchunk_index(), self.morton, "an entity put in a superchunk it is not in");
+        debug_assert_eq!(from.superchunk_index(), self.morton, "an entity put from another superchunk: a crossing");
         debug_assert!(attributes.is_none_or(sorted), "attributes sorted by type, each type once");
         let (origin, target) = (from.chunk_in_superchunk(), header.at.chunk_in_superchunk());
         let put = if origin == target {
@@ -178,7 +178,7 @@ impl SuperchunkEntities {
     /// standing on `at` to `value`, or with none removes it: whether the
     /// entity is there.
     pub(crate) fn edit(&mut self, id: EntityId, at: CellIndex, kind: AttributeType, value: Option<u64>) -> bool {
-        debug_assert_eq!(at.superchunk(), self.morton);
+        debug_assert_eq!(at.superchunk_index(), self.morton);
         self.chunks[at.chunk_in_superchunk()].edit(id, place(at), kind, value)
     }
 
@@ -193,7 +193,7 @@ impl SuperchunkEntities {
     /// Removes the entity whose ID is `id` standing on `at`: whether it
     /// was there.
     pub(crate) fn remove(&mut self, id: EntityId, at: CellIndex) -> bool {
-        debug_assert_eq!(at.superchunk(), self.morton);
+        debug_assert_eq!(at.superchunk_index(), self.morton);
         self.chunks[at.chunk_in_superchunk()].remove(id, at)
     }
 
@@ -265,7 +265,7 @@ impl Entities {
     /// Notes `crossing` again, as a save kept it: its entity stands in
     /// a superchunk held. Whether it was.
     pub fn restore_crossing(&mut self, crossing: Crossing) -> bool {
-        let Ok(at) = self.superchunks.binary_search_by_key(&crossing.at.superchunk(), |held| held.morton) else {
+        let Ok(at) = self.superchunks.binary_search_by_key(&crossing.at.superchunk_index(), |held| held.morton) else {
             return false;
         };
         self.superchunks[at].cross(crossing.id, crossing.at, crossing.to);
@@ -300,7 +300,7 @@ impl Entities {
 
     /// The entity whose ID is `id`, standing on `at`, if held.
     pub fn get(&self, id: EntityId, at: CellIndex) -> Option<EntityRef<'_>> {
-        self.superchunk(at.superchunk())?.get(id, at)
+        self.superchunk(at.superchunk_index())?.get(id, at)
     }
 
     /// Holds exactly the superchunks whose Morton indices are `mortons`,
@@ -401,7 +401,7 @@ impl<'a> EntityReader<'a> {
 
     /// The entity whose ID is `id`, standing on `at`, if held.
     pub fn get(&self, id: EntityId, at: CellIndex) -> Option<EntityRef<'a>> {
-        self.superchunk(at.superchunk())?.get(id, at)
+        self.superchunk(at.superchunk_index())?.get(id, at)
     }
 
     /// The cells entities stand on among the `width` by `height` cells
@@ -426,13 +426,13 @@ impl<'a> EntityReader<'a> {
             let Some(tile) = first.offset(8 * tile_x, 8 * tile_y) else {
                 continue;
             };
-            if held.is_none_or(|held| held.morton != tile.superchunk()) {
-                held = self.superchunk(tile.superchunk());
+            if held.is_none_or(|held| held.morton != tile.superchunk_index()) {
+                held = self.superchunk(tile.superchunk_index());
             }
             let Some(superchunk) = held else {
                 continue;
             };
-            for &place in superchunk.in_word_tile(tile.chunk_in_superchunk(), tile.in_chunk() as u16) {
+            for &place in superchunk.in_word_tile(tile.chunk_in_superchunk(), tile.place_in_chunk() as u16) {
                 let (x, y) = in_tile(place as u64);
                 let (x, y) = (left + x as i32, top + y as i32);
                 if x >= 0 && y >= 0 && x < width as i32 && y < height as i32 {

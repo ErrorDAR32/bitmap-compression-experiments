@@ -18,7 +18,7 @@ pub fn write_payload(sink: &mut impl Sink, bitmap: &Bitmap, tile: Tile, size_off
     }
     if tile.level + size_offset == CELL_LEVEL {
         let width = cells_in_tile(tile.level).min(u64::BITS as usize) as u8;
-        for word in bitmap.square_words(tile.top_left_cell(), tile.side_in_cells()) {
+        for word in bitmap.tile_words(tile.top_left_cell(), tile.side_in_cells()) {
             sink.push_value(word, width);
         }
         return;
@@ -34,13 +34,13 @@ pub fn read_payload(reader: &mut BitReader, cells: &mut Bitmap, tile: Tile, size
     if tile.level + size_offset != CELL_LEVEL {
         for resolution_tile in tile.tiles_under(size_offset) {
             if reader.bit() {
-                cells.set_square(resolution_tile.top_left_cell(), resolution_tile.side_in_cells());
+                cells.set_tile(resolution_tile.top_left_cell(), resolution_tile.side_in_cells());
             }
         }
     } else if side * side < u64::BITS as usize {
-        cells.set_in_small_square(corner, side, reader.value((side * side) as u8));
+        cells.set_in_small_tile(corner, side, reader.value((side * side) as u8));
     } else {
-        for word in cells.square_words_mut(corner, side) {
+        for word in cells.tile_words_mut(corner, side) {
             *word |= reader.value(u64::BITS as u8);
         }
     }
@@ -65,11 +65,11 @@ pub fn cell_list_least_bits(level: u8, set: u64) -> u64 {
 /// Writes `tile`'s cell list.
 pub fn write_cell_list(sink: &mut impl Sink, bitmap: &Bitmap, tile: Tile) {
     let (corner, side) = (tile.top_left_cell(), tile.side_in_cells());
-    let set = bitmap.square_words(corner, side).map(|word| word.count_ones() as u64).sum();
+    let set = bitmap.tile_words(corner, side).map(|word| word.count_ones() as u64).sum();
     sink.push_gamma(set + 1);
     let parameter = rice_parameter(cells_in_tile(tile.level) as u64, set);
     let mut next = 0;
-    for place in bitmap.set_cells_in_square(corner, side) {
+    for place in bitmap.set_cells_in_tile(corner, side) {
         let gap = (place - next) as u64;
         sink.push_unary(gap >> parameter);
         sink.push_value(gap, parameter);
@@ -86,7 +86,7 @@ pub fn read_cell_list(reader: &mut BitReader, tile: Tile, cell_values: &mut Bitm
     for _ in 0..set {
         let gap = reader.unary() << parameter | reader.value(parameter);
         place += gap as usize;
-        cell_values.set_in_square(tile.top_left_cell(), place);
+        cell_values.set_in_tile(tile.top_left_cell(), place);
         place += 1;
     }
 }

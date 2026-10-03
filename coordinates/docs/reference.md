@@ -28,15 +28,16 @@ index, 0 to 15; **`all`**, every place in Morton order.
 superchunk, a chunk there, a cell there.
 
 **`CartesianCell`** `{x, y}`: a cell's cartesian coordinates.
-**`address`**, **`chunk_and_cell`**, **`at`** (from an address);
+**`address`**, **`chunk_and_cell`**, **`from_address`**;
 **`morton_index`** / **`from_morton_index`**.
 
-**`CellIndex(u64)`**: a cell's Morton index. **`superchunk`** (the top
-44 bits), **`chunk_in_superchunk`** (the next 4), **`in_chunk`** (the
-low 16: its bit in the chunk's words), **`chunk`**, **`of(superchunk,
-chunk, in_chunk)`**, **`cartesian`**, and `From<CartesianCell>`.
+**`CellIndex(u64)`**: a cell's Morton index. **`superchunk_index`**
+(the top 44 bits), **`chunk_in_superchunk`** (the next 4),
+**`place_in_chunk`** (the low 16: its bit in the chunk's words),
+**`chunk`**, **`from_parts(superchunk_index, chunk_in_superchunk,
+place_in_chunk)`**, **`cartesian`**, and `From<CartesianCell>`.
 **`offset(dx, dy)`**: the cell so far away, if in the world, stepped on
-the index by **`step`**: one coordinate's bits (`X_BITS`, `Y_BITS`) added
+the index by **`step`**: one coordinate's bits (its lane, `X_BITS` or `Y_BITS`) added
 to or taken from with the distance spread out, the other's bits filled
 with ones for a carry to pass, cleared for a borrow; a result past the
 start is a step off the world, refused. A step of none spreads

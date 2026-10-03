@@ -1,17 +1,18 @@
-//! Tiles: 8x8 squares of cells, a `u64` each. In Morton order an aligned
-//! 8x8 square is one word of a bitmap, so a tile is read as one load; to
-//! shift and cut it, it is turned row by row -- bit `y * 8 + x`, as a
-//! chess board -- where moving cells across is a shift and keeping
-//! columns a mask. A window of 8x8 cells at any cell is then put
-//! together from the up to four aligned tiles it overlaps, in a few
-//! shifts and masks.
+//! Windows: 8x8 cells at any cell, as one `u64`, row by row -- bit
+//! `y * 8 + x`, like a chess board -- where moving cells across is a
+//! shift and keeping columns is a mask.
+//!
+//! In Morton order an aligned 8x8 tile -- a word tile -- is one word of
+//! a bitmap, so it is read with one load. A window is cut from the up to
+//! four word tiles it overlaps: each is turned into rows, then they are
+//! shifted and masked together.
 //!
 //! Turning a Morton word into rows reorders its index bits -- `x0 y0 x1
 //! y1 x2 y2`, from the lowest, to `x0 x1 x2 y0 y1 y2` -- in three
 //! exchanges of two index bits, each a delta swap of the word's bits.
 
-/// Cells along a tile's side.
-pub const TILE_SIDE: u32 = 8;
+/// Cells along a word tile's side, and a window's.
+pub const WORD_TILE_SIDE: u32 = 8;
 
 /// The bits of a word whose index has bit `low` set and bit `high`
 /// clear: what a delta swap of those two index bits moves up.
@@ -70,7 +71,7 @@ pub const fn left_columns(columns: u32) -> u64 {
 
 /// The first `rows` rows (0 to 8).
 pub const fn top_rows(rows: u32) -> u64 {
-    if rows >= TILE_SIDE { u64::MAX } else { (1 << (rows * TILE_SIDE)) - 1 }
+    if rows >= WORD_TILE_SIDE { u64::MAX } else { (1 << (rows * WORD_TILE_SIDE)) - 1 }
 }
 
 /// The 8x8 window, row by row, whose top left cell is `(across, down)`
@@ -79,17 +80,17 @@ pub const fn top_rows(rows: u32) -> u64 {
 pub const fn window(tiles: [[u64; 2]; 2], across: u32, down: u32) -> u64 {
     let top = beside(tiles[0][0], tiles[0][1], across);
     let bottom = beside(tiles[1][0], tiles[1][1], across);
-    let below = match bottom.checked_shl(TILE_SIDE * (TILE_SIDE - down)) {
+    let below = match bottom.checked_shl(WORD_TILE_SIDE * (WORD_TILE_SIDE - down)) {
         Some(below) => below,
         None => 0,
     };
-    top >> (TILE_SIDE * down) | below
+    top >> (WORD_TILE_SIDE * down) | below
 }
 
 /// The 8x8 window `across` columns into two tiles side by side, row by
 /// row: the left one's columns from `across` on, then the right one's
 /// first `across`.
 const fn beside(left: u64, right: u64, across: u32) -> u64 {
-    let kept = left_columns(TILE_SIDE - across);
-    (left >> across) & kept | (right << (TILE_SIDE - across)) & !kept
+    let kept = left_columns(WORD_TILE_SIDE - across);
+    (left >> across) & kept | (right << (WORD_TILE_SIDE - across)) & !kept
 }

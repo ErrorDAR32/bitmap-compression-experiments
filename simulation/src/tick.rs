@@ -401,7 +401,7 @@ impl<'a> Turn<'a> {
     /// bug.
     pub fn queue(&mut self, layer_type: LayerType, write: Write) {
         if write.shape == Shape::Cell {
-            let slot = self.slot_of({ write.at }.superchunk());
+            let slot = self.slot_of({ write.at }.superchunk_index());
             self.outbox.slots[slot].push(layer_type, write);
             return;
         }
@@ -470,7 +470,7 @@ impl<'a> Turn<'a> {
     /// [`Turn::update`]d.
     pub fn put(&mut self, header: Header, attributes: &[Attribute]) {
         debug_assert!(header.wake > self.now, "an entity put to wake at tick {}, not after {}", header.wake, self.now);
-        let slot = self.slot_of(header.at.superchunk());
+        let slot = self.slot_of(header.at.superchunk_index());
         self.outbox.instructions[slot].put(header, header.at, attributes);
     }
 
@@ -497,8 +497,8 @@ impl<'a> Turn<'a> {
     pub fn step(&mut self, entity: &Header, to: CellIndex, wake: u64) {
         debug_assert!(wake > self.now, "an entity put to wake at tick {wake}, not after {}", self.now);
         let after = Header { at: to, wake, ..*entity };
-        if entity.at.superchunk() == to.superchunk() {
-            let slot = self.slot_of(to.superchunk());
+        if entity.at.superchunk_index() == to.superchunk_index() {
+            let slot = self.slot_of(to.superchunk_index());
             self.outbox.instructions[slot].move_entity(after, entity.at);
         } else if let Some(whole) = self.entity_reader.get(entity.id, entity.at) {
             self.update(entity, after, whole.attributes);
@@ -511,14 +511,14 @@ impl<'a> Turn<'a> {
     /// this is one entity acting on another: only the one attribute is
     /// written, so two acting on one in a tick do not undo each other.
     pub fn set_attribute(&mut self, entity: &Header, kind: AttributeType, value: u64) {
-        let slot = self.slot_of(entity.at.superchunk());
+        let slot = self.slot_of(entity.at.superchunk_index());
         self.outbox.instructions[slot].edit(entity.id, entity.at, kind, Some(value));
     }
 
     /// Queues removing the attribute of type `kind` of `entity`, any in
     /// reach.
     pub fn unset_attribute(&mut self, entity: &Header, kind: AttributeType) {
-        let slot = self.slot_of(entity.at.superchunk());
+        let slot = self.slot_of(entity.at.superchunk_index());
         self.outbox.instructions[slot].edit(entity.id, entity.at, kind, None);
     }
 
@@ -547,11 +547,11 @@ impl<'a> Turn<'a> {
     pub fn update(&mut self, before: &Header, after: Header, attributes: &[Attribute]) {
         debug_assert!(after.wake > self.now, "an entity put to wake at tick {}, not after {}", after.wake, self.now);
         let own = slot(0, 0);
-        if before.at.superchunk() == after.at.superchunk() {
-            let slot = self.slot_of(after.at.superchunk());
+        if before.at.superchunk_index() == after.at.superchunk_index() {
+            let slot = self.slot_of(after.at.superchunk_index());
             self.outbox.instructions[slot].put(after, before.at, attributes);
         } else {
-            let there = self.slot_of(after.at.superchunk());
+            let there = self.slot_of(after.at.superchunk_index());
             self.outbox.instructions[there].put(after, after.at, attributes);
             self.outbox.instructions[own].cross(Header { at: before.at, wake: NEVER, ..after }, after.at, attributes);
         }
@@ -577,7 +577,7 @@ impl<'a> Turn<'a> {
 
     /// Queues removing `header`'s entity.
     pub fn remove(&mut self, header: &Header) {
-        let slot = self.slot_of(header.at.superchunk());
+        let slot = self.slot_of(header.at.superchunk_index());
         self.outbox.instructions[slot].remove(header.id, header.at);
     }
 

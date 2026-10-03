@@ -52,32 +52,32 @@ impl Bitmap {
     }
 
     /// Sets every cell whose centre lies within `radius` of
-    /// `(center_x, center_y)`.
-    pub fn set_circle(&mut self, center_x: i64, center_y: i64, radius: i64) {
-        self.for_each_in_circle(center_x, center_y, radius, |bitmap, x, y| bitmap.set(x, y));
+    /// `(centre_x, centre_y)`.
+    pub fn set_circle(&mut self, centre_x: i64, centre_y: i64, radius: i64) {
+        self.for_each_in_circle(centre_x, centre_y, radius, |bitmap, x, y| bitmap.set(x, y));
     }
 
     /// Clears every cell whose centre lies within `radius` of
-    /// `(center_x, center_y)`.
-    pub fn unset_circle(&mut self, center_x: i64, center_y: i64, radius: i64) {
-        self.for_each_in_circle(center_x, center_y, radius, |bitmap, x, y| bitmap.unset(x, y));
+    /// `(centre_x, centre_y)`.
+    pub fn unset_circle(&mut self, centre_x: i64, centre_y: i64, radius: i64) {
+        self.for_each_in_circle(centre_x, centre_y, radius, |bitmap, x, y| bitmap.unset(x, y));
     }
 
     /// Visits every cell whose centre lies within `radius` of
-    /// `(center_x, center_y)`, by walking the bounding box and testing
+    /// `(centre_x, centre_y)`, by walking the bounding box and testing
     /// squared distance, so no square root is taken. A negative radius
     /// draws nothing.
-    fn for_each_in_circle(&mut self, center_x: i64, center_y: i64, radius: i64, mut visit: impl FnMut(&mut Self, u8, u8)) {
+    fn for_each_in_circle(&mut self, centre_x: i64, centre_y: i64, radius: i64, mut visit: impl FnMut(&mut Self, u8, u8)) {
         if radius < 0 {
             return;
         }
         let radius_squared = radius * radius;
-        let (left, right) = (clamped_column(center_x - radius), clamped_column(center_x + radius));
-        let (top, bottom) = (clamped_row(center_y - radius), clamped_row(center_y + radius));
+        let (left, right) = (clamped_column(centre_x - radius), clamped_column(centre_x + radius));
+        let (top, bottom) = (clamped_row(centre_y - radius), clamped_row(centre_y + radius));
         for y in top..=bottom {
-            let dy = y as i64 - center_y;
+            let dy = y as i64 - centre_y;
             for x in left..=right {
-                let dx = x as i64 - center_x;
+                let dx = x as i64 - centre_x;
                 if dx * dx + dy * dy <= radius_squared {
                     visit(self, x, y);
                 }

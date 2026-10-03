@@ -212,7 +212,7 @@ fn read_subtree_and_plan_last_pass(reader: &mut BitReader, cells: &mut Bitmap, p
                 if is_node {
                     read_subtree_and_plan_last_pass(reader, cells, plan, child, bound_inside);
                 } else if bound_inside {
-                    cells.set_square(child.top_left_cell(), child.side_in_cells());
+                    cells.set_tile(child.top_left_cell(), child.side_in_cells());
                 }
             }
         }

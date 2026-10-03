@@ -25,6 +25,7 @@ what they always do and are not listed.
 | **cartesian cell** | a cell as its `x` and `y` in the world (`CartesianCell`): for geometry and drawing | cell index | world cell |
 | **Morton index** | a number made by interleaving `x`'s and `y`'s bits, `x` in the even ones: cells, chunks and superchunks are numbered and stored in this order | cell index, Morton order | `morton` alone |
 | **cell index** | a cell's Morton index in the world, 64 bits: 44 for its superchunk, 4 for its chunk, 16 for its cell (`CellIndex`) | Morton index | |
+| **superchunk index** | a superchunk's Morton index, 44 bits -- the top bits of its cells' -- what identifies a superchunk in the code (`CellIndex::superchunk_index`) | cell index, position | `morton` alone |
 | **Morton order** | the order of Morton indices: work is done and written in it, so memory is read forwards | sampling, wake | |
 | **height** | a cell's height, 0 to 255, from the seed alone (`terrain::height`) | wall, height map | elevation |
 | **wall** | a bar between two cells across or down more than one apart in height; kept by the upper or left cell, in the layers `WALL_EAST` and `WALL_SOUTH`. A diagonal step has no wall of its own: it is open only when both ways round it are | step, terrain | cliff (the viewer's drawing of walls) |

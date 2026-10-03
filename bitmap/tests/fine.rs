@@ -7,5 +7,5 @@
 mod bitmap;
 #[path = "fine/morton.rs"]
 mod morton;
-#[path = "fine/tile.rs"]
-mod tile;
+#[path = "fine/window.rs"]
+mod window;

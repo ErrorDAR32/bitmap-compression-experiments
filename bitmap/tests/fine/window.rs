@@ -5,7 +5,7 @@
 //! `cargo test`
 
 use bitmap::morton::morton_index;
-use bitmap::tile::{left_columns, morton_from_rows, rows_from_morton, top_rows, window, TILE_SIDE};
+use bitmap::window::{left_columns, morton_from_rows, rows_from_morton, top_rows, window, WORD_TILE_SIDE};
 
 /// Words drawn from a seed: SplitMix64, enough for a test.
 struct Rng(u64);
@@ -27,7 +27,7 @@ impl Rng {
 
 /// Whether the cell `(x, y)` of a row-by-row tile is set.
 fn at(rows: u64, x: u32, y: u32) -> bool {
-    rows >> (y * TILE_SIDE + x) & 1 == 1
+    rows >> (y * WORD_TILE_SIDE + x) & 1 == 1
 }
 
 /// A Morton word's cell `(x, y)` lands at bit `y * 8 + x` of its rows,

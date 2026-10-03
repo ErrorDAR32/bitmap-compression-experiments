@@ -90,7 +90,7 @@ pub fn sample_layer(superchunk: u64, layer: LayerView, probability: f64, random:
                 word += 1;
             }
             let bit = select(cells[word], (next - before) as u32);
-            emit(CellIndex::of(superchunk, chunk, word * BITS_PER_WORD + bit as usize));
+            emit(CellIndex::from_parts(superchunk, chunk, word * BITS_PER_WORD + bit as usize));
             chosen += 1;
             next += 1 + draw(random);
         }

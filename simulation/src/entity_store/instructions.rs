@@ -99,7 +99,7 @@ impl Instructions {
 
     /// Queues a put.
     fn push(&mut self, header: Header, from: CellIndex, crossing: Option<CellIndex>, attributes: &[Attribute]) {
-        debug_assert_eq!(header.at.superchunk(), from.superchunk(), "an entity put from another superchunk: a crossing");
+        debug_assert_eq!(header.at.superchunk_index(), from.superchunk_index(), "an entity put from another superchunk: a crossing");
         self.instructions.push(Instruction::Put { header, from, crossing, first: self.attributes.len() as u32, count: attributes.len() as u32 });
         self.attributes.extend_from_slice(attributes);
     }
@@ -109,7 +109,7 @@ impl Instructions {
     /// the attributes it has: none are carried. Its cell `from` itself,
     /// it only sleeps until then.
     pub fn move_entity(&mut self, header: Header, from: CellIndex) {
-        debug_assert_eq!(header.at.superchunk(), from.superchunk(), "an entity moved from another superchunk: a crossing");
+        debug_assert_eq!(header.at.superchunk_index(), from.superchunk_index(), "an entity moved from another superchunk: a crossing");
         self.instructions.push(Instruction::Move { header, from });
     }
 
@@ -152,7 +152,7 @@ impl Instructions {
                 Instruction::Put { header, .. } | Instruction::Move { header, .. } => header.at,
                 Instruction::Edit { at, .. } | Instruction::Remove { at, .. } => at,
             };
-            let morton = at.superchunk();
+            let morton = at.superchunk_index();
             let found = match superchunks {
                 [only] if only.morton_index() == morton => Some(0),
                 _ => superchunks.binary_search_by_key(&morton, SuperchunkEntities::morton_index).ok(),

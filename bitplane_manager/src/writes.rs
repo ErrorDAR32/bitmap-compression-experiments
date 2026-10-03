@@ -224,14 +224,14 @@ pub(crate) fn apply_in(layers: Option<&mut [SuperchunkLayer]>, superchunk: u64, 
     };
     let at = { write.at };
     if write.shape == Shape::Cell {
-        if at.superchunk() != superchunk {
+        if at.superchunk_index() != superchunk {
             return;
         }
         let chunk = at.chunk_in_superchunk();
         match layer {
             Some(layer) if contains(layer.flags.hot, chunk) => {
-                let set = op(layer, chunk, at.in_chunk());
-                applied.changed += layer.put_cell(chunk, at.in_chunk(), set) as u64;
+                let set = op(layer, chunk, at.place_in_chunk());
+                applied.changed += layer.put_cell(chunk, at.place_in_chunk(), set) as u64;
             }
             _ => applied.missed += 1,
         }
