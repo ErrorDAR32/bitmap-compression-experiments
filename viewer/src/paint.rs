@@ -12,6 +12,7 @@ use bitmap::BITS_PER_WORD;
 use coordinates::{ChunkPlace, CHUNK_SIDE, SUPERCHUNK_SIDE_CELLS};
 use std::sync::mpsc::{channel, Receiver};
 use std::thread;
+use std::time::Instant;
 use tilesim::diagnostics::frames::{BROWN, GREEN, WHITE};
 
 /// Pixels along a superchunk's side: a cell each.
@@ -38,6 +39,12 @@ pub struct Picture {
     pub sheep: usize,
     /// Cells of grass in the whole world.
     pub grass: u64,
+    /// What answering took of the simulation's thread, in seconds.
+    pub sync_seconds: f64,
+    /// The share of the thread's time that is.
+    pub sync_share: f64,
+    /// What painting took of the painter's thread, in seconds.
+    pub paint_seconds: f64,
     /// The superchunks asked for.
     pub tiles: Vec<Tile>,
 }
@@ -50,8 +57,18 @@ pub fn start(frames: Receiver<Frame>) -> Receiver<Picture> {
         .name("painter".to_string())
         .spawn(move || {
             for frame in frames {
+                let started = Instant::now();
                 let tiles = frame.cells.iter().map(paint).collect();
-                let picture = Picture { tick: frame.tick, ticks_a_second: frame.ticks_a_second, sheep: frame.sheep, grass: frame.grass, tiles };
+                let picture = Picture {
+                    tick: frame.tick,
+                    ticks_a_second: frame.ticks_a_second,
+                    sheep: frame.sheep,
+                    grass: frame.grass,
+                    sync_seconds: frame.sync_seconds,
+                    sync_share: frame.sync_share,
+                    paint_seconds: started.elapsed().as_secs_f64(),
+                    tiles,
+                };
                 if painted.send(picture).is_err() {
                     return;
                 }

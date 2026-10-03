@@ -1,14 +1,18 @@
 //! Sheep on grass: they eat it, starve without it, breed lambs that
-//! grow up -- attributes coming and going -- never walk off the
-//! bitplanes held, and tick the same on any number of threads.
+//! grow up -- attributes coming and going -- walk to the nearest grass
+//! when hungry, never walk off the bitplanes held, and tick the same on
+//! any number of threads.
 //!
 //! `cargo test`
 
-use simulation::entities::EntityRef;
+use bitplane_manager::{Write, WriteOp};
+use chunk_storage::mock::{DIRT, GRASS};
+use coordinates::{CartesianCell, SUPERCHUNK_SIDE_CELLS};
+use simulation::entities::{Attribute, EntityId, EntityRef, Header};
 use simulation::Simulation;
 use tilesim::diagnostics::world::World;
 use tilesim::pasture::tick;
-use tilesim::sheep::{HUNGER, LAMB, PREGNANT, SHEEP, STARVE_WAKES, STEP_JITTER, STEP_TICKS};
+use tilesim::sheep::{rule, SheepTickMetrics, HUNGER, LAMB, MEAL_WAKES, PREGNANT, SHEEP, STARVE_WAKES, STEP_JITTER, STEP_TICKS};
 
 /// Every sheep is hungry no longer than it starves at, is a sheep, and is
 /// never both a lamb and pregnant.
@@ -40,7 +44,7 @@ fn sheep_eat_breed_and_grow_up() {
     let mut world = World::with_sheep(4, 300_000, 400);
     let mut simulation = Simulation::new(2);
     let (mut eaten, mut births, mut lost, mut lambs_seen, mut pregnant_seen) = (0, 0, 0, false, false);
-    for seed in 0..6000 {
+    for seed in 0..40_000 {
         let report = tick(&mut simulation, &mut world.arena, &mut world.entities, seed);
         (eaten, births, lost) = (eaten + report.rules.sheep.eaten, births + report.rules.sheep.births, lost + report.entities.lost);
         if seed % 500 == 0 {
@@ -51,10 +55,42 @@ fn sheep_eat_breed_and_grow_up() {
             }
         }
     }
-    assert!(eaten > 10_000 && births > 100, "{eaten} eaten, {births} born");
+    assert!(eaten > 5_000 && births > 100, "{eaten} eaten, {births} born");
     assert!(lambs_seen && pregnant_seen);
     assert_eq!(lost, 0, "no sheep walks off the superchunks held");
     assert!(world.entities.iter().any(|sheep| sheep.attribute(LAMB).is_none() && sheep.attribute(HUNGER).is_some()), "grown sheep");
+}
+
+/// A hungry sheep with no grass beside it walks the shortest way to the
+/// nearest in the area about it: one eight cells from the only grass
+/// stands on it eight wakes on, eats it, and no path was looked for
+/// that was not found.
+#[test]
+fn hungry_sheep_walk_to_the_nearest_grass() {
+    let mut world = World::grass_on_dirt(1, 0);
+    let superchunk = world.superchunks[0];
+    let corner = CartesianCell { x: superchunk.x * SUPERCHUNK_SIDE_CELLS, y: superchunk.y * SUPERCHUNK_SIDE_CELLS };
+    let (sheep, grass) = (CartesianCell { x: corner.x + 500, y: corner.y + 500 }, CartesianCell { x: corner.x + 506, y: corner.y + 493 });
+    world.arena.queue(GRASS, Write::cell(grass.into(), WriteOp::Set));
+    world.arena.queue(DIRT, Write::cell(grass.into(), WriteOp::Unset));
+    world.arena.apply();
+    let header = Header { id: EntityId(1), kind: SHEEP, at: sheep.into(), wake: 0 };
+    world.entities.queue_put(header, &[Attribute { kind: HUNGER, value: MEAL_WAKES }]);
+    world.entities.apply();
+    let mut simulation = Simulation::new(1);
+    let (mut done, mut ate_at) = (SheepTickMetrics::default(), None);
+    for seed in 0..12 * (STEP_TICKS + STEP_JITTER) {
+        // The grass rule left out: the one cell of grass must stay until eaten.
+        let report = simulation.tick(&mut world.arena, &mut world.entities, seed, |turn, _| rule(turn));
+        if report.rules.eaten > 0 && ate_at.is_none() {
+            ate_at = Some(done.woken);
+        }
+        done += report.rules;
+    }
+    assert_eq!(done.eaten, 1, "the one cell of grass, eaten");
+    assert_eq!(ate_at, Some(7), "seven steps to it, eaten on the wake after");
+    assert_eq!((done.sought, done.paths), (6, 6), "a path found each step until the grass was beside it");
+    assert_eq!(world.grass(), 0);
 }
 
 /// Grass and sheep over four superchunks, across their borders, come out

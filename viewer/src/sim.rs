@@ -10,11 +10,19 @@
 //! another thread, so what is in view costs the ticks next to nothing.
 //! It sends nothing unasked, so it is the window that sets how often
 //! the world is drawn, and a window that falls behind slows no tick.
+//!
+//! It ticks until the window is closed, with no number of ticks to
+//! stop at, and keeps a census of the flock and the grass as it goes
+//! ([`census_path`]): what a long run came to is there once it is
+//! closed.
 
 use bitplane_manager::BucketKey;
 use chunk_storage::mock::GRASS;
 use coordinates::{ChunkPlace, ChunkPosition, SuperChunkPosition, CHUNKS_IN_SUPERCHUNK, SUPERCHUNK_SIDE_CELLS};
 use simulation::Simulation;
+use std::fs::{create_dir_all, File};
+use std::io::{BufWriter, Write};
+use std::path::{Path, PathBuf};
 use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -24,6 +32,28 @@ use tilesim::pasture;
 /// Ticks a second the simulation is held to unless told otherwise: the
 /// game's target.
 pub const TARGET_PACE: u32 = 256;
+
+/// Ticks from one line of the census to the next.
+pub const CENSUS_EVERY: u64 = 1000;
+
+/// Where the census of the run is kept: the flock and the grass every
+/// [`CENSUS_EVERY`] ticks, written as the run goes, so a run closed at
+/// any time leaves what it came to. Under the crate's folder, out of
+/// git, as every crate's transient data.
+pub fn census_path() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("transient_data/measurements/census.csv")
+}
+
+/// Starts the census afresh: its file, with what was run and the
+/// columns' names. `None`, and no census kept, if it cannot be made.
+fn census(superchunks: u32, thousandths: usize, flock: usize) -> Option<BufWriter<File>> {
+    let path = census_path();
+    create_dir_all(path.parent()?).ok()?;
+    let mut file = BufWriter::new(File::create(path).ok()?);
+    writeln!(file, "# viewer {superchunks} {thousandths} {flock}").ok()?;
+    writeln!(file, "tick,sheep,grass").ok()?;
+    Some(file)
+}
 
 /// Words a chunk's bitmap takes.
 pub const CHUNK_WORDS: usize = bitmap::WORDS;
@@ -71,6 +101,11 @@ pub struct Frame {
     pub sheep: usize,
     /// Cells of grass in the whole world.
     pub grass: u64,
+    /// What answering took of the simulation's thread -- the counts and
+    /// the copy, all the window costs it -- in seconds.
+    pub sync_seconds: f64,
+    /// The share of the thread's time that is, at the rate asked.
+    pub sync_share: f64,
     /// The superchunks asked for.
     pub cells: Vec<Cells>,
 }
@@ -101,6 +136,7 @@ fn run(superchunks: u32, thousandths: usize, flock: usize, asked: &Receiver<Requ
     let mut world = World::with_sheep(superchunks, (1 << 20) * thousandths / 1000, flock);
     let mut simulation = Simulation::for_superchunks(superchunks as usize);
     let (mut paused, mut pace, mut tick) = (false, Some(TARGET_PACE), 0u64);
+    let mut census = census(superchunks, thousandths, flock);
     let (mut next_tick, mut last_frame, mut last_frame_tick) = (Instant::now(), Instant::now(), 0u64);
     loop {
         // Paused, there is nothing to do until the window asks.
@@ -108,11 +144,14 @@ fn run(superchunks: u32, thousandths: usize, flock: usize, asked: &Receiver<Requ
         loop {
             match request.take().map_or_else(|| asked.try_recv(), Ok) {
                 Ok(Request::Sync(viewport)) => {
+                    let asked_at = Instant::now();
                     let elapsed = last_frame.elapsed().as_secs_f64();
                     let ticks_a_second = if elapsed > 0.0 { (tick - last_frame_tick) as f64 / elapsed } else { 0.0 };
-                    (last_frame, last_frame_tick) = (Instant::now(), tick);
-                    let cells = copy(&world, superchunks, viewport);
-                    let frame = Frame { tick, ticks_a_second, sheep: world.entities.len(), grass: world.grass(), cells };
+                    (last_frame, last_frame_tick) = (asked_at, tick);
+                    let (sheep, grass, cells) = (world.entities.len(), world.grass(), copy(&world, superchunks, viewport));
+                    let sync_seconds = asked_at.elapsed().as_secs_f64();
+                    let sync_share = if elapsed > 0.0 { sync_seconds / elapsed } else { 0.0 };
+                    let frame = Frame { tick, ticks_a_second, sheep, grass, sync_seconds, sync_share, cells };
                     if answers.send(frame).is_err() {
                         return;
                     }
@@ -125,6 +164,12 @@ fn run(superchunks: u32, thousandths: usize, flock: usize, asked: &Receiver<Requ
         }
         if paused {
             continue;
+        }
+        if tick.is_multiple_of(CENSUS_EVERY) {
+            if let Some(file) = &mut census {
+                // A line lost is a line lost: the run goes on.
+                _ = writeln!(file, "{tick},{},{}", world.entities.len(), world.grass()).and_then(|()| file.flush());
+            }
         }
         pasture::tick(&mut simulation, &mut world.arena, &mut world.entities, tick);
         tick += 1;

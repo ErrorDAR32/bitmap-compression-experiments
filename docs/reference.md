@@ -21,24 +21,29 @@ every superchunk in use, on the simulation's threads.
 ## `sheep.rs`
 
 `SHEEP`, and its attributes `HUNGER`, `PREGNANT`, `LAMB`;
-`STEP_TICKS` (64) and `STEP_JITTER` (16) between wakes,
-`STARVE_WAKES` (32), `CONCEIVE_ONE_IN` (24), `GESTATION_WAKES` (16),
-`LAMB_WAKES` (64).
+`STEP_TICKS` (64) and `STEP_JITTER` (16) between wakes, `MEAL_WAKES`
+(96), `STARVE_WAKES` (288), `LUSH_CELLS` (4), `CONCEIVE_ONE_IN` (6),
+`LIFE_WAKES` (2400), `GESTATION_WAKES` (16), `LAMB_WAKES` (64).
 
-**`rule(turn)`**: every sheep waking on the superchunk's turn eats the
-grass it stands on or goes hungrier -- starving, removed, at
-`STARVE_WAKES` -- counts its pregnancy down to a lamb born on its cell,
-or falls pregnant if fed and grown, counts its youth down, walks
-(**`Around::step`**: a grass neighbour drawn at random, else any
-neighbour held, else nowhere) and sleeps again (**`next_wake`**).
-**`Around::read(turn, at)`**: the 3x3 cells around a sheep, its own in
-the middle (`CENTRE`), read as one window and squeezed to nine bits,
-grass and hot: what it eats and where it walks, from one read. Returns **`SheepTickMetrics`**
-`{woken, eaten, births, deaths}`, added with `+=`.
+**`rule(turn)`**: every sheep waking on the superchunk's turn, hungry
+(`MEAL_WAKES` after its last meal) and on grass, eats it; dies at
+`STARVE_WAKES` without a meal, or of old age at one wake in
+`LIFE_WAKES`; counts its pregnancy down to a lamb born on its cell, or
+falls pregnant on a meal on lush pasture (`LUSH_CELLS` of the nine
+cells it stands amid grass, one in `CONCEIVE_ONE_IN`) if grown; counts
+its youth down; walks, and sleeps again (**`next_wake`**). Walking:
+hungry, onto a grass neighbour, else a step to the nearest grass in
+the area about it (**`path_to_grass`**: `SuperChunkTick::area` and
+`pathfinding::step_towards`, one step a wake); else onto any neighbour
+held (**`Around::step(turn, at, wanted)`**). **`Around::read(turn,
+at)`**: the 3x3 cells around a sheep, its own in the middle (`CENTRE`),
+read as one window and squeezed to nine bits, grass and hot. Returns
+**`SheepTickMetrics`** `{woken, eaten, births, deaths, sought, paths}`
+-- paths looked for, and found -- added with `+=`.
 
-**`flock(entities, superchunk, count, random)`**: grown fed sheep
-queued on cells drawn at random, waking over the next `STEP_TICKS`
-ticks.
+**`flock(entities, superchunk, count, random)`**: grown sheep, each
+some way from its last meal, queued on cells drawn at random, waking
+over the next `STEP_TICKS` ticks.
 
 ## `pasture.rs`
 

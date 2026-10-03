@@ -4,14 +4,17 @@ The design is in `viewer.md`.
 
 ## `sim.rs`
 
-`TARGET_PACE` (256 ticks a second), `CHUNK_WORDS`.
+`TARGET_PACE` (256 ticks a second), `CHUNK_WORDS`, `CENSUS_EVERY`
+(1,000 ticks). **`census_path()`**: where the run's census is kept;
+**`census`**: its file, started afresh.
 
 **`Viewport`** `{first, last}`: the superchunks in view, a rectangle of
 them counted from the world's top left, both corners in it.
 **`Request`**: `Sync(viewport)`, `Pause(bool)`, `Pace(ticks a second, or
 flat out)`. **`Cells`** `{at, grass, sheep}`: a superchunk's grass, its
 16 chunks' words one after another, and its sheep's cells.
-**`Frame`** `{tick, ticks_a_second, sheep, grass, cells}`.
+**`Frame`** `{tick, ticks_a_second, sheep, grass, sync_seconds,
+sync_share, cells}`: with what answering took of the thread.
 
 **`side(superchunks)`**: superchunks along the side of their square.
 **`start(superchunks, thousandths, flock)`**: the pasture on a thread
@@ -38,7 +41,7 @@ it, the sheep over that, a square each (`SHEEP_REACH`); **`opaque`**.
 is awaited, and the pause and pace last sent. **`Tiles`**: an image a
 superchunk. **`Seen`**: what the last frame said. **`Hud`**: the text.
 
-**`setup`**: the camera over the world's middle, the whole of it in
+**`grouped(number)`**: its digits in threes. **`setup`**: the camera over the world's middle, the whole of it in
 view; an image a superchunk, dirt until the first frame; the text.
 **`steer`**: the view moved and zoomed. **`keys`**: pause and pace sent.
 **`sync`**: the frame that came shown, and the next asked for -- the

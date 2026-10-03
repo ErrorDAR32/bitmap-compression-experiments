@@ -4,9 +4,17 @@ TileSim on the screen: a pasture ticking on a thread of its own, and a
 Bevy window showing it, a cell a pixel, each in one solid colour --
 dirt brown, grass green, sheep white.
 
-`cargo run --release -- [superchunks] [grass, thousandths] [sheep a superchunk] [ticks a second, 0 flat out]`,
+`cargo run --release -- [superchunks] [grass, thousandths] [sheep a superchunk] [ticks a second, 0 flat out] [ticks to watch for]`,
 from `viewer/`; 16 superchunks, a third grass, 4,000 sheep each and 256
-ticks a second if not said. It ticks on every thread the machine has, no more than the
+ticks a second if not said.
+
+It runs until it is closed: long runs are watched, not waited for. The
+ticks to watch for are only shown, beside the ticks run, so whoever
+watches knows how far the run is from what was to be seen. As it goes
+it keeps a census -- the flock and the grass every 1,000 ticks, in
+`transient_data/measurements/census.csv` -- so a run closed at any time
+leaves what it came to. And it shows what it costs: the time each
+frame takes of the simulation's thread, and of the painter's. It ticks on every thread the machine has, no more than the
 superchunks.
 
 ## The window asks

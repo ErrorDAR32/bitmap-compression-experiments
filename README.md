@@ -19,6 +19,7 @@ spreading over dirt -- and the first entities: sheep eating it.
 | [`src/`](src/) | the `tilesim` crate: the game -- its rules, so far grass over dirt and sheep eating it, ticked in two phases on as many threads as asked -- and its diagnostics tool |
 | [`coordinates/`](coordinates/) | where things are: cells, chunks and superchunks, cartesian and by Morton index |
 | [`chunk_storage/`](chunk_storage/) | chunks as stored, what loading and saving work on: height maps, the layer codec, superchunk images, the cold pool and the writeback ring |
+| [`pathfinding/`](pathfinding/) | how an entity finds its way: waves and A* over an area of 16x16 cells held as masks |
 | [`viewer/`](viewer/) | TileSim on the screen: a Bevy window asking the simulation, on a thread of its own, for the cells in view |
 | [`simulation/`](simulation/) | the simulation: Monte Carlo sampling, the two-phase tick and its outboxes, the thread dispatcher, and the entities -- a bucket a chunk, a timer wheel a superchunk |
 | [`bitplane_manager/`](bitplane_manager/) | the hot bitplanes: layers decoded into the bitmap arena, where cells are read and written -- writes batched -- and written back |

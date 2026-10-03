@@ -1,0 +1,8 @@
+[package]
+name = "pathfinding"
+version = "0.1.0"
+edition = "2021"
+description = "TileSim's pathfinding: A* over an area of 16x16 cells held as masks, a row a word"
+publish = false
+
+[dependencies]

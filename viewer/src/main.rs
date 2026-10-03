@@ -8,7 +8,10 @@
 //! a third thread turns into pixels ([`paint`]). The three share
 //! nothing else, so none waits on another.
 //!
-//! `cargo run --release -- [superchunks] [grass, thousandths] [sheep a superchunk] [ticks a second, 0 flat out]`
+//! `cargo run --release -- [superchunks] [grass, thousandths] [sheep a superchunk] [ticks a second, 0 flat out] [ticks to watch for]`
+//!
+//! It runs until closed. The ticks to watch for are only shown: how far
+//! the run is from what whoever started it wanted seen.
 //!
 //! | key | what it does |
 //! |---|---|
@@ -65,6 +68,9 @@ struct Link {
     paused: bool,
     /// Ticks a second it is held to, or flat out.
     pace: Option<u32>,
+    /// Ticks the run is to be watched for, if whoever started it said:
+    /// shown, never stopped at.
+    watch_for: Option<u64>,
 }
 
 /// The world as drawn: an image a superchunk, row by row.
@@ -87,11 +93,32 @@ struct Seen {
     sheep: usize,
     /// Cells of grass.
     grass: u64,
+    /// Superchunks the frame held.
+    tiles: usize,
+    /// Seconds of the simulation's thread the frame took.
+    sync_seconds: f64,
+    /// The share of that thread's time frames take.
+    sync_share: f64,
+    /// Seconds of the painter's thread the frame took.
+    paint_seconds: f64,
 }
 
 /// The text over the world.
 #[derive(Component)]
 struct Hud;
+
+/// `number` with its digits in threes: 1,234,567.
+fn grouped(number: u64) -> String {
+    let digits = number.to_string();
+    let mut grouped = String::with_capacity(digits.len() + digits.len() / 3);
+    for (place, digit) in digits.chars().enumerate() {
+        if place > 0 && (digits.len() - place).is_multiple_of(3) {
+            grouped.push(',');
+        }
+        grouped.push(digit);
+    }
+    grouped
+}
 
 /// The `index`-th argument, or `default`.
 fn argument(index: usize, default: usize) -> usize {
@@ -103,6 +130,7 @@ fn main() {
     let pace = Some(argument(4, TARGET_PACE as usize) as u32).filter(|&pace| pace > 0);
     let (requests, frames) = start(superchunks, thousandths, flock);
     _ = requests.send(Request::Pace(pace));
+    let watch_for = Some(argument(5, 0) as u64).filter(|&ticks| ticks > 0);
     App::new()
         .add_plugins(
             DefaultPlugins
@@ -110,7 +138,7 @@ fn main() {
                 .set(ImagePlugin::default_nearest())
                 .set(WindowPlugin { primary_window: Some(Window { title: "TileSim".to_string(), ..default() }), ..default() }),
         )
-        .insert_resource(Link { requests, frames: Mutex::new(paint::start(frames)), waiting: false, since: SYNC_EVERY, paused: false, pace })
+        .insert_resource(Link { requests, frames: Mutex::new(paint::start(frames)), waiting: false, since: SYNC_EVERY, paused: false, pace, watch_for })
         .insert_resource(Tiles { side: side(superchunks), images: Vec::new() })
         .init_resource::<Seen>()
         .add_systems(Startup, setup)
@@ -207,7 +235,16 @@ fn sync(
     let frame = link.frames.lock().expect("the frames' receiver").try_iter().last();
     if let Some(frame) = frame {
         link.waiting = false;
-        *seen = Seen { tick: frame.tick, ticks_a_second: frame.ticks_a_second, sheep: frame.sheep, grass: frame.grass };
+        *seen = Seen {
+            tick: frame.tick,
+            ticks_a_second: frame.ticks_a_second,
+            sheep: frame.sheep,
+            grass: frame.grass,
+            tiles: frame.tiles.len(),
+            sync_seconds: frame.sync_seconds,
+            sync_share: frame.sync_share,
+            paint_seconds: frame.paint_seconds,
+        };
         for tile in frame.tiles {
             let handle = &tiles.images[(tile.at.1 * tiles.side + tile.at.0) as usize];
             if let Some(mut image) = images.get_mut(handle) {
@@ -243,8 +280,20 @@ fn hud(mut text: Single<&mut Text, With<Hud>>, seen: Res<Seen>, link: Res<Link>)
         (false, Some(pace)) => format!("held to {pace} ticks a second"),
         (false, None) => "flat out".to_string(),
     };
+    let watched = match link.watch_for {
+        Some(ticks) if seen.tick >= ticks => format!("   watched for {} ticks, as asked: close when you like", grouped(ticks)),
+        Some(ticks) => format!("   of {} to watch for ({:.0}%)", grouped(ticks), 100.0 * seen.tick as f64 / ticks as f64),
+        None => String::new(),
+    };
     text.0 = format!(
-        "tick {}   {:.0} ticks a second ({pace})\n{} sheep   {} cells of grass\nmove: arrows, WASD, drag   zoom: wheel, Q E   space: pause   F: flat out   [ ]: pace",
-        seen.tick, seen.ticks_a_second, seen.sheep, seen.grass
+        "tick {}{watched}\n{} ticks a second ({pace})\n{} sheep   {} cells of grass\na frame, {} superchunk(s): {:.0} us of the simulation ({:.2}% of its time), {:.1} ms painting\nmove: arrows, WASD, drag   zoom: wheel, Q E   space: pause   F: flat out   [ ]: pace",
+        grouped(seen.tick),
+        grouped(seen.ticks_a_second as u64),
+        grouped(seen.sheep as u64),
+        grouped(seen.grass),
+        seen.tiles,
+        seen.sync_seconds * 1e6,
+        seen.sync_share * 100.0,
+        seen.paint_seconds * 1e3
     );
 }

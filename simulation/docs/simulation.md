@@ -65,6 +65,11 @@ superchunk turns its wheel and carries the changes out. An entity
 moving to a neighbour goes as a whole copy made in the first phase. One
 put in a superchunk not held is lost, and counted.
 
+An entity sees the world about it at once: `SuperChunkTick::area`
+reads the 16x16 cells of a layer about a cell as masks, a row a word,
+which is what `../../pathfinding/` finds a way over. An entity takes
+one pathfinding step each time it ticks, and keeps no route.
+
 Their API follows the bitplanes': outside a tick, changes are queued
 (`Entities::queue_put`, `queue_remove`) and applied (`apply`), as the
 arena's writes are -- queuing is the only way to change an entity; in a

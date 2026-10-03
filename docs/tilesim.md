@@ -568,6 +568,45 @@ what now goes to memory most is setting cells (17% of those loads),
 then the entities' headers and attributes themselves (24%), which a
 search no longer reads but a wake must.
 
+### Grass slowed, and the sheep with it
+
+Seen on a screen, grass at 0.3% a tick boiled, so it was slowed a
+hundredfold -- and the sheep, eating a cell every wake, stripped it and
+died out: grass now regrows about one cell a tick a superchunk, far
+less than a flock eats, and spreads only to its neighbours, so a
+grazed-out patch stays bare, and a sheep in one starves before it
+walks out. The sheep since:
+
+- **Graze when hungry**: a meal every 96 wakes, not every wake;
+  starving 288 wakes after the last.
+- **Breed on lush pasture only**: on a meal taken where at least 4 of
+  the 9 cells it stands amid are grass, at one in 6. Thin grass stops
+  a flock growing before it is stripped: the brake a flock lacked.
+- **Die of old age**, at one wake in 2,400, so the flock turns over
+  without waiting to starve.
+- **Walk to grass**: hungry, with none beside it, a sheep steps along
+  the shortest path to the nearest grass in the 16x16 cells about it.
+
+Measured, headless, 4 superchunks from 1,000 sheep each: with long
+lives and slow breeding (one in 25, 9,600 wakes) the flock grows
+steadily and never swings; with these numbers, before the paths, it
+rose from 4,000 to 21,600 in 700,000 ticks, fell to 900 by 2.6
+million, and held there as the grass came back.
+
+### Pathfinding (built, first form)
+
+`pathfinding/`: over an area of 16x16 cells about a walker, held as
+masks, a row a `u16`. A walker takes one pathfinding step each time it
+ticks and keeps no route: a route goes stale and has to be held; a
+step asked afresh is right about the world as the tick found it. A
+step is found by waves: every goal's front moved a cell at once, each
+row a few shifts and ors, the whole search's memory one line of cache;
+the walker steps into the first wave to come beside it. A* is there
+too, for one place to go. An entity's turn reads the area
+(`SuperChunkTick::area`), and the rule makes the masks: for a sheep,
+grass the goals, the bitplanes held what may be walked on -- nothing
+is in a sheep's way yet.
+
 ## Simulation (the plan)
 
 From the concept notes:

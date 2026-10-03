@@ -7,7 +7,7 @@
 
 use bitplane_manager::{BitmapArena, BucketKey, Shape, Write, WriteOp};
 use simulation::entities::Entities;
-use simulation::{Simulation, SuperChunkTick};
+use simulation::{Simulation, SuperChunkTick, AREA_CENTRE, AREA_SIDE};
 use chunk_storage::{LayerCodec, LayerType};
 use coordinates::{CartesianCell, CellIndex, ChunkPlace, ChunkPosition, SuperChunkPosition, SUPERCHUNK_SIDE_CELLS};
 
@@ -143,4 +143,31 @@ fn writes_past_the_speed_of_light_panic() {
         }
         0
     });
+}
+
+/// The area about a cell read at once is its cells read one by one:
+/// inside a superchunk, across the borders of four, and at the edge of
+/// the superchunks held, where some cells are not hot.
+#[test]
+fn areas_read_at_once_are_the_cells_read_one_by_one() {
+    let mut arena = arena(3, scattered());
+    let start = corner(10, 10);
+    let centres = [(300, 300), (1024, 1024), (1020, 1029), (5, 5), (2040, 2047), (1024, 3), (777, 1023)];
+    let checked = Simulation::new(1).tick(&mut arena, &mut Entities::new(), 0, |turn, _| {
+        if turn.superchunk() != (SuperChunkPosition { x: 10, y: 10 }) {
+            return 0;
+        }
+        for (x, y) in centres {
+            let centre = CartesianCell { x: start.x + x, y: start.y + y };
+            let area = turn.area(STONE, centre.into());
+            for (across, down) in (0..AREA_SIDE as u32).flat_map(|down| (0..AREA_SIDE as u32).map(move |across| (across, down))) {
+                let cell = CartesianCell { x: centre.x + across - AREA_CENTRE as u32, y: centre.y + down - AREA_CENTRE as u32 };
+                let held = turn.holds(STONE, cell.into());
+                let read = |rows: [u16; AREA_SIDE]| rows[down as usize] >> across & 1 == 1;
+                assert_eq!((read(area.hot), read(area.set)), (held.is_ok(), held == Ok(true)), "({across}, {down}) of the area about ({x}, {y})");
+            }
+        }
+        centres.len()
+    });
+    assert_eq!(checked.rules, centres.len());
 }

@@ -21,7 +21,10 @@ dy)`**.
 of its own cells, **`holds(type, cell)`** anywhere, **`queue(type,
 write)`** -- into the slot of each superchunk it lands in.
 **`window(type, origin, width, height)`**: up to 8x8 cells from
-`origin` as the tick found them, as a `Tile`, through the reader. **`now`**, **`woken()`**: its entities
+`origin` as the tick found them, as a `Tile`, through the reader.
+**`area(type, centre)`**: the 16x16 cells about `centre` (`AREA_SIDE`,
+`AREA_CENTRE`), four windows, as an **`Area`** `{set, hot}`, a row a
+`u16`: what pathfinding is handed. **`now`**, **`woken()`**: its entities
 waking this tick, in Morton order, borrowed from
 the world as the tick found it, not from the turn, so changes can be
 queued while going through them. **`entity(id, at)`**,

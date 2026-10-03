@@ -40,6 +40,22 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use utilities::rng::Rng;
 
+/// Cells along the side of an [`Area`].
+pub const AREA_SIDE: usize = 16;
+/// The column and the row of an [`Area`] its centre is at.
+pub const AREA_CENTRE: usize = AREA_SIDE / 2;
+
+/// The cells of one layer type around a cell ([`SuperChunkTick::area`]),
+/// a row a word: cell `(x, y)` from the area's top left at bit `x` of
+/// row `y`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Area {
+    /// The cells the type holds at: hot ones only.
+    pub set: [u16; AREA_SIDE],
+    /// The cells in hot bitmaps: in the world, and read.
+    pub hot: [u16; AREA_SIDE],
+}
+
 /// A superchunk's outbox slots: itself and its eight neighbours.
 const SLOTS: usize = 9;
 
@@ -110,6 +126,29 @@ impl<'a> SuperChunkTick<'a> {
     /// found them: a cell's neighbourhood, say, as masks.
     pub fn window(&self, layer_type: LayerType, origin: CellIndex, width: u32, height: u32) -> Tile {
         self.reader.window(layer_type, origin, width, height)
+    }
+
+    /// The [`AREA_SIDE`] by [`AREA_SIDE`] cells around `centre` -- it at
+    /// `(AREA_CENTRE, AREA_CENTRE)` of them -- of `layer_type`, as the
+    /// tick found them: four windows, a row a word. What an entity sees
+    /// of the world about it at once: where to find a path over, say.
+    pub fn area(&self, layer_type: LayerType, centre: CellIndex) -> Area {
+        let mut area = Area::default();
+        let (reach, half) = (AREA_CENTRE as i32, AREA_SIDE as u32 / 2);
+        for quarter in 0..4u32 {
+            let (across, down) = (quarter % 2 * half, quarter / 2 * half);
+            // A quarter off the world is left clear, and not hot.
+            let Some(origin) = centre.offset(across as i32 - reach, down as i32 - reach) else {
+                continue;
+            };
+            let window = self.reader.window(layer_type, origin, half, half);
+            for row in 0..half {
+                let at = (down + row) as usize;
+                area.set[at] |= ((window.set >> (8 * row) & 0xff) as u16) << across;
+                area.hot[at] |= ((window.hot >> (8 * row) & 0xff) as u16) << across;
+            }
+        }
+        area
     }
 
     /// Whether `layer_type` holds at `cell`, as the tick found it.
