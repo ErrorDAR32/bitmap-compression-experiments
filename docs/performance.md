@@ -38,9 +38,13 @@ So the tick's cost past a hundred superchunks is what it waits for, not
 what it computes: what helps there is asking memory ahead (below), and
 touching fewer lines a sample and a wake.
 
-## Built for the processor it runs on
+## Built with a popcount instruction
 
-`.cargo/config.toml` builds with `target-cpu=native`. Profiled at 400
+`.cargo/config.toml` builds for `x86-64-v2` -- every x86-64 processor
+since about 2009, since TileSim is a game, played on many machines --
+which has the popcount instruction. It was first built for `native`,
+the processor building it; the measurements below were taken then.
+Profiled at 400
 superchunks, over half the tick is the sampler (`sample_layer`), most
 of it walking a block's words counting their bits -- which the generic
 build did in software, having no popcount instruction to assume.
@@ -56,6 +60,13 @@ build did in software, having no popcount instruction to assume.
 
 A tenth more ticks a second at both sizes, and the same world to the
 cell: the two builds end 20,000 ticks with the same flock and grass.
+
+On the cloud machine the code is also worked on (a 4-core Xeon at 2.8
+GHz), `pasture 20000 333 1000 16 1` and `pasture 3000 333 1000 64 4`,
+three rounds each, put generic, `x86-64-v2`, `x86-64-v3` and `native`
+within the runs' own spread of each other (11,900 to 13,400 ticks a
+second, and 3,200 to 3,600). `x86-64-v2` keeps the popcount the gain
+above came from; it is to be measured again on the Ryzen.
 
 Tried and not kept: asking memory ahead for the dirt beside each sample
 and for the word each write lands in. Nothing gained at 64 or 256

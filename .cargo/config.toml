@@ -1,6 +1,8 @@
-# Built for the processor it is built on: its own popcount, bit
-# scatter and gather, and wider registers -- the sampler counts bits a
-# word at a time, and is a tenth of a tick faster for it
-# (docs/performance.md). A build is for the machine that made it.
-[build]
-rustflags = ["-C", "target-cpu=native"]
+# Built for every x86-64 processor of the last fifteen years or so, not
+# the one it is built on: TileSim is a game, played on many machines.
+# x86-64-v2 brings the popcount instruction the sampler counts bits with
+# (docs/performance.md) -- SSE4.2 and POPCNT, on every Intel since
+# Nehalem (2008) and every AMD since Bulldozer (2011). Other
+# architectures build for their own baseline.
+[target.'cfg(target_arch = "x86_64")']
+rustflags = ["-C", "target-cpu=x86-64-v2"]
