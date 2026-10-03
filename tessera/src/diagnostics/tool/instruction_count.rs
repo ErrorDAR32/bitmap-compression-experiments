@@ -17,7 +17,7 @@
 //! installed (`apt-get install valgrind`):
 //!
 //! ```text
-//! cargo run --release --bin diagnostics -- instruction_count
+//! cargo run --release --bin tessera_diagnostics -- instruction_count
 //! ```
 //!
 //! Each run's callgrind output is left in `transient_data/callgrind/`, to

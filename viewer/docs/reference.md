@@ -32,7 +32,7 @@ next one's time if paced; paused, it waits for a request.
 **`Tile`** `{at, side, pixels}`: a superchunk's pixels, four bytes each.
 **`Picture`**: a frame, painted. **`start(frames)`**: the painter's
 thread; where pictures come. **`paint(cells)`**: dirt, the grass over
-it, the sheep over that, a square each (`SHEEP_REACH`); **`opaque`**.
+it, the sheep over that, a pixel each (`SHEEP_REACH`, none); **`opaque`**.
 **`paint_far(cells, detail)`**: a pixel a block of cells `2^detail` a
 side, its grass counted from its run of bits, its colours **`mixed`**.
 

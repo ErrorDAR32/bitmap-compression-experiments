@@ -419,7 +419,7 @@ The height map is ignored for now.
 
 An entity is a capability unit, not necessarily alive. The first form
 is built in the simulation (`simulation/src/entities/`), with sheep on
-it (`src/sheep.rs`):
+it (`entities/src/sheep.rs`):
 
 - **A record**: a header -- a random 64-bit ID, a type, the cell it
   stands on, the tick it next wakes at -- and attributes, typed values
@@ -658,6 +658,30 @@ wheel was for: a tick costs the entities with something to do.
 Measured (`diagnostics pasture 20000 333 4000 64`, 12 threads): 88
 wakes a tick where there were about 3,600, and 17,400 ticks a second
 against 5,300.
+
+### Sheep leave thin pasture, and breed by the area about them
+
+Resting where it ate, a sheep never left where it was born: lambs stayed
+beside their mothers, each flock grazed its own patch bare, and births
+stopped though a third of the world was green -- watched in the viewer,
+64 superchunks fell from 256,000 sheep to 8,500 over 1.75 million ticks
+and went on falling. Breeding more readily did not mend it: at one meal
+in three the flock outgrew the grass, stripped it and died out, the
+nine cells a sheep stood amid telling it nothing of the pasture.
+
+Since, two things. Whether pasture is lush is asked of the 16x16 cells
+about the sheep -- a quarter of them grass -- read at a meal, once in
+6,912 ticks: grass left alone covers a third of the dirt and grows
+fastest covering a sixth, so the flock stops growing while the grass
+still gains on it. And a sheep that eats where it is not lush leaves:
+hungry again, it walks 48 steps one way, eating nothing, before it
+looks for grass (`ROAMING`, an attribute: steps left and the way).
+
+Measured, headless, 4 superchunks from 4,000 sheep each, 2 million
+ticks: the flock rises to 43,800, falls to 2,900, and comes round to
+about 10,000 with the grass near a fifth of the cells, the swings
+smaller each time. Without the roaming the same run ends at 232 sheep
+and falling; at one in three and no roaming, at none.
 
 ### Pathfinding (built, first form)
 

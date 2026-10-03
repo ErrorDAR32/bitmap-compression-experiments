@@ -85,12 +85,13 @@ fn all_set_is_one_tile_in_eight_bits() {
 /// Every adversarial record -- the worst bitmap found so far against
 /// the raw cells and against each other codec -- and every saved
 /// adversarial bitmap passes every check: each is a hard case, kept for
-/// working on Tessera against.
+/// working on Tessera against. The records are what the searches leave
+/// behind, out of git: a fresh checkout has none, and checks the saved
+/// ones alone.
 #[test]
 fn adversarial_bitmaps_pass_every_check() {
     use tessera::diagnostics::adversarial::record;
     let (records, saved) = (record::all(), record::saved());
-    assert!(!records.is_empty(), "no adversarial records in external_benchmarks/adversarial");
     assert!(!saved.is_empty(), "no saved adversarial bitmaps in external_benchmarks/adversarial/saved");
     for (name, bitmap) in records.into_iter().chain(saved) {
         check(&bitmap, &name);

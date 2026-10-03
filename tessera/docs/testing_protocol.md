@@ -50,7 +50,7 @@ Three parts, kept apart:
   times over many, what a tree holds, what the tree above the top tiles
   costs -- and never judge or print it.
 - **Tests** (`tests/`) judge what the diagnostics gather: pass or fail.
-- **Tools** (`src/bin/`, and the external benchmarks' crate) print what
+- **Tools** (`src/diagnostics/tool/`, `src/diagnostics/adversarial/main.rs`, and the external benchmarks' crate) print what
   the diagnostics gather, or search for bitmaps. Every tool prints its
   results as tables, through the one table printer (`../utilities/src/table/`), and
   a tool that measures or searches keeps them
@@ -88,11 +88,11 @@ writes takes the bits it counted, its residual blocks at their prices.
 
 ### The diagnostics tool
 
-One tool a file (`src/bin/diagnostics/`), each printing what the
+One tool a file (`src/diagnostics/tool/`), each printing what the
 diagnostics gather, and each stopping if Tessera loses a cell:
 
 ```
-cargo run --release --bin diagnostics -- <tool> [<argument>]
+cargo run --release --bin tessera_diagnostics -- <tool> [<argument>]
 ```
 
 | tool | prints | argument |
@@ -110,7 +110,7 @@ cargo run --release --bin diagnostics -- <tool> [<argument>]
 
 Run with no tool, or one not there, it prints this list as a table --
 each tool, what it prints, its argument and the file it keeps -- from
-`TOOLS` in `src/bin/diagnostics/main.rs`. `render` prints a table
+`TOOLS` in `src/diagnostics/tool/main.rs`. `render` prints a table
 of the images it wrote; `show` prints each kept report as it was
 published.
 
@@ -142,7 +142,7 @@ run's callgrind output is left in `transient_data/callgrind/`, to see
 where the instructions go:
 
 ```
-cargo run --release --bin diagnostics -- instruction_count
+cargo run --release --bin tessera_diagnostics -- instruction_count
 callgrind_annotate --inclusive=yes transient_data/callgrind/callgrind.encode.out | head -40
 ```
 
@@ -159,8 +159,8 @@ nothing else busy. It prints the encode time's mean, median, 90th
 percentile and worst by family, and the decode mean:
 
 ```
-cargo run --release --bin diagnostics -- timing
-cargo run --release --bin diagnostics -- timing 400
+cargo run --release --bin tessera_diagnostics -- timing
+cargo run --release --bin tessera_diagnostics -- timing 400
 ```
 
 ### Against existing codecs
@@ -236,10 +236,10 @@ The fine tier checks every record and saved bitmap; `instruction_count`,
 | every tier | `cargo test --release -- --include-ignored` |
 | lints | `cargo clippy --all-targets --release` |
 | the code's documentation | `cargo doc --no-deps --document-private-items` |
-| a diagnostics tool | `cargo run --release --bin diagnostics -- <tool> [<argument>]` |
-| the kept measurements | `cargo run --release --bin diagnostics -- show [<tool>]` |
-| the instruction count | `cargo run --release --bin diagnostics -- instruction_count` |
-| times | `cargo run --release --bin diagnostics -- timing [<bitmaps a generator>]` |
+| a diagnostics tool | `cargo run --release --bin tessera_diagnostics -- <tool> [<argument>]` |
+| the kept measurements | `cargo run --release --bin tessera_diagnostics -- show [<tool>]` |
+| the instruction count | `cargo run --release --bin tessera_diagnostics -- instruction_count` |
+| times | `cargo run --release --bin tessera_diagnostics -- timing [<bitmaps a generator>]` |
 | against existing codecs | `cargo run --release --manifest-path external_benchmarks/Cargo.toml [-- <bitmaps a generator>]` |
 | the search against the raw cells | `cargo run --release --bin adversarial [-- <changes>]` |
 | the searches against the codecs | `cargo run --release --manifest-path external_benchmarks/Cargo.toml --bin adversarial [-- <changes>]` |
@@ -265,11 +265,11 @@ Each is set, beside its reason, at the place given.
 | the complete tier's second sample | 4 bitmaps a shape and plan, from the seed plus 1,000,000 | `SECOND_SAMPLE_EACH`, `SECOND_SEED_OFFSET`, `tests/complete.rs` |
 | checkerboards | odd square sides 3 to 31 | `SMALLEST_SQUARE_SIDE`, `LARGEST_SQUARE_SIDE`, `src/sample_generators/checkerboards.rs` |
 | timing's bitmaps a generator | 100, or the argument | `TIMING_PER_GENERATOR`, `src/sample_generators/mod.rs` |
-| timing's saved adversarial repeats | 20 | `RECORD_REPEATS`, `src/bin/diagnostics/timing.rs` |
+| timing's saved adversarial repeats | 20 | `RECORD_REPEATS`, `src/diagnostics/tool/timing.rs` |
 | timing's percentiles | median, 90th | `MEDIAN_PERCENT`, `TAIL_PERCENT`, same file |
-| the instruction count's sample | 5 bitmaps a generator, 1 of noise at half density, a checkerboard of 7-cell squares | `BITMAPS_PER_GENERATOR`, `NOISE_BITMAPS`, `NOISE_DENSITY`, `CHECKERBOARD_SQUARE`, `src/bin/diagnostics/instruction_count.rs` |
-| `noise`'s densities | 0.5, 0.35, 0.2, 0.1, 3 bitmaps each | `DENSITIES`, `EACH`, `src/bin/diagnostics/noise.rs` |
-| `sparse`'s densities and clusterings | 15 densities, clustering 0, 0.7, 0.95, 20 bitmaps each | `DENSITIES`, `CLUSTERS`, `EACH`, `src/bin/diagnostics/sparse.rs` |
+| the instruction count's sample | 5 bitmaps a generator, 1 of noise at half density, a checkerboard of 7-cell squares | `BITMAPS_PER_GENERATOR`, `NOISE_BITMAPS`, `NOISE_DENSITY`, `CHECKERBOARD_SQUARE`, `src/diagnostics/tool/instruction_count.rs` |
+| `noise`'s densities | 0.5, 0.35, 0.2, 0.1, 3 bitmaps each | `DENSITIES`, `EACH`, `src/diagnostics/tool/noise.rs` |
+| `sparse`'s densities and clusterings | 15 densities, clustering 0, 0.7, 0.95, 20 bitmaps each | `DENSITIES`, `CLUSTERS`, `EACH`, `src/diagnostics/tool/sparse.rs` |
 | `render`'s pixels a cell | 2 | `PIXELS_A_CELL`, `src/diagnostics/png.rs` |
 | searches at once | 4 | `SEARCHES_AT_ONCE`, `src/diagnostics/adversarial/mod.rs` |
 | the searched window | the top left 64x64 | `WINDOW`, same file |
@@ -280,7 +280,7 @@ Each is set, beside its reason, at the place given.
 | a window's variants on the plane | 16: 4 turns, mirrored or not, inverted or not | `ROTATIONS`, `MIRRORINGS`, `INVERSIONS`, `src/diagnostics/adversarial/plane.rs` |
 | changes a search tries from each start | 400 on the window, then 100 on the plane, or the argument | `Effort::default`, `src/diagnostics/adversarial/mod.rs` |
 | zstd's levels | 3 and 19 | `ZSTD_LEVELS`, `external_benchmarks/src/main.rs` |
-| timings of each record against a codec | 21, the median kept | `TIMINGS`, `external_benchmarks/src/bin/adversarial.rs` |
+| timings of each record against a codec | 21, the median kept | `TIMINGS`, `external_benchmarks/src/diagnostics/adversarial/main.rs` |
 
 ## Phase one: fix, with the seed held still
 
@@ -303,7 +303,7 @@ When the problems that corpus showed are solved, re-run the measurement
 on a seed never seen -- a fresh one, or wherever the file has rolled to:
 
 ```
-TESSERA_SEED=fresh cargo run --release --bin diagnostics -- measurement
+TESSERA_SEED=fresh cargo run --release --bin tessera_diagnostics -- measurement
 ```
 
 A change that is real holds its size on more than one unseen seed. A

@@ -1,7 +1,7 @@
 //! Adversarial bitmaps: searches for the bitmaps an encoder does worst
 //! on, by any score the caller gives -- Tessera against its raw cells, or
 //! against another encoder. Kept in the library so every search, in any
-//! crate, is the same search: `src/bin/adversarial.rs` scores Tessera
+//! crate, is the same search: `src/diagnostics/adversarial/main.rs` scores Tessera
 //! against the raw cells, `external_benchmarks/` scores it against the
 //! external codecs. See `docs/testing_protocol.md`.
 //!

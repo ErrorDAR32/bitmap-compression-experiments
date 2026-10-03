@@ -14,8 +14,8 @@
 //! Every tool stops if Tessera loses a cell.
 //!
 //! ```text
-//! cargo run --release --bin diagnostics -- <tool>
-//! cargo run --release --bin diagnostics -- show measurement
+//! cargo run --release --bin tessera_diagnostics -- <tool>
+//! cargo run --release --bin tessera_diagnostics -- show measurement
 //! ```
 
 #![warn(missing_docs, clippy::missing_docs_in_private_items)]
@@ -128,7 +128,7 @@ fn main() {
     let asked = std::env::args().nth(1).unwrap_or_default();
     match TOOLS.iter().find(|tool| tool.name == asked) {
         Some(Tool { name, run: Run::Measuring(run), .. }) => {
-            let mut report = Report::new(name, &format!("cargo run --release --bin diagnostics -- {name}"));
+            let mut report = Report::new(name, &format!("cargo run --release --bin tessera_diagnostics -- {name}"));
             run(&mut report);
             transient_data::publish(report);
         }
@@ -140,7 +140,7 @@ fn main() {
                 let kept = if matches!(tool.run, Run::Measuring(_)) { format!("{}.csv", tool.name) } else { String::new() };
                 table.row(&[tool.name, tool.prints, tool.argument, &kept]);
             }
-            println!("  cargo run --release --bin diagnostics -- <tool> [<argument>]");
+            println!("  cargo run --release --bin tessera_diagnostics -- <tool> [<argument>]");
             table.print();
             std::process::exit(USAGE_EXIT_CODE);
         }

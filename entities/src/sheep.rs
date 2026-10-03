@@ -9,10 +9,16 @@
 //!   Hungry and not, it walks, a step every [`STEP_TICKS`] ticks or so,
 //!   and starves [`STARVE_TICKS`] after it grew hungry.
 //! - **Breeds**: a grown sheep may fall pregnant on a meal taken on
-//!   lush pasture ([`LUSH_CELLS`]), at one in [`CONCEIVE_ONE_IN`];
-//!   [`GESTATION_TICKS`] on, a lamb is born on a free cell beside it,
-//!   grown [`LAMB_TICKS`] after. So a flock on thin grass stops growing
-//!   before it strips it.
+//!   lush pasture -- [`LUSH_CELLS`] of the [`AREA_SIDE`] by
+//!   [`AREA_SIDE`] cells about it grass -- at one in
+//!   [`CONCEIVE_ONE_IN`]; [`GESTATION_TICKS`] on, a lamb is born on a
+//!   free cell beside it, grown [`LAMB_TICKS`] after. So a flock on thin
+//!   grass stops growing before it strips it.
+//! - **Leaves thin pasture**: a meal taken where it is not lush, the
+//!   sheep sets off when next hungry, [`ROAM_STEPS`] steps one way,
+//!   eating nothing on the way, and looks for grass where it comes to.
+//!   Without it lambs stay beside their mothers, a flock grazes its own
+//!   patch bare, and breeds no more though the world is green.
 //! - **Dies**: of hunger, or of old age, [`LIFE_TICKS`] of sleep to a
 //!   life on average, whatever it sleeps by.
 //! - **Never stands where another does**: a step onto a cell an entity
@@ -27,20 +33,21 @@
 //!   grass in reach, onto any neighbour. Never off the bitplanes held.
 //!
 //! When it is next hungry, when its lamb is due and when it is grown
-//! are attributes, each a tick: the last two added and removed at run
-//! time, as attributes are meant to be. They are ticks, not counts of
+//! are attributes, each a tick, and the way it roams another: all but
+//! the first added and removed at run time, as attributes are meant to
+//! be. They are ticks, not counts of
 //! wakes, because a sheep's wakes are as far apart as its needs.
 //!
 //! The rule runs in a tick's first phase, as grass does, reading the
 //! world as the tick found it: two sheep may eat one cell in a tick,
 //! which then changes once.
 
-use bitplane_manager::{Write, WriteOp};
+use bitplane_manager::{BitmapArena, Write, WriteOp};
 use chunk_storage::mock::{DIRT, GRASS};
 use coordinates::{CellIndex, SuperChunkPosition, SUPERCHUNK_SIDE_CELLS};
 use simulation::entities::{remove_attribute, set_attribute, Attribute, AttributeType, Entities, EntityId, EntityType, Header};
 use pathfinding::{step_towards, Cell};
-use simulation::{SuperChunkTick, AREA_CENTRE, AREA_SIDE};
+use simulation::{Simulation, SuperChunkTick, TickReport, AREA_CENTRE, AREA_SIDE};
 use std::collections::HashSet;
 use std::ops::AddAssign;
 use utilities::rng::Rng;
@@ -53,6 +60,10 @@ pub const HUNGRY_AT: AttributeType = AttributeType(17);
 pub const PREGNANT: AttributeType = AttributeType(18);
 /// The tick a lamb is grown at.
 pub const LAMB: AttributeType = AttributeType(19);
+/// A sheep leaving thin pasture: the steps it has still to take, times
+/// 16, and the neighbour it takes them to -- its bit in the 3x3 cells
+/// about it.
+pub const ROAMING: AttributeType = AttributeType(20);
 
 /// Ticks between a walking sheep's steps, at the least...
 pub const STEP_TICKS: u64 = 64;
@@ -64,15 +75,21 @@ pub const STEP_JITTER: u64 = 16;
 pub const MEAL_TICKS: u64 = 6912;
 /// Ticks a hungry sheep finds no meal in before it starves.
 pub const STARVE_TICKS: u64 = 13_824;
-/// Cells of grass among the nine a sheep stands amid, its own with
-/// them, for the pasture to be lush enough to breed on.
-pub const LUSH_CELLS: u32 = 4;
+/// Cells of grass among the [`AREA_SIDE`] by [`AREA_SIDE`] about a
+/// sheep for the pasture to be lush enough to breed on: a quarter of
+/// them. Grass left alone covers a third of the dirt, and grows fastest
+/// covering a sixth: so the flock stops growing while the grass still
+/// grows back faster than it is eaten, and never strips it.
+pub const LUSH_CELLS: u32 = 64;
 /// A grown sheep falls pregnant at one meal on lush pasture in this
 /// many.
-pub const CONCEIVE_ONE_IN: u64 = 6;
+pub const CONCEIVE_ONE_IN: u64 = 5;
 /// Ticks of sleep to a sheep's life, on average: before a sleep of so
 /// many ticks it dies of old age at so many in these.
 pub const LIFE_TICKS: u64 = 172_800;
+/// Steps a sheep that ate on thin pasture walks, one way, before it
+/// looks for grass again: out of the patch its flock has grazed.
+pub const ROAM_STEPS: u64 = 48;
 /// Ticks from falling pregnant to giving birth.
 pub const GESTATION_TICKS: u64 = 1152;
 /// Ticks a lamb takes to grow.
@@ -107,6 +124,13 @@ impl AddAssign for SheepTickMetrics {
     }
 }
 
+/// One tick of the sheep alone over every superchunk held, on
+/// `simulation`'s threads, `seed` its random numbers' seed -- a new one
+/// a tick: the cells change only as the sheep change them.
+pub fn tick(simulation: &mut Simulation, arena: &mut BitmapArena, entities: &mut Entities, seed: u64) -> TickReport<SheepTickMetrics> {
+    simulation.tick(arena, entities, seed, |turn, _| rule(turn))
+}
+
 /// The rule, on one superchunk's turn: every sheep waking sees to what
 /// it woke for -- a meal, a lamb, growing up -- and sleeps again, as
 /// long as it can.
@@ -121,7 +145,9 @@ pub fn rule(turn: &mut SuperChunkTick) -> SheepTickMetrics {
         attributes.extend_from_slice(sheep.attributes);
         let mut around = Around::read(turn, at);
         let hungry_at = sheep.attribute(HUNGRY_AT).unwrap_or(now);
-        let fed = now >= hungry_at && around.grass & CENTRE != 0;
+        let roaming = sheep.attribute(ROAMING);
+        // On its way out of thin pasture it does not stop to eat.
+        let fed = now >= hungry_at && around.grass & CENTRE != 0 && roaming.is_none();
         if !fed && now >= hungry_at + STARVE_TICKS {
             turn.remove(&header);
             done.deaths += 1;
@@ -132,6 +158,12 @@ pub fn rule(turn: &mut SuperChunkTick) -> SheepTickMetrics {
             turn.queue(DIRT, Write::cell(at, WriteOp::Set));
             set_attribute(&mut attributes, HUNGRY_AT, now + MEAL_TICKS);
             done.eaten += 1;
+        }
+        // The pasture about it, looked at as it eats: thin, it will leave when next hungry.
+        let lush = fed && lush(turn, at);
+        if fed && !lush && around.free != 0 {
+            let way = around.pick_bit(turn, around.free);
+            set_attribute(&mut attributes, ROAMING, ROAM_STEPS << 4 | way as u64);
         }
         let hungry = !fed && now >= hungry_at;
         // What it next has to wake for, were it to sleep as long as it can.
@@ -150,7 +182,7 @@ pub fn rule(turn: &mut SuperChunkTick) -> SheepTickMetrics {
                 turn.put(born, &[Attribute { kind: HUNGRY_AT, value: now + MEAL_TICKS }, Attribute { kind: LAMB, value: now + LAMB_TICKS }]);
                 done.births += 1;
             }
-            None if fed && grown_at.is_none() && around.grass.count_ones() >= LUSH_CELLS && turn.random().below(CONCEIVE_ONE_IN) == 0 => {
+            None if lush && grown_at.is_none() && turn.random().below(CONCEIVE_ONE_IN) == 0 => {
                 set_attribute(&mut attributes, PREGNANT, now + GESTATION_TICKS);
                 needs = needs.min(now + GESTATION_TICKS);
             }
@@ -165,6 +197,15 @@ pub fn rule(turn: &mut SuperChunkTick) -> SheepTickMetrics {
         let grass_beside = around.grass & around.free;
         let to = if !hungry {
             at
+        } else if let Some(roaming) = roaming {
+            // One more step the way it set off; at the edge of what is held, or its steps taken, it looks for grass again.
+            let (left, way) = (roaming >> 4, 1u16 << (roaming & 15));
+            if left <= 1 || around.free & way == 0 {
+                remove_attribute(&mut attributes, ROAMING);
+            } else {
+                set_attribute(&mut attributes, ROAMING, (left - 1) << 4 | roaming & 15);
+            }
+            around.step(turn, at, way)
         } else if grass_beside != 0 {
             around.step(turn, at, grass_beside)
         } else if around.free == 0 {
@@ -190,6 +231,13 @@ pub fn rule(turn: &mut SuperChunkTick) -> SheepTickMetrics {
         turn.update(&header, Header { at: to, wake, ..header }, &attributes);
     }
     done
+}
+
+/// Whether the pasture about `at` is lush enough to breed on: at least
+/// [`LUSH_CELLS`] of the area's cells grass. Read at a meal that might
+/// conceive, never at a wake that could not.
+fn lush(turn: &SuperChunkTick, at: CellIndex) -> bool {
+    turn.area(GRASS, at).set.iter().map(|row| row.count_ones()).sum::<u32>() >= LUSH_CELLS
 }
 
 /// The tick a sheep taking a step now wakes next.
@@ -253,12 +301,18 @@ impl Around {
     /// One of the neighbours of `at` in `choices`, which is not none,
     /// drawn at random.
     fn pick(&self, turn: &mut SuperChunkTick, at: CellIndex, choices: u16) -> CellIndex {
+        let bit = self.pick_bit(turn, choices) as i32;
+        at.offset(bit % 3 - 1, bit / 3 - 1).expect("a hot neighbour is in the world")
+    }
+
+    /// The bit of one of the neighbours in `choices`, which is not
+    /// none, drawn at random.
+    fn pick_bit(&self, turn: &mut SuperChunkTick, choices: u16) -> u32 {
         let mut left = choices;
         for _ in 0..turn.random().below(choices.count_ones() as u64) {
             left &= left - 1;
         }
-        let bit = left.trailing_zeros() as i32;
-        at.offset(bit % 3 - 1, bit / 3 - 1).expect("a hot neighbour is in the world")
+        left.trailing_zeros()
     }
 
     /// The bit of `cell`, a neighbour of `at` or `at` itself.

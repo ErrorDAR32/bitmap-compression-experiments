@@ -2,14 +2,66 @@
 name = "tilesim"
 version = "0.1.0"
 edition = "2021"
-description = "TileSim, a 2D procedural simulation game: its rules, so far grass spreading over dirt"
+description = "TileSim, a 2D procedural simulation game: the rules of its cells, so far grass spreading over dirt, ticked with its entities"
 publish = false
+
+# The diagnostics tool is kept with the diagnostics it prints: there is
+# no `src/bin/`.
+[[bin]]
+name = "diagnostics"
+path = "src/diagnostics/tool/main.rs"
 
 [dependencies]
 simulation = { path = "simulation" }
-pathfinding = { path = "pathfinding" }
+entities = { path = "entities" }
 coordinates = { path = "coordinates" }
 utilities = { path = "utilities" }
 bitmap = { path = "bitmap" }
 bitplane_manager = { path = "bitplane_manager" }
 chunk_storage = { path = "chunk_storage" }
+
+# Every crate of TileSim, built together: one lock file and one `target/`
+# for them all, here, whichever crate's folder cargo is run from.
+# `cargo test` here tests every one but the viewer, which brings Bevy:
+# `cargo run --release -p viewer` for that. Tessera's external
+# benchmarks stay a workspace of their own, so the codecs they compare
+# against never enter this build.
+[workspace]
+resolver = "2"
+members = [
+    "allocator",
+    "bitmap",
+    "bitplane_manager",
+    "chunk_storage",
+    "coordinates",
+    "entities",
+    "pathfinding",
+    "simulation",
+    "tessera",
+    "utilities",
+    "viewer",
+]
+default-members = [
+    ".",
+    "allocator",
+    "bitmap",
+    "bitplane_manager",
+    "chunk_storage",
+    "coordinates",
+    "entities",
+    "pathfinding",
+    "simulation",
+    "tessera",
+    "utilities",
+]
+exclude = ["tessera/external_benchmarks"]
+
+# Lines kept for the profilers -- perf, callgrind -- which say nothing
+# useful without them; they cost no speed.
+[profile.release]
+debug = "line-tables-only"
+
+# Bevy unoptimized is too slow to watch, even while the viewer itself is
+# being worked on.
+[profile.dev.package.bevy]
+opt-level = 3

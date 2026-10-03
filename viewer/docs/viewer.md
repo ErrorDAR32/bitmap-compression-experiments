@@ -2,10 +2,10 @@
 
 TileSim on the screen: a pasture ticking on a thread of its own, and a
 Bevy window showing it, a cell a pixel, each in one solid colour --
-dirt brown, grass green, sheep white.
+dirt brown, grass green, a sheep white, one pixel as it is one cell.
 
-`cargo run --release -- [superchunks] [grass, thousandths] [sheep a superchunk] [ticks a second, 0 flat out] [ticks to watch for]`,
-from `viewer/`; 16 superchunks, a third grass, 4,000 sheep each and 256
+`cargo run --release -p viewer -- [superchunks] [grass, thousandths] [sheep a superchunk] [ticks a second, 0 flat out] [ticks to watch for]`;
+16 superchunks, a third grass, 4,000 sheep each and 256
 ticks a second if not said.
 
 It runs until it is closed: long runs are watched, not waited for. The

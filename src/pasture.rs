@@ -1,10 +1,10 @@
 //! Grass and sheep together: grass spreading and decaying over dirt
-//! (`grass`), sheep eating it (`sheep`), one tick running both on each
+//! (`grass`), sheep eating it (`entities::sheep`), one tick running both on each
 //! superchunk -- the grass first, then the sheep, all reading the world
 //! as the tick found it.
 
 use crate::grass::{self, Grass};
-use crate::sheep::{self, SheepTickMetrics};
+use entities::sheep::{self, SheepTickMetrics};
 use bitplane_manager::BitmapArena;
 use simulation::entities::Entities;
 use simulation::{Simulation, TickReport};

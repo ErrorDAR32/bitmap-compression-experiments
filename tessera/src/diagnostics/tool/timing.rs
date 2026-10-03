@@ -8,8 +8,8 @@
 //! profiler, nothing else busy:
 //!
 //! ```text
-//! cargo run --release --bin diagnostics -- timing
-//! cargo run --release --bin diagnostics -- timing 400
+//! cargo run --release --bin tessera_diagnostics -- timing
+//! cargo run --release --bin tessera_diagnostics -- timing 400
 //! ```
 //!
 //! The argument after the tool's name, if given, is how many bitmaps

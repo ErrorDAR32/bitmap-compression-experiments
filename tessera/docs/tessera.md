@@ -360,7 +360,7 @@ them back.
 
 | file | written by | holds |
 |---|---|---|
-| `measurement.csv` | `cargo run --release --bin diagnostics -- measurement` | bits a bitmap by generator, checkerboards, saved adversarial bitmaps; what the trees hold |
+| `measurement.csv` | `cargo run --release --bin tessera_diagnostics -- measurement` | bits a bitmap by generator, checkerboards, saved adversarial bitmaps; what the trees hold |
 | `census.csv` | `... -- census` | node kinds by level, for each bitmap looked at |
 | `per_shape.csv` | `... -- per_shape` | bits a bitmap and a cell set, shape by shape |
 | `noise.csv` | `... -- noise` | bits on noise at several densities |

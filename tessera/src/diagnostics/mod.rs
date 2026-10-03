@@ -1,7 +1,7 @@
 //! Diagnostics: data gathered from Tessera's steps and its output, one kind
 //! of data to a file. They only gather: nothing here judges a result or
 //! prints one. The tests (`tests/`) judge what they gather, and the
-//! diagnostics tool (`src/bin/diagnostics/`) prints it.
+//! diagnostics tool (`src/diagnostics/tool/`) prints it.
 //!
 //! | file | what it gathers |
 //! |---|---|
@@ -9,7 +9,8 @@
 //! | `measured.rs` | bits, cells set and encode time over many bitmaps |
 //! | `tree_stats.rs` | what a tree holds: tiles, complex tiles and their payloads, nodes naming children, cell lists |
 //! | `census.rs` | a tree's nodes, by kind and level |
-//! | `adversarial/` | searches for the bitmaps Tessera does worst on, by any score, and the PBM records and saved bitmaps they leave |
+//! | `tool/` | the diagnostics tool itself, a program: one tool a file, printing and keeping what the files here gather |
+//! | `adversarial/` | searches for the bitmaps Tessera does worst on, by any score, and the PBM records and saved bitmaps they leave; `main.rs`, the program that runs the search against the raw cells |
 //! | `bitmaps.rs` | the bitmaps a diagnostic looks at by name: adversarial records, saved bitmaps, one named by the caller |
 //! | `png.rs` | a bitmap as a PNG image |
 //!

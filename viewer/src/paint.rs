@@ -4,7 +4,7 @@
 //! of the world is in view, and none from the window's frames.
 //!
 //! A cell is a pixel in one solid colour: dirt brown, grass green, a
-//! sheep white -- a few pixels across, to be seen. From far off, where
+//! sheep white. From far off, where
 //! a pixel is many cells, it is their colours mixed: a block of cells
 //! `2^detail` a side is, in Morton order, a run of bits, so the grass
 //! in it is counted from the words without a cell looked at.
@@ -21,8 +21,9 @@ use tilesim::diagnostics::frames::{BROWN, GREEN, WHITE};
 /// Pixels along a superchunk's side: a cell each.
 const SIDE: usize = SUPERCHUNK_SIDE_CELLS as usize;
 
-/// Cells from a sheep's own its square is drawn out to, each way.
-const SHEEP_REACH: usize = 1;
+/// Cells from a sheep's own its square is drawn out to, each way: none,
+/// a sheep a pixel, as it is a cell.
+const SHEEP_REACH: usize = 0;
 
 /// One superchunk's pixels.
 pub struct Tile {

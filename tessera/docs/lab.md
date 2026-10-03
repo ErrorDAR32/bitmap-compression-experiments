@@ -3,7 +3,7 @@
 What measures and tests Tessera rather than encodes: the sample
 generators, the diagnostics -- the adversarial search among them --
 `transient_data`,
-and the tools in `src/bin/`. `docs/testing_protocol.md` says how they
+and the tools beside them (`src/diagnostics/tool/`, `src/diagnostics/adversarial/main.rs`). `docs/testing_protocol.md` says how they
 are used; this file says what each function does. The encoder is in
 `docs/reference.md`.
 
@@ -157,7 +157,7 @@ Paths under `transient_data/`, out of git: **`seed_file`**,
 **`publish(report)`**: notes the run's seed on the report, prints it,
 and keeps it as `measurements/<tool>.csv`, replacing the last.
 
-## `src/bin/adversarial.rs`
+## `src/diagnostics/adversarial/main.rs`
 
 **`main`**: the search against the raw cells: `search_at_once` scoring
 each bitmap by **`score`** -- Tessera's bits less the raw cells of the
@@ -167,7 +167,7 @@ record round trips, and publishes what each search found.
 **`save`**: `adversarial save <record> <name> <description>` copies a
 record to the saved bitmaps with a description and the record's notes.
 
-## `src/bin/diagnostics/`: one tool a file
+## `src/diagnostics/tool/`: one tool a file
 
 **`main`**: `TOOLS`, a table of every tool -- name, what it prints, its
 argument, its file -- run by name; with no name, the list. A tool that
@@ -221,7 +221,7 @@ so neither timing includes allocating them.
 decode, check, and total the sizes and times), a table a family
 (**`add_table`**) and one for all.
 
-**`bin/adversarial.rs`**: the adversarial search against each codec in
+**`src/bin/adversarial.rs`**: the adversarial search against each codec in
 turn (`OPPONENTS`), each with its own record: **`score`** is Tessera's
 bits less the codec's (**`bits`**); records are replaced when beaten,
 and reported with both encoders' bits and median encode times

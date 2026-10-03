@@ -4,10 +4,19 @@ version = "0.1.0"
 edition = "2021"
 description = "A lossless encoding of a 256x256 bitmap"
 publish = false
+autobins = false
+
+# Its tools, named, and kept with the diagnostics they print -- there is
+# no `src/bin/`: `diagnostics` alone is TileSim's, built beside it into
+# the one `target/`.
+[[bin]]
+name = "tessera_diagnostics"
+path = "src/diagnostics/tool/main.rs"
+
+[[bin]]
+name = "adversarial"
+path = "src/diagnostics/adversarial/main.rs"
 
 [dependencies]
 bitmap = { path = "../bitmap" }
 utilities = { path = "../utilities" }
-
-[profile.release]
-debug = true

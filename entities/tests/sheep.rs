@@ -1,6 +1,6 @@
 //! Sheep on grass: they eat it, starve without it, breed lambs that
 //! grow up -- attributes coming and going -- walk to the nearest grass
-//! when hungry, never stand two on a cell, never walk off the bitplanes held, and tick the same on
+//! when hungry, leave thin pasture, never stand two on a cell, never walk off the bitplanes held, and tick the same on
 //! any number of threads.
 //!
 //! `cargo test`
@@ -10,9 +10,8 @@ use chunk_storage::mock::{DIRT, GRASS};
 use coordinates::{CartesianCell, SUPERCHUNK_SIDE_CELLS};
 use simulation::entities::{Attribute, EntityId, EntityRef, Header};
 use simulation::Simulation;
-use tilesim::diagnostics::world::World;
-use tilesim::pasture::tick;
-use tilesim::sheep::{rule, SheepTickMetrics, HUNGRY_AT, LAMB, MEAL_TICKS, PREGNANT, SHEEP, STARVE_TICKS, STEP_JITTER, STEP_TICKS};
+use entities::diagnostics::world::World;
+use entities::sheep::{rule, tick, SheepTickMetrics, HUNGRY_AT, LAMB, MEAL_TICKS, PREGNANT, ROAMING, ROAM_STEPS, SHEEP, STARVE_TICKS, STEP_JITTER, STEP_TICKS};
 
 /// Every sheep knows when it is next hungry, is a sheep, and is
 /// never both a lamb and pregnant.
@@ -30,7 +29,7 @@ fn sheep_without_grass_starve() {
     let mut simulation = Simulation::new(1);
     let (mut eaten, mut deaths) = (0, 0);
     for seed in 0..MEAL_TICKS + STARVE_TICKS + 2 * (STEP_TICKS + STEP_JITTER) {
-        let done = tick(&mut simulation, &mut world.arena, &mut world.entities, seed).rules.sheep;
+        let done = tick(&mut simulation, &mut world.arena, &mut world.entities, seed).rules;
         (eaten, deaths) = (eaten + done.eaten, deaths + done.deaths);
     }
     assert_eq!((eaten, deaths, world.sheep()), (0, 500, 0));
@@ -46,7 +45,7 @@ fn sheep_eat_breed_and_grow_up() {
     let (mut eaten, mut births, mut lost, mut lambs_seen, mut pregnant_seen) = (0, 0, 0, false, false);
     for seed in 0..40_000 {
         let report = tick(&mut simulation, &mut world.arena, &mut world.entities, seed);
-        (eaten, births, lost) = (eaten + report.rules.sheep.eaten, births + report.rules.sheep.births, lost + report.entities.lost);
+        (eaten, births, lost) = (eaten + report.rules.eaten, births + report.rules.births, lost + report.entities.lost);
         if seed % 500 == 0 {
             for sheep in world.entities.iter() {
                 well_formed(sheep);
@@ -93,6 +92,36 @@ fn hungry_sheep_walk_to_the_nearest_grass() {
     assert_eq!(world.grass(), 0);
 }
 
+/// A sheep that eats on thin pasture leaves it: hungry again, it walks
+/// [`ROAM_STEPS`] cells one way, a step a wake, before it looks for
+/// grass.
+#[test]
+fn sheep_on_thin_pasture_roam_away() {
+    let mut world = World::grass_on_dirt(1, 0);
+    let superchunk = world.superchunks[0];
+    let start = CartesianCell { x: superchunk.x * SUPERCHUNK_SIDE_CELLS + 500, y: superchunk.y * SUPERCHUNK_SIDE_CELLS + 500 };
+    world.arena.queue(GRASS, Write::cell(start.into(), WriteOp::Set));
+    world.arena.queue(DIRT, Write::cell(start.into(), WriteOp::Unset));
+    world.arena.apply();
+    world.entities.queue_put(Header { id: EntityId(1), kind: SHEEP, at: start.into(), wake: 0 }, &[Attribute { kind: HUNGRY_AT, value: 0 }]);
+    world.entities.apply();
+    let mut simulation = Simulation::new(1);
+    let (mut eaten, mut set_off, mut came_to) = (0, false, None);
+    for seed in 0..MEAL_TICKS + (ROAM_STEPS + 4) * (STEP_TICKS + STEP_JITTER) {
+        eaten += tick(&mut simulation, &mut world.arena, &mut world.entities, seed).rules.eaten;
+        let sheep = world.entities.iter().next().expect("the sheep, alive");
+        let roaming = sheep.attribute(ROAMING).is_some();
+        if set_off && !roaming && came_to.is_none() {
+            came_to = Some(sheep.header.at.cartesian());
+        }
+        set_off |= roaming;
+    }
+    let came_to = came_to.expect("it set off, and its steps ran out");
+    assert_eq!(eaten, 1, "the one cell of grass, eaten: thin pasture");
+    let apart = (came_to.x.abs_diff(start.x)).max(came_to.y.abs_diff(start.y));
+    assert_eq!(apart as u64, ROAM_STEPS, "one way, every step");
+}
+
 /// Grass and sheep over four superchunks, across their borders, come out
 /// the same on one thread and on four.
 #[test]
@@ -120,7 +149,7 @@ fn sheep_never_overlap() {
     let (mut stayed, mut births) = (0, 0);
     for seed in 0..2_000 {
         let report = tick(&mut simulation, &mut world.arena, &mut world.entities, seed);
-        (stayed, births) = (stayed + report.entities.stayed, births + report.rules.sheep.births);
+        (stayed, births) = (stayed + report.entities.stayed, births + report.rules.births);
         if seed % 100 == 99 {
             let mut cells: Vec<_> = world.entities.iter().map(|sheep| sheep.header.at).collect();
             cells.sort_unstable();

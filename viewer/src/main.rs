@@ -8,7 +8,7 @@
 //! a third thread turns into pixels ([`paint`]). The three share
 //! nothing else, so none waits on another.
 //!
-//! `cargo run --release -- [superchunks] [grass, thousandths] [sheep a superchunk] [ticks a second, 0 flat out] [ticks to watch for]`
+//! `cargo run --release -p viewer -- [superchunks] [grass, thousandths] [sheep a superchunk] [ticks a second, 0 flat out] [ticks to watch for]`
 //!
 //! It runs until closed. The ticks to watch for are only shown: how far
 //! the run is from what whoever started it wanted seen.

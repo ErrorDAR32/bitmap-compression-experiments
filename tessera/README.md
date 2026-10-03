@@ -116,8 +116,8 @@ them in `transient_data/measurements/`.
 
 | command | does |
 |---|---|
-| `cargo run --release --bin diagnostics` | lists the diagnostics tools: bits by generator and shape, node census, noise, sparse bitmaps, timing, instruction counts, PNG renders |
-| `cargo run --release --bin diagnostics -- show` | prints every kept measurement without measuring |
+| `cargo run --release --bin tessera_diagnostics` | lists the diagnostics tools: bits by generator and shape, node census, noise, sparse bitmaps, timing, instruction counts, PNG renders |
+| `cargo run --release --bin tessera_diagnostics -- show` | prints every kept measurement without measuring |
 | `cargo run --release --bin adversarial` | searches for the bitmaps Tessera does worst on against the raw cells |
 | `cargo run --release --manifest-path external_benchmarks/Cargo.toml` | Tessera against CCITT G4, JBIG and zstd 3 and 19: bits and times, family by family |
 | `cargo run --release --manifest-path external_benchmarks/Cargo.toml --bin adversarial` | searches for the bitmaps Tessera does worst on against each of them |
@@ -131,7 +131,9 @@ libjbig-dev`), and the instruction count needs valgrind.
 ```text
 tessera/
   src/                  the crate: the encoding, and what measures it
-    bin/                the diagnostics tool and the adversarial search
+    diagnostics/        what gathers data, and beside it what prints it:
+      tool/             the diagnostics tool, one tool a file
+      adversarial/      the adversarial search, and its program (main.rs)
   tests/                the three tiers, and unit/: the private internals' unit tests
   docs/
     tessera.md          every step and every bit

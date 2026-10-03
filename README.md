@@ -16,7 +16,8 @@ spreading over dirt -- and the first entities: sheep eating it.
 |---|---|
 | [`docs/design_statements.md`](docs/design_statements.md) | the design statements |
 | [`docs/tilesim.md`](docs/tilesim.md) | what TileSim is, and every decision about it so far: chunks, superchunks, layers, the simulation's plan |
-| [`src/`](src/) | the `tilesim` crate: the game -- its rules, so far grass over dirt and sheep eating it, ticked in two phases on as many threads as asked -- and its diagnostics tool |
+| [`src/`](src/) | the `tilesim` crate: the game -- the rules of its cells, so far grass over dirt, ticked with its entities in two phases on every thread the machine has -- and its diagnostics tool |
+| [`entities/`](entities/) | the entities, a file each: so far the sheep, eating the grass |
 | [`coordinates/`](coordinates/) | where things are: cells, chunks and superchunks, cartesian and by Morton index |
 | [`chunk_storage/`](chunk_storage/) | chunks as stored, what loading and saving work on: height maps, the layer codec, superchunk images, the cold pool and the writeback ring |
 | [`pathfinding/`](pathfinding/) | how an entity finds its way: waves and A* over an area of 16x16 cells held as masks |
@@ -32,14 +33,27 @@ Every crate is laid out as Tessera is: `docs/` -- its design, and
 `reference.md`, function by function, which the code points to --
 `tests/`, and, where it has something to measure, `src/diagnostics/`,
 which gathers data and judges nothing, and `transient_data/`, out of
-git, which holds what runs leave behind. `bitmap/`, `coordinates/` and
+git, which holds what runs leave behind. A program that prints what the
+diagnostics gather is kept with them, in `src/diagnostics/` -- the
+diagnostics tool in `tool/` -- and named in the crate's `Cargo.toml`:
+no crate has a `src/bin/`. `bitmap/`, `coordinates/` and
 `utilities/` measure nothing of their own yet, so have neither of the
 last two; `simulation/` gathers what its entities hold, but keeps
 nothing of its own.
 
-Each builds on its own: run cargo from its folder, as usual -- here,
-at the root, for the `tilesim` crate. Tessera depends on `bitmap/` and
-`utilities/` beside it; `coordinates/` on `bitmap/`; `chunk_storage/` on
-those and Tessera; `bitplane_manager/` on `chunk_storage/`,
-`coordinates/` and `allocator/`; `simulation/` on `bitplane_manager/`;
-TileSim itself, `src/`, on all of them.
+They are one cargo workspace: one lock file and one `target/`, here at
+the root, whichever folder cargo is run from, on the toolchain
+`rust-toolchain.toml` names. `cargo test` at the root tests every crate
+but the viewer, which brings Bevy and is asked for by name:
+`cargo run --release -p viewer`. Run from a crate's folder, cargo keeps
+to that crate. Two crates have a `diagnostics` tool: TileSim's is
+`--bin diagnostics`, Tessera's `--bin tessera_diagnostics`. Tessera's
+external benchmarks are a workspace of their own, so the codecs they
+compare against never enter this build.
+
+Tessera depends on `bitmap/` and `utilities/` beside it; `coordinates/`
+on `bitmap/`; `chunk_storage/` on those and Tessera;
+`bitplane_manager/` on `chunk_storage/`, `coordinates/` and
+`allocator/`; `simulation/` on `bitplane_manager/`; `entities/` on
+`simulation/` and `pathfinding/`; TileSim itself, `src/`, on all of
+them; the viewer on TileSim.
