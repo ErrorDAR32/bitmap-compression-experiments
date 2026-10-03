@@ -6,6 +6,7 @@
 //!
 //! `cargo test`
 
+use utilities::rng::Rng;
 use pathfinding::{a_star, holds, nearest, step_towards, steps_apart, Cell, Path, Rows, Walls, Wave, SIDE};
 
 /// No walls.
@@ -17,19 +18,6 @@ const ALL: Rows = [u16::MAX; SIDE];
 /// The cell `(x, y)`.
 fn cell(x: u8, y: u8) -> Cell {
     Cell { x, y }
-}
-
-/// Words drawn from a seed: SplitMix64, enough for a test.
-struct Rng(u64);
-
-impl Rng {
-    /// The next word.
-    fn draw(&mut self) -> u64 {
-        self.0 = self.0.wrapping_add(0x9E37_79B9_7F4A_7C15);
-        let z = (self.0 ^ (self.0 >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
-        let z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
-        z ^ (z >> 31)
-    }
 }
 
 /// The steps of the shortest path from `from` to `to` over `passable`,
@@ -101,7 +89,7 @@ fn paths_go_round_what_is_in_the_way() {
 /// every cell finds -- on areas of obstacles drawn at random.
 #[test]
 fn paths_are_the_shortest_and_can_be_walked() {
-    let mut random = Rng(11);
+    let mut random = Rng::new(11);
     let (mut found, mut none) = (0, 0);
     for _ in 0..2000 {
         // About a third of the cells in the way.
@@ -171,7 +159,7 @@ fn waves_spread_a_cell_a_step() {
 /// every cell finds the nearest -- and walking those steps arrives.
 #[test]
 fn steps_by_waves_lead_to_the_nearest_goal() {
-    let mut random = Rng(23);
+    let mut random = Rng::new(23);
     let (mut found, mut none) = (0, 0);
     for _ in 0..2000 {
         let passable: Rows = std::array::from_fn(|_| (random.draw() | random.draw() >> 16 & random.draw()) as u16);
@@ -252,4 +240,93 @@ fn walls_bar_steps_between_cells() {
         assert!(!corner.bars_step(cell(from.0, from.1), dx, dy), "{from:?} by ({dx}, {dy})");
     }
     assert_eq!(a_star(&ALL, &corner, cell(4, 4), cell(5, 4)).map(|path| path.steps), Some(3), "round the wall's end, the diagonals barred");
+}
+
+/// The walls between cells of different heights, as the terrain puts
+/// them: east and south of a cell more than one apart from its neighbour.
+fn walls_of(height: impl Fn(usize, usize) -> u8) -> Walls {
+    let (mut east, mut south) = ([0; SIDE], [0; SIDE]);
+    for y in 0..SIDE {
+        for x in 0..SIDE {
+            if x + 1 < SIDE && height(x, y).abs_diff(height(x + 1, y)) > 1 {
+                east[y] |= 1 << x;
+            }
+            if y + 1 < SIDE && height(x, y).abs_diff(height(x, y + 1)) > 1 {
+                south[y] |= 1 << x;
+            }
+        }
+    }
+    Walls::new(east, south)
+}
+
+/// The cells reached from `start` by waves over every cell, through no
+/// wall.
+fn reached_from(start: Cell, walls: &Walls) -> Rows {
+    let mut goals: Rows = [0; SIDE];
+    goals[start.y as usize] = 1 << start.x;
+    let mut wave = Wave::from(&goals);
+    while wave.advance(&ALL, walls) {}
+    *wave.reached()
+}
+
+/// A wall one thick, in any direction -- across, down, or diagonal, as
+/// a cliff's edge or as a ridge of single cells -- is never crossed: by
+/// waves, by A*, or by a walker stepping towards the far side. A
+/// diagonal step across it always has a wall on one of its two ways
+/// round, so it is barred.
+#[test]
+fn walls_one_thick_in_any_direction_are_never_crossed() {
+    // Each case: the heights, and which side of the wall a cell is on (`None` on the ridge itself).
+    type Side = fn(usize, usize) -> Option<bool>;
+    let cases: [(&str, fn(usize, usize) -> u8, Side); 6] = [
+        ("a cliff down the middle", |x, _| if x < 8 { 9 } else { 0 }, |x, _| Some(x < 8)),
+        ("a cliff across the middle", |_, y| if y < 8 { 9 } else { 0 }, |_, y| Some(y < 8)),
+        ("a cliff along the diagonal", |x, y| if x > y { 9 } else { 0 }, |x, y| Some(x > y)),
+        ("a cliff along the other diagonal", |x, y| if x + y < SIDE { 9 } else { 0 }, |x, y| Some(x + y < SIDE)),
+        ("a ridge one cell thick along the diagonal", |x, y| if x == y { 9 } else { 0 }, |x, y| (x != y).then_some(x > y)),
+        ("a ridge one cell thick along the other diagonal", |x, y| if x + y == SIDE - 1 { 9 } else { 0 }, |x, y| (x + y != SIDE - 1).then_some(x + y < SIDE - 1)),
+    ];
+    for (name, height, side) in cases {
+        let walls = walls_of(height);
+        let cells = || (0..SIDE).flat_map(|y| (0..SIDE).map(move |x| (x, y)));
+        // Every cell of a side reaches every other of its side, and none of the other's, nor the ridge.
+        for (x, y) in cells() {
+            let Some(here) = side(x, y) else {
+                continue;
+            };
+            let reached = reached_from(cell(x as u8, y as u8), &walls);
+            for (other_x, other_y) in cells() {
+                let got_there = holds(&reached, cell(other_x as u8, other_y as u8));
+                assert_eq!(got_there, side(other_x, other_y) == Some(here), "{name}: ({x}, {y}) to ({other_x}, {other_y})");
+            }
+        }
+        // A* and a walker find no way across, from either side.
+        let mut rng = Rng::new(name.len() as u64);
+        for _ in 0..200 {
+            let draw = |rng: &mut Rng| cell((rng.draw() % SIDE as u64) as u8, (rng.draw() % SIDE as u64) as u8);
+            let (from, to) = (draw(&mut rng), draw(&mut rng));
+            let (Some(from_side), Some(to_side)) = (side(from.x as usize, from.y as usize), side(to.x as usize, to.y as usize)) else {
+                continue;
+            };
+            if from_side == to_side || from == to {
+                continue;
+            }
+            assert_eq!(a_star(&ALL, &walls, from, to), None, "{name}: A* from {from:?} to {to:?}");
+            let mut goals: Rows = [0; SIDE];
+            goals[to.y as usize] = 1 << to.x;
+            assert_eq!(step_towards(&ALL, &walls, &goals, from, rng.draw()), None, "{name}: a walker from {from:?} to {to:?}");
+        }
+        // No step between neighbours on two sides is open, diagonals included.
+        for (x, y) in cells() {
+            for (dx, dy) in [(1i8, 0i8), (0, 1), (1, 1), (-1, 1)] {
+                let (other_x, other_y) = (x as i8 + dx, y as i8 + dy);
+                if other_x < 0 || other_x >= SIDE as i8 || other_y >= SIDE as i8 {
+                    continue;
+                }
+                if side(x, y) != side(other_x as usize, other_y as usize) {
+                    assert!(walls.bars_step(cell(x as u8, y as u8), dx, dy), "{name}: ({x}, {y}) by ({dx}, {dy})");
+                }
+            }
+        }
+    }
 }

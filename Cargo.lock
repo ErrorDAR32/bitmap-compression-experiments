@@ -3832,6 +3832,9 @@ dependencies = [
 [[package]]
 name = "pathfinding"
 version = "0.1.0"
+dependencies = [
+ "utilities",
+]
 
 [[package]]
 name = "percent-encoding"

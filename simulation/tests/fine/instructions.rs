@@ -329,3 +329,47 @@ fn walls_of_the_terrain_bar_steps() {
     // Down to the gap at row 33, straight through it -- a diagonal across the cliff has a wall on one way round -- and back up: three down, one across, three up.
     assert_eq!(steps, 7);
 }
+
+/// The two readings of the walls agree, on walls set at random: the
+/// steps out of a cell the turn leaves open ([`Turn::around_unwalled`])
+/// are those pathfinding's walls about it do not bar
+/// (`Walls::bars_step`), diagonals included -- a diagonal open only when
+/// both ways round it are.
+#[test]
+fn the_turn_and_pathfinding_bar_the_same_steps() {
+    let (mut arena, mut entities) = world(1);
+    let mut codec = LayerCodec::new();
+    for layer_type in [WALL_EAST, WALL_SOUTH] {
+        for place in ChunkPlace::all() {
+            arena.make_hot(BucketKey { layer_type, chunk: ChunkPosition::of(SuperchunkPosition { x: 10, y: 10 }, place) }, None, &mut codec);
+        }
+    }
+    let mut random = utilities::rng::Rng::new(7);
+    for y in 0..64 {
+        for x in 0..64 {
+            for layer_type in [WALL_EAST, WALL_SOUTH] {
+                if random.below(4) == 0 {
+                    arena.queue(layer_type, Write::cell(cell(x, y), WriteOp::Set));
+                }
+            }
+        }
+    }
+    arena.apply();
+    let checked = Mutex::new(0);
+    Simulation::new(1).tick(&mut arena, &mut entities, 0, |turn: &mut Turn, _: &mut Vec<CellIndex>| {
+        for y in 1..63 {
+            for x in 1..63 {
+                let at = cell(x, y);
+                let (open, walls) = (turn.around_unwalled(at), turn.area_walls(at));
+                let centre = pathfinding::Cell { x: simulation::AREA_CENTRE as u8, y: simulation::AREA_CENTRE as u8 };
+                for bit in (0..9).filter(|&bit| bit != 4) {
+                    let (dx, dy) = (bit as i8 % 3 - 1, bit as i8 / 3 - 1);
+                    assert_eq!(open >> bit & 1 == 1, !walls.bars_step(centre, dx, dy), "({x}, {y}) by ({dx}, {dy})");
+                    *checked.lock().unwrap() += 1;
+                }
+            }
+        }
+        0
+    });
+    assert_eq!(checked.into_inner().unwrap(), 62 * 62 * 8);
+}
