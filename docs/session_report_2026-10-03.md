@@ -20,6 +20,7 @@ fast tiers, 4 in the complete tier of `terrain` and `world` -- and
 | `7acef37` | The viewer runs a generated world and draws cliffs; `docs/performance.md`. |
 | `6385c6f` | Native builds: a tenth more ticks a second. |
 | `a92886e` | Counts of smaller blocks: 14% more ticks a second at 1,024 superchunks. |
+| `8281e90` | The cells about a sheep to wake prefetched: 5% more ticks a second on generated ground. |
 
 ## Saves
 
