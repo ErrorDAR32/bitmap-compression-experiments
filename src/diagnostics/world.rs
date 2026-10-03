@@ -1,15 +1,21 @@
 //! A mock world to tick: a square of superchunks from the world's middle,
-//! each of dirt with grass scattered on it, every chunk of both hot.
+//! each of dirt with grass scattered on it, every chunk of both hot --
+//! and, if asked, a flock of sheep on each.
 
 use bitplane_manager::BitmapArena;
 use chunk_storage::mock::{grass_on_dirt, DIRT, GRASS};
 use chunk_storage::{ChunkStorage, LayerCodec};
 use coordinates::{ChunkPlace, ChunkPosition, SuperChunkPosition, WORLD_SIDE_SUPERCHUNKS};
+use crate::sheep::{flock, SHEEP};
+use simulation::entities::Entities;
+use utilities::rng::Rng;
 
 /// A mock world: its hot bitmaps, its storage, and its superchunks.
 pub struct World {
     /// The hot bitmaps.
     pub arena: BitmapArena,
+    /// The entities, holding the same superchunks as the arena.
+    pub entities: Entities,
     /// The superchunks as stored.
     pub storage: ChunkStorage,
     /// The superchunks, row by row.
@@ -30,7 +36,26 @@ impl World {
                 arena.make_hot_layers(ChunkPosition::of(superchunk, place), &[DIRT, GRASS], &storage, &mut codec);
             }
         }
-        Self { arena, storage, superchunks }
+        let mut entities = Entities::new();
+        let mortons: Vec<u64> = arena.superchunks().iter().map(|superchunk| superchunk.morton()).collect();
+        entities.align(&mortons);
+        Self { arena, entities, storage, superchunks }
+    }
+
+    /// [`World::grass_on_dirt`], with `sheep` sheep on each superchunk,
+    /// on cells drawn at random.
+    pub fn with_sheep(count: u32, grass_cells: usize, sheep: usize) -> Self {
+        let mut world = Self::grass_on_dirt(count, grass_cells);
+        let mut random = Rng::new(0x5EE9);
+        for &superchunk in &world.superchunks {
+            flock(&mut world.entities, superchunk, sheep, &mut random);
+        }
+        world
+    }
+
+    /// Sheep over every superchunk.
+    pub fn sheep(&self) -> usize {
+        self.entities.iter().filter(|entity| entity.header.kind == SHEEP).count()
     }
 
     /// Cells of grass over every superchunk.

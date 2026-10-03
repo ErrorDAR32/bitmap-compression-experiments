@@ -85,7 +85,6 @@ pub fn remove_attribute(attributes: &mut Vec<Attribute>, kind: AttributeType) ->
 }
 
 /// Whether `attributes` are sorted by type, each type once.
-#[allow(dead_code)]
 pub(crate) fn sorted(attributes: &[Attribute]) -> bool {
     attributes.windows(2).all(|pair| pair[0].kind < pair[1].kind)
 }

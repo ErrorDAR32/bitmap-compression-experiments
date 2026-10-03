@@ -1,13 +1,14 @@
 //! TileSim's simulation: the rules ticked over the hot bitplanes
 //! (`../bitplane_manager`), which it reads and writes only through the
-//! handles they give.
+//! handles they give, and over the entities, which it holds.
 //!
 //! | file | what is in it |
 //! |---|---|
 //! | `sampling` | Monte Carlo sampling: every set cell chosen with one probability, in Morton order, none wasted |
 //! | `tick` | the tick: rules run superchunk by superchunk in two phases -- computing, writes queued for each superchunk they land in; applying, each superchunk its own -- and its outboxes |
 //! | `dispatcher` | the threads, started once and kept, a job run on all at once |
-//! | `entities/` | entities: records with attributes added and removed at run time (work in progress) |
+//! | `entities/` | entities: records in a bucket a chunk, attributes added and removed at run time, a timer wheel a superchunk, changes queued and carried out in the tick |
+//! | `diagnostics/` | data gathered: what the entities hold |
 //!
 //! The design: `docs/simulation.md`; function by function:
 //! `docs/reference.md`.
@@ -16,6 +17,7 @@
 // checks the private ones.
 #![warn(missing_docs, clippy::missing_docs_in_private_items)]
 
+pub mod diagnostics;
 mod dispatcher;
 pub mod entities;
 mod sampling;

@@ -25,6 +25,7 @@
 //! spreading fills cells that were dirt.
 
 use bitplane_manager::{BitmapArena, Write, WriteOp};
+use simulation::entities::Entities;
 use simulation::{Simulation, SuperChunkTick, TickReport};
 use chunk_storage::mock::{DIRT, GRASS};
 use coordinates::CellIndex;
@@ -62,9 +63,9 @@ impl AddAssign for Grass {
 
 /// One tick of grass over every superchunk with a bitmap in use, on
 /// `simulation`'s threads, `seed` its random numbers' seed -- a new one a
-/// tick.
-pub fn tick(simulation: &mut Simulation, arena: &mut BitmapArena, seed: u64) -> TickReport<Grass> {
-    simulation.tick(arena, seed, rule)
+/// tick -- `entities` ticked with it, none of them woken by grass.
+pub fn tick(simulation: &mut Simulation, arena: &mut BitmapArena, entities: &mut Entities, seed: u64) -> TickReport<Grass> {
+    simulation.tick(arena, entities, seed, rule)
 }
 
 /// The rule, on one superchunk's turn: every cell of grass chosen with

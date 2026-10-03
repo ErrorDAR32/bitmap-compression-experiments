@@ -22,7 +22,7 @@ a chosen cell searched.
 
 ## The tick
 
-`Simulation::tick(arena, seed, rule)`, every superchunk in two phases:
+`Simulation::tick(arena, entities, seed, rule)`, every superchunk in two phases:
 
 1. **Computing**: each superchunk runs the rule on itself
    (`SuperChunkTick`): samples its own cells, reads any cell as the
@@ -38,6 +38,26 @@ a chosen cell searched.
 Random numbers come from the seed and each superchunk's Morton index,
 so a tick is the same on any number of threads. The outboxes and room
 for samples are kept between ticks.
+
+## Entities
+
+`entities/`: what stands on the cells. An entity is a header -- a
+random 64-bit ID, a type, its cell, the tick it next wakes at -- and
+attributes, typed values added and removed at run time. A superchunk
+holds its entities in a bucket a chunk, sorted by ID, attributes
+beside, and a timer wheel of when each wakes: a tick costs the entities
+waking in it. An entity is found by its ID and cell, never past its
+chunk; a wake or change naming one that moved on or died is passed
+over.
+
+They tick in the same two phases as the cells. In the first, a
+superchunk's entities waking run the rule (`SuperChunkTick::woken`),
+and their changes -- `put`, `update`, `remove` -- are queued in the
+outbox slot of the superchunk they land in; in the second, each
+superchunk turns its wheel and carries the changes out. An entity
+moving to a neighbour goes as a whole copy made in the first phase. One
+put in a superchunk not held is lost, and counted. The decisions behind
+it: `../../docs/tilesim.md`, "Entities".
 
 ## The dispatcher
 
@@ -57,8 +77,11 @@ for now, to be weighed again once entities join the simulation.
 | `src/sampling.rs` | Monte Carlo sampling |
 | `src/tick.rs` | the two-phase tick, its outboxes, a superchunk's turn |
 | `src/dispatcher.rs` | the threads |
+| `src/entities/` | entities: records, buckets, the timer wheel, changes queued |
+| `src/diagnostics/` | what the entities hold |
 | `tests/` | sampling, the tick and the dispatcher, judged |
 | `docs/` | this, and the reference, function by function |
 
-It has no diagnostics or transient data of its own yet: the tick is
-measured by TileSim's (`diagnostics throughput`), on its rules.
+Its diagnostics only gather what the entities hold; it has no transient
+data of its own yet: the tick is measured by TileSim's
+(`diagnostics throughput`, `diagnostics pasture`), on its rules.

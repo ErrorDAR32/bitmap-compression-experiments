@@ -5,11 +5,13 @@
 //! decision here is weighed against is `docs/design_statements.md`.
 //!
 //! The rules the world runs by, one a module, each a tick of Monte Carlo
-//! sampling and the writes it queues:
+//! sampling or entities woken, and the writes and changes it queues:
 //!
 //! | module | rule |
 //! |---|---|
 //! | `grass` | grass spreading over dirt |
+//! | `sheep` | sheep eating the grass, breeding, walking, starving: the first entity |
+//! | `pasture` | grass and sheep, ticked together |
 //!
 //! Beside them, as in every crate: `diagnostics/`, data gathered from
 //! the ticks, printed and kept by the diagnostics tool
@@ -25,4 +27,6 @@
 
 pub mod diagnostics;
 pub mod grass;
+pub mod pasture;
+pub mod sheep;
 pub mod transient_data;

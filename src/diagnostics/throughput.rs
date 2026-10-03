@@ -50,7 +50,7 @@ pub fn run(ticks: usize, thousandths: usize, superchunks: u32, threads: usize) -
     let (mut computing, mut applying, mut writes, mut sampled, mut missed) = (Duration::ZERO, Duration::ZERO, 0, 0, 0);
     let mut simulation = Simulation::new(threads);
     for tick in 0..ticks {
-        let report = grass::tick(&mut simulation, &mut world.arena, tick as u64);
+        let report = grass::tick(&mut simulation, &mut world.arena, &mut world.entities, tick as u64);
         computing += report.computing;
         applying += report.applying;
         writes += report.applied.writes;

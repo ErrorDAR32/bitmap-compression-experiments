@@ -404,13 +404,68 @@ Monte Carlo sampling suits a GPU too.
 
 The height map is ignored for now.
 
-### Entities
+### Entities (built, first form)
 
-They work differently, and later: nothing is built for them yet. Chunk
-storage is the project most likely to hold them when the time comes.
-An entity is a capability unit, not necessarily alive, and may schedule
-chunks. Some are tied to bit planes;
-others exist on their own and keep their location themselves (humans).
+An entity is a capability unit, not necessarily alive. The first form
+is built in the simulation (`simulation/src/entities/`), with sheep on
+it (`src/sheep.rs`):
+
+- **A record**: a header -- a random 64-bit ID, a type, the cell it
+  stands on, the tick it next wakes at -- and attributes, typed values
+  added and removed at run time (a sheep falls pregnant, a lamb grows
+  up). Types, of entities and attributes alike, are `u64`s from the one
+  namespace every type in TileSim is drawn from, layers' included.
+- **A bucket a chunk**: a superchunk holds its entities in a bucket for
+  each of its 16 chunks -- a chunk may hold many single-cell entities --
+  the headers sorted by ID, the attributes in one list beside them, a
+  run an entity. A run whose length changes is rewritten at the list's
+  end, the old one left as garbage, swept out once there is as much
+  garbage as attributes in use.
+- **IDs, not slots**: an entity is found by its ID and its cell -- its
+  cell's chunk's bucket, then a binary search on the ID -- never
+  further than its chunk. A slot would go stale whenever the entity
+  crossed a chunk border, moved superchunk or was swept, and nothing
+  holds a pointer back to fix it; an ID survives all of it, and a wake
+  or change naming an entity that moved on or died is just not found,
+  and passed over. IDs are drawn from the superchunk's random numbers:
+  a clash inside a chunk is a chance of one in 2^64 a pair. Over the
+  whole world and its history, a clash somewhere becomes likely past
+  billions of entities -- no matter for the tick, but to be revisited
+  when entities remember each other by ID (a birth superchunk and its
+  own count, say).
+- **A timer wheel a superchunk**: most entities wait most of the time
+  -- a person walking steps a cell every 128 ticks or so -- so a tick
+  costs the entities waking in it, and nothing for the rest. The wheel
+  has a slot a tick for the next 1024; further wakes wait in a list,
+  filed every half turn once in reach. A wake is only good if the
+  entity still wakes at that tick.
+- **In the two phases**: in the first, the entities waking in a
+  superchunk run the rule beside its cells, reading the world as the
+  tick found it, and queue changes -- an entity put (made, changed or
+  moved in) or removed -- into the outbox slot of the superchunk each
+  lands in, as writes are. In the second, each superchunk carries out
+  the changes queued for it. An entity moving to a neighbour goes as a
+  whole copy, made in the first phase, so the second never reads
+  another superchunk's entities while it changes them. The speed of
+  light holds for entities as for cells.
+- **Lost entities**: put in a superchunk whose bitplanes are not held,
+  an entity is lost, and counted. Keeping a superchunk's entities in
+  chunk storage when it goes cold is work to come, as are reading other
+  entities near a cell, collisions, entities spanning many cells, and
+  load balancing.
+
+The three packed-memory arrays discussed before (hot, cold and bulk,
+each one contiguous Morton-sorted region) were set aside for this: a
+superchunk owning its own storage keeps loading, evicting and saving a
+superchunk local, with no boundaries to shift between threads.
+
+Measured (`diagnostics pasture 3000 333 4000 16 1`: 16 superchunks, a
+third grass, 4,000 sheep each to start, one thread): 247 ticks a
+second, the sheep growing from 64,000 to 98,000 at about 1,050 wakes a
+tick; a sheep's wake costs 844 ns in the first phase -- grass's sample
+167 ns -- and applying a write or entity change 65 ns. The wake is
+dear for what it does, likely the nine cell reads through the reader
+(each a superchunk lookup) and the bucket searches; not tuned yet.
 
 ## Simulation (the plan)
 

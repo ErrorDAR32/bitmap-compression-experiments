@@ -15,22 +15,54 @@ eight, stepped on the Morton index) and whether it spreads (in
 dirt neighbour, or the cell turned back to dirt beside a grass one.
 Returns **`Grass`** `{sampled, spreads, decays}`, added with `+=`.
 
-**`tick(simulation, arena, seed)`**: one tick of the rule over every
-superchunk in use, on the simulation's threads.
+**`tick(simulation, arena, entities, seed)`**: one tick of the rule over
+every superchunk in use, on the simulation's threads.
+
+## `sheep.rs`
+
+`SHEEP`, and its attributes `HUNGER`, `PREGNANT`, `LAMB`;
+`STEP_TICKS` (64) and `STEP_JITTER` (16) between wakes,
+`STARVE_WAKES` (32), `CONCEIVE_ONE_IN` (24), `GESTATION_WAKES` (16),
+`LAMB_WAKES` (64).
+
+**`rule(turn)`**: every sheep waking on the superchunk's turn eats the
+grass it stands on or goes hungrier -- starving, removed, at
+`STARVE_WAKES` -- counts its pregnancy down to a lamb born on its cell,
+or falls pregnant if fed and grown, counts its youth down, walks
+(**`step`**: a grass neighbour drawn at random, else any neighbour held,
+else nowhere) and sleeps again (**`next_wake`**). Returns **`Sheep`**
+`{woken, eaten, births, deaths}`, added with `+=`.
+
+**`flock(entities, superchunk, count, random)`**: grown fed sheep on
+cells drawn at random, waking over the next `STEP_TICKS` ticks.
+
+## `pasture.rs`
+
+**`tick(simulation, arena, entities, seed)`**: grass and then sheep on
+each superchunk's turn; **`Pasture`** `{grass, sheep}`.
 
 ## `diagnostics/`
 
 **`world::World::grass_on_dirt(count, grass_cells)`**: a square of mock
 superchunks from the world's middle, hot; **`grass()`**: cells of grass
-over them.
+over them. **`with_sheep(count, grass_cells, sheep)`**: the same with a
+flock on each superchunk; **`sheep()`**: how many.
 
 **`throughput::run(ticks, thousandths, superchunks, threads)`**: grass
 ticked flat out: each phase's time, samples, writes, cells missed, the
 process's memory sampled every tick, the arena's and storage's stats --
 a **`Throughput`**.
 
+**`pasture::run(ticks, thousandths, sheep, superchunks, threads)`**:
+grass and sheep ticked flat out: the flock and grass over the run, what
+the sheep did, each phase's time and each rule's -- timed inside the
+rule, over every thread -- the memory, the entities' stats: a
+**`PastureRun`**.
+
 **`frames::frame(arena, superchunk, pixels)`**: a superchunk as RGB
 pixels, dirt `BROWN`, grass `GREEN`; `FRAME_BYTES`.
+**`frames::sheep(entities, superchunk, pixels)`**: its entities drawn
+over it, `WHITE` squares.
 
 ## `transient_data.rs`
 
@@ -39,8 +71,10 @@ pixels, dirt `BROWN`, grass `GREEN`; `FRAME_BYTES`.
 ## `bin/diagnostics/main.rs`
 
 **`throughput`**: runs `throughput::run` and publishes its time, rates
-and memory tables. **`video`**: one superchunk's frames on standard
-output, raw RGB, for ffmpeg.
+and memory tables. **`pasture`**: runs `pasture::run` and publishes the
+flock, time a sample and a wake, rates and what is held. **`video`**:
+one superchunk's frames, sheep on them if asked, on standard output,
+raw RGB, for ffmpeg.
 
 ## `main.rs`
 

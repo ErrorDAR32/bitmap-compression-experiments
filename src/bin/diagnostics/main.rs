@@ -3,7 +3,8 @@
 //! | command | what it does |
 //! |---|---|
 //! | `throughput [ticks] [grass, thousandths] [superchunks] [threads]` | ticks grass flat out and reports each phase's time, the writes a second, and the memory held; kept in `transient_data/measurements/` |
-//! | `video [ticks] [grass cells] [ticks a frame]` | grass on one superchunk as raw RGB frames, 1024x1024, on standard output, for ffmpeg |
+//! | `pasture [ticks] [grass, thousandths] [sheep a superchunk] [superchunks] [threads]` | ticks grass and sheep flat out and reports the flock, what the sheep did, each rule's time -- a sheep's wake in nanoseconds -- and the memory held; kept in `transient_data/measurements/` |
+//! | `video [ticks] [grass cells] [ticks a frame] [sheep]` | grass and sheep on one superchunk as raw RGB frames, 1024x1024, on standard output, for ffmpeg |
 //!
 //! `cargo run --release --bin diagnostics -- <command> [arguments]`; a
 //! video: `... -- video | ffmpeg -f rawvideo -pix_fmt rgb24 -s 1024x1024 -r 30 -i - transient_data/renders/grass.mp4`.
@@ -13,11 +14,12 @@
 #![warn(missing_docs, clippy::missing_docs_in_private_items)]
 
 use std::io::Write;
-use tilesim::diagnostics::frames::{frame, FRAME_BYTES};
-use tilesim::diagnostics::throughput;
+use std::time::Duration;
+use tilesim::diagnostics::frames::{frame, sheep, FRAME_BYTES};
+use tilesim::diagnostics::{pasture as pasture_run, throughput};
 use tilesim::diagnostics::world::World;
 use simulation::Simulation;
-use tilesim::grass;
+use tilesim::pasture;
 use tilesim::transient_data::publish;
 use utilities::memory::mebibytes;
 use utilities::table::report::Report;
@@ -69,10 +71,62 @@ fn throughput(arguments: &[String]) {
     publish(report);
 }
 
-/// Writes grass on one superchunk as raw RGB frames on standard output.
+/// Ticks grass and sheep flat out and publishes the flock, what the
+/// sheep did, each rule's time and the memory held.
+fn pasture(arguments: &[String]) {
+    let (ticks, thousandths, flock, superchunks, threads) =
+        (argument(arguments, 0, 2000), argument(arguments, 1, 333), argument(arguments, 2, 4000), argument(arguments, 3, 16) as u32, argument(arguments, 4, 1));
+    let run = pasture_run::run(ticks, thousandths, flock, superchunks, threads);
+    let mut report = Report::new("pasture", &format!("diagnostics pasture {ticks} {thousandths} {flock} {superchunks} {threads}"));
+    let sheep = run.done.sheep;
+    report.note(format!(
+        "{ticks} ticks over {superchunks} superchunk(s) on {threads} thread(s); sheep {} -> {}; grass {} -> {}; {} entities lost past the superchunks used",
+        run.sheep.0, run.sheep.1, run.grass.0, run.grass.1, run.entities.lost
+    ));
+    let mut flock = Table::new(&["wakes", "wakes a tick", "eaten", "born", "starved", "entities put", "entities removed"]);
+    flock.row(&[
+        sheep.woken.to_string(),
+        format!("{:.1}", sheep.woken as f64 / ticks as f64),
+        sheep.eaten.to_string(),
+        sheep.births.to_string(),
+        sheep.deaths.to_string(),
+        run.entities.puts.to_string(),
+        run.entities.removes.to_string(),
+    ]);
+    report.add("sheep", flock);
+    let total = run.computing + run.applying;
+    let mut phases = Table::new(&["time", "total ms", "share of the tick", "ns each"]).left_aligned(&["time"]);
+    let per = |time: Duration, count: usize| if count == 0 { "-".to_string() } else { format!("{:.1}", time.as_nanos() as f64 / count as f64) };
+    phases.row(&["computing".to_string(), format!("{:.1}", run.computing.as_secs_f64() * 1e3), share(run.computing, total), "-".to_string()]);
+    phases.row(&["  grass rule, a sample (all threads)".to_string(), format!("{:.1}", run.grass_time.as_secs_f64() * 1e3), "-".to_string(), per(run.grass_time, run.done.grass.sampled)]);
+    phases.row(&["  sheep rule, a wake (all threads)".to_string(), format!("{:.1}", run.sheep_time.as_secs_f64() * 1e3), "-".to_string(), per(run.sheep_time, sheep.woken)]);
+    phases.row(&["applying, a write or change".to_string(), format!("{:.1}", run.applying.as_secs_f64() * 1e3), share(run.applying, total), per(run.applying, run.writes + run.entities.puts + run.entities.removes)]);
+    phases.row(&["the tick".to_string(), format!("{:.1}", total.as_secs_f64() * 1e3), share(total, total), "-".to_string()]);
+    report.add("time", phases);
+    let mut rates = Table::new(&["ticks a second", "wakes a second"]);
+    rates.row(&[format!("{:.0}", ticks as f64 / total.as_secs_f64()), format!("{:.2} million", sheep.woken as f64 / total.as_secs_f64() / 1e6)]);
+    report.add("rates", rates);
+    let unknown = || "unknown".to_string();
+    let mut memory = Table::new(&["memory", "amount"]).left_aligned(&["memory"]);
+    memory.row(&["process, peak".to_string(), run.memory.peak().map_or_else(unknown, mebibytes)]);
+    memory.row(&["process, average over the ticks".to_string(), run.memory.average().map_or_else(unknown, mebibytes)]);
+    memory.row(&["entities".to_string(), run.held.entities.to_string()]);
+    memory.row(&["attributes in use, and garbage".to_string(), format!("{}, {}", run.held.attributes, run.held.garbage)]);
+    memory.row(&["wakes filed".to_string(), run.held.wakes.to_string()]);
+    report.add("held", memory);
+    publish(report);
+}
+
+/// `part` as a percentage of `whole`.
+fn share(part: Duration, whole: Duration) -> String {
+    format!("{:.1}%", 100.0 * part.as_secs_f64() / whole.as_secs_f64())
+}
+
+/// Writes grass and sheep on one superchunk as raw RGB frames on
+/// standard output.
 fn video(arguments: &[String]) {
-    let (ticks, grass_cells, every) = (argument(arguments, 0, 120_000), argument(arguments, 1, 2000), argument(arguments, 2, 256));
-    let mut world = World::grass_on_dirt(1, grass_cells);
+    let (ticks, grass_cells, every, flock) = (argument(arguments, 0, 120_000), argument(arguments, 1, 2000), argument(arguments, 2, 256), argument(arguments, 3, 0));
+    let mut world = World::with_sheep(1, grass_cells, flock);
     let superchunk = world.superchunks[0];
     let mut pixels = vec![0u8; FRAME_BYTES];
     let mut out = std::io::BufWriter::new(std::io::stdout().lock());
@@ -80,12 +134,13 @@ fn video(arguments: &[String]) {
     for tick in 0..=ticks {
         if tick % every == 0 {
             frame(&world.arena, superchunk, &mut pixels);
+            sheep(&world.entities, superchunk, &mut pixels);
             out.write_all(&pixels).expect("standard output");
             if tick % (every * 50) == 0 {
-                eprintln!("tick {tick:>7}: grass {}", world.grass());
+                eprintln!("tick {tick:>7}: grass {}, sheep {}", world.grass(), world.sheep());
             }
         }
-        grass::tick(&mut simulation, &mut world.arena, tick as u64);
+        pasture::tick(&mut simulation, &mut world.arena, &mut world.entities, tick as u64);
     }
 }
 
@@ -94,7 +149,10 @@ fn main() {
     let arguments: Vec<String> = std::env::args().skip(1).collect();
     match arguments.first().map(String::as_str) {
         Some("throughput") => throughput(&arguments[1..]),
+        Some("pasture") => pasture(&arguments[1..]),
         Some("video") => video(&arguments[1..]),
-        _ => eprintln!("diagnostics throughput [ticks] [grass, thousandths] [superchunks] [threads]\ndiagnostics video [ticks] [grass cells] [ticks a frame]"),
+        _ => eprintln!(
+            "diagnostics throughput [ticks] [grass, thousandths] [superchunks] [threads]\ndiagnostics pasture [ticks] [grass, thousandths] [sheep a superchunk] [superchunks] [threads]\ndiagnostics video [ticks] [grass cells] [ticks a frame] [sheep]"
+        ),
     }
 }
