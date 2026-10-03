@@ -10,14 +10,14 @@
 //! (`docs/tilesim.md`, "Sampling"): each set cell is then chosen with
 //! the probability asked, and only the chosen ones are found. The
 //! counts find them: a superchunk bitplane with no hot cell set is
-//! passed over whole, a chunk by its count, a block of 16 words by its
-//! count, a word by its bits' count, and only the word holding a chosen
+//! passed over whole, a chunk by its count, a count tile of 16 words by
+//! its count, a word by its bits' count, and only the word holding a chosen
 //! cell is searched. So a sample costs the same few counts however far
 //! from the last it is: the rarer the samples, the less of a bitmap is
 //! read at all.
 
 use bitmap::BITS_PER_WORD;
-use bitplane_manager::{BitmapArena, LayerView, BLOCK_WORDS};
+use bitplane_manager::{BitmapArena, LayerView, COUNT_TILE_WORDS};
 use coordinates::{CellIndex, CHUNKS_IN_SUPERCHUNK};
 use chunk_storage::LayerType;
 use utilities::rng::Rng;
@@ -68,19 +68,19 @@ pub fn sample_layer(superchunk: u64, layer: LayerView, probability: f64, random:
             next -= count;
             continue;
         }
-        let (cells, blocks) = (layer.cells(chunk), layer.block_counts(chunk));
-        // Set cells in the words before `word`, and in those before its block.
-        let (mut word, mut before, mut before_block) = (0, 0u64, 0u64);
+        let (cells, tile_counts) = (layer.cells(chunk), layer.tile_counts(chunk));
+        // Set cells in the words before `word`, and in those before its count tile.
+        let (mut word, mut before, mut before_tile) = (0, 0u64, 0u64);
         while next < count {
-            // The blocks before the chosen cell's passed over whole, by their counts...
+            // The count tiles before the chosen cell's passed over whole, by their counts...
             loop {
-                let after_block = before_block + blocks[word / BLOCK_WORDS] as u64;
-                if next < after_block {
+                let after_tile = before_tile + tile_counts[word / COUNT_TILE_WORDS] as u64;
+                if next < after_tile {
                     break;
                 }
-                (before_block, before, word) = (after_block, after_block, (word / BLOCK_WORDS + 1) * BLOCK_WORDS);
+                (before_tile, before, word) = (after_tile, after_tile, (word / COUNT_TILE_WORDS + 1) * COUNT_TILE_WORDS);
             }
-            // ...then the words before it in its block, by their bits'.
+            // ...then the words before it in its count tile, by their bits'.
             loop {
                 let ones = cells[word].count_ones() as u64;
                 if before + ones > next {

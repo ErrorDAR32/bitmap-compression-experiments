@@ -1,6 +1,6 @@
 //! Chunks as stored: coordinates and their conversions, a superchunk's
 //! heights, the layer codec, superchunk images, the writeback ring and
-//! the pool it feeds.
+//! the cold pool it feeds.
 //!
 //! `cargo test`
 
@@ -152,18 +152,18 @@ fn the_ring_frees_from_its_tail_and_wraps() {
     assert!(ring.push(chunk(b, 0), LayerType(9), &[99; 37]), "an empty ring starts over");
 }
 
-/// Written back, a bitmap is in the ring and not yet in the pool; flushed,
+/// Written back, a bitmap is in the ring and not yet in the cold pool; flushed,
 /// its superchunk's image holds it, heights kept, and the ring is empty.
 /// A layer written back empty is removed.
 #[test]
-fn flushing_writes_the_ring_into_the_pool() {
+fn flushing_writes_the_ring_into_the_cold_pool() {
     let (mut codec, mut storage, mut flushed) = (LayerCodec::new(), ChunkStorage::new(1 << 12), Vec::new());
     storage.insert(MIDDLE, SuperchunkImage::new(&HeightMap::filled(4)));
     let chunk = ChunkPosition::of(MIDDLE, ChunkPlace::new(2, 1));
     storage.write_back(chunk, LayerType(1), codec.encode(&one_cell(CELL)), &mut flushed);
     storage.write_back(chunk, LayerType(2), codec.encode(&drawn()), &mut flushed);
     storage.write_back(chunk, LayerType(1), codec.encode(&drawn()), &mut flushed);
-    assert!(flushed.is_empty() && storage.layer(chunk, LayerType(1)).is_none(), "in the ring, not the pool");
+    assert!(flushed.is_empty() && storage.layer(chunk, LayerType(1)).is_none(), "in the ring, not the cold pool");
     assert!(storage.flush(MIDDLE) && !storage.flush(MIDDLE));
     assert!(storage.nothing_to_flush());
     assert_eq!(decoded(&mut codec, storage.layer(chunk, LayerType(1)).expect("flushed")), drawn(), "the later write");
@@ -177,7 +177,7 @@ fn flushing_writes_the_ring_into_the_pool() {
 }
 
 /// A full ring flushes the superchunk at its tail to make room, and says
-/// so; a superchunk the pool did not hold is made flat. An entry too big
+/// so; a superchunk the cold pool did not hold is made flat. An entry too big
 /// for an empty ring grows it.
 #[test]
 fn a_full_ring_flushes_its_tail() {

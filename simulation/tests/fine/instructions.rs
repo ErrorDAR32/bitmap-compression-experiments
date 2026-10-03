@@ -248,10 +248,9 @@ fn a_step_to_a_cell_goes_round_what_is_in_the_way() {
     assert_eq!(steps, 4);
 }
 
-/// A cell is sought further and further off, over blocks of cells twice
-/// the side each time: the level it is found at is the first whose
-/// blocks reach it, the step is towards it, and with none in reach
-/// there is no step.
+/// A cell is sought further and further off, over tiles twice the side
+/// each time: the scale it is found at is the first whose tiles reach
+/// it, the step is towards it, and with none in reach there is no step.
 #[test]
 fn a_cell_is_sought_further_and_further_off() {
     let (mut arena, mut entities) = world(2);
@@ -259,18 +258,18 @@ fn a_cell_is_sought_further_and_further_off() {
     entities.queue_put(walker(1, from, 0), &[]);
     entities.apply();
     let mut simulation = Simulation::new(1);
-    // How far off the one cell set is, across and down, and the level its block is first seen at.
+    // How far off the one cell set is, across and down, and the scale its tile is first seen at.
     let cases = [(0, 0, None), (5, -3, Some(0)), (-12, 4, Some(1)), (20, 20, Some(2)), (3, -50, Some(3)), (-100, 90, Some(4)), (200, 10, Some(5)), (-40, 400, Some(6)), (-300, -450, Some(6))];
-    for (seed, (across, down, level)) in cases.into_iter().enumerate() {
+    for (seed, (across, down, scale)) in cases.into_iter().enumerate() {
         let goal = from.offset(across, down).expect("in the world");
-        if level.is_some() {
+        if scale.is_some() {
             arena.queue(STONE, Write::cell(goal, WriteOp::Set));
             arena.apply();
         }
         simulation.tick(&mut arena, &mut entities, seed as u64, |turn: &mut Turn, _: &mut Vec<CellIndex>| {
             for entity in turn.woken() {
                 let found = turn.seek(from, STONE);
-                assert_eq!(found.map(|found| found.level), level, "{across} across, {down} down");
+                assert_eq!(found.map(|found| found.scale), scale, "{across} across, {down} down");
                 if let Some(found) = found {
                     let (to, at, goal) = (found.to.cartesian(), from.cartesian(), goal.cartesian());
                     assert_eq!(to.x.abs_diff(goal.x).max(to.y.abs_diff(goal.y)) + 1, at.x.abs_diff(goal.x).max(at.y.abs_diff(goal.y)), "a step nearer");
@@ -279,7 +278,7 @@ fn a_cell_is_sought_further_and_further_off() {
             }
             0
         });
-        if level.is_some() {
+        if scale.is_some() {
             arena.queue(STONE, Write::cell(goal, WriteOp::Unset));
             arena.apply();
         }

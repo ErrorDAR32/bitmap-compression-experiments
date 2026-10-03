@@ -157,7 +157,8 @@ its words written sequentially as laid out in memory ("Saves", below).
    was decoded is dirty; writing back encodes it into the ring, no words
    if no cell is left set. A dirty bucket must be written back before
    it is evicted. An allocation with no bucket hot or waiting in the
-   ring leaves the directory, its block kept for the next one needed.
+   ring leaves the directory, its block back in the block pool for the
+   next one needed.
 6. Every bucket counts its set cells, kept in step with every change,
    and every allocation the set cells of its hot buckets together (a
    `u32`, up to 2^20): the weights sampling picks by. A bitmap with any
@@ -332,7 +333,7 @@ geometric law -- `floor(ln(u) / ln(1 - p))`, `u` uniform in `(0, 1]` --
 which chooses each set cell with probability `p`, independently. The
 counts then find each chosen rank without a linear scan: a superchunk
 bitplane is passed over whole by its count, a chunk by its count, a
-block of 16 words -- 32x32 cells -- by its count, a word by its bits'
+count tile of 16 words -- 32x32 cells -- by its count, a word by its bits'
 count, and only the word holding a chosen cell is searched. A chunk is so sampled in proportion to its set cells against
 the rest of its superchunk.
 
@@ -702,8 +703,8 @@ does what it did.
 
 A hungry sheep with no grass in the 16x16 cells about it used to
 wander. Now the search widens (`Turn::seek`): the same 16x16
-search over blocks of cells, to 64 cells a side -- 1,024 across, the
-reach of any entity -- and it steps towards the nearest block with
+search over tiles of cells, to 64 cells a side -- 1,024 across, the
+reach of any entity -- and it steps towards the nearest tile with
 grass in it. It still takes one step a wake and keeps no route; a sheep
 walks 170 to 220 steps before it starves, so the far end of its reach
 it sees but never comes to.
@@ -764,16 +765,17 @@ too, for one place to go. An entity's turn reads the area
 grass the goals, the bitplanes held what may be walked on -- but for
 the cells other entities stand on, which are in its way.
 
-### Sampling rarely, and blocks' counts
+### Sampling rarely, and count tiles
 
 Slowing grass a hundredfold made each sample dear: with a chosen cell
 every 33,000 set cells and not every 330, sampling counted the bits of
 hundreds of words to reach each one -- 10,000 instructions a sample
 against 300 -- and so read most of every bitmap every tick, for a
-handful of cells. The arena since keeps a count for every block of 64
-words of a bitmap, 16 a bitmap, 32 bytes beside its 8 KiB, in step with
-every change; sampling passes over blocks by them, and counts the bits
-of one block's words at most.
+handful of cells. The arena since keeps a count for every count tile
+of 64 words of a bitmap, 16 a bitmap, 32 bytes beside its 8 KiB, in
+step with every change; sampling passes over count tiles by them, and
+counts the bits of one count tile's words at most (now 16 words: see
+`performance.md`).
 
 Measured (`diagnostics throughput`, grass at 0.003%, the same samples
 before and after), sampling alone, one thread, by the processor's

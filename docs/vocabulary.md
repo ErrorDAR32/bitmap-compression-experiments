@@ -40,7 +40,8 @@ what they always do and are not listed.
 | **bitplane** | one layer type over the whole world: every chunk's layer of that type | layer | |
 | **bitmap** | 256x256 bits in Morton order, a word a 8x8 tile (`bitmap::Bitmap`, `CellWords`) | layer, tile | |
 | **word** | 64 bits of a bitmap: an 8x8 tile of cells in Morton order | tile, window | |
-| **tile** | an aligned square of cells whose side is a power of two. In a bitmap, an 8x8 tile is one word; Tessera's tiles are its tree's squares, by **level**; the sampler counts the cells of 32x32 tiles; the far search looks over tiles by **scale** | window, word, level, scale | block, square |
+| **word tile** | the 8x8 tile of cells one word holds; a word tile's index in its chunk is its word's index in the bitmap | word, window | |
+| **tile** | an aligned square of cells whose side is a power of two. In a bitmap, an 8x8 tile is one word, a **word tile**; Tessera's tiles are its tree's squares, by **level**; the sampler counts the cells of 32x32 tiles; the far search looks over tiles by **scale** | window, word, level, scale | block, square |
 | **scale** | a tile's side as a power of two, 0 one cell: the far search's tiles | tile | level (Tessera's, the other way round) |
 | **window** | up to 8x8 cells at any cell, read out of the up to four words they overlap into one `u64`, row by row: bit `8y + x`. What rules read cells by (`Reader::window`) | around, area, tile | tile |
 | **around** | the 3x3 cells about a cell, nine bits, row by row: bit `3y + x`, the cell itself bit 4 (`Around`) | window, area | neighbourhood |
@@ -86,7 +87,7 @@ what they always do and are not listed.
 | **speed of light** | 1,024 cells a tick: nothing reaches past the superchunks next to its own; an entity is at most 256x256 cells | outbox, reach | |
 | **reach** | how far an entity's rule reads and acts: up to the speed of light | speed of light | |
 | **outbox** | a superchunk's queues of writes and instructions, a slot each for itself and its eight neighbours | write, instruction, slot | |
-| **slot** | one place in a fixed array kept for a purpose: an outbox's, a neighbour each; the wheel's, a tick each | outbox, wheel | |
+| **slot** | one place in a fixed array kept for a purpose: an outbox's, a neighbour each; the wheel's, a tick each; a lookup cache's, by a hash | outbox, wheel, lookup | place |
 | **write** | a change to cells, queued in the first phase and applied in the second: an operation on a shape, at a cell (`Write`) | outbox, apply | command |
 | **apply** | carry out a write or an instruction, in the second phase | write, instruction | carry out, execute |
 | **missed** | a write landing where no layer is hot: counted, and lost | write, lost | |

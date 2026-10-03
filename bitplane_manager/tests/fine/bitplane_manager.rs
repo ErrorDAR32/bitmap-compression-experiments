@@ -5,7 +5,7 @@
 //! `cargo test`
 
 use bitmap::{Bitmap, CellWords, WORDS};
-use bitplane_manager::{WritesApplied, BitmapArena, BucketKey, NotHot, Reader, Shape, Window, Write, WriteOp, BLOCKS_IN_CHUNK, BLOCK_WORDS};
+use bitplane_manager::{WritesApplied, BitmapArena, BucketKey, NotHot, Reader, Shape, Window, Write, WriteOp, COUNT_TILES_IN_CHUNK, COUNT_TILE_WORDS};
 use chunk_storage::mock::{grass_on_dirt, DIRT, GRASS};
 use chunk_storage::{ChunkStorage, HeightMap, LayerChange, LayerCodec, LayerType, SuperchunkImage};
 use coordinates::{CartesianCell, CellIndex, CellPlace, ChunkPlace, ChunkPosition, SuperchunkPosition, SUPERCHUNK_SIDE, SUPERCHUNK_SIDE_CELLS, WORLD_SIDE_SUPERCHUNKS};
@@ -376,11 +376,11 @@ fn windows_read_at_once_are_the_cells_read_one_by_one() {
     }
 }
 
-/// Every block of a bitmap counts its set cells, as decoded and through
+/// Every count tile of a bitmap counts its set cells, as decoded and through
 /// every write after -- cells, rectangles and discs, set, cleared and
 /// flipped: what sampling passes over a bitmap by.
 #[test]
-fn every_block_counts_its_cells() {
+fn every_count_tile_counts_its_cells() {
     let mut codec = LayerCodec::new();
     let mut arena = BitmapArena::new();
     let mut storage = ChunkStorage::new(1 << 12);
@@ -393,12 +393,12 @@ fn every_block_counts_its_cells() {
         for layer_type in [DIRT, GRASS] {
             let layer = superchunk.layer(layer_type).expect("hot");
             for chunk in 0..16 {
-                let (cells, blocks) = (layer.cells(chunk), layer.block_counts(chunk));
-                for block in 0..BLOCKS_IN_CHUNK {
-                    let ones: u32 = cells[block * BLOCK_WORDS..][..BLOCK_WORDS].iter().map(|word| word.count_ones()).sum();
-                    assert_eq!(blocks[block] as u32, ones, "{layer_type:?}, chunk {chunk}, block {block}");
+                let (cells, tile_counts) = (layer.cells(chunk), layer.tile_counts(chunk));
+                for tile in 0..COUNT_TILES_IN_CHUNK {
+                    let ones: u32 = cells[tile * COUNT_TILE_WORDS..][..COUNT_TILE_WORDS].iter().map(|word| word.count_ones()).sum();
+                    assert_eq!(tile_counts[tile] as u32, ones, "{layer_type:?}, chunk {chunk}, count tile {tile}");
                 }
-                assert_eq!(blocks.iter().map(|&count| count as u32).sum::<u32>(), layer.count(chunk));
+                assert_eq!(tile_counts.iter().map(|&count| count as u32).sum::<u32>(), layer.count(chunk));
             }
         }
     };

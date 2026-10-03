@@ -224,7 +224,7 @@ pub fn rule(turn: &mut Turn) -> SheepTickMetrics {
             match turn.seek(at, GRASS) {
                 Some(found) => {
                     done.paths += 1;
-                    done.far += (found.level > 0) as usize;
+                    done.far += (found.scale > 0) as usize;
                     Some(around::bit_of(at, found.to))
                 }
                 None => around::pick(turn.random(), steppable),

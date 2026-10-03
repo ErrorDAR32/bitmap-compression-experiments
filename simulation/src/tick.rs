@@ -35,7 +35,7 @@ use pathfinding::{a_star, step_towards, Cell, Rows, Walls};
 use terrain::{WALL_EAST, WALL_SOUTH};
 use coordinates::ChunkPosition;
 use crate::sampling::sample_layer;
-use bitplane_manager::{count_missed, COARSEST_BLOCKS_IN_CHUNK, WritesApplied, BitmapArena, NotHot, Reader, Shape, Superchunk, Window, Write, WriteQueues};
+use bitplane_manager::{count_missed, COARSEST_TILES_IN_CHUNK, WritesApplied, BitmapArena, NotHot, Reader, Shape, Superchunk, Window, Write, WriteQueues};
 use chunk_storage::LayerType;
 use coordinates::{CartesianCell, CellIndex, SuperchunkPosition, WORLD_SIDE_SUPERCHUNKS};
 use std::ops::AddAssign;
@@ -66,18 +66,18 @@ impl Area {
     }
 }
 
-/// The coarsest blocks [`Turn::seek`] looks over: `2^6` cells
-/// a side, [`AREA_SIDE`] of them 1,024 cells -- an entity's reach.
-pub const FARTHEST: u32 = bitplane_manager::COARSEST_BLOCK;
+/// The coarsest scale [`Turn::seek`] looks over: tiles `2^6` cells a
+/// side, [`AREA_SIDE`] of them 1,024 cells -- an entity's reach.
+pub const FARTHEST_SCALE: u32 = bitplane_manager::COARSEST_SCALE;
 
 /// A step found by [`Turn::seek`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SoughtStep {
     /// The cell to step to.
     pub to: CellIndex,
-    /// How far off it had to look: 0 in the area around, else the level
-    /// of the blocks, `2^level` cells a side.
-    pub level: u32,
+    /// How far off it had to look: 0 in the area around, else the scale
+    /// of the tiles it looked over, `2^scale` cells a side.
+    pub scale: u32,
 }
 
 // The area a turn reads is the area paths are found over, and the cells
@@ -281,27 +281,27 @@ impl<'a> Turn<'a> {
         at.offset(first.x as i32 - AREA_CENTRE as i32, first.y as i32 - AREA_CENTRE as i32)
     }
 
-    /// [`Turn::area`] from further off: the aligned blocks of
-    /// `2^level` cells a side around `centre`, one set if `layer_type`
-    /// holds at any of its cells. To [`FARTHEST`].
-    pub fn area_of_blocks(&self, layer_type: LayerType, centre: CellIndex, level: u32) -> Area {
+    /// [`Turn::area`] from further off: the tiles of `scale` around
+    /// `centre`, one set if `layer_type` holds at any of its cells. Up
+    /// to [`FARTHEST_SCALE`].
+    pub fn area_of_tiles(&self, layer_type: LayerType, centre: CellIndex, scale: u32) -> Area {
         let mut area = Area::default();
         let centre = centre.cartesian();
-        // The area's top left block, in blocks from the world's: before the world, where the centre is near its edge.
-        let (left, top) = ((centre.x >> level) as i64 - AREA_CENTRE as i64, (centre.y >> level) as i64 - AREA_CENTRE as i64);
-        let world = (1i64 << u32::BITS) >> level;
-        if level == FARTHEST {
-            // The chunks its blocks are in, each read at once.
-            let chunk = COARSEST_BLOCKS_IN_CHUNK.trailing_zeros() / 2;
+        // The area's top left tile, in tiles from the world's: before the world, where the centre is near its edge.
+        let (left, top) = ((centre.x >> scale) as i64 - AREA_CENTRE as i64, (centre.y >> scale) as i64 - AREA_CENTRE as i64);
+        let world = (1i64 << u32::BITS) >> scale;
+        if scale == FARTHEST_SCALE {
+            // The chunks its tiles are in, each read at once.
+            let chunk = COARSEST_TILES_IN_CHUNK.trailing_zeros() / 2;
             for (down, across) in ((top >> chunk)..=((top + AREA_SIDE as i64 - 1) >> chunk)).flat_map(|down| ((left >> chunk)..=((left + AREA_SIDE as i64 - 1) >> chunk)).map(move |across| (down, across))) {
                 if across < 0 || down < 0 || across << chunk >= world || down << chunk >= world {
                     continue;
                 }
-                let first = CartesianCell { x: (across << (chunk + level)) as u32, y: (down << (chunk + level)) as u32 };
-                let Some(holding) = self.reader.blocks_holding(layer_type, first.into()) else {
+                let first = CartesianCell { x: (across << (chunk + scale)) as u32, y: (down << (chunk + scale)) as u32 };
+                let Some(holding) = self.reader.tiles_holding(layer_type, first.into()) else {
                     continue;
                 };
-                // Where the chunk's blocks are in the area: up to three before it, across and down.
+                // Where the chunk's tiles are in the area: up to three before it, across and down.
                 let (x, y) = ((across << chunk) - left, (down << chunk) - top);
                 let side = 1i64 << chunk;
                 for row in (0..side).filter(|row| (0..AREA_SIDE as i64).contains(&(y + row))) {
@@ -309,9 +309,9 @@ impl<'a> Turn<'a> {
                 }
                 let mut left_to_place = holding;
                 while left_to_place != 0 {
-                    // A block's place in its chunk is Morton order: across in its even bits, down in its odd.
-                    let block = left_to_place.trailing_zeros() as i64;
-                    let (x, y) = (x + (block & 1 | block >> 1 & 2), y + (block >> 1 & 1 | block >> 2 & 2));
+                    // A tile's index in its chunk is a Morton index: across in its even bits, down in its odd.
+                    let tile = left_to_place.trailing_zeros() as i64;
+                    let (x, y) = (x + (tile & 1 | tile >> 1 & 2), y + (tile >> 1 & 1 | tile >> 2 & 2));
                     if (0..AREA_SIDE as i64).contains(&x) && (0..AREA_SIDE as i64).contains(&y) {
                         area.set[y as usize] |= 1 << x;
                     }
@@ -325,8 +325,8 @@ impl<'a> Turn<'a> {
             if across < 0 || down < 0 || across >= world || down >= world {
                 continue;
             }
-            let cell = CartesianCell { x: (across << level) as u32, y: (down << level) as u32 };
-            let holds = self.reader.any_in_block(layer_type, cell.into(), level);
+            let cell = CartesianCell { x: (across << scale) as u32, y: (down << scale) as u32 };
+            let holds = self.reader.any_in_tile(layer_type, cell.into(), scale);
             area.set[y] |= ((holds == Some(true)) as u16) << x;
             area.hot[y] |= (holds.is_some() as u16) << x;
         }
@@ -334,42 +334,42 @@ impl<'a> Turn<'a> {
     }
 
     /// The step from `at` towards the nearest cell `layer_type` holds
-    /// at: in the area around it, else over blocks of cells, as far as
+    /// at: in the area around it, else over tiles by scale, as far as
     /// an entity reaches. None if there is none in reach.
     pub fn seek(&mut self, at: CellIndex, layer_type: LayerType) -> Option<SoughtStep> {
         let near = self.area(layer_type, at);
         if let Some(to) = self.step_towards(at, &near.set, &near.hot) {
-            return Some(SoughtStep { to, level: 0 });
+            return Some(SoughtStep { to, scale: 0 });
         }
         let here = Cell { x: AREA_CENTRE as u8, y: AREA_CENTRE as u8 };
-        let mut blocks = self.area_of_blocks(layer_type, at, FARTHEST);
+        let mut tiles = self.area_of_tiles(layer_type, at, FARTHEST_SCALE);
         let no_walls = Walls::default();
-        let mut path = step_towards(&blocks.hot, &no_walls, &blocks.set, here, self.random.draw());
-        // In its own block alone, there is no block to step towards: a finer level sees where in it.
-        let own = blocks.set[AREA_CENTRE] >> AREA_CENTRE & 1 == 1;
-        // The nearest is at least this many cells off: a level's blocks reach under nine blocks.
+        let mut path = step_towards(&tiles.hot, &no_walls, &tiles.set, here, self.random.draw());
+        // In its own tile alone, there is no tile to step towards: a finer scale sees where in it.
+        let own = tiles.set[AREA_CENTRE] >> AREA_CENTRE & 1 == 1;
+        // The nearest is at least this many cells off: a scale's tiles reach under nine tiles.
         let least = match path {
             _ if own => 0,
-            Some(path) => (path.steps as u32 - 1) << FARTHEST,
+            Some(path) => (path.steps as u32 - 1) << FARTHEST_SCALE,
             None => return None,
         };
-        let mut level = 1;
-        while level < FARTHEST {
-            if 9 << level > least + 1 {
-                blocks = self.area_of_blocks(layer_type, at, level);
-                if let Some(nearer) = step_towards(&blocks.hot, &no_walls, &blocks.set, here, self.random.draw()) {
+        let mut scale = 1;
+        while scale < FARTHEST_SCALE {
+            if 9 << scale > least + 1 {
+                tiles = self.area_of_tiles(layer_type, at, scale);
+                if let Some(nearer) = step_towards(&tiles.hot, &no_walls, &tiles.set, here, self.random.draw()) {
                     path = Some(nearer);
                     break;
                 }
             }
-            level += 1;
+            scale += 1;
         }
         let path = path?;
-        // The cell beside it the way the block is: stepped to if it is in the world held.
+        // The cell beside it the way the tile is: stepped to if it is in the world hot.
         let to = at.offset(path.first.x as i32 - AREA_CENTRE as i32, path.first.y as i32 - AREA_CENTRE as i32)?;
         // From far off no wall is seen: a step one bars is not taken.
         let open = self.unwalled_around(at) >> crate::around::bit_of(at, to) & 1 == 1;
-        (open && self.reader.holds(layer_type, to).is_ok()).then_some(SoughtStep { to, level })
+        (open && self.reader.holds(layer_type, to).is_ok()).then_some(SoughtStep { to, scale })
     }
 
     /// The cell to step to from `at` to come, by the shortest way, to
@@ -405,8 +405,8 @@ impl<'a> Turn<'a> {
             self.outbox.slots[slot].push(layer_type, write);
             return;
         }
-        for superchunk in write.superchunks() {
-            let slot = self.slot_of(superchunk);
+        for superchunk_index in write.superchunk_indices() {
+            let slot = self.slot_of(superchunk_index);
             self.outbox.slots[slot].push(layer_type, write);
         }
     }

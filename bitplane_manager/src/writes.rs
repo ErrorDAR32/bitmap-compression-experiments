@@ -125,26 +125,26 @@ impl std::ops::AddAssign for WritesApplied {
 const REMEMBERED: usize = 16;
 
 /// Writes queued, a queue a layer type, sorted by type, each in the
-/// order queued. The last 16 types written to are found
-/// again without a search -- each in its place in a small cache, by a
-/// hash of the type -- since rules queue runs of writes to a few types,
-/// often by turns (grass, then dirt).
+/// order queued. The last 16 types written to are found again without a
+/// search -- each in its slot of a small cache, by a hash of the type --
+/// since rules queue runs of writes to a few types, often by turns
+/// (grass, then dirt).
 #[derive(Default)]
 pub struct WriteQueues {
     /// The queues, by type.
     queues: Vec<(LayerType, Vec<Write>)>,
-    /// Types written to, and their queue's place, each in its place.
+    /// Types written to, and their queue's index, each in its slot.
     remembered: [Option<(LayerType, usize)>; REMEMBERED],
 }
 
 impl WriteQueues {
     /// Queues `write` into `layer_type`'s queue.
     pub fn push(&mut self, layer_type: LayerType, write: Write) {
-        let place = (layer_type.0.wrapping_mul(0x9E37_79B9_7F4A_7C15) >> (u64::BITS - REMEMBERED.trailing_zeros())) as usize;
-        let queue = match self.remembered[place] {
-            Some((held, queue)) if held == layer_type => queue,
+        let slot = (layer_type.0.wrapping_mul(0x9E37_79B9_7F4A_7C15) >> (u64::BITS - REMEMBERED.trailing_zeros())) as usize;
+        let queue = match self.remembered[slot] {
+            Some((remembered, queue)) if remembered == layer_type => queue,
             _ => {
-                let queue = match self.queues.binary_search_by_key(&layer_type, |(held, _)| *held) {
+                let queue = match self.queues.binary_search_by_key(&layer_type, |(queued, _)| *queued) {
                     Ok(at) => at,
                     Err(at) => {
                         // The queues after it move up one: what is remembered of them is stale.
@@ -153,7 +153,7 @@ impl WriteQueues {
                         at
                     }
                 };
-                self.remembered[place] = Some((layer_type, queue));
+                self.remembered[slot] = Some((layer_type, queue));
                 queue
             }
         };
@@ -185,9 +185,9 @@ impl WriteQueues {
 const CHUNK_SIDE_U32: u32 = CHUNK_SIDE as u32;
 
 impl Write {
-    /// The Morton indices of the superchunks the write's cells lie in:
-    /// one, or for a shape across a border up to four.
-    pub fn superchunks(self) -> impl Iterator<Item = u64> {
+    /// The superchunk indices of the superchunks the write's cells lie
+    /// in: one, or for a shape across a border up to four.
+    pub fn superchunk_indices(self) -> impl Iterator<Item = u64> {
         let at = { self.at };
         let ([left, right], [top, bottom]) = match self.shape {
             Shape::Cell => ([at.cartesian().x; 2], [at.cartesian().y; 2]),
@@ -202,17 +202,17 @@ impl Write {
     }
 }
 
-/// Counts the cells of the part of `write` in the superchunk whose Morton
-/// index is `superchunk` -- which has no bitmap in use -- as missed.
-pub fn count_missed(superchunk: u64, write: Write, applied: &mut WritesApplied) {
-    apply_in(None, superchunk, LayerType(0), write, applied);
+/// Counts the cells of the part of `write` in the superchunk at
+/// `superchunk_index` -- which has no bitmap in use -- as missed.
+pub fn count_missed(superchunk_index: u64, write: Write, applied: &mut WritesApplied) {
+    apply_in(None, superchunk_index, LayerType(0), write, applied);
 }
 
 /// Applies the part of `write`, to `layer_type`'s bitplane, that lies in
-/// the superchunk whose Morton index is `superchunk` and whose layers
-/// are `layers` -- `None` if it has none in use: a cell straight from its
-/// Morton index, a shape chunk by chunk over its bounds there.
-pub(crate) fn apply_in(layers: Option<&mut [SuperchunkLayer]>, superchunk: u64, layer_type: LayerType, write: Write, applied: &mut WritesApplied) {
+/// the superchunk at `superchunk_index`, whose allocations are `layers`
+/// -- `None` if it has none in use: a cell straight from its cell index,
+/// a shape chunk by chunk over its bounds there.
+pub(crate) fn apply_in(layers: Option<&mut [SuperchunkLayer]>, superchunk_index: u64, layer_type: LayerType, write: Write, applied: &mut WritesApplied) {
     let layer = layers.and_then(|layers| {
         let at = layers.binary_search_by_key(&layer_type, |layer| layer.layer_type).ok()?;
         Some(&mut layers[at])
@@ -224,7 +224,7 @@ pub(crate) fn apply_in(layers: Option<&mut [SuperchunkLayer]>, superchunk: u64, 
     };
     let at = { write.at };
     if write.shape == Shape::Cell {
-        if at.superchunk_index() != superchunk {
+        if at.superchunk_index() != superchunk_index {
             return;
         }
         let chunk = at.chunk_in_superchunk();
@@ -241,7 +241,7 @@ pub(crate) fn apply_in(layers: Option<&mut [SuperchunkLayer]>, superchunk: u64, 
         return;
     };
     // The bounds' part inside this superchunk.
-    let position = SuperchunkPosition::from_morton_index(superchunk);
+    let position = SuperchunkPosition::from_morton_index(superchunk_index);
     let (first_x, first_y) = (position.x * SUPERCHUNK_SIDE_CELLS, position.y * SUPERCHUNK_SIDE_CELLS);
     let (left, top) = (left.max(first_x), top.max(first_y));
     let (right, bottom) = (right.min(first_x + (SUPERCHUNK_SIDE_CELLS - 1)), bottom.min(first_y + (SUPERCHUNK_SIDE_CELLS - 1)));
@@ -295,10 +295,10 @@ impl BitmapArena {
         for (layer_type, writes) in queued.iter() {
             applied.writes += writes.len();
             for &write in writes {
-                for superchunk in write.superchunks() {
-                    let entry = self.lookup.superchunk(&self.directory, superchunk).ok();
+                for superchunk_index in write.superchunk_indices() {
+                    let entry = self.lookup.superchunk(&self.directory, superchunk_index).ok();
                     let layers = entry.map(|entry| self.directory[entry].layers.as_mut_slice());
-                    apply_in(layers, superchunk, layer_type, write, &mut applied);
+                    apply_in(layers, superchunk_index, layer_type, write, &mut applied);
                 }
             }
         }

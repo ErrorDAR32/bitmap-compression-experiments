@@ -7,33 +7,40 @@ and change. The decisions behind it are in `../../docs/tilesim.md`,
 
 ## The arena
 
-Allocations the size of a superchunk, one a layer type over a
-superchunk: a block from the allocator holding a bucket -- a 256x256
-bitmap -- for each of its 16 chunks, in their Morton order, found by
-index with no search. A bucket never moves once allocated. Each
+Allocations, one a layer type over a superchunk: a block from the
+allocator's block pool holding a bucket -- a 256x256 bitmap -- for each
+of its 16 chunks, in their Morton order, found by index with no search.
+A bucket never moves once allocated. Each
 allocation keeps four 16-bit chunk sets packed in 8 bytes (hot, dirty,
 waiting in the ring, non-empty), each bucket's count of set cells (a
 `u16` less one -- a stored layer has 1 to 65,536 -- beside the
 non-empty bit, as a hot bucket may be empty), the set cells of each
-block of 16 words of each bucket (`BLOCK_WORDS`: 32x32 cells, 64 a
-bucket), and the set cells of its hot buckets together: the weights
-sampling picks by, and what it passes over a bitmap by.
+count tile of each bucket (`COUNT_TILE_WORDS`, 16 words: 32x32 cells,
+64 a bucket), and the set cells of its hot buckets together: the
+weights sampling picks by, and what it passes over a bitmap by.
 
-**The directory**: the superchunks in use, sorted by Morton index (kept
-beside each), each with its layers sorted by type. Lookups remember the
-last 16 superchunks and types found (`Lookup`, one a thread), so
-Morton-ordered work -- reading a few types by turns, across a border --
-rarely searches. Each superchunk owns its blocks and its outbox, so
+**The directory**: the superchunks in use, sorted by superchunk index
+(kept beside each), each with its allocations sorted by layer type.
+Lookups remember the last 16 superchunks and types found (`Lookup`, one
+a thread), so Morton-ordered work -- reading a few types by turns,
+across a border -- rarely searches. Each superchunk owns its blocks, so
 superchunks are changed apart.
 
 **Windows**: up to 8x8 cells at any cell read at once
 (`Reader::window`), as a `Window` -- two masks, row by row: the cells set,
-and the cells in hot bitmaps. A window overlaps one to four aligned
-tiles, a bitmap word each (`bitmap::tile`); only those it reaches are
-read. Its chunk's bucket is looked up once, the tiles beside and below
-stepped to on the tile's index in the chunk, and only a tile across the
-chunk's edge looked up again. So a cell's 3x3 neighbourhood is one
-lookup, a word or two, and a few shifts and masks.
+and the cells in hot bitmaps. A window overlaps one to four word
+tiles, 8x8 cells a bitmap word each (`bitmap::window`); only those it
+reaches are read. Its bucket is looked up once, the word tiles beside
+and below stepped to on the word tile's index in the chunk, and only
+one across the chunk's edge looked up again. So the 3x3 cells around a
+cell are one lookup, a word or two, and a few shifts and masks.
+
+**The far search**: whether a layer holds at any cell of a tile of a
+given scale -- `2^scale` cells a side, up to `COARSEST_SCALE` (6) --
+read off the count tiles' counts where they are 0, and off the words
+only where they are not (`Reader::any_in_tile`); and which of a chunk's
+16 tiles of the coarsest scale hold any, off the counts alone
+(`Reader::tiles_holding`).
 
 ## Making hot, writing back, evicting
 

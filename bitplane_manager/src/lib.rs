@@ -4,27 +4,25 @@
 //! cells are read and changed: chunk storage holds whole encoded layers
 //! only.
 //!
-//! The arena is made of allocations the size of a superchunk -- blocks
-//! of the allocator's pool (`../allocator`) -- each holding one layer
-//! type over one superchunk, a bucket for every one of its 16 chunks,
-//! in the chunks' Morton order ([`ChunkPlace::index`]). A chunk's bucket is found in its allocation by that
-//! index, with no search and no sorting, and a bucket never moves once
-//! allocated: making a bitmap hot or cold moves no other.
+//! The arena is made of allocations, each a block of the allocator's
+//! block pool (`../allocator`) holding one layer type over one
+//! superchunk: a bucket for each of its 16 chunks, in the chunks' Morton
+//! order ([`ChunkPlace::index`]). A chunk's bucket is found in its
+//! allocation by that index, with no search, and a bucket never moves:
+//! making a bitmap hot or cold moves no other.
 //!
 //! Which allocation holds which layer type over which superchunk is a
-//! small directory: the superchunks in use, sorted by Morton index
-//! ([`SuperchunkPosition::morton_index`], kept beside each), and for each
-//! its layers, sorted by type -- the one thing ever sorted, and it holds
-//! no bitmaps. The last 16 lookups are remembered, by superchunk and
-//! type, so runs of lookups in a few superchunks and types, as
-//! Morton-ordered work makes,
-//! search nothing. The allocations themselves lie wherever they were
-//! made; each is one large run of memory in Morton order.
+//! small directory: the superchunks in use, sorted by superchunk index,
+//! and for each its allocations, sorted by layer type -- the one thing
+//! ever sorted, and it holds no bitmaps. The last 16 lookups are
+//! remembered, so the runs of lookups in a few superchunks and types
+//! that Morton-ordered work makes search nothing. The allocations lie
+//! wherever they were made; each is one run of memory in Morton order.
 //!
 //! The arena grows an allocation at a time, as a layer type turns hot
 //! over a superchunk it had none of. An allocation none of whose chunks
-//! is hot or waiting in the ring (below) leaves the directory, its block
-//! released to the pool, which hands it out next.
+//! is hot or waiting in the ring (below) leaves the directory, and its
+//! block goes back to the block pool, which hands it out next.
 //!
 //! Cells are changed by writes, batched (`writes`): queued, then applied
 //! in order. Each superchunk ([`Superchunk`]) owns its blocks, so
@@ -90,8 +88,8 @@ fn contains(set: ChunkSet, index: usize) -> bool {
 }
 
 /// Puts the chunk at `index` in `set`, or takes it out.
-fn put(set: &mut ChunkSet, index: usize, held: bool) {
-    if held {
+fn put(set: &mut ChunkSet, index: usize, member: bool) {
+    if member {
         *set |= 1 << index;
     } else {
         *set &= !(1 << index);
@@ -107,24 +105,23 @@ fn members(set: ChunkSet) -> impl Iterator<Item = usize> {
 /// superchunk.
 const ALLOCATION_WORDS: usize = WORDS * CHUNKS_IN_SUPERCHUNK;
 
-/// Words in a block of a bitmap: a run of them a count is kept for, so
-/// a search by count passes over it whole. In Morton order it is a
-/// square of 32x32 cells: two lines of memory, so a cell is found in
-/// its block in a short walk.
-pub const BLOCK_WORDS: usize = 16;
-/// Blocks in a bitmap.
-pub const BLOCKS_IN_CHUNK: usize = WORDS / BLOCK_WORDS;
-/// Cells in a block.
-const BLOCK_CELLS: usize = BLOCK_WORDS * BITS_PER_WORD;
+/// Words in a count tile: the 32x32 cells whose set cells are counted,
+/// so sampling and the far search pass over an empty one whole. Two
+/// lines of memory, so a cell is found in its count tile in a short walk.
+pub const COUNT_TILE_WORDS: usize = 16;
+/// Count tiles in a bitmap.
+pub const COUNT_TILES_IN_CHUNK: usize = WORDS / COUNT_TILE_WORDS;
+/// Cells in a count tile.
+const COUNT_TILE_CELLS: usize = COUNT_TILE_WORDS * BITS_PER_WORD;
 
-/// The coarsest block [`Reader::any_in_block`] is asked of: `2^6` cells
-/// a side, the cells a count is kept of.
-pub const COARSEST_BLOCK: u32 = 6;
-/// Coarsest blocks in a chunk.
-pub const COARSEST_BLOCKS_IN_CHUNK: usize = 16;
-/// Counts kept to a coarsest block: one a counted block of it.
-const COUNTS_IN_COARSEST: usize = BLOCKS_IN_CHUNK / COARSEST_BLOCKS_IN_CHUNK;
-const _: () = assert!(BLOCK_CELLS * COUNTS_IN_COARSEST == 1 << (2 * COARSEST_BLOCK));
+/// The coarsest scale [`Reader::any_in_tile`] is asked of: tiles `2^6`
+/// cells a side, four count tiles each.
+pub const COARSEST_SCALE: u32 = 6;
+/// Tiles of the coarsest scale in a chunk.
+pub const COARSEST_TILES_IN_CHUNK: usize = 16;
+/// Count tiles in a tile of the coarsest scale.
+const COUNTS_IN_COARSEST: usize = COUNT_TILES_IN_CHUNK / COARSEST_TILES_IN_CHUNK;
+const _: () = assert!(COUNT_TILE_CELLS * COUNTS_IN_COARSEST == 1 << (2 * COARSEST_SCALE));
 
 /// A superchunk layer's four chunk sets, a bit a chunk each, packed
 /// together in 8 bytes.
@@ -144,11 +141,11 @@ struct ChunkFlags {
 
 const _: () = assert!(size_of::<ChunkFlags>() == 4 * size_of::<ChunkSet>(), "the four chunk sets packed together");
 
-/// One layer type over one superchunk: the block holding its buckets, a
-/// bitmap's words for each chunk one after another by Morton index --
-/// only the hot ones and the ones waiting in the ring mean anything --
-/// which chunks are hot, dirty and waiting, and the counts. It owns its
-/// block, so a superchunk's layers are changed apart from every other's.
+/// An allocation: one layer type over one superchunk. Its block holds a
+/// bucket a chunk, by Morton index -- only the hot ones and the ones
+/// waiting in the ring mean anything -- beside which chunks are hot,
+/// dirty and waiting, and the counts. It owns its block, so a
+/// superchunk's allocations are changed apart from every other's.
 struct SuperchunkLayer {
     /// The layer's type.
     layer_type: LayerType,
@@ -163,11 +160,11 @@ struct SuperchunkLayer {
     counts_less_one: [u16; CHUNKS_IN_SUPERCHUNK],
     /// How many cells the hot buckets have set, together.
     hot_count: u32,
-    /// How many cells each block of each bucket has set, by Morton
+    /// How many cells each count tile of each bucket has set, by Morton
     /// index: kept in step with every change, as the buckets' counts
     /// are, and meaningful where they are. What sampling passes over
     /// most of a bitmap by, 128 bytes a bucket beside its 8 KiB.
-    block_counts: [[u16; BLOCKS_IN_CHUNK]; CHUNKS_IN_SUPERCHUNK],
+    tile_counts: [[u16; COUNT_TILES_IN_CHUNK]; CHUNKS_IN_SUPERCHUNK],
 }
 
 impl SuperchunkLayer {
@@ -210,13 +207,13 @@ impl SuperchunkLayer {
         }
         *word ^= bit;
         put(&mut self.flags.dirty, chunk, true);
-        let (count, block) = (self.count(chunk), &mut self.block_counts[chunk][cell / BLOCK_CELLS]);
+        let (count, tile_count) = (self.count(chunk), &mut self.tile_counts[chunk][cell / COUNT_TILE_CELLS]);
         if set {
-            *block += 1;
+            *tile_count += 1;
             self.set_count(chunk, count + 1);
             self.hot_count += 1;
         } else {
-            *block -= 1;
+            *tile_count -= 1;
             self.set_count(chunk, count - 1);
             self.hot_count -= 1;
         }
@@ -224,10 +221,10 @@ impl SuperchunkLayer {
     }
 }
 
-/// The chunk at `index`, in Morton order, of the superchunk whose Morton
-/// index is `superchunk`.
-fn chunk_at(superchunk: u64, index: usize) -> ChunkPosition {
-    ChunkPosition::from_morton_index(superchunk << CHUNKS_IN_SUPERCHUNK.trailing_zeros() | index as u64)
+/// The chunk at `chunk`, in Morton order, of the superchunk at
+/// `superchunk_index`.
+fn chunk_at(superchunk_index: u64, chunk: usize) -> ChunkPosition {
+    ChunkPosition::from_morton_index(superchunk_index << CHUNKS_IN_SUPERCHUNK.trailing_zeros() | chunk as u64)
 }
 
 /// One hot bitmap, to read.
@@ -256,15 +253,15 @@ impl Bucket<'_> {
     }
 }
 
-/// One superchunk of the arena: its layers, hot or waiting in the ring,
-/// sorted by type. It owns them, blocks and all, so superchunks are
+/// One superchunk of the arena: its allocations, sorted by layer type.
+/// It owns them, blocks and all, so superchunks are
 /// changed apart -- on different threads, say: a simulation reads any
 /// through [`Superchunk::layer`] or a [`Reader`], and changes one only
 /// through [`Superchunk::apply`].
 pub struct Superchunk {
-    /// Its Morton index, kept so a search never computes it again.
-    morton: u64,
-    /// Its layers, sorted by type, one a type.
+    /// Its superchunk index, kept so a search never computes it again.
+    morton_index: u64,
+    /// Its allocations, sorted by layer type, one a type.
     layers: Vec<SuperchunkLayer>,
 }
 
@@ -274,14 +271,14 @@ impl Superchunk {
         self.layers.binary_search_by_key(&layer_type, |layer| layer.layer_type).ok()
     }
 
-    /// Its Morton index ([`SuperchunkPosition::morton_index`]).
+    /// Its superchunk index ([`SuperchunkPosition::morton_index`]).
     pub fn morton_index(&self) -> u64 {
-        self.morton
+        self.morton_index
     }
 
     /// Where it is in the world.
     pub fn position(&self) -> SuperchunkPosition {
-        SuperchunkPosition::from_morton_index(self.morton)
+        SuperchunkPosition::from_morton_index(self.morton_index)
     }
 
     /// Its layer of `layer_type`, to read, if it has one in use.
@@ -292,7 +289,7 @@ impl Superchunk {
     /// Applies the part of `write`, to `layer_type`'s bitplane, that
     /// lies in this superchunk: cells in bitmaps not hot counted missed.
     pub fn apply(&mut self, layer_type: LayerType, write: Write, applied: &mut WritesApplied) {
-        apply_in(Some(&mut self.layers), self.morton, layer_type, write, applied);
+        apply_in(Some(&mut self.layers), self.morton_index, layer_type, write, applied);
     }
 }
 
@@ -323,10 +320,11 @@ impl LayerView<'_> {
         self.0.cells(chunk)
     }
 
-    /// How many cells each block of the bucket of the chunk at `chunk`
-    /// has set: [`BLOCK_WORDS`] words a block, in Morton order.
-    pub fn block_counts(&self, chunk: usize) -> &[u16; BLOCKS_IN_CHUNK] {
-        &self.0.block_counts[chunk]
+    /// How many cells each count tile of the bucket of the chunk at
+    /// `chunk` has set: [`COUNT_TILE_WORDS`] words a count tile, in
+    /// Morton order.
+    pub fn tile_counts(&self, chunk: usize) -> &[u16; COUNT_TILES_IN_CHUNK] {
+        &self.0.tile_counts[chunk]
     }
 }
 
@@ -375,28 +373,28 @@ impl<'a> Reader<'a> {
         }
     }
 
-    /// Whether `layer_type` holds at any cell of the block `cell` is
-    /// in: the aligned `2^level` cells a side, up to [`COARSEST_BLOCK`]
-    /// -- a run of bits in Morton order, passed over by the count kept
-    /// of it where it has none set, so the world is looked at from far
-    /// off for little. `None` if its bitmap is not hot.
-    pub fn any_in_block(&self, layer_type: LayerType, cell: CellIndex, level: u32) -> Option<bool> {
-        self.lookup.any_in_block(self.superchunks, layer_type, cell, level)
+    /// Whether `layer_type` holds at any cell of the tile of `scale`
+    /// that `cell` is in, up to [`COARSEST_SCALE`]: a run of bits in
+    /// Morton order, passed over by its count tiles' counts where they
+    /// are 0, so the world is looked at from far off for little. `None`
+    /// if its bitmap is not hot.
+    pub fn any_in_tile(&self, layer_type: LayerType, cell: CellIndex, scale: u32) -> Option<bool> {
+        self.lookup.any_in_tile(self.superchunks, layer_type, cell, scale)
     }
 
-    /// Which of the [`COARSEST_BLOCKS_IN_CHUNK`] blocks of `cell`'s chunk --
-    /// `2^COARSEST_BLOCK` cells a side, in Morton order, a bit each --
-    /// `layer_type` holds at any cell of: read off the counts kept, no
-    /// cell looked at, and an empty chunk off its flag. `None` if its
-    /// bitmap is not hot.
-    pub fn blocks_holding(&self, layer_type: LayerType, cell: CellIndex) -> Option<u16> {
-        self.lookup.blocks_holding(self.superchunks, layer_type, cell)
+    /// Which of the [`COARSEST_TILES_IN_CHUNK`] tiles of the coarsest
+    /// scale in `cell`'s chunk -- in Morton order, a bit each --
+    /// `layer_type` holds at any cell of: read off the counts, no cell
+    /// looked at, and an empty chunk off its flag. `None` if its bitmap
+    /// is not hot.
+    pub fn tiles_holding(&self, layer_type: LayerType, cell: CellIndex) -> Option<u16> {
+        self.lookup.tiles_holding(self.superchunks, layer_type, cell)
     }
 
-    /// Where the superchunk whose Morton index is `superchunk` is among
-    /// the superchunks, if there.
-    pub fn superchunk(&self, superchunk: u64) -> Option<usize> {
-        self.lookup.superchunk(self.superchunks, superchunk).ok()
+    /// Where the superchunk at `superchunk_index` is among the
+    /// superchunks, if there.
+    pub fn superchunk(&self, superchunk_index: u64) -> Option<usize> {
+        self.lookup.superchunk(self.superchunks, superchunk_index).ok()
     }
 }
 
@@ -410,26 +408,27 @@ pub struct Window {
     pub hot: u64,
 }
 
-/// A tile's index in its chunk -- its first cell's place over 64 -- is
-/// Morton order over the chunk's 32x32 tiles: its x in the even bits...
-const TILE_X: usize = 0x155;
+/// A word tile's index in its chunk -- its word's index in the bitmap --
+/// is a Morton index over the chunk's 32x32 word tiles: its x in the
+/// even bits...
+const WORD_TILE_X: usize = 0x155;
 /// ...and its y in the odd ones.
-const TILE_Y: usize = 0x2aa;
+const WORD_TILE_Y: usize = 0x2aa;
 
-/// The tile at `tile` of `bucket`, row by row; nothing if not hot.
-fn tile_of(bucket: Option<&CellWords>, tile: usize) -> Window {
+/// The word tile at `tile` of `bucket`, row by row; nothing if not hot.
+fn word_tile(bucket: Option<&CellWords>, tile: usize) -> Window {
     match bucket {
         Some(cells) => Window { set: rows_from_morton(cells[tile]), hot: u64::MAX },
         None => Window::default(),
     }
 }
 
-/// Where a layer is: its superchunk's entry in the directory, and its
-/// place among the entry's layers.
-type Place = (usize, usize);
+/// Where an allocation is: its superchunk's entry in the directory, and
+/// its index among the entry's allocations.
+type LayerAt = (usize, usize);
 
-/// The key of a place in the cache with nothing remembered: no
-/// superchunk has this Morton index.
+/// The key of a slot of the cache with nothing remembered: no
+/// superchunk has this index.
 const NOTHING_REMEMBERED: (u64, u64) = (u64::MAX, u64::MAX);
 /// A superchunk's lack of a layer type, remembered.
 const NO_LAYER: u32 = u32::MAX;
@@ -440,16 +439,16 @@ const REMEMBERED: usize = 16;
 /// Lookups in the directory, remembering the last [`REMEMBERED`]: runs of
 /// lookups in a few superchunks and types -- a rule reading grass and
 /// dirt by turns, the cells across a border -- search nothing. Each
-/// superchunk and type has one place in the cache, by a hash of the two,
+/// superchunk and type has one slot of the cache, by a hash of the two,
 /// so finding it there is one comparison. One a thread: each remembers
 /// its own.
 struct Lookup {
-    /// The lookups remembered, each in its place: the superchunk and
-    /// the layer type looked up -- no superchunk's Morton index where
-    /// none is remembered...
+    /// The lookups remembered, each in its slot: the superchunk index
+    /// and the layer type looked up -- [`NOTHING_REMEMBERED`] where none
+    /// is...
     keys: [Cell<(u64, u64)>; REMEMBERED],
     /// ...and where each was found: its entry in the directory, and its
-    /// place among the entry's layers, or [`NO_LAYER`].
+    /// index among the entry's allocations, or [`NO_LAYER`].
     found: [Cell<(u32, u32)>; REMEMBERED],
     /// The last superchunk looked up alone, and its entry.
     superchunk: Cell<Option<(u64, usize)>>,
@@ -469,78 +468,79 @@ impl Lookup {
         self.superchunk.set(None);
     }
 
-    /// The place in the cache of `layer_type` over `superchunk`.
-    fn place(superchunk: u64, layer_type: LayerType) -> usize {
-        let hash = (superchunk ^ layer_type.0.rotate_left(32)).wrapping_mul(0x9E37_79B9_7F4A_7C15);
+    /// The slot of the cache of `layer_type` over the superchunk at
+    /// `superchunk_index`.
+    fn slot(superchunk_index: u64, layer_type: LayerType) -> usize {
+        let hash = (superchunk_index ^ layer_type.0.rotate_left(32)).wrapping_mul(0x9E37_79B9_7F4A_7C15);
         (hash >> (u64::BITS - REMEMBERED.trailing_zeros())) as usize
     }
 
-    /// Where the superchunk whose Morton index is `superchunk` is in
-    /// `directory`, or where it would go.
-    fn superchunk(&self, directory: &[Superchunk], superchunk: u64) -> Result<usize, usize> {
+    /// Where the superchunk at `superchunk_index` is in `directory`, or
+    /// where it would go.
+    fn superchunk(&self, directory: &[Superchunk], superchunk_index: u64) -> Result<usize, usize> {
         if let Some((last, entry)) = self.superchunk.get() {
-            if last == superchunk {
+            if last == superchunk_index {
                 return Ok(entry);
             }
         }
-        let found = directory.binary_search_by_key(&superchunk, |entry| entry.morton);
+        let found = directory.binary_search_by_key(&superchunk_index, |entry| entry.morton_index);
         if let Ok(entry) = found {
-            self.superchunk.set(Some((superchunk, entry)));
+            self.superchunk.set(Some((superchunk_index, entry)));
         }
         found
     }
 
-    /// Where the allocation for `layer_type` over the superchunk whose
-    /// Morton index is `superchunk` is in `directory`, if in use.
-    fn find(&self, directory: &[Superchunk], layer_type: LayerType, superchunk: u64) -> Option<Place> {
-        let place = Self::place(superchunk, layer_type);
-        if self.keys[place].get() == (superchunk, layer_type.0) {
-            let (entry, layer) = self.found[place].get();
+    /// Where the allocation for `layer_type` over the superchunk at
+    /// `superchunk_index` is in `directory`, if in use.
+    fn find(&self, directory: &[Superchunk], layer_type: LayerType, superchunk_index: u64) -> Option<LayerAt> {
+        let slot = Self::slot(superchunk_index, layer_type);
+        if self.keys[slot].get() == (superchunk_index, layer_type.0) {
+            let (entry, layer) = self.found[slot].get();
             return (layer != NO_LAYER).then_some((entry as usize, layer as usize));
         }
-        let entry = self.superchunk(directory, superchunk).ok()?;
+        let entry = self.superchunk(directory, superchunk_index).ok()?;
         let layer = directory[entry].layer_index(layer_type);
-        self.keys[place].set((superchunk, layer_type.0));
-        self.found[place].set((entry as u32, layer.map_or(NO_LAYER, |layer| layer as u32)));
+        self.keys[slot].set((superchunk_index, layer_type.0));
+        self.found[slot].set((entry as u32, layer.map_or(NO_LAYER, |layer| layer as u32)));
         layer.map(|layer| (entry, layer))
     }
 
     /// The window of `width` by `height` cells (each up to 8) whose top
     /// left cell is `origin`, of each of `types` in `directory`, row by
-    /// row: put together from the up to four aligned tiles -- a bitmap
-    /// word each -- it overlaps, only those it reaches read. Where the
-    /// window lies among the tiles is worked out once, for every type;
-    /// each type's chunk's bucket is looked up once, the tiles beside and
-    /// below stepped to on the tile's index in the chunk, and only one
-    /// across the chunk's edge looked up again.
+    /// row: put together from the up to four word tiles it overlaps,
+    /// only those it reaches read. Where the window lies among them is
+    /// worked out once, for every type; each type's bucket is looked up
+    /// once, the word tiles beside and below stepped to on the word
+    /// tile's index in the chunk, and only one across the chunk's edge
+    /// looked up again.
     fn windows<const N: usize>(&self, directory: &[Superchunk], types: [LayerType; N], origin: CellIndex, width: u32, height: u32) -> [Window; N] {
-        let place = origin.0 & (BITS_PER_WORD as u64 - 1);
-        // The window's top left in its tile: the place's even bits, and its odd ones.
-        let across = (place & 1 | place >> 1 & 2 | place >> 2 & 4) as u32;
-        let down = (place >> 1 & 1 | place >> 2 & 2 | place >> 3 & 4) as u32;
-        let first = CellIndex(origin.0 - place);
+        let in_word = origin.0 & (BITS_PER_WORD as u64 - 1);
+        // The window's top left in its word tile: the even bits, and the odd ones.
+        let across = (in_word & 1 | in_word >> 1 & 2 | in_word >> 2 & 4) as u32;
+        let down = (in_word >> 1 & 1 | in_word >> 2 & 2 | in_word >> 3 & 4) as u32;
+        let first = CellIndex(origin.0 - in_word);
         let tile = first.place_in_chunk() / BITS_PER_WORD;
-        let (x, y) = (tile & TILE_X, tile & TILE_Y);
-        // The tile beside and below, in the chunk: a carry through the other coordinate's bits.
-        let (beside, below) = (((x | TILE_Y) + 1) & TILE_X, ((y | TILE_X) + 2) & TILE_Y);
+        let (x, y) = (tile & WORD_TILE_X, tile & WORD_TILE_Y);
+        // The word tiles beside and below, in the chunk: a carry through the other coordinate's bits.
+        let (beside, below) = (((x | WORD_TILE_Y) + 1) & WORD_TILE_X, ((y | WORD_TILE_X) + 2) & WORD_TILE_Y);
         let (wide, tall) = (across + width > WORD_TILE_SIDE, down + height > WORD_TILE_SIDE);
         let side = WORD_TILE_SIDE as i32;
         let kept = left_columns(width) & top_rows(height);
         types.map(|layer_type| {
             let bucket = self.bucket(directory, layer_type, first);
-            let top_left = tile_of(bucket, tile);
+            let top_left = word_tile(bucket, tile);
             let (mut top_right, mut bottom_left, mut bottom_right) = (Window::default(), Window::default(), Window::default());
             if wide {
-                top_right = if x != TILE_X { tile_of(bucket, beside | y) } else { self.tile_at(directory, layer_type, first.offset(side, 0)) };
+                top_right = if x != WORD_TILE_X { word_tile(bucket, beside | y) } else { self.word_tile_at(directory, layer_type, first.offset(side, 0)) };
             }
             if tall {
-                bottom_left = if y != TILE_Y { tile_of(bucket, x | below) } else { self.tile_at(directory, layer_type, first.offset(0, side)) };
+                bottom_left = if y != WORD_TILE_Y { word_tile(bucket, x | below) } else { self.word_tile_at(directory, layer_type, first.offset(0, side)) };
             }
             if wide && tall {
-                bottom_right = if x != TILE_X && y != TILE_Y {
-                    tile_of(bucket, beside | below)
+                bottom_right = if x != WORD_TILE_X && y != WORD_TILE_Y {
+                    word_tile(bucket, beside | below)
                 } else {
-                    self.tile_at(directory, layer_type, first.offset(side, side))
+                    self.word_tile_at(directory, layer_type, first.offset(side, side))
                 };
             }
             Window {
@@ -559,21 +559,20 @@ impl Lookup {
     }
 
     /// Whether `layer_type` holds, in `directory`, at any cell of the
-    /// aligned block of `2^level` cells a side `cell` is in; `None` if
-    /// its bitmap is not hot.
-    fn any_in_block(&self, directory: &[Superchunk], layer_type: LayerType, cell: CellIndex, level: u32) -> Option<bool> {
-        debug_assert!(level <= COARSEST_BLOCK, "a block of more cells than a count is kept of");
+    /// tile of `scale` that `cell` is in; `None` if its bitmap is not hot.
+    fn any_in_tile(&self, directory: &[Superchunk], layer_type: LayerType, cell: CellIndex, scale: u32) -> Option<bool> {
+        debug_assert!(scale <= COARSEST_SCALE, "a tile coarser than the coarsest scale");
         let chunk = cell.chunk_in_superchunk();
         let (entry, layer) = self.find(directory, layer_type, cell.superchunk_index())?;
         let layer = &directory[entry].layers[layer];
         if !contains(layer.flags.hot, chunk) {
             return None;
         }
-        // The block's cells are a run of this many bits, in Morton order.
-        let run = 1usize << (2 * level);
+        // The tile's cells are a run of this many bits, in Morton order.
+        let run = 1usize << (2 * scale);
         let first = cell.place_in_chunk() & !(run - 1);
-        // The counts the run lies in: one, or those it is made of.
-        let counted = &layer.block_counts[chunk][first / BLOCK_CELLS..][..run.div_ceil(BLOCK_CELLS)];
+        // The count tiles the run lies in: one, or those it is made of.
+        let counted = &layer.tile_counts[chunk][first / COUNT_TILE_CELLS..][..run.div_ceil(COUNT_TILE_CELLS)];
         if counted.iter().all(|&count| count == 0) {
             return Some(false);
         }
@@ -581,13 +580,14 @@ impl Lookup {
         Some(if run < BITS_PER_WORD {
             cells[first / BITS_PER_WORD] >> (first % BITS_PER_WORD) & ((1 << run) - 1) != 0
         } else {
-            run >= BLOCK_CELLS || cells[first / BITS_PER_WORD..(first + run) / BITS_PER_WORD].iter().any(|&word| word != 0)
+            run >= COUNT_TILE_CELLS || cells[first / BITS_PER_WORD..(first + run) / BITS_PER_WORD].iter().any(|&word| word != 0)
         })
     }
 
-    /// Which blocks of `cell`'s chunk `layer_type` holds at any cell
-    /// of, in `directory`, a bit each; `None` if its bitmap is not hot.
-    fn blocks_holding(&self, directory: &[Superchunk], layer_type: LayerType, cell: CellIndex) -> Option<u16> {
+    /// Which tiles of the coarsest scale in `cell`'s chunk `layer_type`
+    /// holds at any cell of, in `directory`, a bit each; `None` if its
+    /// bitmap is not hot.
+    fn tiles_holding(&self, directory: &[Superchunk], layer_type: LayerType, cell: CellIndex) -> Option<u16> {
         let chunk = cell.chunk_in_superchunk();
         let (entry, layer) = self.find(directory, layer_type, cell.superchunk_index())?;
         let layer = &directory[entry].layers[layer];
@@ -597,13 +597,13 @@ impl Lookup {
         if !contains(layer.flags.nonempty, chunk) {
             return Some(0);
         }
-        Some(layer.block_counts[chunk].as_chunks::<COUNTS_IN_COARSEST>().0.iter().enumerate().fold(0, |holding, (block, counts)| holding | (counts.iter().any(|&count| count != 0) as u16) << block))
+        Some(layer.tile_counts[chunk].as_chunks::<COUNTS_IN_COARSEST>().0.iter().enumerate().fold(0, |holding, (tile, counts)| holding | (counts.iter().any(|&count| count != 0) as u16) << tile))
     }
 
-    /// The aligned tile whose first cell is `first`, if in the world, of
+    /// The word tile whose first cell is `first`, if in the world, of
     /// `layer_type` in `directory`: looked up.
-    fn tile_at(&self, directory: &[Superchunk], layer_type: LayerType, first: Option<CellIndex>) -> Window {
-        first.map_or(Window::default(), |first| tile_of(self.bucket(directory, layer_type, first), first.place_in_chunk() / BITS_PER_WORD))
+    fn word_tile_at(&self, directory: &[Superchunk], layer_type: LayerType, first: Option<CellIndex>) -> Window {
+        first.map_or(Window::default(), |first| word_tile(self.bucket(directory, layer_type, first), first.place_in_chunk() / BITS_PER_WORD))
     }
 
     /// Whether `layer_type` holds at `cell` in `directory`: its
@@ -625,7 +625,7 @@ pub struct BitmapArena {
     directory: Vec<Superchunk>,
     /// The arena's own lookups, remembering the last.
     lookup: Lookup,
-    /// The blocks the allocations' buckets live in, taken and given back.
+    /// The blocks the allocations live in, taken and given back.
     block_pool: BlockPool,
     /// Writes queued from outside a tick, not yet applied.
     queued: WriteQueues,
@@ -666,19 +666,19 @@ impl BitmapArena {
         self.layers().count()
     }
 
-    /// The layer at `place`.
-    fn at(&self, (entry, layer): Place) -> &SuperchunkLayer {
+    /// The allocation at `at`.
+    fn at(&self, (entry, layer): LayerAt) -> &SuperchunkLayer {
         &self.directory[entry].layers[layer]
     }
 
-    /// The layer at `place`, to change.
-    fn at_mut(&mut self, (entry, layer): Place) -> &mut SuperchunkLayer {
+    /// The allocation at `at`, to change.
+    fn at_mut(&mut self, (entry, layer): LayerAt) -> &mut SuperchunkLayer {
         &mut self.directory[entry].layers[layer]
     }
 
     /// Where `key`'s bucket is, if it is hot: its allocation, and the
     /// bucket's index there.
-    fn hot(&self, key: BucketKey) -> Option<(Place, usize)> {
+    fn hot(&self, key: BucketKey) -> Option<(LayerAt, usize)> {
         let (superchunk, place) = key.chunk.superchunk_and_place();
         let at = self.lookup.find(&self.directory, key.layer_type, superchunk.morton_index())?;
         contains(self.at(at).flags.hot, place.index()).then_some((at, place.index()))
@@ -689,22 +689,22 @@ impl BitmapArena {
         self.hot(key).is_some()
     }
 
-    /// The allocation for `layer_type` over the superchunk whose Morton
-    /// index is `superchunk`: the one in use, or else a new one, its
-    /// block from the pool.
-    fn allocation(&mut self, layer_type: LayerType, superchunk: u64) -> Place {
-        if let Some(at) = self.lookup.find(&self.directory, layer_type, superchunk) {
+    /// The allocation for `layer_type` over the superchunk at
+    /// `superchunk_index`: the one in use, or else a new one, its block
+    /// from the block pool.
+    fn allocation(&mut self, layer_type: LayerType, superchunk_index: u64) -> LayerAt {
+        if let Some(at) = self.lookup.find(&self.directory, layer_type, superchunk_index) {
             return at;
         }
         self.lookup.forget();
-        let entry = self.lookup.superchunk(&self.directory, superchunk).unwrap_or_else(|entry| {
-            self.directory.insert(entry, Superchunk { morton: superchunk, layers: Vec::new() });
+        let entry = self.lookup.superchunk(&self.directory, superchunk_index).unwrap_or_else(|entry| {
+            self.directory.insert(entry, Superchunk { morton_index: superchunk_index, layers: Vec::new() });
             entry
         });
         let layers = &mut self.directory[entry].layers;
         let layer = layers.binary_search_by_key(&layer_type, |layer| layer.layer_type).expect_err("not in use");
         let block = self.block_pool.allocate();
-        let new = SuperchunkLayer { layer_type, block, flags: ChunkFlags::default(), counts_less_one: [0; CHUNKS_IN_SUPERCHUNK], hot_count: 0, block_counts: [[0; BLOCKS_IN_CHUNK]; CHUNKS_IN_SUPERCHUNK] };
+        let new = SuperchunkLayer { layer_type, block, flags: ChunkFlags::default(), counts_less_one: [0; CHUNKS_IN_SUPERCHUNK], hot_count: 0, tile_counts: [[0; COUNT_TILES_IN_CHUNK]; CHUNKS_IN_SUPERCHUNK] };
         layers.insert(layer, new);
         (entry, layer)
     }
@@ -728,9 +728,9 @@ impl BitmapArena {
                 Some(layer) => codec.decode(layer, bucket),
                 None => bucket.fill(0),
             }
-            let block_counts: [u16; BLOCKS_IN_CHUNK] = std::array::from_fn(|block| bucket[block * BLOCK_WORDS..][..BLOCK_WORDS].iter().map(|word| word.count_ones() as u16).sum());
-            allocation.block_counts[chunk] = block_counts;
-            allocation.set_count(chunk, block_counts.iter().map(|&count| count as u32).sum());
+            let tile_counts: [u16; COUNT_TILES_IN_CHUNK] = std::array::from_fn(|tile| bucket[tile * COUNT_TILE_WORDS..][..COUNT_TILE_WORDS].iter().map(|word| word.count_ones() as u16).sum());
+            allocation.tile_counts[chunk] = tile_counts;
+            allocation.set_count(chunk, tile_counts.iter().map(|&count| count as u32).sum());
         }
         put(&mut allocation.flags.hot, chunk, true);
         allocation.hot_count += allocation.count(chunk);
@@ -766,10 +766,10 @@ impl BitmapArena {
         self.lookup.holds(&self.directory, layer_type, cell)
     }
 
-    /// Every allocation of `layer_type`, with its superchunk's Morton
-    /// index, superchunk by superchunk in Morton order.
+    /// Every allocation of `layer_type`, with its superchunk index,
+    /// superchunk by superchunk in Morton order.
     fn layers_of(&self, layer_type: LayerType) -> impl Iterator<Item = (u64, &SuperchunkLayer)> {
-        self.directory.iter().filter_map(move |entry| entry.layer_index(layer_type).map(|layer| (entry.morton, &entry.layers[layer])))
+        self.directory.iter().filter_map(move |entry| entry.layer_index(layer_type).map(|layer| (entry.morton_index, &entry.layers[layer])))
     }
 
     /// Every superchunk with an allocation in use, sorted by Morton
@@ -788,9 +788,9 @@ impl BitmapArena {
     /// Every hot bitmap of `layer_type`: superchunk by superchunk in their
     /// Morton order, and in each the chunks in theirs.
     pub fn run(&self, layer_type: LayerType) -> impl Iterator<Item = (ChunkPosition, Bucket<'_>)> {
-        self.layers_of(layer_type).flat_map(move |(superchunk, allocation)| {
+        self.layers_of(layer_type).flat_map(move |(superchunk_index, allocation)| {
             members(allocation.flags.hot)
-                .map(move |chunk| (chunk_at(superchunk, chunk), Bucket { cells: allocation.cells(chunk), count: allocation.count(chunk) }))
+                .map(move |chunk| (chunk_at(superchunk_index, chunk), Bucket { cells: allocation.cells(chunk), count: allocation.count(chunk) }))
         })
     }
 
@@ -799,7 +799,7 @@ impl BitmapArena {
     pub fn keys(&self) -> impl Iterator<Item = BucketKey> + '_ {
         self.directory.iter().flat_map(move |entry| {
             entry.layers.iter().flat_map(move |allocation| {
-                members(allocation.flags.hot).map(move |chunk| BucketKey { layer_type: allocation.layer_type, chunk: chunk_at(entry.morton, chunk) })
+                members(allocation.flags.hot).map(move |chunk| BucketKey { layer_type: allocation.layer_type, chunk: chunk_at(entry.morton_index, chunk) })
             })
         })
     }
@@ -813,15 +813,15 @@ impl BitmapArena {
             return 0;
         };
         let (mut written, mut flushed) = (0, Vec::new());
-        for slot in 0..self.directory[entry].layers.len() {
-            for chunk in members(self.at((entry, slot)).flags.dirty) {
-                let allocation = self.at((entry, slot));
+        for layer in 0..self.directory[entry].layers.len() {
+            for chunk in members(self.at((entry, layer)).flags.dirty) {
+                let allocation = self.at((entry, layer));
                 let cells = allocation.cells(chunk);
-                let bitmap: &[u64] = if cells.iter().all(|&word| word == 0) { &[] } else { codec.encode(cells) };
-                storage.write_back(ChunkPosition::of(superchunk, ChunkPlace::from_index(chunk)), allocation.layer_type, bitmap, &mut flushed);
+                let encoded: &[u64] = if cells.iter().all(|&word| word == 0) { &[] } else { codec.encode(cells) };
+                storage.write_back(ChunkPosition::of(superchunk, ChunkPlace::from_index(chunk)), allocation.layer_type, encoded, &mut flushed);
                 // Flushed before this bitmap went in: it waits on.
                 flushed.drain(..).for_each(|done| self.leave_ring(done.morton_index()));
-                let allocation = self.at_mut((entry, slot));
+                let allocation = self.at_mut((entry, layer));
                 put(&mut allocation.flags.dirty, chunk, false);
                 put(&mut allocation.flags.in_ring, chunk, true);
                 written += 1;
@@ -839,16 +839,16 @@ impl BitmapArena {
         self.release_unused();
     }
 
-    /// Marks every bucket over the superchunk whose Morton index is
-    /// `superchunk` as no longer waiting in the ring.
-    fn leave_ring(&mut self, superchunk: u64) {
-        if let Ok(entry) = self.lookup.superchunk(&self.directory, superchunk) {
+    /// Marks every bucket over the superchunk at `superchunk_index` as no
+    /// longer waiting in the ring.
+    fn leave_ring(&mut self, superchunk_index: u64) {
+        if let Ok(entry) = self.lookup.superchunk(&self.directory, superchunk_index) {
             self.directory[entry].layers.iter_mut().for_each(|layer| layer.flags.in_ring = 0);
         }
     }
 
     /// Releases every allocation with no bucket hot or waiting in the
-    /// ring, its block back in the pool, and every superchunk left with
+    /// ring, its block back in the block pool, and every superchunk left with
     /// none.
     fn release_unused(&mut self) {
         let block_pool = &mut self.block_pool;
@@ -864,7 +864,7 @@ impl BitmapArena {
     /// Drops `key`'s bitmap from the hot ones: whether it was hot. Its
     /// bucket stays while it waits in the ring; its allocation, once no
     /// bucket of it is hot or waiting, leaves the directory, its block
-    /// back in the pool. Dropping a dirty bitmap would lose its changes,
+    /// back in the block pool. Dropping a dirty bitmap would lose its changes,
     /// and is a bug: write it back first.
     pub fn evict(&mut self, key: BucketKey) -> bool {
         let Some((at, chunk)) = self.hot(key) else {
@@ -875,8 +875,8 @@ impl BitmapArena {
         put(&mut allocation.flags.hot, chunk, false);
         allocation.hot_count -= allocation.count(chunk);
         if allocation.flags.hot | allocation.flags.in_ring == 0 {
-            let (entry, slot) = at;
-            let block = self.directory[entry].layers.remove(slot).block;
+            let (entry, layer) = at;
+            let block = self.directory[entry].layers.remove(layer).block;
             self.block_pool.release(block);
             if self.directory[entry].layers.is_empty() {
                 self.directory.remove(entry);

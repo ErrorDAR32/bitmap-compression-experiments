@@ -17,7 +17,7 @@ chosen rank to the next is drawn from the geometric law --
 `floor(ln(u) / ln(1 - p))`, `u` uniform in `(0, 1]` -- which chooses
 each set cell with probability `p`. The counts find each chosen rank
 without a scan: a superchunk's layer passed over whole by its count, a
-chunk by its count, a block of 16 words by its count, a word by its
+chunk by its count, a count tile of 16 words by its count, a word by its
 bits' count, and only the word holding a chosen cell searched -- so a
 sample costs the same few counts however rare samples are.
 
@@ -138,18 +138,19 @@ themselves. Where the wall layers are not held, nothing bars. The far
 search sees no walls: the step it gives is not taken if one bars it.
 
 **Further off** (`seek(at, type)`): nothing found in the area, the same
-search is made over blocks of cells, 16 by 16 of them
-(`area_of_blocks`), a block a goal if the type holds at any of its
-cells. The coarsest first: blocks 64 cells a side, 1,024 cells across --
-an entity's reach, and no further -- which are the blocks the arena
-keeps counts of, so it is read off them a chunk at a time with no cell
-looked at (`Reader::blocks_holding`), and says at once whether there is
-any in reach and how far off. Then the finest blocks that reach so far
--- 2 cells a side, 4, 8, 16, 32 -- and coarser until one sees it, each
-block a run of bits in Morton order (`Reader::any_in_block`). The step
-is towards the nearest block holding any, over the blocks held,
-entities not looked at: it is turned back if one is in the way. It says
-how far it had to look (`SoughtStep::level`). No route is kept here either:
+search is made over tiles of a scale, 16 by 16 of them
+(`area_of_tiles`), a tile a goal if the type holds at any of its
+cells. The coarsest scale first: tiles 64 cells a side, 1,024 cells
+across -- an entity's reach, and no further -- each four of the arena's
+count tiles, so it is read off their counts a chunk at a time with no
+cell looked at (`Reader::tiles_holding`), and says at once whether
+there is any in reach and how far off. Then the finest scale whose
+tiles reach so far -- 2 cells a side, 4, 8, 16, 32 -- and coarser until
+one sees it, each tile a run of bits in Morton order
+(`Reader::any_in_tile`). The step is towards the nearest tile holding
+any, over the tiles hot, entities not looked at: it is turned back if
+one is in the way. It says how far it had to look
+(`SoughtStep::scale`). No route is kept here either:
 each step asks again, and the nearer it comes the finer it sees.
 
 Measured (`diagnostics pasture`, 16 superchunks, 64,000 sheep, one

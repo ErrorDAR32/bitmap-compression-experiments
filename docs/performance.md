@@ -46,7 +46,7 @@ which has the popcount instruction. It was first built for `native`,
 the processor building it; the measurements below were taken then.
 Profiled at 400
 superchunks, over half the tick is the sampler (`sample_layer`), most
-of it walking a block's words counting their bits -- which the generic
+of it walking a count tile's words counting their bits -- which the generic
 build did in software, having no popcount instruction to assume.
 
 `diagnostics pasture 20000 333 1000 <superchunks> 12`:
@@ -73,18 +73,19 @@ and for the word each write lands in. Nothing gained at 64 or 256
 superchunks (348 against 350 ns a sample): the sample's cost is in
 finding it, not in what the rule reads after.
 
-## Counts of smaller blocks
+## Smaller count tiles
 
 What was left in a sample at scale was the walk itself: up to 64 words
--- eight lines of memory -- to find the chosen cell in its block. The
-counts are now kept of blocks of 16 words (`BLOCK_WORDS`), 32x32 cells:
+-- eight lines of memory -- to find the chosen cell in its count tile.
+The counts are now kept of count tiles of 16 words
+(`COUNT_TILE_WORDS`), 32x32 cells:
 128 bytes of counts a bucket where there were 32, and a walk of two
 lines at most.
 
 `diagnostics pasture <ticks> 333 1000 <superchunks> 12`, both built
 native, the same world to the cell:
 
-| superchunks | blocks of | ticks a second | a grass sample, ns | a sheep's wake, ns |
+| superchunks | count tiles of | ticks a second | a grass sample, ns | a sheep's wake, ns |
 |---|---|---|---|---|
 | 64 | 64 words | 19,356 and 19,010 | 173 | 557 |
 | 64 | 16 words | 20,263 and 19,841 | 179 | 544 |
@@ -98,8 +99,8 @@ native, the same world to the cell:
 Nothing either way while the world fits the caches -- 4% slower at 144
 -- and 9% more ticks a second at 400 superchunks, 14% at 1,024, a
 quarter off a sample: it helps where memory is the limit, which is
-where a large world is. The far search's blocks of 64x64 cells are now
-four counts each.
+where a large world is. The far search's tiles of 64x64 cells are now
+four count tiles each.
 
 The table at the top was taken before this and before the native
 build.
@@ -134,7 +135,7 @@ walls are two layers now (`terrain/docs/terrain.md`).
 ## Terrain
 
 A generated 64-superchunk world now runs 13,964 ticks a second, with
-the native build, the smaller blocks and the cells asked for ahead; the
+the native build, the smaller count tiles and the cells asked for ahead; the
 figures below were taken before those.
 
 
@@ -155,6 +156,6 @@ tick 50,000 with 571,500 -- 1 MiB a superchunk of it heights, raw.
 |---|---|
 | the far search for grass | `simulation/docs/simulation.md`, "What a rule is given" |
 | the instructions of the apply phase | the same |
-| sampling, and blocks' counts | `tilesim.md`, "Sampling rarely, and blocks' counts" |
+| sampling, and count tiles | `tilesim.md`, "Sampling rarely, and count tiles" |
 | the flock's balance over two million ticks | `tilesim.md`, "Sheep leave thin pasture" |
 | Tessera's sizes and times | `tessera/docs/` |
