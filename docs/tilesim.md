@@ -332,8 +332,8 @@ geometric law -- `floor(ln(u) / ln(1 - p))`, `u` uniform in `(0, 1]` --
 which chooses each set cell with probability `p`, independently. The
 counts then find each chosen rank without a linear scan: a superchunk
 bitplane is passed over whole by its count, a chunk by its count, a
-word by its bits' count, and only the word holding a chosen cell is
-searched. A chunk is so sampled in proportion to its set cells against
+block of 64 words -- 64x64 cells -- by its count, a word by its bits'
+count, and only the word holding a chosen cell is searched. A chunk is so sampled in proportion to its set cells against
 the rest of its superchunk.
 
 The first rule built on it is grass (`src/grass.rs`). Each tick a
@@ -606,6 +606,41 @@ too, for one place to go. An entity's turn reads the area
 (`SuperChunkTick::area`), and the rule makes the masks: for a sheep,
 grass the goals, the bitplanes held what may be walked on -- nothing
 is in a sheep's way yet.
+
+### Sampling rarely, and blocks' counts
+
+Slowing grass a hundredfold made each sample dear: with a chosen cell
+every 33,000 set cells and not every 330, sampling counted the bits of
+hundreds of words to reach each one -- 10,000 instructions a sample
+against 300 -- and so read most of every bitmap every tick, for a
+handful of cells. The arena since keeps a count for every block of 64
+words of a bitmap, 16 a bitmap, 32 bytes beside its 8 KiB, in step with
+every change; sampling passes over blocks by them, and counts the bits
+of one block's words at most.
+
+Measured (`diagnostics throughput`, grass at 0.003%, the same samples
+before and after), sampling alone, one thread, by the processor's
+counters:
+
+| superchunks | instructions a sample, before | after | cycles a sample, before | after |
+|---|---|---|---|---|
+| 1 | 10,100 | 1,160 | 2,611 | 439 |
+| 16 | 9,820 | 890 | 2,712 | 466 |
+| 64 | 9,870 | 890 | 3,101 | 635 |
+| 256 | 10,040 | 1,060 | 3,991 | 1,027 |
+
+and the grass tick on 12 threads, ticks a second: 16 superchunks 10,564
+to 26,551; 64, 5,395 to 16,342; 256, 1,469 to 3,793.
+
+The instructions are the same at every size; the cycles are not, and
+what is over is waiting on memory -- a third of sampling's time at 256
+superchunks before, more than half after: fewer words are read, but
+each is a jump the processor cannot fetch ahead of, where the scan was
+a walk it could. (Load latencies sampled directly would say so
+outright; they need the kernel's `perf_event_paranoid` lowered, which
+was left as it is.) The threads are worth little while a tick is small:
+at 16 superchunks a tick is 40 microseconds, about what handing it to
+12 threads and back costs.
 
 ## Simulation (the plan)
 

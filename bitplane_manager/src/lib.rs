@@ -106,6 +106,15 @@ fn members(set: ChunkSet) -> impl Iterator<Item = usize> {
 /// superchunk.
 const ALLOCATION_WORDS: usize = WORDS * CHUNKS_IN_SUPERCHUNK;
 
+/// Words in a block of a bitmap: a run of them a count is kept for, so
+/// a search by count passes over it whole. In Morton order it is a
+/// square of 64x64 cells.
+pub const BLOCK_WORDS: usize = 64;
+/// Blocks in a bitmap.
+pub const BLOCKS_IN_CHUNK: usize = WORDS / BLOCK_WORDS;
+/// Cells in a block.
+const BLOCK_CELLS: usize = BLOCK_WORDS * BITS_PER_WORD;
+
 /// A superchunk layer's four chunk sets, a bit a chunk each, packed
 /// together in 8 bytes.
 #[repr(C)]
@@ -143,6 +152,11 @@ struct SuperChunkLayer {
     counts_less_one: [u16; CHUNKS_IN_SUPERCHUNK],
     /// How many cells the hot buckets have set, together.
     hot_count: u32,
+    /// How many cells each block of each bucket has set, by Morton
+    /// index: kept in step with every change, as the buckets' counts
+    /// are, and meaningful where they are. What sampling passes over
+    /// most of a bitmap by, 32 bytes a bucket beside its 8 KiB.
+    block_counts: [[u16; BLOCKS_IN_CHUNK]; CHUNKS_IN_SUPERCHUNK],
 }
 
 impl SuperChunkLayer {
@@ -183,11 +197,13 @@ impl SuperChunkLayer {
         }
         self.cells_mut(chunk)[cell / BITS_PER_WORD] ^= 1 << (cell % BITS_PER_WORD);
         put(&mut self.flags.dirty, chunk, true);
-        let count = self.count(chunk);
+        let (count, block) = (self.count(chunk), &mut self.block_counts[chunk][cell / BLOCK_CELLS]);
         if set {
+            *block += 1;
             self.set_count(chunk, count + 1);
             self.hot_count += 1;
         } else {
+            *block -= 1;
             self.set_count(chunk, count - 1);
             self.hot_count -= 1;
         }
@@ -292,6 +308,12 @@ impl LayerView<'_> {
     /// The cells of the chunk at `chunk`, in Morton order, 64 a word.
     pub fn cells(&self, chunk: usize) -> &CellWords {
         self.0.cells(chunk)
+    }
+
+    /// How many cells each block of the bucket of the chunk at `chunk`
+    /// has set: [`BLOCK_WORDS`] words a block, in Morton order.
+    pub fn block_counts(&self, chunk: usize) -> &[u16; BLOCKS_IN_CHUNK] {
+        &self.0.block_counts[chunk]
     }
 }
 
@@ -585,7 +607,7 @@ impl BitmapArena {
         let layers = &mut self.directory[entry].layers;
         let layer = layers.binary_search_by_key(&layer_type, |layer| layer.layer_type).expect_err("not in use");
         let block = self.pool.allocate();
-        let new = SuperChunkLayer { layer_type, block, flags: ChunkFlags::default(), counts_less_one: [0; CHUNKS_IN_SUPERCHUNK], hot_count: 0 };
+        let new = SuperChunkLayer { layer_type, block, flags: ChunkFlags::default(), counts_less_one: [0; CHUNKS_IN_SUPERCHUNK], hot_count: 0, block_counts: [[0; BLOCKS_IN_CHUNK]; CHUNKS_IN_SUPERCHUNK] };
         layers.insert(layer, new);
         (entry, layer)
     }
@@ -609,8 +631,9 @@ impl BitmapArena {
                 Some(layer) => codec.decode(layer, bucket),
                 None => bucket.fill(0),
             }
-            let count = bucket.iter().map(|word| word.count_ones()).sum();
-            allocation.set_count(chunk, count);
+            let block_counts: [u16; BLOCKS_IN_CHUNK] = std::array::from_fn(|block| bucket[block * BLOCK_WORDS..][..BLOCK_WORDS].iter().map(|word| word.count_ones() as u16).sum());
+            allocation.block_counts[chunk] = block_counts;
+            allocation.set_count(chunk, block_counts.iter().map(|&count| count as u32).sum());
         }
         put(&mut allocation.flags.hot, chunk, true);
         allocation.hot_count += allocation.count(chunk);

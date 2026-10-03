@@ -5,7 +5,7 @@
 //! `cargo test`
 
 use bitmap::{Bitmap, CellWords, WORDS};
-use bitplane_manager::{Applied, BitmapArena, BucketKey, NotHot, Reader, Tile, Write, WriteOp};
+use bitplane_manager::{Applied, BitmapArena, BucketKey, NotHot, Reader, Shape, Tile, Write, WriteOp, BLOCKS_IN_CHUNK, BLOCK_WORDS};
 use chunk_storage::mock::{grass_on_dirt, DIRT, GRASS};
 use chunk_storage::{ChunkStorage, HeightMap, LayerChange, LayerCodec, LayerType, SuperChunkImage};
 use coordinates::{CartesianCell, CellIndex, CellPlace, ChunkPlace, ChunkPosition, SuperChunkPosition, SUPERCHUNK_SIDE, SUPERCHUNK_SIDE_CELLS, WORLD_SIDE_SUPERCHUNKS};
@@ -374,4 +374,46 @@ fn windows_read_at_once_are_the_cells_read_one_by_one() {
             assert_eq!(reader.window(layer_type, origin, width, height), expected, "{width}x{height} at ({x}, {y}), {layer_type:?}");
         }
     }
+}
+
+/// Every block of a bitmap counts its set cells, as decoded and through
+/// every write after -- cells, rectangles and discs, set, cleared and
+/// flipped: what sampling passes over a bitmap by.
+#[test]
+fn every_block_counts_its_cells() {
+    let mut codec = LayerCodec::new();
+    let mut arena = BitmapArena::new();
+    let mut storage = ChunkStorage::new(1 << 12);
+    storage.insert(MIDDLE, grass_on_dirt(7, 300_000, &mut codec));
+    for place in ChunkPlace::all() {
+        arena.make_hot_layers(ChunkPosition::of(MIDDLE, place), &[DIRT, GRASS], &storage, &mut codec);
+    }
+    let counted = |arena: &BitmapArena| {
+        let superchunk = arena.superchunks().iter().find(|superchunk| superchunk.position() == MIDDLE).expect("in use");
+        for layer_type in [DIRT, GRASS] {
+            let layer = superchunk.layer(layer_type).expect("hot");
+            for chunk in 0..16 {
+                let (cells, blocks) = (layer.cells(chunk), layer.block_counts(chunk));
+                for block in 0..BLOCKS_IN_CHUNK {
+                    let ones: u32 = cells[block * BLOCK_WORDS..][..BLOCK_WORDS].iter().map(|word| word.count_ones()).sum();
+                    assert_eq!(blocks[block] as u32, ones, "{layer_type:?}, chunk {chunk}, block {block}");
+                }
+                assert_eq!(blocks.iter().map(|&count| count as u32).sum::<u32>(), layer.count(chunk));
+            }
+        }
+    };
+    counted(&arena);
+    let corner = CartesianCell { x: MIDDLE.x * SUPERCHUNK_SIDE_CELLS, y: MIDDLE.y * SUPERCHUNK_SIDE_CELLS };
+    for at in 0..3000u32 {
+        let cell = CartesianCell { x: corner.x + (at * 7919) % 1000, y: corner.y + (at * 104_729) % 1000 };
+        let op = [WriteOp::Set, WriteOp::Unset, WriteOp::Flip][at as usize % 3];
+        let shape = match at % 50 {
+            0 => Shape::Rect { width: 20, height: 9 },
+            1 => Shape::Disc { radius: 7 },
+            _ => Shape::Cell,
+        };
+        arena.queue(if at % 2 == 0 { GRASS } else { DIRT }, Write { at: cell.into(), op, shape });
+    }
+    assert!(arena.apply().changed > 1000);
+    counted(&arena);
 }

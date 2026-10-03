@@ -20,7 +20,8 @@ changed.
 **`SuperChunk`** `{morton, layers}`: one superchunk, owning its layers.
 **`morton`**, **`position`**, **`layer(type)`** -- a **`LayerView`**
 (**`hot_count`**, **`is_hot(chunk)`**, **`count(chunk)`**,
-**`cells(chunk)`**) -- and **`apply(type, write, applied)`**, the
+**`cells(chunk)`**, **`block_counts(chunk)`** -- the set cells of each
+of its `BLOCKS_IN_CHUNK` blocks of `BLOCK_WORDS` words) -- and **`apply(type, write, applied)`**, the
 write's part in it. Private: **`layer_index`**.
 
 **`Reader::new(superchunks)`**: **`holds(type, cell)`**,
