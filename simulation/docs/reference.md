@@ -36,7 +36,10 @@ superchunk, past the neighbours panicking.
 
 **`TickReport`** `{applied, entities, rules, computing, applying}`.
 
-**`Simulation::new(threads)`**, **`threads`**. **`tick(arena, entities,
+**`threads_for(superchunks)`**: every thread the machine has, no more
+than the superchunks. **`Simulation::for_superchunks(superchunks)`**: on
+those; **`Simulation::new(threads)`**: on a number given, to measure
+against another; **`threads`**. **`tick(arena, entities,
 seed, rule)`**: the entities aligned to the arena's superchunks (those
 dropped counted lost); the superchunks split into a contiguous run a
 thread; the first phase runs the rule on each, a `Reader` a thread, the

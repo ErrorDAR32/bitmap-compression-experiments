@@ -6,7 +6,7 @@ its own `docs/`.
 
 ## `grass.rs`
 
-`SPREAD_CHANCE` (0.1%), `DECAY_CHANCE` (0.2% with grass all round).
+`SPREAD_CHANCE` (0.001%), `DECAY_CHANCE` (0.002% with grass all round).
 
 **`rule(turn, samples)`**: on one superchunk's turn, every cell of grass
 sampled at the two chances together; each draws a neighbour (one of the

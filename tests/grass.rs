@@ -44,22 +44,24 @@ fn origin() -> CartesianCell {
 }
 
 /// Grass alone, with no grass around, never decays: a lattice of grass
-/// a cell every 16 each way, for a tick.
+/// a cell every other each way -- enough of them for a tick to sample
+/// some -- for a tick.
 #[test]
 fn lone_grass_never_decays() {
     let mut arena = mock(0);
-    let cells = (0..64).flat_map(|y| (0..64).map(move |x| CartesianCell { x: origin().x + 16 * x, y: origin().y + 16 * y }));
+    let cells = (0..512).flat_map(|y| (0..512).map(move |x| CartesianCell { x: origin().x + 2 * x, y: origin().y + 2 * y }));
     plant(&mut arena, cells.map(|cell| (cell, Shape::Cell)));
-    assert_eq!(arena.superchunk_count(GRASS, SUPERCHUNK), 4096);
+    assert_eq!(arena.superchunk_count(GRASS, SUPERCHUNK), 512 * 512);
     let done = tick(&mut Simulation::new(1), &mut arena, &mut Entities::new(), 3).rules;
     assert!(done.sampled > 0);
     assert_eq!(done.decays, 0);
 }
 
 /// Grass with grass all round decays at the whole chance, and has no
-/// dirt to spread onto: a superchunk all grass loses about 0.2% of it in
-/// a tick -- a little less, as cells on its edge see neighbours past it
-/// that are not hot.
+/// dirt to spread onto: a superchunk all grass loses about 0.002% of it
+/// in a tick -- some twenty cells, give or take three times what chance
+/// alone moves that many by; a little less, as cells on its edge see
+/// neighbours past it that are not hot.
 #[test]
 fn surrounded_grass_decays_at_its_chance() {
     let mut arena = mock(0);
@@ -69,7 +71,7 @@ fn surrounded_grass_decays_at_its_chance() {
     let done = tick(&mut Simulation::new(1), &mut arena, &mut Entities::new(), 4).rules;
     let expected = CELLS as f64 * DECAY_CHANCE;
     assert_eq!(done.spreads, 0);
-    assert!((done.decays as f64 / expected - 1.0).abs() < 0.15, "{} decays, about {expected:.0} expected", done.decays);
+    assert!((done.decays as f64 - expected).abs() < 3.0 * expected.sqrt(), "{} decays, about {expected:.0} expected", done.decays);
     assert_eq!(arena.superchunk_count(GRASS, SUPERCHUNK), CELLS - done.decays as u32);
 }
 

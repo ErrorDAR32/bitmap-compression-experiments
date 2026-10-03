@@ -1,0 +1,21 @@
+[package]
+name = "viewer"
+version = "0.1.0"
+edition = "2021"
+description = "TileSim on the screen: a Bevy window asking the simulation, on its own thread, for the cells in view"
+publish = false
+
+[dependencies]
+tilesim = { path = ".." }
+simulation = { path = "../simulation" }
+coordinates = { path = "../coordinates" }
+bitmap = { path = "../bitmap" }
+bitplane_manager = { path = "../bitplane_manager" }
+chunk_storage = { path = "../chunk_storage" }
+# Bevy for the window, the drawing and the keys only: no 3D, no audio.
+bevy = { version = "0.19", default-features = false, features = ["2d", "ui"] }
+
+# Bevy unoptimized is too slow to watch, even while the viewer itself is
+# being worked on.
+[profile.dev.package."*"]
+opt-level = 3

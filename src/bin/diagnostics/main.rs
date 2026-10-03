@@ -6,6 +6,9 @@
 //! | `pasture [ticks] [grass, thousandths] [sheep a superchunk] [superchunks] [threads]` | ticks grass and sheep flat out and reports the flock, what the sheep did, each rule's time -- a sheep's wake in nanoseconds -- and the memory held; kept in `transient_data/measurements/` |
 //! | `video [ticks] [grass cells] [ticks a frame] [sheep]` | grass and sheep on one superchunk as raw RGB frames, 1024x1024, on standard output, for ffmpeg |
 //!
+//! Threads not given, or 0: every one the machine has, no more than the
+//! superchunks.
+//!
 //! `cargo run --release --bin diagnostics -- <command> [arguments]`; a
 //! video: `... -- video | ffmpeg -f rawvideo -pix_fmt rgb24 -s 1024x1024 -r 30 -i - transient_data/renders/grass.mp4`.
 
@@ -18,7 +21,7 @@ use std::time::Duration;
 use tilesim::diagnostics::frames::{frame, sheep, FRAME_BYTES};
 use tilesim::diagnostics::{pasture as pasture_run, throughput};
 use tilesim::diagnostics::world::World;
-use simulation::Simulation;
+use simulation::{threads_for, Simulation};
 use tilesim::pasture;
 use tilesim::transient_data::{measurements, publish};
 use utilities::memory::mebibytes;
@@ -34,7 +37,8 @@ fn argument(arguments: &[String], index: usize, default: usize) -> usize {
 /// memory held.
 fn throughput(arguments: &[String]) {
     let (ticks, thousandths, superchunks, threads) =
-        (argument(arguments, 0, 500), argument(arguments, 1, 333), argument(arguments, 2, 16) as u32, argument(arguments, 3, 1));
+        (argument(arguments, 0, 500), argument(arguments, 1, 333), argument(arguments, 2, 16) as u32, argument(arguments, 3, 0));
+    let threads = if threads == 0 { threads_for(superchunks as usize) } else { threads };
     let run = throughput::run(ticks, thousandths, superchunks, threads);
     let mut report = Report::new("throughput", &format!("diagnostics throughput {ticks} {thousandths} {superchunks} {threads}"));
     report.note(format!(
@@ -75,7 +79,8 @@ fn throughput(arguments: &[String]) {
 /// sheep did, each rule's time and the memory held.
 fn pasture(arguments: &[String]) {
     let (ticks, thousandths, flock, superchunks, threads) =
-        (argument(arguments, 0, 2000), argument(arguments, 1, 333), argument(arguments, 2, 4000), argument(arguments, 3, 16) as u32, argument(arguments, 4, 1));
+        (argument(arguments, 0, 2000), argument(arguments, 1, 333), argument(arguments, 2, 4000), argument(arguments, 3, 16) as u32, argument(arguments, 4, 0));
+    let threads = if threads == 0 { threads_for(superchunks as usize) } else { threads };
     let run = pasture_run::run(ticks, thousandths, flock, superchunks, threads);
     let mut report = Report::new("pasture", &format!("diagnostics pasture {ticks} {thousandths} {flock} {superchunks} {threads}"));
     let sheep = run.done.sheep;

@@ -248,8 +248,23 @@ pub struct Simulation {
     samples: Vec<Mutex<Vec<CellIndex>>>,
 }
 
+/// The threads `superchunks` superchunks are ticked on unless told
+/// otherwise: every one the machine has -- threads are never held back
+/// -- but no more than there are superchunks, a thread taking whole
+/// superchunks.
+pub fn threads_for(superchunks: usize) -> usize {
+    std::thread::available_parallelism().map_or(1, usize::from).min(superchunks).max(1)
+}
+
 impl Simulation {
-    /// A simulation on `threads` threads, kept between ticks.
+    /// A simulation of `superchunks` superchunks on every thread the
+    /// machine has ([`threads_for`]), kept between ticks.
+    pub fn for_superchunks(superchunks: usize) -> Self {
+        Self::new(threads_for(superchunks))
+    }
+
+    /// A simulation on `threads` threads, kept between ticks: a number
+    /// given only to measure against another.
     pub fn new(threads: usize) -> Self {
         let dispatcher = Dispatcher::new(threads);
         let samples = (0..dispatcher.threads()).map(|_| Mutex::new(Vec::new())).collect();

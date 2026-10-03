@@ -25,4 +25,4 @@ mod tick;
 
 pub use dispatcher::Dispatcher;
 pub use sampling::{sample, sample_layer};
-pub use tick::{Simulation, SuperChunkTick, TickReport};
+pub use tick::{threads_for, Simulation, SuperChunkTick, TickReport};

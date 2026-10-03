@@ -13,7 +13,8 @@ fn memory_is_read_and_tracked() {
     };
     assert!(memory.resident > 0 && memory.resident <= memory.peak);
     let mut track = MemoryTrack::default();
-    let held = vec![1u8; 32 << 20];
+    // Kept from being optimized away, so the memory is really held.
+    let held = std::hint::black_box(vec![1u8; 32 << 20]);
     track.sample();
     drop(held);
     track.sample();

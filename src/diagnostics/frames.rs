@@ -26,8 +26,8 @@ pub const FRAME_BYTES: usize = (SUPERCHUNK_SIDE_CELLS * SUPERCHUNK_SIDE_CELLS * 
 /// green where grass holds.
 pub fn frame(arena: &BitmapArena, superchunk: SuperChunkPosition, pixels: &mut [u8]) {
     let side = SUPERCHUNK_SIDE_CELLS as usize;
-    for pixel in pixels.chunks_exact_mut(3) {
-        pixel.copy_from_slice(&BROWN);
+    for pixel in pixels.as_chunks_mut().0 {
+        *pixel = BROWN;
     }
     for place in ChunkPlace::all() {
         let Some(bucket) = arena.bucket(BucketKey { layer_type: GRASS, chunk: ChunkPosition::of(superchunk, place) }) else {

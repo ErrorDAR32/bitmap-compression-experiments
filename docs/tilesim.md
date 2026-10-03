@@ -337,16 +337,19 @@ searched. A chunk is so sampled in proportion to its set cells against
 the rest of its superchunk.
 
 The first rule built on it is grass (`src/grass.rs`). Each tick a
-cell of grass tries to spread with a chance of 0.1%, onto one of its
+cell of grass tries to spread with a chance of 0.001%, onto one of its
 eight neighbours drawn at random, if that one is dirt; and turns back
-to dirt with `k / 8` of 0.2%, `k` its grass neighbours -- none alone,
-the whole 0.2% with grass all round. One sampling pass serves both, at
-0.3%: each sample draws one neighbour, and spreads (a third of the
+to dirt with `k / 8` of 0.002%, `k` its grass neighbours -- none alone,
+the whole 0.002% with grass all round. One sampling pass serves both, at
+0.003%: each sample draws one neighbour, and spreads (a third of the
 time) or decays (two thirds) if that neighbour lets it, so decay comes
 at `k / 8` of its chance from one neighbour read, not eight. Every
 sample reads the world as the tick found it: the writes are applied at
-the tick's end. Spreading at `0.1% x (dirt share)` and decay at
-`0.2% x (grass share)` balance, roughly, at a third of the cells grass.
+the tick's end. Spreading at `0.001% x (dirt share)` and decay at
+`0.002% x (grass share)` balance, roughly, at a third of the cells
+grass. (The chances were a hundred times these until the world was
+first seen on a screen, where grass at 0.3% a tick boils; every
+measurement below was taken at 0.3%.)
 
 Measured, ticking as fast as one core goes (`diagnostics throughput`,
 500 ticks, grass starting scattered over a third of the cells, near

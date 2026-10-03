@@ -1,0 +1,5 @@
+# The toolchain every crate here is built with, on any machine: rustup
+# installs it on the first build.
+[toolchain]
+channel = "1.99.0"
+components = ["clippy", "rustfmt"]

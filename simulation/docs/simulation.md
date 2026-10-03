@@ -75,6 +75,11 @@ tick, a turn reads entities anywhere held as the tick found them
 
 ## The dispatcher
 
+Threads are never held back: a simulation ticks on every thread the
+machine has, unless there are fewer superchunks than threads -- a thread
+takes whole superchunks -- (`Simulation::for_superchunks`); a number is
+given only to measure one against another.
+
 The threads, started once and kept, parked between jobs: a job runs on
 all of them at once, the caller's thread doing the first part, and
 `run` returns only once every part has -- which is what lets a job
