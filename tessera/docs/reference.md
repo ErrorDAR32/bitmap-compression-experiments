@@ -16,7 +16,7 @@ bitmap with a `Tessera` of its own -- allocating one, so for many
 bitmaps keep a `Tessera`.
 
 **`Tessera::new()`**: every structure, at the most any bitmap needs:
-the set counts, the pattern pyramid, the tree, the prices, the block
+the set counts, the pattern pyramid, the tree, the prices, the floor tile
 plan and the last pass. The only allocation a `Tessera` ever makes
 (12 with a stream and a bitmap; `tests/allocations.rs`).
 
@@ -25,7 +25,7 @@ streams (`weigh`); writes the binary count tree if it is within
 `BINARY_COUNT_TREE_TOLERANCE_PERCENT` of the tree, else the tree and
 the last pass. In debug builds, after the tree is written and before
 the last pass, asserts the bits written (less the mode bit) are the
-bits counted less the residual blocks' prices: the writer and the
+bits counted less the residual floor tiles' prices: the writer and the
 counting agree, node for node.
 
 **`Tessera::weigh(bitmap) -> (tree bits, start level, binary count tree
@@ -181,19 +181,19 @@ not homogeneous with the value not bound above; worth it if at least
 
 **`complex_tiling(bitmap, set_cells_before_each_word, tree, pricing)`**:
 the bottom-up walk over the placed tree. Returns the tree's bits --
-its residual blocks at their prices -- and its start level. The divides
+its residual floor tiles at their prices -- and its start level. The divides
 above the start level are counted on the way up but never written, so
 their bits (`node_bits` of a whole divide, the same at every tile of a
 level) are taken off.
 
 **`count_subtree(..., tile)`**: one tile of that walk, after its child
 nodes: its node's own bits by the quadtree writer, plus its children's
-fewest, or, for a residual block, its price. Also returns its **bound
+fewest, or, for a residual floor tile, its price. Also returns its **bound
 size**: the one level every cell under it is bound at by plain tiles,
-if any -- its own for a plain tile, 2x2 for a residual block whose four
+if any -- its own for a plain tile, 2x2 for a residual floor tile whose four
 2x2s are all homogeneous (`all_2x2s_homogeneous`), the shared size of
 a divide's four children (an `Absent` child counts as bound at its own
-level), else none. A divide or a residual block is then made its
+level), else none. A divide or a residual floor tile is then made its
 cheapest complex tile, if cheaper.
 
 **`best_complex_tile(..., tile, bound_size, to_beat)`**: the
@@ -236,8 +236,8 @@ complex tile of size offset 0.
 
 **`write_tree_and_plan_last_pass(stream, tree, bitmap, plan,
 start_level)`**: clears `plan`, writes the start level and every node
-from each start-level tile down, and fills `plan`: each residual block,
-and each block a copy covers with its source -- a whole copy's own
+from each start-level tile down, and fills `plan`: each residual floor tile,
+and each floor tile a copy covers with its source -- a whole copy's own
 tile, or each `Absent` child of a copy naming children.
 
 **`read_tree_and_plan_last_pass(reader, cells, plan)`**: the mirror:
@@ -328,31 +328,31 @@ cells, starting at one each.
 - **`learn(value)`**: adds a cell; when one weight reaches the halving
   weight, both are halved, counts rounded up.
 
-**`each_block(set, visit)`**: visits the blocks in a block set in
+**`each_floor_tile(set, visit)`**: visits the floor tiles in a floor tile set in
 Morton order, reading each word of the set when its turn comes, so a
-block removed by an earlier visit in a later word is skipped.
+floor tile removed by an earlier visit in a later word is skipped.
 
-**`code_residual_block(odds, cells, index, code)`**: codes a residual
-block's 16 cells in Morton order, each at its context's odds, through
+**`code_residual_floor_tile(odds, cells, index, code)`**: codes a residual
+floor tile's 16 cells in Morton order, each at its context's odds, through
 `code` -- which encodes, decodes or prices the cell at a Morton index
-and says whether it is set -- and returns the block's cells as one
+and says whether it is set -- and returns the floor tile's cells as one
 run. Each set cell is put into the window as it is coded, so later
 cells read it.
 
-**`Pricing::price(bitmap, block)`**: `code_residual_block` reading
+**`Pricing::price(bitmap, floor tile)`**: `code_residual_floor_tile` reading
 cells off the bitmap and summing their costs, rounded to the nearest
-bit; the odds carry over to the next block priced, as in the pass.
-Kept per block (`of`) for the debug check in `Tessera::encode`.
+bit; the odds carry over to the next floor tile priced, as in the pass.
+Kept per floor tile (`of`) for the debug check in `Tessera::encode`.
 
-**`BlockPlan`**: the last pass's input. **`add_residual_block`**,
-**`add_copied_blocks(copy, part, far, direction)`**: `part` is the copy
+**`FloorPlan`**: the last pass's input. **`add_residual_floor_tile`**,
+**`add_copied_floor_tiles(copy, part, far, direction)`**: `part` is the copy
 or a child of it; its source is the same-size tile the offset away,
 counted in the copy's own sides (twice as many of `part`'s when `part`
-is a child), and each of `part`'s blocks gets the block at the same
+is a child), and each of `part`'s floor tiles gets the floor tile at the same
 place of the source as its source.
 
 **`LastPass::encode(plan, bitmap, stream)`**: makes the cells as
-decoding will have them after the tree -- the bitmap with every block
+decoding will have them after the tree -- the bitmap with every floor tile
 in the plan cleared -- and runs the pass on them; ends the range coder
 only if some cell was coded, so a pass coding nothing writes nothing.
 
@@ -360,23 +360,23 @@ only if some cell was coded, so a pass coding nothing writes nothing.
 the tree said. The range decoder starts reading even when there is
 nothing to decode; past the stream's end it reads zeros.
 
-**`run_pass(plan, cells, code)`**: every block of the plan in Morton
-order: a covered block copied (`copy_block_chain`), or set aside if its
-chain ends at a residual block not coded yet; a residual block coded
+**`run_pass(plan, cells, code)`**: every floor tile of the plan in Morton
+order: a covered floor tile copied (`copy_floor_tile_chain`), or set aside if its
+chain ends at a residual floor tile not coded yet; a residual floor tile coded
 and set. Then the set-aside copies, whose sources are all final.
 
-**`copy_block_chain(plan, index, cells)`**: copies a block, following
+**`copy_floor_tile_chain(plan, index, cells)`**: copies a floor tile, following
 its source's source first while that is itself a copy not yet made --
 an explicit stack, as a chain can run long. Gives up, copying nothing,
-if the chain reaches a residual block not coded yet.
+if the chain reaches a residual floor tile not coded yet.
 
 **`Window::around(cells, index)`**: an 8x8 square of cells, row-major
-in a `u64`: the blocks above left, above and left of the block, and
-the block itself, each read as one 16-bit run and turned into window
-rows by `BLOCK_ROWS`. A block off the bitmap reads as clear: its index
+in a `u64`: the floor tiles above left, above and left of the floor tile, and
+the floor tile itself, each read as one 16-bit run and turned into window
+rows by `FLOOR_TILE_ROWS`. A floor tile off the bitmap reads as clear: its index
 field would underflow.
 
-**`Window::context(place)`**: the context of the block's cell at
+**`Window::context(place)`**: the context of the floor tile's cell at
 `place` in its Morton order: three 3-cell rows of the window above and
 left of the cell, packed into 9 bits, looked up in
 `NEIGHBOURHOOD_CONTEXTS`, which picks out the six context cells.

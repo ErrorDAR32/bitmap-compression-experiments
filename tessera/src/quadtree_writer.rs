@@ -1,12 +1,12 @@
 //! The quadtree writer, its reader beside it: every node's bits, and the
-//! walks writing and reading the tree that gather the last pass's block
+//! walks writing and reading the tree that gather the last pass's floor tile
 //! plan. Counting a node's bits is writing it to a [`Counter`].
 //! `docs/tessera.md`, "The quadtree grammar".
 //!
 //! Function by function: `docs/reference.md`, "`quadtree_writer.rs`".
 
 use crate::bit_stream::{BitReader, BitStream, Counter, Sink};
-use crate::last_pass::BlockPlan;
+use crate::last_pass::FloorPlan;
 use crate::payload_writer::{read_cell_list, read_payload, write_cell_list, write_payload};
 use crate::tile::{Tile, CELL_LEVEL, CHILDREN, DIRECTIONS, FLOOR_LEVEL};
 use crate::tree::{Node, Tree, BOUND_AT_THE_TOP};
@@ -16,7 +16,7 @@ use bitmap::Bitmap;
 pub const FLAG_WIDTH: u8 = 1;
 /// A node's first bit: a leaf, a copy or a bind...
 const LEAF: u64 = 1;
-/// ...or a divide -- at the 4x4 floor, a residual block.
+/// ...or a divide -- at the 4x4 floor, a residual floor tile.
 const DIVIDE: u64 = 0;
 /// After a leaf's first bit: a copy...
 const COPY: u64 = 0;
@@ -24,7 +24,7 @@ const COPY: u64 = 0;
 const BIND: u64 = 1;
 /// Whether a copy or a divide names its children: its child mask
 /// follows. Every divide is 8x8 or coarser -- a 4x4 is a leaf or a
-/// residual block -- and so says it; a copy, down to 8x8 only: a 4x4's
+/// residual floor tile -- and so says it; a copy, down to 8x8 only: a 4x4's
 /// children are finer than the tree.
 const NAMES_CHILDREN: u64 = 1;
 /// A divide naming its children flips the value bound above...
@@ -156,8 +156,8 @@ fn write_complex_tile_header(sink: &mut impl Sink, level: u8, size_offset: u8, c
 
 /// Writes `tree`, which starts at `start_level`, for `bitmap`: the start
 /// level, then every node from there -- and fills `plan`, whatever it
-/// held, with the blocks the tree leaves to the last pass.
-pub fn write_tree_and_plan_last_pass(stream: &mut BitStream, tree: &Tree, bitmap: &Bitmap, plan: &mut BlockPlan, start_level: u8) {
+/// held, with the floor tiles the tree leaves to the last pass.
+pub fn write_tree_and_plan_last_pass(stream: &mut BitStream, tree: &Tree, bitmap: &Bitmap, plan: &mut FloorPlan, start_level: u8) {
     plan.clear();
     stream.push_value(start_level as u64, START_LEVEL_WIDTH);
     for tile in Tile::all_of_level(start_level) {
@@ -166,18 +166,18 @@ pub fn write_tree_and_plan_last_pass(stream: &mut BitStream, tree: &Tree, bitmap
 }
 
 /// Writes `tile`'s node and everything under it.
-fn write_subtree_and_plan_last_pass(stream: &mut BitStream, tree: &Tree, bitmap: &Bitmap, plan: &mut BlockPlan, tile: Tile) {
+fn write_subtree_and_plan_last_pass(stream: &mut BitStream, tree: &Tree, bitmap: &Bitmap, plan: &mut FloorPlan, tile: Tile) {
     let node = tree.get(tile);
     write_node(stream, tree, bitmap, tile, node);
     match node {
-        Node::Residual => plan.add_residual_block(tile),
-        Node::Copied { far, direction, names_children: false } => plan.add_copied_blocks(tile, tile, far, direction),
+        Node::Residual => plan.add_residual_floor_tile(tile),
+        Node::Copied { far, direction, names_children: false } => plan.add_copied_floor_tiles(tile, tile, far, direction),
         _ => {}
     }
     if node.has_children() {
         for (child, child_node) in tile.children().into_iter().zip(tree.children(tile)) {
             match (child_node, node) {
-                (Node::Absent, Node::Copied { far, direction, .. }) => plan.add_copied_blocks(tile, child, far, direction),
+                (Node::Absent, Node::Copied { far, direction, .. }) => plan.add_copied_floor_tiles(tile, child, far, direction),
                 (Node::Absent, _) => {}
                 _ => write_subtree_and_plan_last_pass(stream, tree, bitmap, plan, child),
             }
@@ -188,7 +188,7 @@ fn write_subtree_and_plan_last_pass(stream: &mut BitStream, tree: &Tree, bitmap:
 /// Reads back what [`write_tree_and_plan_last_pass`] wrote into `cells`, which start
 /// clear: every cell the tree says -- and fills `plan`, whatever it
 /// held, as writing did.
-pub fn read_tree_and_plan_last_pass(reader: &mut BitReader, cells: &mut Bitmap, plan: &mut BlockPlan) {
+pub fn read_tree_and_plan_last_pass(reader: &mut BitReader, cells: &mut Bitmap, plan: &mut FloorPlan) {
     plan.clear();
     let start_level = reader.value(START_LEVEL_WIDTH) as u8;
     for tile in Tile::all_of_level(start_level) {
@@ -198,10 +198,10 @@ pub fn read_tree_and_plan_last_pass(reader: &mut BitReader, cells: &mut Bitmap, 
 
 /// Reads `tile`'s node and everything under it, `bound_above` the value
 /// bound above it.
-fn read_subtree_and_plan_last_pass(reader: &mut BitReader, cells: &mut Bitmap, plan: &mut BlockPlan, tile: Tile, bound_above: bool) {
+fn read_subtree_and_plan_last_pass(reader: &mut BitReader, cells: &mut Bitmap, plan: &mut FloorPlan, tile: Tile, bound_above: bool) {
     if read_flag(reader) == DIVIDE {
         if tile.level == FLOOR_LEVEL {
-            plan.add_residual_block(tile);
+            plan.add_residual_floor_tile(tile);
         } else if read_flag(reader) != NAMES_CHILDREN {
             for child in tile.children() {
                 read_subtree_and_plan_last_pass(reader, cells, plan, child, bound_above);
@@ -220,14 +220,14 @@ fn read_subtree_and_plan_last_pass(reader: &mut BitReader, cells: &mut Bitmap, p
         let far = reader.bit();
         let direction = reader.value(DIRECTION_WIDTH) as u8;
         if !may_name_children(tile.level) || read_flag(reader) != NAMES_CHILDREN {
-            plan.add_copied_blocks(tile, tile, far, direction);
+            plan.add_copied_floor_tiles(tile, tile, far, direction);
             return;
         }
         for (child, is_node) in tile.children().into_iter().zip(read_child_mask(reader)) {
             if is_node {
                 read_subtree_and_plan_last_pass(reader, cells, plan, child, bound_above);
             } else {
-                plan.add_copied_blocks(tile, child, far, direction);
+                plan.add_copied_floor_tiles(tile, child, far, direction);
             }
         }
     } else {

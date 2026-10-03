@@ -12,17 +12,17 @@
 //!    and from a noisy one: every change lands where it counts, and Tessera
 //!    reads a quadtree, so what is bad in a window is bad anywhere.
 //! 2. The whole plane: filled with the best window's sixteen variants
-//!    (`plane.rs`), from noise, and from the worst bitmap recorded so
+//!    (`plane.rs`), from noise, and from the worst bitmap kept so
 //!    far, carried on from where the last run left it.
 //!
-//! Records are plain PBM images (`record.rs`).
+//! The worst bitmaps are plain PBM images (`worst.rs`).
 //!
 //! Function by function: `docs/lab.md`, "`diagnostics/adversarial/`".
 
 mod anneal;
 mod moves;
 mod plane;
-pub mod record;
+pub mod worst;
 
 pub use anneal::Found;
 use anneal::anneal;
@@ -123,8 +123,8 @@ pub struct Outcome {
 
 /// One whole search, from its own seed, as long as `effort` says, by
 /// `score` -- which is told the area searched -- carrying on from
-/// `recorded`, if any.
-pub fn search(seed: u64, recorded: Option<Bitmap>, effort: Effort, score: &mut impl FnMut(&Bitmap, Tile) -> Score) -> Outcome {
+/// `worst`, if any.
+pub fn search(seed: u64, worst: Option<Bitmap>, effort: Effort, score: &mut impl FnMut(&Bitmap, Tile) -> Score) -> Outcome {
     let mut rng = Rng::new(seed);
     let window_starts = vec![("clear", Bitmap::new()), ("noise", noise(&mut rng, WINDOW))];
     let (window, window_from) = best_of(window_starts, WINDOW, effort.window, &mut rng, score);
@@ -132,7 +132,7 @@ pub fn search(seed: u64, recorded: Option<Bitmap>, effort: Effort, score: &mut i
     let whole = Tile::WHOLE_BITMAP;
     let mut plane_starts =
         vec![("window variants", plane::fill_the_plane(&window.bitmap, WINDOW)), ("noise", noise(&mut rng, whole))];
-    plane_starts.extend(recorded.map(|bitmap| ("record", bitmap)));
+    plane_starts.extend(worst.map(|bitmap| ("worst", bitmap)));
     let (worst, worst_from) = best_of(plane_starts, whole, effort.plane, &mut rng, score);
     Outcome { window, window_from, worst, worst_from }
 }
@@ -141,20 +141,20 @@ pub fn search(seed: u64, recorded: Option<Bitmap>, effort: Effort, score: &mut i
 pub const SEARCHES_AT_ONCE: u64 = 4;
 
 /// [`SEARCHES_AT_ONCE`] whole searches at once, one a thread, the `i`th
-/// from seed `seed + i`, each carrying on from `recorded`, if any, and
+/// from seed `seed + i`, each carrying on from `worst`, if any, and
 /// scoring with a score of its own that `make_score` makes -- one per
 /// thread, so each may hold its own encoders. What each found, in order.
 pub fn search_at_once<S: FnMut(&Bitmap, Tile) -> Score>(
     seed: u64,
-    recorded: Option<Bitmap>,
+    worst: Option<Bitmap>,
     effort: Effort,
     make_score: &(impl Fn() -> S + Sync),
 ) -> Vec<Outcome> {
     std::thread::scope(|scope| {
         let searches: Vec<_> = (0..SEARCHES_AT_ONCE)
             .map(|index| {
-                let recorded = recorded.clone();
-                scope.spawn(move || search(seed.wrapping_add(index), recorded, effort, &mut make_score()))
+                let worst = worst.clone();
+                scope.spawn(move || search(seed.wrapping_add(index), worst, effort, &mut make_score()))
             })
             .collect();
         searches.into_iter().map(|search| search.join().expect("a search")).collect()

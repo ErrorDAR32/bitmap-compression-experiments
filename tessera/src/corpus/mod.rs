@@ -1,4 +1,4 @@
-//! The one source of sample bitmaps, tests and measurements alike, so
+//! The one source of corpus bitmaps, tests and measurements alike, so
 //! changing what anything runs on is a change here. Two exceptions: a
 //! fine test (`tests/fine.rs`) may draw one small bitmap by hand to
 //! pin a known case, never to measure; and [`checkerboards`] are drawn,
@@ -6,7 +6,7 @@
 //! line up with the power-of-two grid, so one board exercises homogeneous
 //! tiles, cuts, copies and copies naming children at once.
 //!
-//! A sample is settled by its seed and its generator's parameters: the
+//! A corpus bitmap is settled by its seed and its generator's parameters: the
 //! same ones give the same bitmap on every run and every machine.
 //! Nothing is stored; a corpus is grown again every time it is asked
 //! for. Four families of generator:
@@ -22,7 +22,7 @@
 //! `docs/testing_protocol.md` holds the rule for using them: fix with
 //! the seed held still, then check on a seed never seen.
 //!
-//! Function by function: `docs/lab.md`, "`sample_generators/`".
+//! Function by function: `docs/lab.md`, "`corpus/`".
 
 pub mod checkerboards;
 mod city;
@@ -36,14 +36,14 @@ pub use seed::seed_uncounted;
 
 use bitmap::Bitmap;
 
-/// Where every sample's seeds start, read from
+/// Where every corpus bitmap's seeds start, read from
 /// [`seed::WHERE_THE_SEED_IS_KEPT`] rather than written here, counted as
 /// a use of it ([`seed::seed_counted`]).
 ///
 /// Nothing a measurement runs on is a constant in the code. Move the
 /// seed to ask whether a result was about an algorithm or about those
 /// particular bitmaps, and the run says which seed it used.
-pub fn sample_seed() -> u64 {
+pub fn corpus_seed() -> u64 {
     seed::seed_counted()
 }
 
@@ -69,17 +69,17 @@ pub struct Shape {
 
 impl Shape {
     /// `count` bitmaps of this shape, built one at a time.
-    pub fn take(&self, count: u64) -> Samples {
-        grown(sample_seed(), self.density, self.cluster, count)
+    pub fn take(&self, count: u64) -> Grown {
+        grown(corpus_seed(), self.density, self.cluster, count)
     }
 
     /// As many as a timed run of this shape should take.
-    pub fn timed(&self) -> Samples {
+    pub fn timed(&self) -> Grown {
         self.take(self.timed)
     }
 
     /// As many as a unit test of this shape should take.
-    pub fn tested(&self) -> Samples {
+    pub fn tested(&self) -> Grown {
         self.take(self.tested)
     }
 }
@@ -118,7 +118,7 @@ pub const SPARSE: [Shape; 11] = [
 
 /// A run of grown bitmaps from consecutive seeds, built one at a time,
 /// so a caller measuring thousands never holds them all.
-pub struct Samples {
+pub struct Grown {
     /// The next bitmap's seed.
     seed: u64,
     /// How many bitmaps are still to come.
@@ -137,17 +137,17 @@ pub struct Samples {
 /// anywhere at all: at 0 the cells are scattered and every one is its
 /// own rectangle, at 1 they only extend what is standing and the
 /// bitmap is a few solid blobs.
-pub fn grown(seed: u64, density: f64, cluster: f64, count: u64) -> Samples {
-    Samples { seed, left: count, density, cluster }
+pub fn grown(seed: u64, density: f64, cluster: f64, count: u64) -> Grown {
+    Grown { seed, left: count, density, cluster }
 }
 
-/// One bitmap, for a caller that wants a single sample rather than a
+/// One bitmap, for a caller that wants a single bitmap rather than a
 /// run of them.
 pub fn one_grown(seed: u64, density: f64, cluster: f64) -> Bitmap {
     generate::one(seed, density, cluster)
 }
 
-impl Iterator for Samples {
+impl Iterator for Grown {
     type Item = Bitmap;
 
     fn next(&mut self) -> Option<Bitmap> {
@@ -161,7 +161,7 @@ impl Iterator for Samples {
     }
 }
 
-impl ExactSizeIterator for Samples {
+impl ExactSizeIterator for Grown {
     fn len(&self) -> usize {
         self.left as usize
     }
@@ -197,7 +197,7 @@ impl HowMany {
 /// enough, over every generator, for a steady mean and a tail.
 pub const TIMING_PER_GENERATOR: u64 = 100;
 
-/// Every family of sample, named, with `how_many` of each generator's.
+/// Every family of corpus bitmaps, named, with `how_many` of each generator's.
 ///
 /// Four families. Grown bitmaps are cells scattered or clustered to a
 /// density, which is what an algorithm is stressed on. Laid out ones

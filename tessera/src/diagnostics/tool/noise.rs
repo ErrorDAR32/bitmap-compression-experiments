@@ -5,7 +5,7 @@
 use tessera::diagnostics::measured::Measured;
 use tessera::diagnostics::RAW_CELLS;
 use tessera::Tessera;
-use tessera::sample_generators::{grown, sample_seed};
+use tessera::corpus::{grown, corpus_seed};
 use utilities::table::report::Report;
 use utilities::table::Table;
 
@@ -20,7 +20,7 @@ pub fn run(report: &mut Report) {
     let mut tessera = Tessera::new();
     let mut table = Table::new(&["density", "Tessera\nbits a bitmap", "Tessera\nover raw cells"]);
     for density in DENSITIES {
-        let measured = Measured::of(&mut tessera, grown(sample_seed(), density, 0.0, EACH));
+        let measured = Measured::of(&mut tessera, grown(corpus_seed(), density, 0.0, EACH));
         assert!(measured.lost.is_empty(), "noise at {density}: Tessera lost cells of cases {:?}", measured.lost);
         let tessera_bits = measured.bits / measured.bitmaps;
         table.row(&[

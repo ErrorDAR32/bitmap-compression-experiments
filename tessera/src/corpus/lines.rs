@@ -1,7 +1,7 @@
 //! Bitmaps drawn with lines: straight strokes of random length, run
 //! horizontally, vertically or along either diagonal, at random widths
 //! -- a width of one most often, each wider one less likely, as the line
-//! set says. Like every sample, settled by a seed.
+//! set says. Like every corpus bitmap, settled by a seed.
 
 use utilities::rng::Rng;
 use bitmap::{Bitmap, WIDTH};
@@ -27,7 +27,7 @@ pub struct LineSet {
 impl LineSet {
     /// `count` bitmaps of this set, built one at a time.
     pub fn take(&'static self, count: u64) -> Drawings {
-        Drawings { seed: super::sample_seed(), left: count, set: self }
+        Drawings { seed: super::corpus_seed(), left: count, set: self }
     }
 
     /// As many as a timed run of this set should take.

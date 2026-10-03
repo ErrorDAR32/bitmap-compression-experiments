@@ -1,5 +1,5 @@
 //! Encoding and decoding never allocate: a `Tessera`, a stream and a
-//! bitmap made once, then every bitmap of a sample encoded and decoded
+//! bitmap made once, then every bitmap of a corpus encoded and decoded
 //! through them -- the first included -- with every allocation this
 //! thread makes counted by a global allocator of the test's own.
 //!
@@ -8,9 +8,9 @@
 use bitmap::Bitmap;
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
-use tessera::diagnostics::adversarial::record;
-use tessera::sample_generators::checkerboards::checkerboard;
-use tessera::sample_generators::{families, HowMany};
+use tessera::diagnostics::adversarial::worst;
+use tessera::corpus::checkerboards::checkerboard;
+use tessera::corpus::{families, HowMany};
 use tessera::{BitStream, Tessera};
 
 /// The system allocator, counting the allocations of a thread that asks.
@@ -59,15 +59,15 @@ static ALLOCATOR: Counting = Counting;
 /// adversarial bitmaps, encoded and decoded with no allocation at all.
 #[test]
 fn encoding_and_decoding_never_allocate() {
-    let mut sample: Vec<Bitmap> = families(HowMany::Tested).into_iter().flat_map(|(_, bitmaps)| bitmaps).collect();
-    sample.push(checkerboard(7));
-    sample.extend(record::saved().into_iter().map(|(_, bitmap)| bitmap));
+    let mut corpus: Vec<Bitmap> = families(HowMany::Tested).into_iter().flat_map(|(_, bitmaps)| bitmaps).collect();
+    corpus.push(checkerboard(7));
+    corpus.extend(worst::saved().into_iter().map(|(_, bitmap)| bitmap));
     let (mut tessera, mut stream, mut back) = (Tessera::new(), BitStream::default(), Bitmap::new());
     COUNTED.with(|counted| counted.set((true, 0)));
-    for bitmap in &sample {
+    for bitmap in &corpus {
         tessera.encode(bitmap, &mut stream);
         tessera.decode(&stream, &mut back);
     }
     let (_, allocations) = COUNTED.with(|counted| counted.replace((false, 0)));
-    assert_eq!(allocations, 0, "{allocations} allocations encoding and decoding {} bitmaps", sample.len());
+    assert_eq!(allocations, 0, "{allocations} allocations encoding and decoding {} bitmaps", corpus.len());
 }

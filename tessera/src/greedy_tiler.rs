@@ -87,7 +87,7 @@ fn place_subtree(patterns: &Patterns, tree: &mut Tree, visit: Visit) {
 }
 
 /// The complex tiling, bottom up over the placed `tree`: the tree's bits,
-/// residual blocks at their prices in `pricing`, and its start level.
+/// residual floor tiles at their prices in `pricing`, and its start level.
 pub fn complex_tiling(bitmap: &Bitmap, set_cells_before_each_word: &SetCellsBeforeEachWord, tree: &mut Tree, pricing: &mut Pricing) -> (u64, u8) {
     pricing.clear();
     let fewest_bits = count_subtree(bitmap, set_cells_before_each_word, tree, pricing, Tile::WHOLE_BITMAP).fewest_bits;

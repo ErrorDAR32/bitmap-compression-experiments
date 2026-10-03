@@ -37,7 +37,7 @@ pub mod tree;
 
 // What measures and tests it.
 pub mod diagnostics;
-pub mod sample_generators;
+pub mod corpus;
 pub mod transient_data;
 
 #[cfg(test)]
@@ -49,7 +49,7 @@ pub use bit_stream::{BitStream, MOST_BITS};
 use bitmap::Bitmap;
 use bit_stream::{Counter, Sink};
 use greedy_tiler::{complex_tiling, greedy_tiling};
-use last_pass::{BlockPlan, LastPass, Pricing};
+use last_pass::{FloorPlan, LastPass, Pricing};
 use quadtree_writer::{read_tree_and_plan_last_pass, write_tree_and_plan_last_pass, FLAG_WIDTH};
 use tree::Tree;
 use patterns::Patterns;
@@ -89,10 +89,10 @@ pub struct Tessera {
     patterns: Patterns,
     /// The tree of the bitmap encoded.
     tree: Tree,
-    /// The residual blocks' prices.
+    /// The residual floor tiles' prices.
     pricing: Pricing,
-    /// The blocks the tree leaves to the last pass.
-    block_plan: BlockPlan,
+    /// The floor tiles the tree leaves to the last pass.
+    floor_plan: FloorPlan,
     /// Room for the last pass.
     last_pass: LastPass,
 }
@@ -105,7 +105,7 @@ impl Tessera {
             patterns: Patterns::new(),
             tree: Tree::new(),
             pricing: Pricing::new(),
-            block_plan: BlockPlan::new(),
+            floor_plan: FloorPlan::new(),
             last_pass: LastPass::new(),
         }
     }
@@ -123,17 +123,17 @@ impl Tessera {
             return;
         }
         stream.push_value(TREE_STREAM, FLAG_WIDTH);
-        write_tree_and_plan_last_pass(stream, &self.tree, bitmap, &mut self.block_plan, start_level);
+        write_tree_and_plan_last_pass(stream, &self.tree, bitmap, &mut self.floor_plan, start_level);
         if cfg!(debug_assertions) {
             let mut prices = 0;
-            self.block_plan.residual_blocks(|index| prices += self.pricing.of(index));
+            self.floor_plan.residual_floor_tiles(|index| prices += self.pricing.of(index));
             assert_eq!(stream.len() as u64 - FLAG_WIDTH as u64, tree_bits - prices, "the tree written is not the tree counted");
         }
-        self.last_pass.encode(&mut self.block_plan, bitmap, stream);
+        self.last_pass.encode(&mut self.floor_plan, bitmap, stream);
     }
 
     /// Tiles `bitmap` and counts both streams: the tree's bits, its
-    /// residual blocks at their prices, its start level, and the binary
+    /// residual floor tiles at their prices, its start level, and the binary
     /// count tree's bits.
     fn weigh(&mut self, bitmap: &Bitmap) -> (u64, u8, u64) {
         self.set_cells_before_each_word.count(bitmap);
@@ -146,7 +146,7 @@ impl Tessera {
     }
 
     /// What each stream would take for `bitmap`, for diagnostics: the
-    /// tree's bits, its residual blocks at their prices, and the binary
+    /// tree's bits, its residual floor tiles at their prices, and the binary
     /// count tree's -- what encoding weighs, each without its mode bit.
     pub fn stream_bits(&mut self, bitmap: &Bitmap) -> (u64, u64) {
         let (tree_bits, _, binary_count_tree_bits) = self.weigh(bitmap);
@@ -168,8 +168,8 @@ impl Tessera {
             binary_count_tree::read(&mut reader, bitmap);
             return;
         }
-        read_tree_and_plan_last_pass(&mut reader, bitmap, &mut self.block_plan);
-        self.last_pass.decode(&mut self.block_plan, bitmap, &mut reader);
+        read_tree_and_plan_last_pass(&mut reader, bitmap, &mut self.floor_plan);
+        self.last_pass.decode(&mut self.floor_plan, bitmap, &mut reader);
     }
 }
 

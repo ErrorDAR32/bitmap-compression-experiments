@@ -1,6 +1,6 @@
 //! Bitmaps laid out the way the encoding is meant for.
 //!
-//! The grown samples are blobs and scattered cells, with no structure
+//! The grown corpus bitmaps are blobs and scattered cells, with no structure
 //! beyond their clustering. A city is structured throughout: streets
 //! run on a pitch, blocks fill what is between them, and courtyards are
 //! holes inside blocks. None of it is aligned to the quadtree: each
@@ -9,7 +9,7 @@
 //! measure the encoder on the one case it cannot find hard.
 //!
 //! These are not a claim about any real city. They are the shape the
-//! encoding was designed around, made the same way the grown samples
+//! encoding was designed around, made the same way the grown bitmaps
 //! are: settled entirely by a seed and a plan, regenerated every time
 //! they are asked for, never stored.
 
@@ -49,7 +49,7 @@ impl Plan {
 
     /// `count` bitmaps of this plan, built one at a time.
     pub fn take(&'static self, count: u64) -> Cities {
-        Cities { seed: super::sample_seed(), left: count, plan: self }
+        Cities { seed: super::corpus_seed(), left: count, plan: self }
     }
 
     /// As many as a timed run of this plan should take.

@@ -1,4 +1,4 @@
-//! Fast tests: a small sample from the seed in `transient_data/seed` --
+//! Fast tests: a small corpus from the seed in `transient_data/seed` --
 //! every shape, sparse shape, plan and line set, at its `tested` count;
 //! and each family, and the saved bitmaps, turned every way round.
 //!
@@ -7,8 +7,8 @@
 mod common;
 mod turning;
 
-use tessera::diagnostics::adversarial::record;
-use tessera::sample_generators::{families, HowMany, LINE_SETS, PLANS, SHAPES, SPARSE};
+use tessera::diagnostics::adversarial::worst;
+use tessera::corpus::{families, HowMany, LINE_SETS, PLANS, SHAPES, SPARSE};
 use common::check;
 use turning::check_turned_bits;
 
@@ -62,6 +62,6 @@ fn every_line_set_round_trips() {
 #[test]
 fn turned_bitmaps_take_about_as_many_bits() {
     let mut sets = families(HowMany::Tested);
-    sets.push(("the saved adversarial bitmaps".to_string(), record::saved().into_iter().map(|(_, bitmap)| bitmap).collect()));
+    sets.push(("the saved adversarial bitmaps".to_string(), worst::saved().into_iter().map(|(_, bitmap)| bitmap).collect()));
     check_turned_bits(sets, MOST_TURNED_DRIFT_PERCENT);
 }

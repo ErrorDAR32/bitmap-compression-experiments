@@ -147,6 +147,7 @@ what they always do and are not listed.
 | **stream** | the bits Tessera writes (`BitStream`) | | |
 | **level** | a Tessera tile's size: 0 the whole bitmap, 8 one cell, each half the side of the one before | tile | scale (the simulation's, the other way round) |
 | **floor** | Tessera's 4x4 tiles, the finest its tree holds a node at; a **floor tile** is one of them | tile, last pass | block |
+| **floor plan** | the floor tiles the tree leaves to the last pass: each a copy covers, with its source, and each residual one (`FloorPlan`) | floor, last pass | block plan |
 | **tree** | Tessera's quadtree of the bitmap: tiles, complex tiles and copies (`Tree`) | node, tile | |
 | **node** | one tile's entry in the tree (`Node`) | tree | |
 | **corpus** | the bitmaps Tessera is tested and measured on, from its generators | generator | sample |

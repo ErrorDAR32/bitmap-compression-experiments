@@ -2,7 +2,7 @@
 
 A crate of its own, apart from Tessera: the external codecs are its
 dependencies only, never Tessera's. It encodes and decodes the same large
-sample the diagnostics tool's `timing` uses -- every generator, 100 distinct
+corpus the diagnostics tool's `timing` uses -- every generator, 100 distinct
 bitmaps each (2000 in all) -- with each codec, checks every bitmap
 comes back whole, and prints, a family at a time, each codec's mean
 encoded bits and mean encode and decode time -- and keeps those tables
@@ -27,7 +27,7 @@ apt-get install libjbig-dev
 ```
 
 Then, from `tessera/` -- the manifest path is relative to it -- in
-release, with nothing else busy. The samples use the seed held in
+release, with nothing else busy. The corpus bitmaps use the seed held in
 `transient_data/seed`, as every other measurement does:
 
 ```
@@ -44,8 +44,8 @@ The argument, if given, is how many bitmaps each generator makes.
 runs against the raw cells) against each codec here: four searches at
 once for each of G4, JBIG, zstd 3 and zstd 19, maximizing Tessera's bits
 less the codec's. The worst found for each is kept in
-`transient_data/records/against_<codec>.pbm`, replaced only when
-beaten, and each run carries on from it; every record must round trip
+`transient_data/worst/against_<codec>.pbm`, replaced only when
+beaten, and each run carries on from it; every worst bitmap must round trip
 through both encoders, and both are timed on it (the median of 21
 encodes). From `tessera/`, in release:
 

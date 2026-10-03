@@ -38,7 +38,7 @@ impl Codec for G4 {
 
     fn encode(&mut self, _: &Bitmap, rows: &Rows) {
         let mut encoder = Encoder::new(VecWriter::with_capacity(BYTES));
-        for row in rows.0.chunks_exact(ROW_BYTES) {
+        for row in rows.0.as_chunks::<ROW_BYTES>().0 {
             let pels = (0..WIDTH).map(|x| if row[x / 8] & (0x80 >> (x % 8)) != 0 { Color::Black } else { Color::White });
             encoder.encode_line(pels, WIDTH as u32).expect("writing to memory");
         }

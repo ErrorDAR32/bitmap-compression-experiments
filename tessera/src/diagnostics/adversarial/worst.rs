@@ -2,13 +2,13 @@
 //! one row of `0`/`1` a line, `1` set), readable by any image viewer
 //! and by a diff. Two kinds:
 //!
-//! - records, in `transient_data/records/`, out of git: the worst bitmap
+//! - the worst, in `transient_data/worst/`, out of git: the worst bitmap
 //!   found so far for each objective. A run starts from it and replaces
 //!   it only when it beats it, so the search keeps going across runs;
-//! - saved bitmaps, in `external_benchmarks/adversarial/saved/`: bitmaps taken from
-//!   the records once a search has settled, named for what they are and
-//!   never replaced by a search. The benchmarks encode these, so their
-//!   inputs stay fixed while the records move.
+//! - saved bitmaps, in `external_benchmarks/adversarial/saved/`: bitmaps
+//!   taken from the worst once a search has settled, named for what they
+//!   are and never replaced by a search. The benchmarks encode these, so
+//!   their inputs stay fixed while the worst move.
 //!
 //! Comment lines (`#`) carry notes: what a bitmap is, and what it scored.
 
@@ -21,9 +21,9 @@ const SAVED: &str = "external_benchmarks/adversarial/saved";
 /// A plain PBM's first word.
 const MAGIC: &str = "P1";
 
-/// The records' folder.
-fn records_folder() -> PathBuf {
-    crate::transient_data::records()
+/// The worst bitmaps' folder.
+fn worst_folder() -> PathBuf {
+    crate::transient_data::worst()
 }
 
 /// The saved bitmaps' folder.
@@ -31,9 +31,9 @@ fn saved_folder() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(SAVED)
 }
 
-/// The record named `name`'s file.
+/// The worst bitmap named `name`'s file.
 pub fn path(name: &str) -> PathBuf {
-    records_folder().join(format!("{name}.pbm"))
+    worst_folder().join(format!("{name}.pbm"))
 }
 
 /// The saved bitmap named `name`'s file.
@@ -55,10 +55,10 @@ fn every_in(folder: &Path) -> Vec<(String, Bitmap)> {
         .collect()
 }
 
-/// Every record there is, each named, in name order: the worst bitmaps
+/// Every worst bitmap there is, each named, in name order: the worst
 /// found so far for each search.
 pub fn all() -> Vec<(String, Bitmap)> {
-    every_in(&records_folder())
+    every_in(&worst_folder())
 }
 
 /// Every saved bitmap, each named, in name order: the fixed hard cases
@@ -67,7 +67,7 @@ pub fn saved() -> Vec<(String, Bitmap)> {
     every_in(&saved_folder())
 }
 
-/// The record named `name`, if there is one and it reads as a 256x256
+/// The worst bitmap named `name`, if there is one and it reads as a 256x256
 /// plain PBM.
 pub fn read(name: &str) -> Option<Bitmap> {
     read_from(&path(name))
@@ -116,8 +116,8 @@ fn write_to(path: &Path, bitmap: &Bitmap, notes: &[String]) {
     fs::write(path, text).unwrap();
 }
 
-/// Records `bitmap` as `name`, `note` in the file's comment line,
-/// replacing any record there was.
+/// Keeps `bitmap` as the worst bitmap `name`, `note` in the file's
+/// comment line, replacing any there was.
 pub fn write(name: &str, bitmap: &Bitmap, note: &str) {
     write_to(&path(name), bitmap, &[note.to_string()]);
 }

@@ -14,7 +14,7 @@ use common::check;
 use tessera::diagnostics::examination::tree_of;
 use tessera::diagnostics::tree_stats::TreeStats;
 use tessera::encode;
-use tessera::sample_generators::{one_grown, one_laid_out, seed_uncounted, PLANS};
+use tessera::corpus::{one_grown, one_laid_out, seed_uncounted, PLANS};
 use tessera::tile::{Tile, CELL_LEVEL, FLOOR_LEVEL};
 use tessera::tree::Node;
 
@@ -82,18 +82,18 @@ fn all_set_is_one_tile_in_eight_bits() {
     check(&bitmap, "all set");
 }
 
-/// Every adversarial record -- the worst bitmap found so far against
+/// Every adversarial worst bitmap -- the worst bitmap found so far against
 /// the raw cells and against each other codec -- and every saved
 /// adversarial bitmap passes every check: each is a hard case, kept for
-/// working on Tessera against. The records are what the searches leave
+/// working on Tessera against. The worst bitmaps are what the searches leave
 /// behind, out of git: a fresh checkout has none, and checks the saved
 /// ones alone.
 #[test]
 fn adversarial_bitmaps_pass_every_check() {
-    use tessera::diagnostics::adversarial::record;
-    let (records, saved) = (record::all(), record::saved());
+    use tessera::diagnostics::adversarial::worst;
+    let (kept, saved) = (worst::all(), worst::saved());
     assert!(!saved.is_empty(), "no saved adversarial bitmaps in external_benchmarks/adversarial/saved");
-    for (name, bitmap) in records.into_iter().chain(saved) {
+    for (name, bitmap) in kept.into_iter().chain(saved) {
         check(&bitmap, &name);
     }
 }
@@ -137,23 +137,23 @@ fn one_ragged_bitmap_round_trips() {
     check(&one_grown(seed(), 0.20, 0.70), "one middling ragged bitmap");
 }
 
-/// A complex tile says every cell under it: where one block of a regular area holds
+/// A complex tile says every cell under it: where one square of a regular area holds
 /// a lone cell, the areas around it are still complex tiles, and the
 /// lone cell is said on its own.
 #[test]
 fn a_lone_cell_leaves_the_areas_around_it_complex_tiles() {
-    // The top-left 64x64: four 32x32s of 16x16 blocks, one block set in
+    // The top-left 64x64: four 32x32s of 16x16 squares, one square set in
     // each, a different one each time -- no 32x32 is homogeneous or a
     // copy of another, so each is one complex tile at 16x16 resolution.
-    // One clear block holds a lone set cell, which no resolution coarser
+    // One clear square holds a lone set cell, which no resolution coarser
     // than 1x1 can say: its 32x32 is no complex tile, and the lone cell's
     // 8x8 says its cells as a cell list.
-    /// The side of one block, in cells.
-    const BLOCK: i64 = 16;
+    /// The side of one square, in cells.
+    const SQUARE: i64 = 16;
     let mut bitmap = Bitmap::new();
-    for (block_x, block_y) in [(0, 0), (3, 0), (0, 3), (3, 3)] {
-        let (x, y) = (block_x * BLOCK, block_y * BLOCK);
-        bitmap.set_rect(x, y, x + BLOCK - 1, y + BLOCK - 1);
+    for (square_x, square_y) in [(0, 0), (3, 0), (0, 3), (3, 3)] {
+        let (x, y) = (square_x * SQUARE, square_y * SQUARE);
+        bitmap.set_rect(x, y, x + SQUARE - 1, y + SQUARE - 1);
     }
     let lone_cell = Tile { level: 8, x: 21, y: 5 };
     bitmap.set(lone_cell.x, lone_cell.y);

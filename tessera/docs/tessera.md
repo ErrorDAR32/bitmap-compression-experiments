@@ -23,15 +23,15 @@ Encoding (`Tessera::encode`, `src/lib.rs`):
 | 1. set cells before each word | `set_cells_before_each_word.rs` | the bitmap | how many cells are set before each of its 1024 words |
 | 2. the pattern pyramid | `patterns.rs` | the bitmap | every tile's pattern number, whole bitmap to 4x4 |
 | 3. the greedy tiling | `greedy_tiling`, `greedy_tiler.rs` | the pattern pyramid | the tree's nodes as placed, top down |
-| 4. the complex tiling | `complex_tiling`, `greedy_tiler.rs` | the placed tree, the bitmap, step 1 | the tree with its complex tiles, each residual block's price, the tree's bits and its start level |
+| 4. the complex tiling | `complex_tiling`, `greedy_tiler.rs` | the placed tree, the bitmap, step 1 | the tree with its complex tiles, each residual floor tile's price, the tree's bits and its start level |
 | 5. the stream | `src/lib.rs`, `binary_count_tree.rs` | the tree's bits, step 1 | the mode: the binary count tree, unless the tree is more than 1% shorter |
 | 6a. the binary count tree, if chosen | `binary_count_tree.rs` | the bitmap, step 1 | the stream: its mode bit, then the binary count tree; the end |
-| 6b. the tree, else | `quadtree_writer.rs`, `payload_writer.rs` | the tree, the bitmap | the stream: its mode bit, the start level, every node with its payload -- and the last pass's block plan |
-| 7. the last pass | `last_pass.rs`, `arithmetic.rs` | the block plan, the bitmap | the copies resolved, and the residual blocks' cells arithmetic-coded |
+| 6b. the tree, else | `quadtree_writer.rs`, `payload_writer.rs` | the tree, the bitmap | the stream: its mode bit, the start level, every node with its payload -- and the last pass's floor plan |
+| 7. the last pass | `last_pass.rs`, `arithmetic.rs` | the floor plan, the bitmap | the copies resolved, and the residual floor tiles' cells arithmetic-coded |
 
 Decoding (`Tessera::decode`) reads the mode bit, then the binary count
 tree and stops; or reads the tree back -- every cell it says outright
-set, and the same block plan gathered -- then runs the same last pass,
+set, and the same floor plan gathered -- then runs the same last pass,
 decoding. Each writer has its reader beside it, in the same file.
 
 Steps 3 and 4 are the greedy tiler: the whole tree is made and counted
@@ -58,7 +58,7 @@ a bound is a bug, and panics.
 
 A tile (`tile.rs`) is its level -- 0 the whole bitmap, 8 one cell --
 and its x and y among the tiles of that level. Its children are the 2x2
-block one level finer. The bitmap and every pyramid level are laid out
+floor tile one level finer. The bitmap and every pyramid level are laid out
 in Morton order (`../bitmap/src/morton.rs`):
 
 ```text
@@ -113,7 +113,7 @@ place(tile, bound):
      b. a flipping divide: v = not bound; the children homogeneous
         with v bound to it, the others named; worth it if it binds
         at least 2                                                -- done
-  4. else divide: at the 4x4 floor, a residual block; coarser, each
+  4. else divide: at the 4x4 floor, a residual floor tile; coarser, each
      child visited, its bound the same
 ```
 
@@ -152,7 +152,7 @@ bottom-right goes on down.
 Bottom up over the placed tree, every tile is counted after its
 children: its node's own bits, as the quadtree writer writes them --
 counting is writing to a counter -- and each child node's fewest; a
-residual block at its price. A divide or a residual block may instead
+residual floor tile at its price. A divide or a residual floor tile may instead
 be one **complex tile**: a value for every tile of its **resolution**,
 `size offset` levels finer, each homogeneous -- it says every cell
 under it, so it never contains another complex tile. Candidates, each
@@ -180,15 +180,15 @@ written under it in the tree pyramid: every walk stops at the complex
 tile, so nothing reads them. Diagnostics walk the tree from the top for
 the same reason; a scan of the pyramid would count them.
 
-**Prices.** A residual block is counted at what the last pass takes for
+**Prices.** A residual floor tile is counted at what the last pass takes for
 it, priced as the walk reaches it, in Morton order, the pass's: its
-cells coded by the same block coder as the last pass, each at its
+cells coded by the same floor tile coder as the last pass, each at its
 context's odds as learned so far, the cost summed and rounded to the
 nearest bit. Contexts are read off the bitmap itself, where the pass
 reads the cells as decoding has them -- the same values, but for a cell
-of a copy still waiting on its source. A residual block costs about the
+of a copy still waiting on its source. A residual floor tile costs about the
 same whatever the tree above it, and complex tiles only take residual
-blocks away.
+floor tiles away.
 
 **Example.** An 8x8 divide, clear bound above, three 4x4 children
 clear and one set: the three clear ones are left to the binding above,
@@ -242,7 +242,7 @@ A node:
                   over the size offsets its level allows, finest first;
                   at 1x1 resolution, 1 bit: 0 raw, 1 a cell list; then
                   its payload
-0: at the 4x4 floor, a residual block: its 16 cells go to the last pass
+0: at the 4x4 floor, a residual floor tile: its 16 cells go to the last pass
    coarser, a divide -- 1 names-children bit:
      0: four child nodes
      1: 1 flip bit (0 the value bound above stays, 1 it flips: a
@@ -266,11 +266,11 @@ at 8x8 and 16x16, 2-3 at 32x32 to 128x128, 3 at the whole bitmap.
 | cell list | 3 + size offset code + 1, then about `k (log2(N/k) + 1.5)` |
 | divide | 2 |
 | divide naming children, or flipping divide | 7, then its named children |
-| residual block | 1, then its cells in the last pass |
+| residual floor tile | 1, then its cells in the last pass |
 
-Writing or reading the tree, the walk gathers the last pass's **block
-plan** (`BlockPlan`, `last_pass.rs`): the source block of every block a
-copy covers, and the residual blocks. It is gathered there because the
+Writing or reading the tree, the walk gathers the last pass's **floor tile
+plan** (`FloorPlan`, `last_pass.rs`): the source floor tile of every floor tile a
+copy covers, and the residual floor tiles. It is gathered there because the
 tree is walked anyway, the same way in both directions, and because
 only a walk from the top sees the tree as written (see "Stale nodes").
 
@@ -291,27 +291,27 @@ lone cell.
 ## The last pass
 
 After the tree, both directions run one pass (`last_pass.rs`) over the
-blocks in the block plan, in Morton order: a block a copy covers is
-copied from its source block; a residual block's 16 cells are coded one
+floor tiles in the floor plan, in Morton order: a floor tile a copy covers is
+copied from its source floor tile; a residual floor tile's 16 cells are coded one
 by one, in Morton order -- the order they lie in the bitmap -- each by
 the range coder at the odds its context has had so far.
 
 **Copies.** A copy is chosen on content alone, so its source may still
 be unsaid when the pass reaches it. Every source is before its copy in
 reading order, but one up and to the right comes later in Morton order:
-a copied block's source is copied first, down the chain, and when the
-chain ends at a residual block not coded yet, the copy waits until the
-end of the pass. A block is its Morton index among the 4096 blocks, its
+a copied floor tile's source is copied first, down the chain, and when the
+chain ends at a residual floor tile not coded yet, the copy waits until the
+end of the pass. A floor tile is its Morton index among the 4096 floor tiles, its
 cells the 16-cell run from 16 times that index.
 
 **The context.** Six cells: top left, above and left, and the same two
 cells away. Morton order only moves right or down, so each comes before
-its cell, in the block and across blocks, and is final when the cell is
+its cell, in the floor tile and across floor tiles, and is final when the cell is
 coded -- but for a cell of a copy still waiting on its source, which
 reads as clear, as does one off the bitmap. Their values pick one of 64
-contexts. A block is coded from an 8x8 window of itself and the three
-blocks before it -- above left, above, left -- read once, rows of the
-window turned out of each block's Morton run by a table; a cell's
+contexts. A floor tile is coded from an 8x8 window of itself and the three
+floor tiles before it -- above left, above, left -- read once, rows of the
+window turned out of each floor tile's Morton run by a table; a cell's
 context is its 3x3 neighbourhood in the window, three rows of three
 cells, looked up in a table of 512. Encoding works on the cells as
 decoding will have them, so both read the same contexts.
@@ -340,7 +340,7 @@ with no length kept.
 
 **Why the 4x4 floor.** At a 2x2 floor a 2x2 that was not one tile cost
 5 bits, and a 4x4 of them at least 9. At the 4x4 floor such a 4x4 is
-one residual block: a bit, then 16 cells coded from their neighbours --
+one residual floor tile: a bit, then 16 cells coded from their neighbours --
 well under a bit a cell along streets and lines.
 
 ## Tests
@@ -365,7 +365,7 @@ them back.
 | `per_shape.csv` | `... -- per_shape` | bits a bitmap and a cell set, shape by shape |
 | `noise.csv` | `... -- noise` | bits on noise at several densities |
 | `timing.csv` | `... -- timing` | encode and decode times, family by family |
-| `instruction_count.csv` | `... -- instruction_count` | instructions to encode and decode a sample, by callgrind |
+| `instruction_count.csv` | `... -- instruction_count` | instructions to encode and decode a corpus, by callgrind |
 | `sparse.csv` | `... -- sparse` | the tree against the binary count tree on sparse bitmaps |
 | `external_benchmarks.csv` | `cargo run --release --manifest-path external_benchmarks/Cargo.toml` | Tessera against G4, JBIG and zstd |
 | `adversarial.csv` | `cargo run --release --bin adversarial` | the last search against the raw cells |

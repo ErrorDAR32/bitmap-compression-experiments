@@ -1,5 +1,5 @@
 //! Complete tests: everything the measurements run on, plus a moderate
-//! sample from a second seed base the measurements never see, plus the
+//! corpus from a second seed base the measurements never see, plus the
 //! checkerboards; and every family turned each way round, taking about
 //! as many bits.
 //!
@@ -9,17 +9,17 @@ mod common;
 
 mod turning;
 
-use tessera::diagnostics::adversarial::record;
-use tessera::sample_generators::checkerboards::checkerboards;
-use tessera::sample_generators::{families, grown, one_laid_out, sample_seed, HowMany, PLANS, SHAPES};
+use tessera::diagnostics::adversarial::worst;
+use tessera::corpus::checkerboards::checkerboards;
+use tessera::corpus::{families, grown, one_laid_out, corpus_seed, HowMany, PLANS, SHAPES};
 use common::check;
 use turning::check_turned_bits;
 
-/// How far from the measured seeds the second sample starts.
+/// How far from the measured seeds the second corpus starts.
 const SECOND_SEED_OFFSET: u64 = 1_000_000;
 
-/// How many of each shape and plan the second sample takes.
-const SECOND_SAMPLE_EACH: u64 = 4;
+/// How many of each shape and plan the second corpus takes.
+const SECOND_CORPUS_EACH: u64 = 4;
 
 /// Every bitmap of every family, at its `timed` count, passes every check in
 /// `common::check`: covered, capped, costed as written, and decoded back,
@@ -42,14 +42,14 @@ fn every_family_round_trips() {
 #[ignore]
 fn a_second_seed_base_round_trips() {
     for shape in &SHAPES {
-        let seed = sample_seed().wrapping_add(SECOND_SEED_OFFSET);
-        for (case, bitmap) in grown(seed, shape.density, shape.cluster, SECOND_SAMPLE_EACH).enumerate() {
+        let seed = corpus_seed().wrapping_add(SECOND_SEED_OFFSET);
+        for (case, bitmap) in grown(seed, shape.density, shape.cluster, SECOND_CORPUS_EACH).enumerate() {
             check(&bitmap, &format!("{}, second seed base, case {case}", shape.name));
         }
     }
     for plan in &PLANS {
-        let seed = sample_seed().wrapping_add(SECOND_SEED_OFFSET);
-        for case in 0..SECOND_SAMPLE_EACH {
+        let seed = corpus_seed().wrapping_add(SECOND_SEED_OFFSET);
+        for case in 0..SECOND_CORPUS_EACH {
             check(&one_laid_out(seed + case, plan), &format!("{}, second seed base, case {case}", plan.name));
         }
     }
@@ -70,7 +70,7 @@ fn every_checkerboard_round_trips() {
 /// half or three quarters, at the timed counts: more than twice what any
 /// seed's families have moved, and still far under the bias the saved
 /// horizontal-streaks bitmap once had for one orientation, when residual
-/// blocks were counted at a bit a cell.
+/// floor tiles were counted at a bit a cell.
 const MOST_TURNED_DRIFT_PERCENT: f64 = 2.0;
 
 /// Every family, at its `timed` count, and the saved adversarial
@@ -80,6 +80,6 @@ const MOST_TURNED_DRIFT_PERCENT: f64 = 2.0;
 #[ignore]
 fn turned_bitmaps_take_about_as_many_bits() {
     let mut sets = families(HowMany::Timed);
-    sets.push(("the saved adversarial bitmaps".to_string(), record::saved().into_iter().map(|(_, bitmap)| bitmap).collect()));
+    sets.push(("the saved adversarial bitmaps".to_string(), worst::saved().into_iter().map(|(_, bitmap)| bitmap).collect()));
     check_turned_bits(sets, MOST_TURNED_DRIFT_PERCENT);
 }

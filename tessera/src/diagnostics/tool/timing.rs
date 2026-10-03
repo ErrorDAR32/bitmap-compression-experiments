@@ -1,10 +1,10 @@
-//! Wall-clock time to encode, averaged over a large sample: every
+//! Wall-clock time to encode, averaged over a large corpus: every
 //! generator's bitmaps -- grown shapes, sparse ones, city plans and line
-//! sets -- `sample_generators::TIMING_PER_GENERATOR` distinct bitmaps each, all
+//! sets -- `corpus::TIMING_PER_GENERATOR` distinct bitmaps each, all
 //! built before any is timed, then each encoded once in one Tessera.
 //! Decoding is timed apart, after. The saved adversarial bitmaps
 //! (`external_benchmarks/adversarial/saved/`) get a row of their own,
-//! apart from the sample's. Run it in release, on its own -- no
+//! apart from the corpus'. Run it in release, on its own -- no
 //! profiler, nothing else busy:
 //!
 //! ```text
@@ -15,11 +15,11 @@
 //! The argument after the tool's name, if given, is how many bitmaps
 //! each generator makes.
 
-use tessera::diagnostics::adversarial::record;
+use tessera::diagnostics::adversarial::worst;
 use tessera::diagnostics::examination::first_difference;
 use tessera::BitStream;
 use tessera::Tessera;
-use tessera::sample_generators::{families, HowMany, TIMING_PER_GENERATOR};
+use tessera::corpus::{families, HowMany, TIMING_PER_GENERATOR};
 use utilities::table::report::Report;
 use utilities::table::Table;
 use bitmap::Bitmap;
@@ -27,7 +27,7 @@ use std::time::{Duration, Instant};
 
 /// Times each saved adversarial bitmap is encoded: they are few, so each
 /// is timed often enough to average.
-const RECORD_REPEATS: usize = 20;
+const SAVED_REPEATS: usize = 20;
 
 /// Percentile reported as the tail, besides the worst.
 const TAIL_PERCENT: usize = 90;
@@ -35,7 +35,7 @@ const TAIL_PERCENT: usize = 90;
 /// The median's percentile.
 const MEDIAN_PERCENT: usize = 50;
 
-/// Builds the sample, times encoding every bitmap of it once, then
+/// Builds the corpus, times encoding every bitmap of it once, then
 /// decoding, and reports both a family at a time.
 pub fn run(report: &mut Report) {
     let per_generator = std::env::args().nth(2).map_or(TIMING_PER_GENERATOR, |count| count.parse().expect("a count"));
@@ -57,16 +57,16 @@ pub fn run(report: &mut Report) {
     table.rule();
     table.row(&row("all", &mut every_encode, &every_decode));
 
-    // The saved adversarial bitmaps, apart from the sample: few, and
+    // The saved adversarial bitmaps, apart from the corpus: few, and
     // each among the worst found against one encoder, so each is encoded
     // several times.
-    let saved = record::saved();
-    let repeated: Vec<Bitmap> = (0..RECORD_REPEATS).flat_map(|_| saved.iter().map(|(_, bitmap)| bitmap.clone())).collect();
+    let saved = worst::saved();
+    let repeated: Vec<Bitmap> = (0..SAVED_REPEATS).flat_map(|_| saved.iter().map(|(_, bitmap)| bitmap.clone())).collect();
     let name = "adversarial, saved";
     let (mut encodes, decodes) = time(&mut tessera, &mut stream, &mut back, name, &repeated);
     table.rule();
     table.row(&row(name, &mut encodes, &decodes));
-    report.note(format!("{per_generator} bitmaps a generator, the saved adversarial bitmaps {RECORD_REPEATS} times each"));
+    report.note(format!("{per_generator} bitmaps a generator, the saved adversarial bitmaps {SAVED_REPEATS} times each"));
     report.add("encode and decode times", table);
 }
 

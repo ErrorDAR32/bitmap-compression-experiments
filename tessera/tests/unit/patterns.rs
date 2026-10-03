@@ -2,8 +2,8 @@
 //! say so, whatever was built before.
 
 use crate::patterns::{homogeneous_value_of, Patterns};
-use crate::sample_generators::checkerboards::checkerboard;
-use crate::sample_generators::{one_grown, seed_uncounted};
+use crate::corpus::checkerboards::checkerboard;
+use crate::corpus::{one_grown, seed_uncounted};
 use crate::tile::{copy_offset, Tile, DIRECTIONS, FLOOR_LEVEL};
 use bitmap::Bitmap;
 

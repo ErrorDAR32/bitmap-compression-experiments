@@ -1,12 +1,12 @@
 //! Tessera against existing bitmap compressors -- CCITT Group 4, JBIG
-//! (jbigkit) and zstd -- on the same large sample the diagnostics tool's `timing` uses:
-//! every generator, `sample_generators::TIMING_PER_GENERATOR` distinct bitmaps each. For
+//! (jbigkit) and zstd -- on the same large corpus the diagnostics tool's `timing` uses:
+//! every generator, `corpus::TIMING_PER_GENERATOR` distinct bitmaps each. For
 //! each family and codec: the mean encoded size, and the mean time to
 //! encode and to decode, each bitmap encoded once and decoded once and
 //! checked. Run in release, on its own -- no profiler, nothing else
 //! busy:
 //!
-//! From `tessera/`, which the manifest path is relative to; the samples
+//! From `tessera/`, which the manifest path is relative to; the corpus bitmaps
 //! use the seed every other run does (`transient_data/seed`):
 //!
 //! ```text
@@ -20,7 +20,7 @@
 #![warn(missing_docs, clippy::missing_docs_in_private_items)]
 
 use tessera::diagnostics::RAW_CELLS;
-use tessera::sample_generators::{families, HowMany, TIMING_PER_GENERATOR};
+use tessera::corpus::{families, HowMany, TIMING_PER_GENERATOR};
 use tessera::transient_data;
 use utilities::table::report::Report;
 use utilities::table::Table;
@@ -77,7 +77,7 @@ impl Totals {
     }
 }
 
-/// Builds the sample, runs every codec over every family, and prints a
+/// Builds the corpus, runs every codec over every family, and prints a
 /// table a family, then one for them all.
 fn main() {
     let per_generator = std::env::args().nth(1).map_or(TIMING_PER_GENERATOR, |count| count.parse().expect("a count"));

@@ -8,8 +8,8 @@
 //! [`TOOLS`]; run with no tool, or one not there, and they are printed
 //! as a table.
 //!
-//! The bitmaps looked at are the adversarial records and saved bitmaps
-//! (`transient_data/records/`, `external_benchmarks/adversarial/saved/`), plus
+//! The bitmaps looked at are the adversarial worst bitmaps and saved bitmaps
+//! (`transient_data/worst/`, `external_benchmarks/adversarial/saved/`), plus
 //! any PBM image named in `TESSERA_DIAGNOSE`.
 //! Every tool stops if Tessera loses a cell.
 //!
@@ -60,7 +60,7 @@ struct Tool {
 const TOOLS: [Tool; 10] = [
     Tool {
         name: "measurement",
-        prints: "bits a bitmap from every sample generator, a table a generator, a row a parameter set; then what the trees hold",
+        prints: "bits a bitmap from every corpus generator, a table a generator, a row a parameter set; then what the trees hold",
         argument: "",
         run: Run::Measuring(measurement::run),
     },
@@ -90,21 +90,21 @@ const TOOLS: [Tool; 10] = [
     },
     Tool {
         name: "timing",
-        prints: "time to encode and decode a large sample, family by family",
+        prints: "time to encode and decode a large corpus, family by family",
         argument: "bitmaps a generator (100)",
         run: Run::Measuring(timing::run),
     },
     Tool {
         name: "instruction_count",
-        prints: "instructions to encode and to decode a fixed sample, counted by callgrind (needs valgrind)",
+        prints: "instructions to encode and to decode a fixed corpus, counted by callgrind (needs valgrind)",
         argument: "",
         run: Run::Measuring(instruction_count::run),
     },
     Tool {
-        name: instruction_count::SAMPLE_TOOL,
-        prints: "nothing: encodes and decodes that sample alone, uncounted -- what callgrind runs",
+        name: instruction_count::CORPUS_TOOL,
+        prints: "nothing: encodes and decodes that corpus alone, uncounted -- what callgrind runs",
         argument: "",
-        run: Run::Other(instruction_count::run_sample),
+        run: Run::Other(instruction_count::run_corpus),
     },
     Tool {
         name: "render",

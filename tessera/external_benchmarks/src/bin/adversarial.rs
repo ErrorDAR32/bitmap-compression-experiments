@@ -3,9 +3,9 @@
 //! where Tessera's bits most exceed that codec's -- the library's search
 //! (`tessera::diagnostics::adversarial`), scored as Tessera's bits less the codec's. The
 //! worst found for each codec is kept as a PBM image in
-//! `transient_data/records/`, replaced only when beaten, and carried on
-//! from by the next run; every recorded bitmap is checked to round trip
-//! through both Tessera and the codec. Then, for each record, both
+//! `transient_data/worst/`, replaced only when beaten, and carried on
+//! from by the next run; every kept bitmap is checked to round trip
+//! through both Tessera and the codec. Then, for each worst bitmap, both
 //! encoders' times on it. The table -- a row a codec -- is printed and
 //! kept in `transient_data/measurements/external_adversarial.csv`.
 //!
@@ -22,8 +22,8 @@
 
 #![warn(missing_docs, clippy::missing_docs_in_private_items)]
 
-use tessera::diagnostics::adversarial::{record, search_at_once, Effort, Score, SEARCHES_AT_ONCE};
-use tessera::sample_generators::sample_seed;
+use tessera::diagnostics::adversarial::{worst, search_at_once, Effort, Score, SEARCHES_AT_ONCE};
+use tessera::corpus::corpus_seed;
 use tessera::transient_data;
 use utilities::table::report::Report;
 use utilities::table::Table;
@@ -36,24 +36,24 @@ use external_benchmarks::codecs::Codec;
 use external_benchmarks::rows::Rows;
 use std::time::Instant;
 
-/// Times each record is encoded to time it: the median is kept.
+/// Times each worst bitmap is encoded to time it: the median is kept.
 const TIMINGS: usize = 21;
 
-/// A codec to search against: what its record is kept under, and how to
+/// A codec to search against: what its worst bitmap is kept under, and how to
 /// make one.
 struct Opponent {
-    /// The record's name, `against_` and the codec.
-    record: &'static str,
+    /// The worst bitmap's name, `against_` and the codec.
+    worst: &'static str,
     /// A fresh codec: each search gets its own.
     make: fn() -> Box<dyn Codec>,
 }
 
 /// Every codec searched against.
 const OPPONENTS: [Opponent; 4] = [
-    Opponent { record: "against_g4", make: || Box::new(G4::new()) },
-    Opponent { record: "against_jbig", make: || Box::new(Jbig::new()) },
-    Opponent { record: "against_zstd3", make: || Box::new(Zstd::new(3)) },
-    Opponent { record: "against_zstd19", make: || Box::new(Zstd::new(19)) },
+    Opponent { worst: "against_g4", make: || Box::new(G4::new()) },
+    Opponent { worst: "against_jbig", make: || Box::new(Jbig::new()) },
+    Opponent { worst: "against_zstd3", make: || Box::new(Zstd::new(3)) },
+    Opponent { worst: "against_zstd19", make: || Box::new(Zstd::new(19)) },
 ];
 
 /// Tessera's bits and the codec's, on one bitmap.
@@ -83,46 +83,46 @@ fn median_micros(mut encode: impl FnMut()) -> f64 {
     times[TIMINGS / 2]
 }
 
-/// Searches against every codec, records any new worst, and reports the
-/// records with both encoders' bits and times.
+/// Searches against every codec, keeps any new worst, and reports the
+/// worst bitmaps with both encoders' bits and times.
 fn main() {
-    let seed = sample_seed();
+    let seed = corpus_seed();
     let effort = Effort::from_arguments();
     let mut table = Table::new(&[
         "against",
         "worst gap\nthis run",
-        "record's gap\nbefore",
-        "record's gap\nnow",
-        "record\nreplaced",
+        "kept gap\nbefore",
+        "kept gap\nnow",
+        "worst\nreplaced",
         "Tessera\nbits",
         "codec\nbits",
         "Tessera\nencode us",
         "codec\nencode us",
     ]);
     for (index, opponent) in OPPONENTS.iter().enumerate() {
-        let recorded = record::read(opponent.record);
+        let kept = worst::read(opponent.worst);
         let opponent_seed = seed.wrapping_add(index as u64 * SEARCHES_AT_ONCE);
-        let outcomes = search_at_once(opponent_seed, recorded.clone(), effort, &|| {
+        let outcomes = search_at_once(opponent_seed, kept.clone(), effort, &|| {
             let (mut tessera, mut codec) = (Tessera::new(), (opponent.make)());
             move |bitmap: &Bitmap, _| score(&mut tessera, codec.as_mut(), bitmap)
         });
         let worst = outcomes.iter().map(|outcome| &outcome.worst).max_by_key(|found| found.score.gap).expect("a search");
 
         let (mut tessera, mut codec) = (Tessera::new(), (opponent.make)());
-        let record_gap = recorded.as_ref().map(|bitmap| score(&mut tessera, codec.as_mut(), bitmap).gap);
-        let beaten = record_gap.is_none_or(|gap| worst.score.gap > gap);
+        let kept_gap = kept.as_ref().map(|bitmap| score(&mut tessera, codec.as_mut(), bitmap).gap);
+        let beaten = kept_gap.is_none_or(|gap| worst.score.gap > gap);
         if beaten {
-            record::write(opponent.record, &worst.bitmap, &format!("{}: Tessera {} bits over {}", opponent.record, worst.score.gap, codec.name()));
+            worst::write(opponent.worst, &worst.bitmap, &format!("{}: Tessera {} bits over {}", opponent.worst, worst.score.gap, codec.name()));
         }
 
-        // The record, whichever it is now: both encoders must give it
+        // The worst bitmap, whichever it is now: both encoders must give it
         // back, and both are timed on it.
-        let bitmap = record::read(opponent.record).expect("recorded");
+        let bitmap = worst::read(opponent.worst).expect("kept");
         let rows = Rows::of(&bitmap);
         for coder in [&mut tessera as &mut dyn Codec, codec.as_mut()] {
             coder.encode(&bitmap, &rows);
             coder.decode();
-            assert!(coder.decoded_matches(&rows), "{} does not round trip {}", coder.name(), opponent.record);
+            assert!(coder.decoded_matches(&rows), "{} does not round trip {}", coder.name(), opponent.worst);
         }
         let (tessera_bits, codec_bits) = bits(&mut tessera, codec.as_mut(), &bitmap);
         let tessera_micros = median_micros(|| tessera.encode(&bitmap, &rows));
@@ -130,7 +130,7 @@ fn main() {
         table.row(&[
             codec.name(),
             worst.score.gap.to_string(),
-            record_gap.map_or("none".to_string(), |gap| gap.to_string()),
+            kept_gap.map_or("none".to_string(), |gap| gap.to_string()),
             (tessera_bits as i64 - codec_bits as i64).to_string(),
             if beaten { "yes" } else { "no" }.to_string(),
             tessera_bits.to_string(),
@@ -147,7 +147,7 @@ fn main() {
         "{SEARCHES_AT_ONCE} searches a codec, {} changes a window start, {} a plane start; gap: Tessera's bits less the codec's",
         effort.window, effort.plane
     ));
-    report.note(format!("times: the median of {TIMINGS} encodings of the record"));
-    report.add("the records, each round tripping through both", table);
+    report.note(format!("times: the median of {TIMINGS} encodings of the worst bitmap"));
+    report.add("the worst bitmaps, each round tripping through both", table);
     transient_data::publish(report);
 }

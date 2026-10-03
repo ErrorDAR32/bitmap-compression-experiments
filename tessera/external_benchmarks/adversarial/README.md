@@ -3,29 +3,29 @@
 Two kinds, both plain PBM images (`P1`, `1` set), 256x256, with notes as
 `#` comment lines:
 
-- **Records**, in `transient_data/records/`, out of git: the worst bitmap
+- **Worst bitmaps**, in `transient_data/worst/`, out of git: the worst bitmap
   found so far for each search, one a codec Tessera is scored against. A
-  search starts from its record and replaces it only when it beats it,
-  so records move, and belong to the working copy that found them.
-- **Saved bitmaps**, in `saved/`: records copied once their search had
+  search starts from its worst bitmap and replaces it only when it beats it,
+  so worst bitmaps move, and belong to the working copy that found them.
+- **Saved bitmaps**, in `saved/`: worst bitmaps copied once their search had
   settled, named for what they are, never replaced by a search. The fine
   tier checks them, and the diagnostics tool's `instruction_count`,
   `timing` and `measurement` encode them: fixed inputs for
   optimizing against.
 
 Searching and saving are described in `docs/testing_protocol.md`. The
-last search's report -- what it found, and each record before and after
+last search's report -- what it found, and each worst bitmap before and after
 -- is kept in `transient_data/measurements/adversarial.csv` (against the raw
 cells) and `transient_data/measurements/external_adversarial.csv` (against the
 codecs).
 
 ## Saved bitmaps
 
-Each codec's bitmap was saved from its record after one search of
+Each codec's bitmap was saved from its worst bitmap after one search of
 4,000 changes on the whole plane from each start (seed
 4993203171652246682), then one of 16,000 (seed 6573815569834013518),
 four searches a codec each time: the longer search barely moved the zstd
-and JBIG records, so they had settled; G4's still moved, so it may yet
+and JBIG worst bitmaps, so they had settled; G4's still moved, so it may yet
 be beaten.
 
 What Tessera and the codecs make of them now is measured, not written here:

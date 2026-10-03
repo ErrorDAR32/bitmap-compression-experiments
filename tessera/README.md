@@ -67,16 +67,16 @@ Encoding runs these steps:
    copyable.
 3. **The greedy tiling**, top down: each tile is bound, copied, or
    divided into its four children; a 4x4 left unplaced is a residual
-   block.
+   floor tile.
 4. **The complex tiling**, bottom up: each tile is counted, residual
-   blocks priced at what the last pass would take, and a divide or
-   residual block made one complex tile where that takes fewer bits.
+   floor tiles priced at what the last pass would take, and a divide or
+   residual floor tile made one complex tile where that takes fewer bits.
 5. **The stream**: the binary count tree, for sparse bitmaps, unless
    the tree is more than 1% shorter.
 6. **The writers**: the binary count tree, or the tree, gathering the
-   last pass's block plan as it goes.
-7. **The last pass**: blocks copies cover are copied, and residual
-   blocks' cells are range-coded in Morton order, each at the odds its
+   last pass's floor plan as it goes.
+7. **The last pass**: floor tiles copies cover are copied, and residual
+   floor tiles' cells are range-coded in Morton order, each at the odds its
    six neighbours' context has had so far.
 
 Decoding reads the mode, then either the binary count tree, or the tree
@@ -91,8 +91,8 @@ Three tiers:
 
 | tier | what | command |
 |---|---|---|
-| fine | one bitmap a test, hand-drawn or grown from the seed; every adversarial record and saved bitmap | `cargo test --test fine` |
-| fast | a small seeded sample of every generator, and every family turned each way | `cargo test --test fast` |
+| fine | one bitmap a test, hand-drawn or grown from the seed; every adversarial worst bitmap and saved bitmap | `cargo test --test fine` |
+| fast | a small seeded corpus of every generator, and every family turned each way | `cargo test --test fast` |
 | complete | everything the measurements run on, a second seed base, every checkerboard | `cargo test --release --test complete -- --ignored` |
 
 Plain `cargo test` runs fine, fast and the unit tests of the private
@@ -142,7 +142,7 @@ tessera/
     testing_protocol.md how a change gets measured
   external_benchmarks/  against G4, JBIG and zstd; the saved adversarial bitmaps
   transient_data/       out of git: what runs leave behind -- the seed,
-                        measurements, adversarial records, renders, callgrind output
+                        measurements, adversarial worst bitmaps, renders, callgrind output
 ```
 
 [`src/lib.rs`](src/lib.rs) maps every module to its step. The

@@ -1,7 +1,7 @@
-//! Instructions to encode and to decode a sample, counted exactly by
+//! Instructions to encode and to decode a corpus, counted exactly by
 //! callgrind: `BITMAPS_PER_GENERATOR` bitmaps of every generator --
 //! grown shapes, sparse ones, city plans and line sets, weighted as the
-//! `timing` tool's sample is -- and noise, from the seed, then a
+//! `timing` tool's corpus is -- and noise, from the seed, then a
 //! checkerboard and every saved adversarial bitmap
 //! (`external_benchmarks/adversarial/saved/`), encoded, then decoded,
 //! all in one Tessera. The seed rolls like every run's: counts are compared
@@ -10,9 +10,9 @@
 //!
 //! Callgrind counts every instruction executed, the same on every run,
 //! where time varies with whatever else the machine does: speed is
-//! compared in instructions. The tool runs the sample under callgrind
+//! compared in instructions. The tool runs the corpus under callgrind
 //! twice, collecting only inside `Tessera::encode`, then only inside
-//! `Tessera::decode` -- building the sample and checking it are not counted
+//! `Tessera::decode` -- building the corpus and checking it are not counted
 //! -- both on the one seed this run settled. It needs valgrind
 //! installed (`apt-get install valgrind`):
 //!
@@ -27,39 +27,39 @@
 //! callgrind_annotate --inclusive=yes transient_data/callgrind/callgrind.encode.out | head -40
 //! ```
 //!
-//! `instruction_sample` runs the sample alone, uncounted: what callgrind
+//! `instruction_corpus` runs the corpus alone, uncounted: what callgrind
 //! runs, and what to run under any other profiler.
 
 use std::path::Path;
 use std::process::Command;
-use tessera::diagnostics::adversarial::record;
+use tessera::diagnostics::adversarial::worst;
 use tessera::diagnostics::examination::first_difference;
 use tessera::diagnostics::RAW_CELLS;
 use tessera::transient_data;
 use tessera::BitStream;
 use tessera::Tessera;
-use tessera::sample_generators::checkerboards::checkerboard;
-use tessera::sample_generators::seed::seed_in_use;
-use tessera::sample_generators::{families, grown, sample_seed, HowMany};
+use tessera::corpus::checkerboards::checkerboard;
+use tessera::corpus::seed::seed_in_use;
+use tessera::corpus::{families, grown, corpus_seed, HowMany};
 use utilities::table::report::Report;
 use utilities::table::Table;
 use bitmap::Bitmap;
 
-/// Bitmaps each generator makes: the first of those the timed sample
+/// Bitmaps each generator makes: the first of those the timed corpus
 /// takes, so the counts weigh each family as the times do.
 const BITMAPS_PER_GENERATOR: u64 = 5;
 
-/// The checkerboard in the sample: odd squares, so nothing lines up.
+/// The checkerboard in the corpus: odd squares, so nothing lines up.
 const CHECKERBOARD_SQUARE: u8 = 7;
-/// Noise in the sample: half the cells, scattered...
+/// Noise in the corpus: half the cells, scattered...
 const NOISE_DENSITY: f64 = 0.5;
 /// ...one bitmap of it.
 const NOISE_BITMAPS: u64 = 1;
 
-/// The tool that runs the sample alone, for callgrind to count.
-pub const SAMPLE_TOOL: &str = "instruction_sample";
+/// The tool that runs the corpus alone, for callgrind to count.
+pub const CORPUS_TOOL: &str = "instruction_corpus";
 
-/// The variable the sample's seed is pinned by, for both runs.
+/// The variable the corpus' seed is pinned by, for both runs.
 const SEED_VARIABLE: &str = "TESSERA_SEED";
 
 /// The two parts counted: a name, and the function callgrind collects
@@ -67,36 +67,36 @@ const SEED_VARIABLE: &str = "TESSERA_SEED";
 // Methods as the profilers name them: `<type>::method`.
 const PARTS: [(&str, &str); 2] = [("encode", "<tessera::Tessera>::encode"), ("decode", "<tessera::Tessera>::decode")];
 
-/// The fixed sample.
-fn sample() -> Vec<Bitmap> {
-    let mut sample: Vec<Bitmap> = families(HowMany::Each(BITMAPS_PER_GENERATOR)).into_iter().flat_map(|(_, bitmaps)| bitmaps).collect();
-    sample.push(checkerboard(CHECKERBOARD_SQUARE));
-    sample.extend(record::saved().into_iter().map(|(_, bitmap)| bitmap));
-    sample.extend(grown(sample_seed(), NOISE_DENSITY, 0.0, NOISE_BITMAPS));
-    sample
+/// The fixed corpus.
+fn corpus() -> Vec<Bitmap> {
+    let mut corpus: Vec<Bitmap> = families(HowMany::Each(BITMAPS_PER_GENERATOR)).into_iter().flat_map(|(_, bitmaps)| bitmaps).collect();
+    corpus.push(checkerboard(CHECKERBOARD_SQUARE));
+    corpus.extend(worst::saved().into_iter().map(|(_, bitmap)| bitmap));
+    corpus.extend(grown(corpus_seed(), NOISE_DENSITY, 0.0, NOISE_BITMAPS));
+    corpus
 }
 
-/// Encodes and decodes every bitmap of the sample, in one Tessera, checking
+/// Encodes and decodes every bitmap of the corpus, in one Tessera, checking
 /// each round trips: what callgrind counts.
-pub fn run_sample() {
-    let sample = sample();
-    // One `Tessera`, stream and bitmap for the whole sample, as a caller
+pub fn run_corpus() {
+    let corpus = corpus();
+    // One `Tessera`, stream and bitmap for the whole corpus, as a caller
     // encoding many would keep them.
     let (mut tessera, mut stream, mut back) = (Tessera::new(), BitStream::default(), Bitmap::new());
-    for bitmap in &sample {
+    for bitmap in &corpus {
         tessera.encode(bitmap, &mut stream);
         tessera.decode(&stream, &mut back);
         assert_eq!(first_difference(bitmap, &back), None, "a bitmap did not round trip");
     }
 }
 
-/// Counts the sample's encoding and decoding instructions under
+/// Counts the corpus' encoding and decoding instructions under
 /// callgrind, and reports them.
 pub fn run(report: &mut Report) {
-    // The sample built here settles the seed, counted as this run's use;
+    // The corpus built here settles the seed, counted as this run's use;
     // both callgrind runs are pinned to it.
-    let bitmaps = sample().len();
-    let (seed, _) = seed_in_use().expect("the sample settled a seed");
+    let bitmaps = corpus().len();
+    let (seed, _) = seed_in_use().expect("the corpus settled a seed");
     let folder = transient_data::callgrind();
     std::fs::create_dir_all(&folder).expect("the output folder made");
     let tool = std::env::current_exe().expect("this tool's own path");
@@ -122,14 +122,14 @@ pub fn run(report: &mut Report) {
 }
 
 /// The instructions callgrind counts inside `function` while `tool` runs
-/// the sample on `seed`, its output kept at `output`.
+/// the corpus on `seed`, its output kept at `output`.
 fn count(tool: &Path, function: &str, output: &Path, seed: u64) -> u64 {
     let ran = Command::new("valgrind")
         .arg("--tool=callgrind")
         .arg(format!("--callgrind-out-file={}", output.display()))
         .arg(format!("--toggle-collect={function}"))
         .arg(tool)
-        .arg(SAMPLE_TOOL)
+        .arg(CORPUS_TOOL)
         .env(SEED_VARIABLE, seed.to_string())
         .output()
         .expect("valgrind runs: it must be installed (apt-get install valgrind)");

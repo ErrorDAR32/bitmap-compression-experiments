@@ -5,9 +5,9 @@
 //!
 //! | under `transient_data/` | what it holds | written by |
 //! |---|---|---|
-//! | `seed` | the seed sampled bitmaps grow from, and how many runs have used it | every run that grows a sample ([`crate::sample_generators::seed`]) |
+//! | `seed` | the seed corpus bitmaps grow from, and how many runs have used it | every run that grows a corpus ([`crate::corpus::seed`]) |
 //! | `measurements/` | every measuring tool's latest tables, as CSV, with what they were measured on | the diagnostics tools, the searches and the external benchmarks, through [`publish`] |
-//! | `records/` | the worst bitmap each adversarial search has found so far, as PBM | the adversarial searches ([`crate::diagnostics::adversarial::record`]) |
+//! | `worst/` | the worst bitmap each adversarial search has found so far, as PBM | the adversarial searches ([`crate::diagnostics::adversarial::worst`]) |
 //! | `renders/` | PNG images of the bitmaps looked at | `diagnostics render` |
 //! | `callgrind/` | each instruction count's callgrind output, to see where the instructions go | `diagnostics instruction_count` |
 //!
@@ -16,7 +16,7 @@
 //!
 //! Function by function: `docs/lab.md`, "`transient_data.rs`".
 
-use crate::sample_generators::seed::seed_in_use;
+use crate::corpus::seed::seed_in_use;
 use std::path::{Path, PathBuf};
 use utilities::table::report::Report;
 
@@ -38,9 +38,9 @@ pub fn measurements() -> PathBuf {
     under("measurements")
 }
 
-/// Where the adversarial records are kept.
-pub fn records() -> PathBuf {
-    under("records")
+/// Where the adversarial searches' worst bitmaps are kept.
+pub fn worst() -> PathBuf {
+    under("worst")
 }
 
 /// Where the renders go.
@@ -53,7 +53,7 @@ pub fn callgrind() -> PathBuf {
     under("callgrind")
 }
 
-/// Notes the seed `report`'s samples were grown from, if any were, then
+/// Notes the seed `report`'s corpus was grown from, if any was, then
 /// publishes it in [`measurements`]: printed, and kept in its file.
 pub fn publish(mut report: Report) {
     if let Some((seed, fresh)) = seed_in_use() {

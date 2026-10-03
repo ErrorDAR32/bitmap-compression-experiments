@@ -10,8 +10,8 @@
 //! | `tree_stats.rs` | what a tree holds: tiles, complex tiles and their payloads, nodes naming children, cell lists |
 //! | `census.rs` | a tree's nodes, by kind and level |
 //! | `tool/` | the diagnostics tool itself, a program: one tool a file, printing and keeping what the files here gather |
-//! | `adversarial/` | searches for the bitmaps Tessera does worst on, by any score, and the PBM records and saved bitmaps they leave; `main.rs`, the program that runs the search against the raw cells |
-//! | `bitmaps.rs` | the bitmaps a diagnostic looks at by name: adversarial records, saved bitmaps, one named by the caller |
+//! | `adversarial/` | searches for the bitmaps Tessera does worst on, by any score, and the PBM worst bitmaps and saved bitmaps they leave; `main.rs`, the program that runs the search against the raw cells |
+//! | `bitmaps.rs` | the bitmaps a diagnostic looks at by name: adversarial worst bitmaps, saved bitmaps, one named by the caller |
 //! | `png.rs` | a bitmap as a PNG image |
 //!
 //! Function by function: `docs/lab.md`, "`diagnostics/`".

@@ -1,15 +1,15 @@
-//! What Tessera spends: bits a bitmap from every sample generator, one
+//! What Tessera spends: bits a bitmap from every corpus generator, one
 //! table a generator and one row a parameter set, then what its trees
 //! are made of, family by family.
 
-use tessera::diagnostics::adversarial::record;
+use tessera::diagnostics::adversarial::worst;
 use tessera::diagnostics::measured::Measured;
 use tessera::diagnostics::tree_stats::TreeStats;
 use tessera::diagnostics::RAW_CELLS;
 use tessera::BitStream;
 use tessera::Tessera;
-use tessera::sample_generators::checkerboards::checkerboards;
-use tessera::sample_generators::{families, HowMany, LINE_SETS, PLANS, SHAPES, SPARSE};
+use tessera::corpus::checkerboards::checkerboards;
+use tessera::corpus::{families, HowMany, LINE_SETS, PLANS, SHAPES, SPARSE};
 use utilities::table::report::Report;
 use utilities::table::Table;
 use bitmap::Bitmap;
@@ -71,7 +71,7 @@ fn generator_table(
     report.add(generator, table);
 }
 
-/// Adds one table a sample generator -- grown, laid out as a city,
+/// Adds one table a corpus generator -- grown, laid out as a city,
 /// drawn with lines, checkerboards -- with a row a parameter set, then a
 /// row for each saved adversarial bitmap, then what Tessera's trees hold,
 /// family by family.
@@ -99,7 +99,7 @@ pub fn run(report: &mut Report) {
     let boards = checkerboards()
         .map(|(side, bitmap)| (format!("{side}x{side} squares"), format!("side {side}"), vec![bitmap]))
         .collect();
-    let adversarial = record::saved().into_iter().map(|(name, bitmap)| (name, "saved".to_string(), vec![bitmap])).collect();
+    let adversarial = worst::saved().into_iter().map(|(name, bitmap)| (name, "saved".to_string(), vec![bitmap])).collect();
     generator_table(&mut tessera, report, "grown", "density, cluster", grown);
     generator_table(&mut tessera, report, "laid out like a city", "pitch, street, courtyards", cities);
     generator_table(&mut tessera, report, "drawn with lines", "lines", lines);

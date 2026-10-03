@@ -4,7 +4,7 @@
 use tessera::diagnostics::measured::Measured;
 use tessera::diagnostics::RAW_CELLS;
 use tessera::Tessera;
-use tessera::sample_generators::{LINE_SETS, PLANS, SHAPES, SPARSE};
+use tessera::corpus::{LINE_SETS, PLANS, SHAPES, SPARSE};
 use utilities::table::report::Report;
 use utilities::table::Table;
 use bitmap::Bitmap;
@@ -13,7 +13,7 @@ use bitmap::Bitmap;
 /// each on its own row.
 pub fn run(report: &mut Report) {
     let mut tessera = Tessera::new();
-    let mut table = Table::new(&["sample", "bitmaps", "cells set\na bitmap", "Tessera\nbits a bitmap", "Tessera bits\na cell set", "of the\nraw cells"]);
+    let mut table = Table::new(&["corpus", "bitmaps", "cells set\na bitmap", "Tessera\nbits a bitmap", "Tessera bits\na cell set", "of the\nraw cells"]);
     let mut measure = |name: &str, bitmaps: Vec<Bitmap>| {
         let measured = Measured::of(&mut tessera, bitmaps);
         assert!(measured.lost.is_empty(), "{name}: Tessera lost cells of cases {:?}", measured.lost);

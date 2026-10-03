@@ -1,4 +1,4 @@
-//! Where the samples' seed comes from, and the table that says whether
+//! Where the corpus' seed comes from, and the table that says whether
 //! it is the same one as last time.
 //!
 //! A seed is not a constant in the code. It lives in a file beside the
@@ -6,11 +6,11 @@
 //! see rather than a thing you have to remember, and using different
 //! ones costs no edit.
 //!
-//! Every sample a run grows starts from the one seed: a shape, a plan
+//! Every corpus bitmap a run grows starts from the one seed: a shape, a plan
 //! or a line set draws its bitmaps from consecutive seeds beginning at
 //! it, so the seed is the whole of what settles a run's bitmaps, and a
 //! number quoted from a run can be traced to the bitmaps it came from.
-//! The first sample a run asks for settles the seed, and a one-row
+//! The first corpus bitmap a run asks for settles the seed, and a one-row
 //! table on standard error says which it is, which use of it the run
 //! is, and where it came from -- on standard error so that a test's
 //! output shows it too.
@@ -70,7 +70,7 @@ fn fresh_seed() -> u64 {
     RandomState::new().hash_one(std::process::id())
 }
 
-/// The seed every sample starts from.
+/// The seed every corpus bitmap starts from.
 ///
 /// `TESSERA_SEED` in the environment wins, so a run can be pinned to any
 /// bitmaps -- both sides of a comparison, say -- for that run alone:
@@ -83,7 +83,7 @@ pub fn seed_counted() -> u64 {
     settled(Counted::Yes).seed
 }
 
-/// The seed every sample starts from, as [`seed_counted`] gives it, but
+/// The seed every corpus bitmap starts from, as [`seed_counted`] gives it, but
 /// not counted as a use: for the fine tests, which run on the same
 /// bitmaps as everything else without using them up. A file used up is
 /// still used; the next counted run rolls it. No file yet: one is
@@ -116,8 +116,8 @@ struct Settled {
 /// The run's seed, once settled.
 static SETTLED: OnceLock<Settled> = OnceLock::new();
 
-/// The seed this run's samples came from, and whether it was fresh, if
-/// any sample has been asked for: what a measurement says it was
+/// The seed this run's corpus came from, and whether it was fresh, if
+/// any corpus bitmap has been asked for: what a measurement says it was
 /// measured on.
 pub fn seed_in_use() -> Option<(u64, bool)> {
     SETTLED.get().map(|settled| (settled.seed, settled.fresh))

@@ -1,18 +1,18 @@
 # The lab, function by function
 
-What measures and tests Tessera rather than encodes: the sample
+What measures and tests Tessera rather than encodes: the corpus
 generators, the diagnostics -- the adversarial search among them --
 `transient_data`,
 and the tools beside them (`src/diagnostics/tool/`, `src/diagnostics/adversarial/main.rs`). `docs/testing_protocol.md` says how they
 are used; this file says what each function does. The encoder is in
 `docs/reference.md`.
 
-## `sample_generators/`: the bitmaps everything runs on
+## `corpus/`: the bitmaps everything runs on
 
-Every sample is settled by a seed and its generator's parameters, and
+Every corpus bitmap is settled by a seed and its generator's parameters, and
 grown again whenever asked for; nothing is stored.
 
-**`sample_seed()`**: the run's seed, counted as a use
+**`corpus_seed()`**: the run's seed, counted as a use
 (`seed::seed_counted`).
 
 **`Shape`**, **`SHAPES`**, **`SPARSE`**: a grown shape -- a density and
@@ -22,7 +22,7 @@ from consecutive seeds starting at the run's.
 
 **`grown(seed, density, cluster, count)`**, **`one_grown`**:
 `count` bitmaps from consecutive seeds, built one at a time
-(`Samples`, an iterator), or one.
+(`Grown`, an iterator), or one.
 
 **`HowMany`**, **`families(how_many)`**: every family -- cities, grown,
 sparse, lines -- named, each generator taking its timed count, its
@@ -51,7 +51,7 @@ percent chance holds, up to `widest`.
 **`checkerboards()`**: drawn, not grown: odd square sides never line
 up with the power-of-two tiles. Every odd side from 3 to 31.
 
-**`seed.rs`**: the seed every sampled run uses, kept in
+**`seed.rs`**: the seed every run growing a corpus uses, kept in
 `transient_data/seed` with how many runs have used it.
 - **`seed_counted()`**: `TESSERA_SEED` if set (a number pins it, `fresh`
   draws one; neither touches the file); else the file's seed, counted
@@ -59,7 +59,7 @@ up with the power-of-two tiles. Every odd side from 3 to 31.
   `USES_BEFORE_THE_SEED_ROLLS` times.
 - **`seed_uncounted()`**: the same seed, not counted: for the fine
   tests, which run too often to count.
-- **`seed_in_use()`**: the seed this run settled on, if any sample was
+- **`seed_in_use()`**: the seed this run settled on, if any corpus bitmap was
   asked for, and whether it was fresh: what a measurement notes.
 - **`settled`**, **`settle`**: settle the seed once a run
   (`OnceLock`), print a one-row table on standard error saying which
@@ -88,7 +88,7 @@ so stale nodes are not counted. **`kind`**: a node's name as
 `docs/tessera.md` uses it; a divide with an `Absent` child is a divide
 naming children.
 
-**`bitmaps::looked_at()`**: every adversarial record and saved bitmap,
+**`bitmaps::looked_at()`**: every adversarial worst bitmap and saved bitmap,
 and the PBM image `TESSERA_DIAGNOSE` names, if any: what `census` and
 `render` look at.
 
@@ -99,13 +99,13 @@ its CRC (`chunk`, `crc32`).
 
 ## `diagnostics/adversarial/`: searching for the bitmaps Tessera does worst on
 
-**`search(seed, recorded, effort, score)`**: two stages, each the best
+**`search(seed, worst, effort, score)`**: two stages, each the best
 of several annealed starts (`best_of`). First a 64x64 window in an
 otherwise clear bitmap, from clear and from noise. Then the whole
 plane, from the window's best filled into the plane, from noise, and
-from the record, if any.
+from the worst bitmap, if any.
 
-**`search_at_once(seed, recorded, effort, make_score)`**:
+**`search_at_once(seed, worst, effort, make_score)`**:
 `SEARCHES_AT_ONCE` searches on as many threads, from consecutive seeds,
 each with its own score from `make_score` (so each can hold its own
 encoders).
@@ -138,14 +138,14 @@ window's sixteen variants -- four rotations, mirrored or not, inverted
 or not (`transformed`) -- one a window position, so no position is a
 plain copy of another.
 
-**`record.rs`**: bitmaps as plain PBM images (`P1`, a row of `0`/`1`
-a line, `#` comment lines for notes). Records, in
-`transient_data/records/`, are the worst found so far for each search,
+**`worst.rs`**: bitmaps as plain PBM images (`P1`, a row of `0`/`1`
+a line, `#` comment lines for notes). Worst bitmaps, in
+`transient_data/worst/`, are the worst found so far for each search,
 replaced only when beaten; saved bitmaps, in
-`external_benchmarks/adversarial/saved/`, are copied from records once
+`external_benchmarks/adversarial/saved/`, are copied from worst bitmaps once
 settled and never replaced. **`all()`**, **`saved()`**: every one, by
 name. **`read`**, **`read_from`**: a 256x256 PBM, or `None`.
-**`write`**, **`save`**: replace a record or a saved bitmap.
+**`write`**, **`save`**: replace a worst bitmap or a saved bitmap.
 **`notes_from`**: a file's comment lines.
 
 **`cell_rect(area)`**: a tile's cells as an inclusive rectangle.
@@ -153,7 +153,7 @@ name. **`read`**, **`read_from`**: a 256x256 PBM, or `None`.
 ## `transient_data.rs`
 
 Paths under `transient_data/`, out of git: **`seed_file`**,
-**`measurements`**, **`records`**, **`renders`**, **`callgrind`**.
+**`measurements`**, **`worst`**, **`renders`**, **`callgrind`**.
 **`publish(report)`**: notes the run's seed on the report, prints it,
 and keeps it as `measurements/<tool>.csv`, replacing the last.
 
@@ -162,10 +162,10 @@ and keeps it as `measurements/<tool>.csv`, replacing the last.
 **`main`**: the search against the raw cells: `search_at_once` scoring
 each bitmap by **`score`** -- Tessera's bits less the raw cells of the
 area searched, not Tessera's bits alone, which noise maximizes for any
-encoder. Records the worst plane if it beats the record, checks the
-record round trips, and publishes what each search found.
-**`save`**: `adversarial save <record> <name> <description>` copies a
-record to the saved bitmaps with a description and the record's notes.
+encoder. Keeps the worst plane if it beats the worst kept, checks the
+worst bitmap round trips, and publishes what each search found.
+**`save`**: `adversarial save <worst> <name> <description>` copies a
+worst bitmap to the saved bitmaps with a description and the worst bitmap's notes.
 
 ## `src/diagnostics/tool/`: one tool a file
 
@@ -173,7 +173,7 @@ record to the saved bitmaps with a description and the record's notes.
 argument, its file -- run by name; with no name, the list. A tool that
 measures is given a `Report` and published with the run's seed.
 
-- **`measurement::run`**: a table a sample generator, a row a parameter
+- **`measurement::run`**: a table a corpus generator, a row a parameter
   set (`generator_table`, `row`), the saved adversarial bitmaps, then
   what the trees hold, family by family (`add_structure`): binary
   count tree streams, complex tiles, payload values, plain tiles,
@@ -188,12 +188,12 @@ measures is given a `Report` and published with the run's seed.
   count trees, and log2 of the ways the set cells could be placed
   (`placements_bits`), the least any encoding averages on scattered
   cells.
-- **`timing::run`**: encode and decode wall time over a large sample,
+- **`timing::run`**: encode and decode wall time over a large corpus,
   every bitmap built before any is timed.
-- **`instruction_count::run`**: runs this tool's `instruction_sample`
+- **`instruction_count::run`**: runs this tool's `instruction_corpus`
   under callgrind twice, collecting only inside `Tessera::encode`, then
   only inside `Tessera::decode`, on one pinned seed (**`count`** reads
-  callgrind's total). **`run_sample`**: the sample alone, each bitmap
+  callgrind's total). **`run_corpus`**: the corpus alone, each bitmap
   encoded, decoded and checked, in one `Tessera`.
 - **`render::run`**: PNGs of the bitmaps looked at.
 - **`show::run`**: the kept reports, read back without measuring.
@@ -222,7 +222,7 @@ decode, check, and total the sizes and times), a table a family
 (**`add_table`**) and one for all.
 
 **`src/bin/adversarial.rs`**: the adversarial search against each codec in
-turn (`OPPONENTS`), each with its own record: **`score`** is Tessera's
-bits less the codec's (**`bits`**); records are replaced when beaten,
+turn (`OPPONENTS`), each with its own worst bitmap: **`score`** is Tessera's
+bits less the codec's (**`bits`**); worst bitmaps are replaced when beaten,
 and reported with both encoders' bits and median encode times
 (**`median_micros`**).

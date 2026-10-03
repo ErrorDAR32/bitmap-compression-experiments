@@ -1,8 +1,8 @@
-//! The last pass, both directions: the blocks the block plan names, in
-//! Morton order -- each copied block copied from its source, each
-//! residual block's cells range-coded at the odds of their contexts --
-//! and the pricing of residual blocks for the complex tiling, by the same
-//! block coder. `docs/tessera.md`, "The last pass".
+//! The last pass, both directions: the floor tiles the floor plan names, in
+//! Morton order -- each copied floor tile copied from its source, each
+//! residual floor tile's cells range-coded at the odds of their contexts --
+//! and the pricing of residual floor tiles for the complex tiling, by the same
+//! floor tile coder. `docs/tessera.md`, "The last pass".
 //!
 //! Function by function: `docs/reference.md`, "`last_pass.rs`".
 
@@ -28,7 +28,7 @@ const CELL_WEIGHT: u16 = 2;
 /// The cells either value of a context counts at most: reaching it,
 /// both are halved. Residual cells are much the same all over a bitmap,
 /// so halving forgets what costs bits, the more the sooner; this is
-/// where it stops costing any the samples show.
+/// where it stops costing any the corpus shows.
 const HALVING_COUNT: u16 = 512;
 /// The weight that, reached, halves both.
 const HALVING_WEIGHT: u16 = UNSEEN_WEIGHT + CELL_WEIGHT * HALVING_COUNT;
@@ -119,168 +119,168 @@ impl ContextOdds {
 /// (`docs/tessera.md`, "The odds").
 pub const MOST_EXTRA_BITS: usize = CONTEXTS * (CELLS.ilog2() as usize / 2 + 1) + (CELLS >> 10) + (CELLS >> 12) + FINISHING_BITS;
 
-/// Blocks in the bitmap: the 4x4 floor's tiles. A copy is 4x4 or
+/// Floor tiles in the bitmap: the 4x4 floor's tiles. A copy is 4x4 or
 /// coarser, and so is every child a copy naming children copies, so a
-/// copy's own cells are always whole blocks.
-pub const BLOCKS: usize = tiles_in_level(FLOOR_LEVEL);
-/// Cells in a block: one run of the bitmap, in Morton order.
-const BLOCK_CELLS: usize = cells_in_tile(FLOOR_LEVEL);
-/// A block's side, in cells.
-const BLOCK_SIDE: u32 = BLOCK_CELLS.isqrt() as u32;
-/// Words of one bit a block.
-const BLOCK_WORDS: usize = BLOCKS.div_ceil(u64::BITS as usize);
-/// One bit a block, by Morton index.
-type BlockSet = [u64; BLOCK_WORDS];
+/// copy's own cells are always whole floor tiles.
+pub const FLOOR_TILES: usize = tiles_in_level(FLOOR_LEVEL);
+/// Cells in a floor tile: one run of the bitmap, in Morton order.
+const FLOOR_TILE_CELLS: usize = cells_in_tile(FLOOR_LEVEL);
+/// A floor tile's side, in cells.
+const FLOOR_TILE_SIDE: u32 = FLOOR_TILE_CELLS.isqrt() as u32;
+/// Words of one bit a floor tile.
+const FLOOR_SET_WORDS: usize = FLOOR_TILES.div_ceil(u64::BITS as usize);
+/// One bit a floor tile, by Morton index.
+type FloorSet = [u64; FLOOR_SET_WORDS];
 
-/// A block, by its Morton index among the blocks.
-type BlockIndex = u16;
-/// The source of a block no copy covers, or one already copied.
-const NO_SOURCE: BlockIndex = BlockIndex::MAX;
-const _: () = assert!(BLOCKS <= NO_SOURCE as usize, "every block has an index, and none is NO_SOURCE");
+/// A floor tile, by its Morton index among the floor tiles.
+type FloorIndex = u16;
+/// The source of a floor tile no copy covers, or one already copied.
+const NO_SOURCE: FloorIndex = FloorIndex::MAX;
+const _: () = assert!(FLOOR_TILES <= NO_SOURCE as usize, "every floor tile has an index, and none is NO_SOURCE");
 
-/// A block's Morton index's `x` bits, the even ones...
-const BLOCK_X_BITS: usize = 0x5555_5555 & (BLOCKS - 1);
+/// A floor tile's Morton index's `x` bits, the even ones...
+const FLOOR_X_BITS: usize = 0x5555_5555 & (FLOOR_TILES - 1);
 /// ...and its `y` bits, the odd ones: a neighbour's index is one of the
 /// two fields stepped in place.
-const BLOCK_Y_BITS: usize = BLOCK_X_BITS << 1;
+const FLOOR_Y_BITS: usize = FLOOR_X_BITS << 1;
 
 /// Whether `index` is in `set`.
-fn contains(set: &BlockSet, index: usize) -> bool {
+fn contains(set: &FloorSet, index: usize) -> bool {
     set[index / u64::BITS as usize] >> (index % u64::BITS as usize) & 1 == 1
 }
 
 /// Adds `index` to `set`.
-fn insert(set: &mut BlockSet, index: usize) {
+fn insert(set: &mut FloorSet, index: usize) {
     set[index / u64::BITS as usize] |= 1 << (index % u64::BITS as usize);
 }
 
 /// Takes `index` out of `set`.
-fn remove(set: &mut BlockSet, index: usize) {
+fn remove(set: &mut FloorSet, index: usize) {
     set[index / u64::BITS as usize] &= !(1 << (index % u64::BITS as usize));
 }
 
-/// Every block of `set`, in Morton order, each read off it when its
+/// Every floor tile of `set`, in Morton order, each read off it when its
 /// turn comes: one taken out of it before then is passed over.
-fn each_block(set: impl Fn(usize) -> u64, mut visit: impl FnMut(usize)) {
-    for word_index in 0..BLOCK_WORDS {
-        let mut blocks = set(word_index);
-        while blocks != 0 {
-            visit(word_index * u64::BITS as usize + blocks.trailing_zeros() as usize);
-            blocks &= blocks - 1;
+fn each_floor_tile(set: impl Fn(usize) -> u64, mut visit: impl FnMut(usize)) {
+    for word_index in 0..FLOOR_SET_WORDS {
+        let mut floor_tiles = set(word_index);
+        while floor_tiles != 0 {
+            visit(word_index * u64::BITS as usize + floor_tiles.trailing_zeros() as usize);
+            floor_tiles &= floor_tiles - 1;
         }
     }
 }
 
-/// Codes the residual block at `index` in Morton order, each cell at its
+/// Codes the residual floor tile at `index` in Morton order, each cell at its
 /// context's odds in `cells`, which `odds` learn; `code` encodes, decodes
-/// or prices a cell and says whether it is set. The block's cells, as
+/// or prices a cell and says whether it is set. The floor tile's cells, as
 /// one run.
-fn code_residual_block(odds: &mut [ContextOdds; CONTEXTS], cells: &Bitmap, index: usize, code: &mut impl FnMut(ContextOdds, usize) -> bool) -> u64 {
+fn code_residual_floor_tile(odds: &mut [ContextOdds; CONTEXTS], cells: &Bitmap, index: usize, code: &mut impl FnMut(ContextOdds, usize) -> bool) -> u64 {
     let mut window = Window::around(cells, index);
-    let mut block_run = 0;
-    for place in 0..BLOCK_CELLS {
+    let mut floor_tile_run = 0;
+    for place in 0..FLOOR_TILE_CELLS {
         let context = &mut odds[window.context(place)];
-        let set = code(*context, index * BLOCK_CELLS + place);
+        let set = code(*context, index * FLOOR_TILE_CELLS + place);
         if set {
             window.0 |= 1 << WINDOW_PLACES[place];
-            block_run |= 1 << place;
+            floor_tile_run |= 1 << place;
         }
         context.learn(set);
     }
-    block_run
+    floor_tile_run
 }
 
-/// What the last pass takes for each residual block, priced as the
+/// What the last pass takes for each residual floor tile, priced as the
 /// greedy tiler reaches it, in Morton order, the pass's.
 pub struct Pricing {
     /// Each context's odds, as learned so far.
     odds: [ContextOdds; CONTEXTS],
-    /// Each block's bits, rounded to the nearest, as the counts the
+    /// Each floor tile's bits, rounded to the nearest, as the counts the
     /// greedy tiler makes are whole bits.
-    prices: Box<[u16; BLOCKS]>,
+    prices: Box<[u16; FLOOR_TILES]>,
 }
 
 impl Pricing {
-    /// No block priced.
+    /// No floor tile priced.
     pub fn new() -> Self {
-        Self { odds: [ContextOdds::UNSEEN; CONTEXTS], prices: Box::new([0; BLOCKS]) }
+        Self { odds: [ContextOdds::UNSEEN; CONTEXTS], prices: Box::new([0; FLOOR_TILES]) }
     }
 
-    /// Forgets every block priced: before a bitmap's walk.
+    /// Forgets every floor tile priced: before a bitmap's walk.
     pub fn clear(&mut self) {
         self.odds = [ContextOdds::UNSEEN; CONTEXTS];
     }
 
-    /// Prices the residual block `block` of `bitmap`, every residual
-    /// block before it in Morton order priced: its bits.
-    pub fn price(&mut self, bitmap: &Bitmap, block: Tile) -> u64 {
+    /// Prices the residual floor tile `floor tile` of `bitmap`, every residual
+    /// floor tile before it in Morton order priced: its bits.
+    pub fn price(&mut self, bitmap: &Bitmap, floor_tile: Tile) -> u64 {
         let mut bits = 0;
-        code_residual_block(&mut self.odds, bitmap, block.index(), &mut |odds, cell_index| {
+        code_residual_floor_tile(&mut self.odds, bitmap, floor_tile.index(), &mut |odds, cell_index| {
             let set = bitmap.morton_run(cell_index, 1) == 1;
             bits += odds.cost(set);
             set
         });
         let price = ((bits + (1 << (FRACTION_BITS - 1))) >> FRACTION_BITS) as u16;
-        self.prices[block.index()] = price;
+        self.prices[floor_tile.index()] = price;
         price as u64
     }
 
-    /// The bits the residual block at Morton index `index` was priced
+    /// The bits the residual floor tile at Morton index `index` was priced
     /// at.
     pub fn of(&self, index: usize) -> u64 {
         self.prices[index] as u64
     }
 }
 
-/// The last pass's input: the 4x4 blocks the tree leaves unsaid -- each
-/// block a copy covers, and its source block, and the residual blocks.
+/// The last pass's input: the 4x4 floor tiles the tree leaves unsaid -- each
+/// floor tile a copy covers, and its source floor tile, and the residual floor tiles.
 /// Gathered by the quadtree writer and reader as they walk the tree,
 /// so encoding and decoding gather the same.
-pub struct BlockPlan {
-    /// Each block's source while a copy covers it and it is not copied
+pub struct FloorPlan {
+    /// Each floor tile's source while a copy covers it and it is not copied
     /// yet; [`NO_SOURCE`] otherwise.
-    sources: Box<[BlockIndex; BLOCKS]>,
-    /// The blocks the tree leaves unsaid: copied or residual.
-    unsaid: BlockSet,
-    /// The residual blocks not yet coded.
-    residual: BlockSet,
+    sources: Box<[FloorIndex; FLOOR_TILES]>,
+    /// The floor tiles the tree leaves unsaid: copied or residual.
+    unsaid: FloorSet,
+    /// The residual floor tiles not yet coded.
+    residual: FloorSet,
 }
 
-impl BlockPlan {
-    /// No block planned.
+impl FloorPlan {
+    /// No floor tile planned.
     pub fn new() -> Self {
-        Self { sources: Box::new([NO_SOURCE; BLOCKS]), unsaid: [0; BLOCK_WORDS], residual: [0; BLOCK_WORDS] }
+        Self { sources: Box::new([NO_SOURCE; FLOOR_TILES]), unsaid: [0; FLOOR_SET_WORDS], residual: [0; FLOOR_SET_WORDS] }
     }
 
-    /// Forgets every block planned: before the tree is walked.
+    /// Forgets every floor tile planned: before the tree is walked.
     pub fn clear(&mut self) {
         self.sources.fill(NO_SOURCE);
-        self.unsaid = [0; BLOCK_WORDS];
-        self.residual = [0; BLOCK_WORDS];
+        self.unsaid = [0; FLOOR_SET_WORDS];
+        self.residual = [0; FLOOR_SET_WORDS];
     }
 
-    /// Adds the residual block `block`.
-    pub fn add_residual_block(&mut self, block: Tile) {
-        insert(&mut self.residual, block.index());
-        insert(&mut self.unsaid, block.index());
+    /// Adds the residual floor tile `floor tile`.
+    pub fn add_residual_floor_tile(&mut self, floor_tile: Tile) {
+        insert(&mut self.residual, floor_tile.index());
+        insert(&mut self.unsaid, floor_tile.index());
     }
 
-    /// The residual blocks, by Morton index, in that order.
-    pub fn residual_blocks(&self, mut visit: impl FnMut(usize)) {
-        each_block(|word_index| self.residual[word_index], &mut visit);
+    /// The residual floor tiles, by Morton index, in that order.
+    pub fn residual_floor_tiles(&self, mut visit: impl FnMut(usize)) {
+        each_floor_tile(|word_index| self.residual[word_index], &mut visit);
     }
 
-    /// Adds the blocks of `part` -- the copy at `copy`, or a child of it
+    /// Adds the floor tiles of `part` -- the copy at `copy`, or a child of it
     /// the copy copies -- copied from the tile `far` and `direction`
-    /// name, counted in the copy's own sides: each block from the block
+    /// name, counted in the copy's own sides: each floor tile from the floor tile
     /// at the same place in the same-size tile that far away.
-    pub fn add_copied_blocks(&mut self, copy: Tile, part: Tile, far: bool, direction: u8) {
+    pub fn add_copied_floor_tiles(&mut self, copy: Tile, part: Tile, far: bool, direction: u8) {
         let (dx, dy) = copy_offset(far, direction);
         let reach = tiles_across(part.level - copy.level) as isize;
         let source = Tile { level: part.level, x: (part.x as isize + dx * reach) as u8, y: (part.y as isize + dy * reach) as u8 };
-        let (first, source_first) = (part.first_cell() / BLOCK_CELLS, source.first_cell() / BLOCK_CELLS);
+        let (first, source_first) = (part.first_cell() / FLOOR_TILE_CELLS, source.first_cell() / FLOOR_TILE_CELLS);
         for place in 0..tiles_in_level(FLOOR_LEVEL - part.level) {
-            self.sources[first + place] = (source_first + place) as BlockIndex;
+            self.sources[first + place] = (source_first + place) as FloorIndex;
             insert(&mut self.unsaid, first + place);
         }
     }
@@ -297,11 +297,11 @@ pub struct LastPass {
 /// Copies waiting on their sources, and the contexts' odds.
 struct PassState {
     /// A copy waiting on its source, and that source on its own: a
-    /// chain, never longer than there are blocks.
-    waiting: FixedList<BlockIndex, BLOCKS>,
-    /// Copies whose source was a residual block not yet coded, copied at
+    /// chain, never longer than there are floor tiles.
+    waiting: FixedList<FloorIndex, FLOOR_TILES>,
+    /// Copies whose source was a residual floor tile not yet coded, copied at
     /// the end.
-    pending: FixedList<BlockIndex, BLOCKS>,
+    pending: FixedList<FloorIndex, FLOOR_TILES>,
     /// Each context's odds.
     odds: [ContextOdds; CONTEXTS],
 }
@@ -315,14 +315,14 @@ impl LastPass {
 
     /// Writes the pass of `plan` for `bitmap` to `stream`, after its
     /// tree.
-    pub fn encode(&mut self, plan: &mut BlockPlan, bitmap: &Bitmap, stream: &mut BitStream) {
-        // The cells as decoding has them after the tree: none of a block
+    pub fn encode(&mut self, plan: &mut FloorPlan, bitmap: &Bitmap, stream: &mut BitStream) {
+        // The cells as decoding has them after the tree: none of a floor tile
         // the tree leaves unsaid.
         self.cells_as_decoded.copy_from(bitmap);
         let unsaid = &plan.unsaid;
-        each_block(|word_index| unsaid[word_index], |index| self.cells_as_decoded.clear_morton_run(index * BLOCK_CELLS, BLOCK_CELLS));
+        each_floor_tile(|word_index| unsaid[word_index], |index| self.cells_as_decoded.clear_morton_run(index * FLOOR_TILE_CELLS, FLOOR_TILE_CELLS));
         // A pass coding no cell writes nothing: not even the coder's end.
-        let codes_any_cell = plan.residual != [0; BLOCK_WORDS];
+        let codes_any_cell = plan.residual != [0; FLOOR_SET_WORDS];
         let mut encoder = Encoder::default();
         self.state.run_pass(plan, &mut self.cells_as_decoded, &mut |odds, cell_index| {
             let set = bitmap.morton_run(cell_index, 1) == 1;
@@ -336,7 +336,7 @@ impl LastPass {
 
     /// Reads the pass of `plan` into `cells`, which hold what the tree
     /// said.
-    pub fn decode(&mut self, plan: &mut BlockPlan, cells: &mut Bitmap, reader: &mut BitReader) {
+    pub fn decode(&mut self, plan: &mut FloorPlan, cells: &mut Bitmap, reader: &mut BitReader) {
         // A pass coding no cell has nothing after it: the coder's start
         // reads past the stream's end, all 0, and nothing more.
         let mut decoder = Decoder::new(reader);
@@ -345,38 +345,38 @@ impl LastPass {
 }
 
 impl PassState {
-    /// The pass itself, on `cells`: every block copied or coded, in
+    /// The pass itself, on `cells`: every floor tile copied or coded, in
     /// Morton order, then the copies that waited.
-    fn run_pass(&mut self, plan: &mut BlockPlan, cells: &mut Bitmap, code: &mut impl FnMut(ContextOdds, usize) -> bool) {
+    fn run_pass(&mut self, plan: &mut FloorPlan, cells: &mut Bitmap, code: &mut impl FnMut(ContextOdds, usize) -> bool) {
         self.odds = [ContextOdds::UNSEEN; CONTEXTS];
         self.pending.clear();
         let unsaid = plan.unsaid;
-        each_block(|word_index| unsaid[word_index], |index| {
-            // A block copied as the source of one before it has no source
+        each_floor_tile(|word_index| unsaid[word_index], |index| {
+            // A floor tile copied as the source of one before it has no source
             // left when its turn comes, and is passed over.
             if plan.sources[index] != NO_SOURCE {
-                if !self.copy_block_chain(plan, index, cells) {
-                    self.pending.push(index as BlockIndex);
+                if !self.copy_floor_tile_chain(plan, index, cells) {
+                    self.pending.push(index as FloorIndex);
                 }
             } else if contains(&plan.residual, index) {
-                let run = code_residual_block(&mut self.odds, cells, index, code);
-                cells.set_in_morton_run(index * BLOCK_CELLS, BLOCK_CELLS, run);
+                let run = code_residual_floor_tile(&mut self.odds, cells, index, code);
+                cells.set_in_morton_run(index * FLOOR_TILE_CELLS, FLOOR_TILE_CELLS, run);
                 remove(&mut plan.residual, index);
             }
         });
         for pending_index in 0..self.pending.len() {
-            let copied = self.copy_block_chain(plan, self.pending[pending_index] as usize, cells);
+            let copied = self.copy_floor_tile_chain(plan, self.pending[pending_index] as usize, cells);
             debug_assert!(copied, "every source is final by the end");
         }
     }
 
-    /// Copies the block at `index`, and first its source when that is a
-    /// block a copy covers not copied yet, and so on down the chain --
-    /// unless the chain ends at a residual block not coded yet: then
+    /// Copies the floor tile at `index`, and first its source when that is a
+    /// floor tile a copy covers not copied yet, and so on down the chain --
+    /// unless the chain ends at a residual floor tile not coded yet: then
     /// nothing. Whether it copied.
-    fn copy_block_chain(&mut self, plan: &mut BlockPlan, index: usize, cells: &mut Bitmap) -> bool {
+    fn copy_floor_tile_chain(&mut self, plan: &mut FloorPlan, index: usize, cells: &mut Bitmap) -> bool {
         self.waiting.clear();
-        self.waiting.push(index as BlockIndex);
+        self.waiting.push(index as FloorIndex);
         while let Some(&waiting) = self.waiting.last() {
             let source = plan.sources[waiting as usize];
             if source == NO_SOURCE {
@@ -386,8 +386,8 @@ impl PassState {
             } else if plan.sources[source as usize] != NO_SOURCE {
                 self.waiting.push(source);
             } else {
-                let run = cells.morton_run(source as usize * BLOCK_CELLS, BLOCK_CELLS);
-                cells.set_in_morton_run(waiting as usize * BLOCK_CELLS, BLOCK_CELLS, run);
+                let run = cells.morton_run(source as usize * FLOOR_TILE_CELLS, FLOOR_TILE_CELLS);
+                cells.set_in_morton_run(waiting as usize * FLOOR_TILE_CELLS, FLOOR_TILE_CELLS, run);
                 plan.sources[waiting as usize] = NO_SOURCE;
                 self.waiting.pop();
             }
@@ -396,24 +396,24 @@ impl PassState {
     }
 }
 
-/// A block and the three blocks before it -- above left, above, left --
+/// A floor tile and the three floor tiles before it -- above left, above, left --
 /// as an 8x8 square of cells, a bit each, row after row: bit `8y + x`,
-/// the block's own cells at `x`, `y` from 4 to 7. A block off the bitmap
+/// the floor tile's own cells at `x`, `y` from 4 to 7. A floor tile off the bitmap
 /// is clear.
 struct Window(u64);
 
-/// Cells a window row: two blocks side by side.
-const WINDOW_SIDE: u32 = 2 * BLOCK_SIDE;
+/// Cells a window row: two floor tiles side by side.
+const WINDOW_SIDE: u32 = 2 * FLOOR_TILE_SIDE;
 
-/// A block's first eight cells in Morton order -- its top two rows -- by
+/// A floor tile's first eight cells in Morton order -- its top two rows -- by
 /// their values, in a window's rows; the next eight are the same two
 /// rows lower.
-const BLOCK_ROWS: [u64; 1 << (BLOCK_CELLS / 2)] = {
-    let mut rows = [0; 1 << (BLOCK_CELLS / 2)];
+const FLOOR_TILE_ROWS: [u64; 1 << (FLOOR_TILE_CELLS / 2)] = {
+    let mut rows = [0; 1 << (FLOOR_TILE_CELLS / 2)];
     let mut run = 0;
     while run < rows.len() {
         let mut index = 0;
-        while index < BLOCK_CELLS / 2 {
+        while index < FLOOR_TILE_CELLS / 2 {
             if run >> index & 1 == 1 {
                 let (x, y) = morton_coordinates(index);
                 rows[run] |= 1 << (y as u32 * WINDOW_SIDE + x as u32);
@@ -462,29 +462,29 @@ const NEIGHBOURHOOD_CONTEXTS: [u8; 1 << (NEIGHBOURHOOD_SIDE * NEIGHBOURHOOD_SIDE
 };
 
 impl Window {
-    /// The window of the block at `index`, read off `cells`.
+    /// The window of the floor tile at `index`, read off `cells`.
     fn around(cells: &Bitmap, index: usize) -> Self {
-        let rows_of = |block: Option<usize>| {
-            block.map_or(0, |block| {
-                let run = cells.morton_run(block * BLOCK_CELLS, BLOCK_CELLS);
-                BLOCK_ROWS[run as usize & 0xFF] | BLOCK_ROWS[run as usize >> (BLOCK_CELLS / 2)] << (2 * WINDOW_SIDE)
+        let rows_of = |floor_tile: Option<usize>| {
+            floor_tile.map_or(0, |floor_tile| {
+                let run = cells.morton_run(floor_tile * FLOOR_TILE_CELLS, FLOOR_TILE_CELLS);
+                FLOOR_TILE_ROWS[run as usize & 0xFF] | FLOOR_TILE_ROWS[run as usize >> (FLOOR_TILE_CELLS / 2)] << (2 * WINDOW_SIDE)
             })
         };
-        // The blocks left and above, one step back in x or y: each a field
+        // The floor tiles left and above, one step back in x or y: each a field
         // of the Morton index, decremented in place.
-        let (x_bits, y_bits) = (index & BLOCK_X_BITS, index & BLOCK_Y_BITS);
-        let (x_before, y_before) = (x_bits.wrapping_sub(1) & BLOCK_X_BITS, y_bits.wrapping_sub(1) & BLOCK_Y_BITS);
+        let (x_bits, y_bits) = (index & FLOOR_X_BITS, index & FLOOR_Y_BITS);
+        let (x_before, y_before) = (x_bits.wrapping_sub(1) & FLOOR_X_BITS, y_bits.wrapping_sub(1) & FLOOR_Y_BITS);
         let (has_left, has_above) = (x_bits != 0, y_bits != 0);
-        let block_row = BLOCK_SIDE * WINDOW_SIDE;
+        let floor_tile_row = FLOOR_TILE_SIDE * WINDOW_SIDE;
         Self(
             rows_of((has_left && has_above).then_some(x_before | y_before))
-                | rows_of(has_above.then_some(x_bits | y_before)) << BLOCK_SIDE
-                | rows_of(has_left.then_some(x_before | y_bits)) << block_row
-                | rows_of(Some(index)) << (block_row + BLOCK_SIDE),
+                | rows_of(has_above.then_some(x_bits | y_before)) << FLOOR_TILE_SIDE
+                | rows_of(has_left.then_some(x_before | y_bits)) << floor_tile_row
+                | rows_of(Some(index)) << (floor_tile_row + FLOOR_TILE_SIDE),
         )
     }
 
-    /// The context of the block's cell at `place` in its Morton order:
+    /// The context of the floor tile's cell at `place` in its Morton order:
     /// its neighbourhood's, three rows of the window.
     #[inline]
     fn context(&self, place: usize) -> usize {
@@ -494,14 +494,14 @@ impl Window {
     }
 }
 
-/// Each of a block's cells, by its place in the block's Morton order:
+/// Each of a floor tile's cells, by its place in the floor tile's Morton order:
 /// its bit in the window.
-const WINDOW_PLACES: [u32; BLOCK_CELLS] = {
-    let mut places = [0; BLOCK_CELLS];
+const WINDOW_PLACES: [u32; FLOOR_TILE_CELLS] = {
+    let mut places = [0; FLOOR_TILE_CELLS];
     let mut place = 0;
-    while place < BLOCK_CELLS {
+    while place < FLOOR_TILE_CELLS {
         let (x, y) = morton_coordinates(place);
-        places[place] = (BLOCK_SIDE + y as u32) * WINDOW_SIDE + BLOCK_SIDE + x as u32;
+        places[place] = (FLOOR_TILE_SIDE + y as u32) * WINDOW_SIDE + FLOOR_TILE_SIDE + x as u32;
         place += 1;
     }
     places
