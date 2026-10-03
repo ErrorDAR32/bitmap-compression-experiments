@@ -59,9 +59,12 @@ slope); and walkers larger than a cell.
 A cell that may not be walked on is a bit of `passable`. A **wall** is
 not a cell: it is between two cells, and bars the step from one to the
 other both ways, whatever the cells are -- the terrain's cliffs
-(`../terrain/`). `Walls` holds them as four masks, the cells with a
-wall to their east, south, south-east and south-west: the upper or
-left cell of the two keeps it (`Walls::blocks_step`).
+(`../terrain/`). Walls stand only east and south of cells, kept by the
+upper or left cell of the two. A diagonal step has no wall of its own:
+it is open only when both ways round it -- across then down, down then
+across -- are. `Walls::new` takes the east and south masks and works out
+once, a mask a diagonal, the diagonal steps they bar
+(`Walls::blocks_step`).
 
 A wave spreads each of the eight ways apart, each masked by its walls
 before it is shifted -- eight shifts a row where there were three. A*

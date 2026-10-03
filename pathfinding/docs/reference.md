@@ -28,6 +28,8 @@ nothing in the way counted, the `pick`-th of those equally near
 from `to` (**`Queue`**: a binary heap in an array, `push`, `pop`;
 `STEPS`, the eight neighbours). `None` if there is no way.
 
-**`Walls`** `{east, south, south_east, south_west}`: the steps that
-cannot be taken; **`blocks_step(cell, dx, dy)`**. `Wave::advance`,
+**`Walls::new(east, south)`**: the steps that cannot be taken -- the
+walls east and south of cells, and the diagonals they bar, worked out
+from them (a wall on either way round); **`east`**, **`south`**,
+**`blocks_step(cell, dx, dy)`**. `Wave::advance`,
 `step_towards` and `a_star` each take them after `passable`.

@@ -51,7 +51,7 @@ use bitplane_manager::{BitmapArena, Write, WriteOp};
 use chunk_storage::mock::{DIRT, GRASS};
 use coordinates::{SuperChunkPosition, SUPERCHUNK_SIDE_CELLS};
 use simulation::around::{self, CENTRE, RING};
-use terrain::{WALL_EAST, WALL_SOUTH, WALL_SOUTH_EAST, WALL_SOUTH_WEST};
+use terrain::{WALL_EAST, WALL_SOUTH};
 use simulation::entity_store::{Attribute, AttributeType, EntityEdit, Entities, EntityId, EntityType, Header};
 use simulation::{Simulation, SuperChunkTick, TickReport};
 use std::collections::HashSet;
@@ -148,7 +148,7 @@ pub fn rule(turn: &mut SuperChunkTick) -> SheepTickMetrics {
     let mut done = SheepTickMetrics::default();
     let mut room = Vec::new();
     let now = turn.now();
-    for sheep in turn.woken_reading([GRASS, WALL_EAST, WALL_SOUTH, WALL_SOUTH_EAST, WALL_SOUTH_WEST]) {
+    for sheep in turn.woken_reading([GRASS, WALL_EAST, WALL_SOUTH]) {
         done.woken += 1;
         let at = sheep.header.at;
         let mut sheep = EntityEdit::of(sheep, &mut room);

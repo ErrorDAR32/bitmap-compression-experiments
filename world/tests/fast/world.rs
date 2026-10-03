@@ -9,6 +9,7 @@
 use bitplane_manager::BitmapArena;
 use chunk_storage::disk::{self, DiskError};
 use chunk_storage::mock::{DIRT, GRASS};
+use coordinates::CartesianCell;
 use entity_rules::diagnostics::world::MockWorld;
 use simulation::entity_store::{Attribute, Entities, Header};
 use simulation::Simulation;
@@ -128,7 +129,8 @@ fn files_that_are_not_a_save_are_refused() {
 }
 
 /// In a world generated, the ground has walls, and no sheep ever steps
-/// between two cells more than a step apart in height.
+/// through one: across or down only between cells at most a step apart
+/// in height, diagonally only where both ways round are such steps.
 #[test]
 fn sheep_never_step_through_a_wall() {
     use std::collections::HashMap;
@@ -145,7 +147,11 @@ fn sheep_never_step_through_a_wall() {
         for sheep in made.entities.iter() {
             let at = sheep.header.at;
             if let Some(was) = stood.insert(sheep.header.id.0, at).filter(|&was| was != at) {
-                assert!(!terrain::wall(high(was), high(at)), "from height {} to {}: {:?} to {:?}", high(was), high(at), was.cartesian(), at.cartesian());
+                let (from, to) = (was.cartesian(), at.cartesian());
+                // The cells of each way round: the straight step's alone, or the diagonal's two corners.
+                let corners = [CartesianCell { x: to.x, y: from.y }, CartesianCell { x: from.x, y: to.y }];
+                let walled = corners.iter().any(|corner| terrain::wall(high(was), high((*corner).into())) || terrain::wall(high((*corner).into()), high(at)));
+                assert!(!walled, "from height {} to {}: {from:?} to {to:?}", high(was), high(at));
                 moved += 1;
             }
             beside_walls += (0..9).any(|way| at.offset(way % 3 - 1, way / 3 - 1).is_some_and(|beside| terrain::wall(high(at), high(beside)))) as usize;

@@ -32,7 +32,7 @@ use crate::dispatcher::Dispatcher;
 use crate::around::{squeeze, Around};
 use crate::entity_store::{Attribute, AttributeType, Commands, EntityEdit, Entities, EntitiesApplied, EntityId, EntityReader, EntityRef, EntityType, Header, SuperChunkEntities, NEVER, OCCUPIED_SIDE};
 use pathfinding::{a_star, step_towards, Cell, Rows, Walls};
-use terrain::{WALL_EAST, WALL_SOUTH, WALL_SOUTH_EAST, WALL_SOUTH_WEST};
+use terrain::{WALL_EAST, WALL_SOUTH};
 use coordinates::ChunkPosition;
 use crate::sampling::sample_layer;
 use bitplane_manager::{count_missed, COARSEST_BLOCKS_IN_CHUNK, Applied, BitmapArena, NotHot, Reader, Shape, SuperChunk, Tile, Write, WriteQueues};
@@ -216,10 +216,17 @@ impl<'a> SuperChunkTick<'a> {
         let Some(corner) = at.offset(-1, -1) else {
             return crate::around::ALL;
         };
-        let [east, south, south_east, south_west] =
-            self.reader.windows([WALL_EAST, WALL_SOUTH, WALL_SOUTH_EAST, WALL_SOUTH_WEST], corner, 3, 3).map(|window| squeeze(window.set));
-        // A wall is kept by the upper or left cell of the two: the centre's own for the ways down and east, its neighbours' for the rest.
-        let barred = (east >> 4 & 1) << 5 | (east >> 3 & 1) << 3 | (south >> 4 & 1) << 7 | (south >> 1 & 1) << 1 | (south_east >> 4 & 1) << 8 | (south_east & 1) | (south_west >> 4 & 1) << 6 | (south_west >> 2 & 1) << 2;
+        let [east, south] = self.reader.windows([WALL_EAST, WALL_SOUTH], corner, 3, 3).map(|window| squeeze(window.set));
+        // Whether the cell at `bit` of the nine keeps a wall east of it, or south.
+        let (east_of, south_of) = (|bit: u16| east >> bit & 1, |bit: u16| south >> bit & 1);
+        // A wall is kept by the upper or left cell of the two: the centre's own east and south, its neighbours' west and north.
+        let (to_east, to_west, to_south, to_north) = (east_of(4), east_of(3), south_of(4), south_of(1));
+        // A diagonal is barred unless both ways round it are open.
+        let to_south_east = to_east | to_south | south_of(5) | east_of(7);
+        let to_south_west = to_west | to_south | south_of(3) | east_of(6);
+        let to_north_east = to_east | to_north | south_of(2) | east_of(1);
+        let to_north_west = to_west | to_north | south_of(0) | east_of(0);
+        let barred = to_north_west | to_north << 1 | to_north_east << 2 | to_west << 3 | to_east << 5 | to_south_west << 6 | to_south << 7 | to_south_east << 8;
         crate::around::ALL & !barred
     }
 
@@ -227,8 +234,8 @@ impl<'a> SuperChunkTick<'a> {
     /// cells around `centre`, laid out as an [`Area`] is: what paths
     /// are found round.
     pub fn walls_about(&self, centre: CellIndex) -> Walls {
-        let [east, south, south_east, south_west] = self.areas([WALL_EAST, WALL_SOUTH, WALL_SOUTH_EAST, WALL_SOUTH_WEST], centre).map(|area| area.set);
-        Walls { east, south, south_east, south_west }
+        let [east, south] = self.areas([WALL_EAST, WALL_SOUTH], centre).map(|area| area.set);
+        Walls::new(east, south)
     }
 
     /// Which of the 3x3 cells around `at` an entity stands on, as the

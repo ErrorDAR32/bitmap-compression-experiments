@@ -23,8 +23,8 @@ fn walled(terrain: &Terrain, way: usize, x: u32, y: u32) -> bool {
 fn walls_are_a_small_share_of_the_ground_whatever_the_seed() {
     for seed in 1..=16 {
         let counts = Terrain::generate(seed, SuperChunkPosition { x: 2_097_152 + seed as u32, y: 2_097_152 }).wall_counts();
-        let share = counts.iter().sum::<u64>() as f64 / (4.0 * 1024.0 * 1024.0);
-        assert!(share > 0.003 && share < 0.08, "seed {seed}: {:.2}% of steps walled, {counts:?}", 100.0 * share);
+        let share = counts.iter().sum::<u64>() as f64 / (2.0 * 1024.0 * 1024.0);
+        assert!(share > 0.001 && share < 0.08, "seed {seed}: {:.2}% of steps walled, {counts:?}", 100.0 * share);
     }
 }
 
@@ -39,10 +39,6 @@ fn superchunks_made_apart_meet_with_no_seam() {
         for along in 0..1024 {
             assert_eq!(walled(&own, 0, 1023, along), wall(at(&own, 1023, along), at(&east, 0, along)), "east edge, row {along}");
             assert_eq!(walled(&own, 1, along, 1023), wall(at(&own, along, 1023), at(&south, along, 0)), "south edge, column {along}");
-            if along < 1023 {
-                assert_eq!(walled(&own, 2, 1023, along), wall(at(&own, 1023, along), at(&east, 0, along + 1)), "east edge, the diagonal down, row {along}");
-                assert_eq!(walled(&own, 3, along + 1, 1023), wall(at(&own, along + 1, 1023), at(&south, along, 0)), "south edge, the diagonal back, column {along}");
-            }
         }
     }
 }

@@ -69,18 +69,17 @@ fn walls_are_where_heights_are_more_than_a_step_apart() {
         }
     }
     let counts = terrain.wall_counts();
-    let share = counts.iter().sum::<u64>() as f64 / (4.0 * 1024.0 * 1024.0);
-    assert!(share > 0.01 && share < 0.25, "{:.1}% of steps walled: {counts:?}", 100.0 * share);
+    let share = counts.iter().sum::<u64>() as f64 / (2.0 * 1024.0 * 1024.0);
+    assert!(share > 0.002 && share < 0.25, "{:.2}% of steps walled: {counts:?}", 100.0 * share);
 }
 
-/// Flat ground has no walls; a cliff has them along it, both diagonals
-/// with it.
+/// Flat ground has no walls; a cliff has them along it.
 #[test]
 fn a_cliff_is_walled_along_its_length() {
-    assert_eq!(Terrain::from_heights(|_, _| 9).wall_counts(), [0; 4]);
+    assert_eq!(Terrain::from_heights(|_, _| 9).wall_counts(), [0; 2]);
     // Ground 3 higher from column 500 on.
     let terrain = Terrain::from_heights(|x, _| if x >= 500 { 3 } else { 0 });
-    assert_eq!(terrain.wall_counts(), [1024, 0, 1024, 1024], "east, south-east and south-west walls down it, none south");
-    assert!(walled(&terrain, 0, 499, 77) && walled(&terrain, 2, 499, 77) && walled(&terrain, 3, 500, 77));
+    assert_eq!(terrain.wall_counts(), [1024, 0], "east walls down it, none south");
+    assert!(walled(&terrain, 0, 499, 77));
     assert!(!walled(&terrain, 0, 500, 77) && !walled(&terrain, 0, 498, 77));
 }

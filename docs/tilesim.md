@@ -742,11 +742,12 @@ them all, in `world/`. The `tilesim` crate is the program alone.
 Every cell has a height, from the world's seed and where the cell is
 (`terrain/`): hills of four octaves of noise, the same on any machine,
 seamless from superchunk to superchunk. Two cells beside one another
-more than one apart in height have a wall between them: no step is
-taken through it. The walls are four layers of bits, so rules read
+-- across or down -- more than one apart in height have a wall between
+them: no step is taken through it. A diagonal step is open only when
+both ways round it are. The walls are two layers of bits, so rules read
 them as masks and never read a height; the pathfinding goes round
-them, and the sheep step through none. About 2% of steps are walled,
-in cliffs where the ground is steep. The whole of it:
+them, and the sheep step through none. Under 1% of steps across or down
+are walled, in cliffs where the ground is steep. The whole of it:
 `terrain/docs/terrain.md`.
 
 ### Pathfinding (built, first form)

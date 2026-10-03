@@ -129,8 +129,9 @@ for the nearest goal, `step_to(at, to, passable)` for one cell -- waves
 and A* of `../../pathfinding/`, round the entities in the way, one step
 a wake.
 
-**Walls**: the terrain's (`../../terrain/`), four layers read as any
-other. `unwalled_around(at)` is the neighbours of a cell no wall is before,
+**Walls**: the terrain's (`../../terrain/`), two layers -- east and
+south -- read as any other; a diagonal is barred unless both ways round
+it are open. `unwalled_around(at)` is the neighbours of a cell no wall is before,
 nine bits to narrow a step's choices by; `walls_about(centre)` the
 walls of the area, which `step_towards` and `step_to` go round by
 themselves. Where the wall layers are not held, nothing bars. The far

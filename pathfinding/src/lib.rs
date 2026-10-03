@@ -125,22 +125,52 @@ fn for_each(rows: &Rows, from: Cell, mut each: impl FnMut(Cell)) {
 
 /// The walls between cells of an area: steps that cannot be taken,
 /// whatever the cells either side are. A step is between two cells, so
-/// a wall is kept by the upper or left one of the two, a mask a way --
-/// east, south, south-east, south-west -- and bars the step both ways.
-/// None by default.
+/// a wall is kept by the upper or left one of the two, a mask a way,
+/// and bars the step both ways. Walls stand east and south of cells
+/// only; a diagonal step is barred unless both ways round it -- across
+/// then down, and down then across -- are open, which [`Walls::new`]
+/// works out once, a mask a diagonal. None by default.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Walls {
     /// Cells with a wall between them and the cell to their east.
-    pub east: Rows,
+    east: Rows,
     /// ...and the cell to their south.
-    pub south: Rows,
-    /// ...and the cell to their south-east.
-    pub south_east: Rows,
-    /// ...and the cell to their south-west.
-    pub south_west: Rows,
+    south: Rows,
+    /// Cells whose step to the south-east is barred: a wall on either way
+    /// round it.
+    south_east: Rows,
+    /// ...to the south-west.
+    south_west: Rows,
 }
 
 impl Walls {
+    /// The walls `east` and `south` of the area's cells, and the diagonal
+    /// steps they bar: a cell's step down and east is barred by a wall
+    /// east of it or of the cell below, or south of it or of the cell
+    /// east -- its two ways round; down and west, likewise to the west.
+    pub const fn new(east: Rows, south: Rows) -> Self {
+        let (mut south_east, mut south_west) = ([0; SIDE], [0; SIDE]);
+        let mut y = 0;
+        while y < SIDE {
+            // The row below's walls east; past the area's last row, none: no step leaves the area.
+            let east_below = if y + 1 < SIDE { east[y + 1] } else { 0 };
+            south_east[y] = east[y] | east_below | south[y] | south[y] >> 1;
+            south_west[y] = (east[y] | east_below) << 1 | south[y] | south[y] << 1;
+            y += 1;
+        }
+        Self { east, south, south_east, south_west }
+    }
+
+    /// The walls east of the area's cells.
+    pub const fn east(&self) -> &Rows {
+        &self.east
+    }
+
+    /// The walls south of the area's cells.
+    pub const fn south(&self) -> &Rows {
+        &self.south
+    }
+
     /// Whether a wall bars the step from `cell` to its neighbour `dx`
     /// across and `dy` down, a cell of the area too.
     pub const fn blocks_step(&self, cell: Cell, dx: i8, dy: i8) -> bool {

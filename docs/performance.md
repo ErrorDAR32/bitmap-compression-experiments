@@ -127,8 +127,9 @@ it reads -- the sheep's grass and the four walls.
 | mock, 64 superchunks, no walls | a wake 439 ns, 15,131 ticks a second | 477 ns, 14,566 |
 
 Kept for the world that is played: 5% more ticks a second with walls
-to read. On the mock, which has no walls, asking for four layers that
-are not there is pure cost at 64 superchunks.
+to read. On the mock, which has no walls, asking for the wall layers,
+four then, that are not there is pure cost at 64 superchunks. The
+walls are two layers now (`terrain/docs/terrain.md`).
 
 ## Terrain
 

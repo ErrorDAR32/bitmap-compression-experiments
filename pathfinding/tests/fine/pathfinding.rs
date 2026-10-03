@@ -9,7 +9,7 @@
 use pathfinding::{a_star, holds, nearest, step_towards, steps_apart, Cell, Path, Rows, Walls, Wave, SIDE};
 
 /// No walls.
-const OPEN: Walls = Walls { east: [0; SIDE], south: [0; SIDE], south_east: [0; SIDE], south_west: [0; SIDE] };
+const OPEN: Walls = Walls::new([0; SIDE], [0; SIDE]);
 
 /// Every cell.
 const ALL: Rows = [u16::MAX; SIDE];
@@ -211,12 +211,13 @@ fn steps_by_waves_lead_to_the_nearest_goal() {
 /// A wall bars the step between two cells, both ways, whatever the cells
 /// are: a wall across the area with one gap is gone round by waves and
 /// by A* alike, and one with none is not crossed; a diagonal step is
-/// barred by its own wall alone.
+/// barred unless both ways round it are open.
 #[test]
 fn walls_bar_steps_between_cells() {
-    // A wall under row 7, all the way across: south, and both diagonals down.
-    let mut walls = Walls::default();
-    (walls.south[7], walls.south_east[7], walls.south_west[7]) = (u16::MAX, u16::MAX, u16::MAX);
+    // A wall under row 7, all the way across.
+    let mut south = [0; SIDE];
+    south[7] = u16::MAX;
+    let walls = Walls::new([0; SIDE], south);
     let (from, to) = (cell(3, 5), cell(3, 10));
     let mut goals: Rows = [0; SIDE];
     goals[to.y as usize] = 1 << to.x;
@@ -224,8 +225,9 @@ fn walls_bar_steps_between_cells() {
     assert_eq!(a_star(&ALL, &walls, to, from), None, "nor back");
     assert_eq!(step_towards(&ALL, &walls, &goals, from, 0), None);
 
-    // A gap at column 12: the straight step down alone.
-    walls.south[7] &= !(1 << 12);
+    // A gap at column 12: the straight step down alone, the diagonals through it each walled on a way round.
+    south[7] &= !(1 << 12);
+    let walls = Walls::new([0; SIDE], south);
     let path = a_star(&ALL, &walls, from, to).expect("through the gap");
     assert_eq!(path.steps, 9 + 1 + 9, "nine across to the gap's column, down through it, and nine back");
     let wave = step_towards(&ALL, &walls, &goals, from, 0).expect("through the gap");
@@ -239,12 +241,15 @@ fn walls_bar_steps_between_cells() {
     }
     assert_eq!(taken, path.steps as u64);
 
-    // A diagonal's wall bars the diagonal, not the two steps round it.
-    let mut corner = Walls::default();
-    corner.south_east[4] = 1 << 4;
-    assert!(corner.blocks_step(cell(4, 4), 1, 1) && corner.blocks_step(cell(5, 5), -1, -1));
-    assert!(!corner.blocks_step(cell(4, 4), 1, 0) && !corner.blocks_step(cell(4, 4), 0, 1) && !corner.blocks_step(cell(5, 4), -1, 1));
-    assert_eq!(a_star(&ALL, &corner, cell(4, 4), cell(5, 5)).map(|path| path.steps), Some(2));
-    corner.south_west[4] = 1 << 5;
-    assert!(corner.blocks_step(cell(5, 4), -1, 1) && corner.blocks_step(cell(4, 5), 1, -1));
+    // One wall, east of (4, 4): it bars the step across it and every diagonal with it on a way round, both ways.
+    let mut east = [0; SIDE];
+    east[4] = 1 << 4;
+    let corner = Walls::new(east, [0; SIDE]);
+    for (from, (dx, dy)) in [((4, 4), (1, 0)), ((4, 4), (1, 1)), ((5, 4), (-1, 1)), ((4, 3), (1, 1)), ((5, 3), (-1, 1)), ((4, 4), (1, -1)), ((5, 5), (-1, -1))] {
+        assert!(corner.blocks_step(cell(from.0, from.1), dx, dy), "{from:?} by ({dx}, {dy})");
+    }
+    for (from, (dx, dy)) in [((4, 4), (0, 1)), ((4, 4), (0, -1)), ((4, 4), (-1, 1)), ((5, 4), (1, 1)), ((5, 4), (0, 1))] {
+        assert!(!corner.blocks_step(cell(from.0, from.1), dx, dy), "{from:?} by ({dx}, {dy})");
+    }
+    assert_eq!(a_star(&ALL, &corner, cell(4, 4), cell(5, 4)).map(|path| path.steps), Some(3), "round the wall's end, the diagonals barred");
 }

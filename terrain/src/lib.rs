@@ -1,8 +1,11 @@
 //! TileSim's terrain: every cell's height, from the world's seed and
 //! where the cell is, and nothing else ([`height`]) -- so a superchunk
 //! is the same whenever it is generated, and meets its neighbours with
-//! no seam -- and the **walls**: two cells beside one another more than
-//! [`STEP`] apart in height cannot be stepped between ([`Terrain`]).
+//! no seam -- and the **walls**: two cells beside one another, across
+//! or down, more than [`STEP`] apart in height cannot be stepped
+//! between ([`Terrain`]). A diagonal step has no wall of its own: it is
+//! open only when both ways round it, across then down and down then
+//! across, are.
 //! The design: `docs/terrain.md`; function by function:
 //! `docs/reference.md`.
 
@@ -24,13 +27,9 @@ pub const STEP: u8 = 1;
 pub const WALL_EAST: LayerType = LayerType(8);
 /// ...to its south.
 pub const WALL_SOUTH: LayerType = LayerType(9);
-/// ...to its south-east.
-pub const WALL_SOUTH_EAST: LayerType = LayerType(10);
-/// ...to its south-west.
-pub const WALL_SOUTH_WEST: LayerType = LayerType(11);
 
 /// The walls' layers, and the neighbour each is towards.
-pub const WALLS: [(LayerType, (i32, i32)); 4] = [(WALL_EAST, (1, 0)), (WALL_SOUTH, (0, 1)), (WALL_SOUTH_EAST, (1, 1)), (WALL_SOUTH_WEST, (-1, 1))];
+pub const WALLS: [(LayerType, (i32, i32)); 2] = [(WALL_EAST, (1, 0)), (WALL_SOUTH, (0, 1))];
 
 /// The heights' octaves: the cells between two of an octave's points,
 /// as a power of two, and how much of a height it makes up -- 255 in
@@ -81,12 +80,12 @@ pub const fn wall(a: Height, b: Height) -> bool {
 }
 
 /// A superchunk's terrain: its heights, and its walls -- for each of
-/// the four ways ([`WALLS`]), each chunk's cells that keep one.
+/// the two ways ([`WALLS`]), each chunk's cells that keep one.
 pub struct Terrain {
     /// Every cell's height.
     pub heights: HeightMap,
     /// The walls' bitmaps: a way, then a chunk in Morton order.
-    pub walls: [Box<[CellWords; CHUNKS_IN_SUPERCHUNK]>; 4],
+    pub walls: [Box<[CellWords; CHUNKS_IN_SUPERCHUNK]>; 2],
 }
 
 impl Terrain {
@@ -112,7 +111,7 @@ impl Terrain {
         }
         let at = |x: i32, y: i32| grid[(y + 1) as usize * wide + (x + 1) as usize];
         let mut heights = HeightMap::default();
-        let mut walls: [Box<[CellWords; CHUNKS_IN_SUPERCHUNK]>; 4] = std::array::from_fn(|_| Box::new([[0; WORDS]; CHUNKS_IN_SUPERCHUNK]));
+        let mut walls: [Box<[CellWords; CHUNKS_IN_SUPERCHUNK]>; 2] = std::array::from_fn(|_| Box::new([[0; WORDS]; CHUNKS_IN_SUPERCHUNK]));
         for y in 0..side {
             for x in 0..side {
                 let (chunk, cell) = (ChunkPlace::new((x as usize / CHUNK_SIDE) as u8, (y as usize / CHUNK_SIDE) as u8), CellPlace { x: x as u8, y: y as u8 });
@@ -129,8 +128,8 @@ impl Terrain {
         Self { heights, walls }
     }
 
-    /// How many walls it has, each of the four ways.
-    pub fn wall_counts(&self) -> [u64; 4] {
+    /// How many walls it has, each of the two ways.
+    pub fn wall_counts(&self) -> [u64; 2] {
         std::array::from_fn(|way| self.walls[way].iter().flatten().map(|word| word.count_ones() as u64).sum())
     }
 }

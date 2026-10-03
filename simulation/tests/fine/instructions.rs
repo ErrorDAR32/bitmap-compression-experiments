@@ -14,7 +14,7 @@ use coordinates::{CartesianCell, CellIndex, ChunkPlace, ChunkPosition, SuperChun
 use simulation::around::{self, CENTRE, RING};
 use simulation::entity_store::{Attribute, AttributeType, EntityEdit, Entities, EntityId, EntityType, Header, NEVER};
 use simulation::{Simulation, SuperChunkTick};
-use terrain::{WALL_EAST, WALL_SOUTH_EAST, WALL_SOUTH_WEST};
+use terrain::{WALL_EAST, WALL_SOUTH};
 use std::sync::Mutex;
 
 /// The layer type the arena holds: every cell hot, none set.
@@ -293,22 +293,14 @@ fn a_cell_is_sought_further_and_further_off() {
 fn walls_of_the_terrain_bar_steps() {
     let (mut arena, mut entities) = world(1);
     let mut codec = LayerCodec::new();
-    for layer_type in [WALL_EAST, WALL_SOUTH_EAST, WALL_SOUTH_WEST] {
+    for layer_type in [WALL_EAST, WALL_SOUTH] {
         for place in ChunkPlace::all() {
             arena.make_hot(BucketKey { layer_type, chunk: ChunkPosition::of(SuperChunkPosition { x: 10, y: 10 }, place) }, None, &mut codec);
         }
     }
-    // A cliff between columns 41 and 42, rows 20 to 40, with a gap at row 33: east walls, and the diagonals across it.
+    // A cliff between columns 41 and 42, rows 20 to 40, with a gap at row 33: walls east of column 41, which bar the diagonals across it too.
     for y in (20..=40).filter(|&y| y != 33) {
         arena.queue(WALL_EAST, Write::cell(cell(41, y), WriteOp::Set));
-    }
-    for y in 20..=40 {
-        if y != 33 && y != 32 {
-            arena.queue(WALL_SOUTH_EAST, Write::cell(cell(41, y), WriteOp::Set));
-        }
-        if y != 33 && y != 32 {
-            arena.queue(WALL_SOUTH_WEST, Write::cell(cell(42, y), WriteOp::Set));
-        }
     }
     arena.apply();
     let (from, to) = (cell(41, 30), cell(43, 30));
@@ -335,6 +327,6 @@ fn walls_of_the_terrain_bar_steps() {
         steps += 1;
         assert!(steps <= 12, "no way found in the steps it takes");
     }
-    // Down to the gap at row 33, through it, and back up: three down, across, and up again.
-    assert_eq!(steps, 6);
+    // Down to the gap at row 33, straight through it -- a diagonal across the cliff has a wall on one way round -- and back up: three down, one across, three up.
+    assert_eq!(steps, 7);
 }
