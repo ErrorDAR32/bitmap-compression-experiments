@@ -1,5 +1,5 @@
 //! TileSim's world as a whole: made from a seed ([`generate`]), ticked
-//! -- its cells' rules (`mt_rules/`) and its entities (`entity_rules/`)
+//! -- its cells' rules (`mc_rules/`) and its entities (`entity_rules/`)
 //! together ([`tick`]) -- saved ([`save`]) and loaded ([`load`]) as
 //! it was, to the cell and the random number. Where a save's files are
 //! and what they hold: `chunk_storage::disk`. The design:

@@ -4,7 +4,7 @@
 //! own.
 
 use entity_rules::diagnostics::world::MockWorld;
-use mt_rules::grass;
+use mc_rules::grass;
 use simulation::Simulation;
 use bitplane_manager::diagnostics::arena::ArenaStats;
 use chunk_storage::diagnostics::storage::StorageStats;

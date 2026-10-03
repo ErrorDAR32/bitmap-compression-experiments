@@ -1,6 +1,6 @@
 # The Monte Carlo rules, function by function
 
-The design is in `mt_rules.md`.
+The design is in `mc_rules.md`.
 
 ## `grass.rs`
 

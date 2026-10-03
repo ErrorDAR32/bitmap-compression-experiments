@@ -10,7 +10,7 @@ use chunk_storage::{ChunkStorage, LayerCodec};
 use coordinates::{CartesianCell, ChunkPlace, ChunkPosition, SuperChunkPosition, SUPERCHUNK_SIDE_CELLS};
 use simulation::entity_store::Entities;
 use simulation::Simulation;
-use mt_rules::grass::{tick, DECAY_CHANCE, SPREAD_CHANCE};
+use mc_rules::grass::{tick, DECAY_CHANCE, SPREAD_CHANCE};
 
 /// The superchunk the tests run on.
 const SUPERCHUNK: SuperChunkPosition = SuperChunkPosition { x: 3, y: 3 };

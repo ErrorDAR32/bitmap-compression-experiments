@@ -4,7 +4,7 @@
 //! the threads -- and the memory held.
 
 use entity_rules::diagnostics::world::MockWorld;
-use mt_rules::grass;
+use mc_rules::grass;
 use crate::TickCounts;
 use entity_rules::sheep;
 use simulation::diagnostics::entities::EntityStats;

@@ -336,7 +336,7 @@ block of 16 words -- 32x32 cells -- by its count, a word by its bits'
 count, and only the word holding a chosen cell is searched. A chunk is so sampled in proportion to its set cells against
 the rest of its superchunk.
 
-The first rule built on it is grass (`mt_rules/src/grass.rs`). Each tick a
+The first rule built on it is grass (`mc_rules/src/grass.rs`). Each tick a
 cell of grass tries to spread with a chance of 0.001%, onto one of its
 eight neighbours drawn at random, if that one is dirt; and turns back
 to dirt with `k / 8` of 0.002%, `k` its grass neighbours -- none alone,

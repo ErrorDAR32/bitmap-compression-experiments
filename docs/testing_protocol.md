@@ -45,7 +45,7 @@ takes long. A test that only prints belongs to none: it is a tool.
 | `pathfinding` | pathfinding | | |
 | `utilities` | fixed_list, memory, rng, table | | |
 | `simulation` | dispatcher, entities, instructions | sampling, tick | |
-| `mt_rules` | | grass | |
+| `mc_rules` | | grass | |
 | `entity_rules` | | sheep | |
 | `terrain` | | terrain | walls over many seeds; no seam between superchunks |
 | `world` | | world: saves, loads, walls | 16 superchunks stopped every 5,000 ticks; a flock lasting 300,000 |

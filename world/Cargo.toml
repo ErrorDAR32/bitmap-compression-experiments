@@ -13,7 +13,7 @@ path = "src/diagnostics/tool/main.rs"
 
 [dependencies]
 bitmap = { path = "../bitmap" }
-mt_rules = { path = "../mt_rules" }
+mc_rules = { path = "../mc_rules" }
 terrain = { path = "../terrain" }
 entity_rules = { path = "../entity_rules" }
 simulation = { path = "../simulation" }

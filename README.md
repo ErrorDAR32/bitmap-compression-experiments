@@ -20,7 +20,7 @@ spreading over dirt -- and the first entities: sheep eating it.
 | [`docs/tilesim.md`](docs/tilesim.md) | what TileSim is, and every decision about it so far: chunks, superchunks, layers, the simulation's plan |
 | [`src/`](src/) | the `tilesim` crate: the program -- worlds made from a seed, run and saved, from the command line |
 | [`world/`](world/) | the world as a whole: made from a seed, ticked -- rules and entities together -- saved and loaded; and its diagnostics tool |
-| [`mt_rules/`](mt_rules/) | the Monte Carlo rules of the cells, a file each: so far grass over dirt |
+| [`mc_rules/`](mc_rules/) | the Monte Carlo rules of the cells, a file each: so far grass over dirt |
 | [`entity_rules/`](entity_rules/) | the entities, a file each: so far the sheep, eating the grass |
 | [`coordinates/`](coordinates/) | where things are: cells, chunks and superchunks, cartesian and by Morton index |
 | [`chunk_storage/`](chunk_storage/) | chunks as stored, what loading and saving work on: height maps, the layer codec, superchunk images, the cold pool and the writeback ring |

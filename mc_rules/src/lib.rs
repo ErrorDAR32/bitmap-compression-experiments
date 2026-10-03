@@ -7,7 +7,7 @@
 //! |---|---|
 //! | `grass` | grass spreading over dirt, and decaying |
 //!
-//! What the rules are: `docs/mt_rules.md`; function by function:
+//! What the rules are: `docs/mc_rules.md`; function by function:
 //! `docs/reference.md`.
 
 // Every item is documented, private ones included; `cargo clippy`

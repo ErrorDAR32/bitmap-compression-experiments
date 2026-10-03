@@ -18,7 +18,7 @@ superchunk's image and state written, the world's file last -- a
 ## `tick.rs`
 
 **`tick(simulation, arena, entities, seed)`**: grass
-(`mt_rules::grass::rule`) and then sheep (`entity_rules::sheep::rule`) on
+(`mc_rules::grass::rule`) and then sheep (`entity_rules::sheep::rule`) on
 each superchunk's turn; **`TickCounts`** `{grass, sheep}`.
 
 ## `diagnostics/`

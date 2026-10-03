@@ -21,7 +21,7 @@ draws apart -- two flocks came out with the same sheep.
 
 ## TickCounts
 
-`tick` runs every rule of the cells (`../mt_rules/`) and every kind of
+`tick` runs every rule of the cells (`../mc_rules/`) and every kind of
 entity (`../entities/`) on each superchunk's turn: grass, then sheep.
 
 ## Saved and loaded

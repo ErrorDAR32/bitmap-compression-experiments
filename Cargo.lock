@@ -3202,6 +3202,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "mc_rules"
+version = "0.1.0"
+dependencies = [
+ "bitplane_manager",
+ "chunk_storage",
+ "coordinates",
+ "simulation",
+]
+
+[[package]]
 name = "memchr"
 version = "2.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3244,16 +3254,6 @@ checksum = "bb85c154ba489f01b25c0d36ae69a87e4a1c73a72631fc6c0eb6dde34a73e44b"
 dependencies = [
  "num-traits",
  "pxfm",
-]
-
-[[package]]
-name = "mt_rules"
-version = "0.1.0"
-dependencies = [
- "bitplane_manager",
- "chunk_storage",
- "coordinates",
- "simulation",
 ]
 
 [[package]]
@@ -5722,7 +5722,7 @@ dependencies = [
  "chunk_storage",
  "coordinates",
  "entity_rules",
- "mt_rules",
+ "mc_rules",
  "simulation",
  "terrain",
  "utilities",
