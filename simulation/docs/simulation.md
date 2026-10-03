@@ -17,7 +17,7 @@ chosen rank to the next is drawn from the geometric law --
 `floor(ln(u) / ln(1 - p))`, `u` uniform in `(0, 1]` -- which chooses
 each set cell with probability `p`. The counts find each chosen rank
 without a scan: a superchunk's layer passed over whole by its count, a
-chunk by its count, a block of 64 words by its count, a word by its
+chunk by its count, a block of 16 words by its count, a word by its
 bits' count, and only the word holding a chosen cell searched -- so a
 sample costs the same few counts however rare samples are.
 

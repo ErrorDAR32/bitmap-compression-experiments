@@ -108,8 +108,9 @@ const ALLOCATION_WORDS: usize = WORDS * CHUNKS_IN_SUPERCHUNK;
 
 /// Words in a block of a bitmap: a run of them a count is kept for, so
 /// a search by count passes over it whole. In Morton order it is a
-/// square of 64x64 cells.
-pub const BLOCK_WORDS: usize = 64;
+/// square of 32x32 cells: two lines of memory, so a cell is found in
+/// its block in a short walk.
+pub const BLOCK_WORDS: usize = 16;
 /// Blocks in a bitmap.
 pub const BLOCKS_IN_CHUNK: usize = WORDS / BLOCK_WORDS;
 /// Cells in a block.
@@ -118,7 +119,11 @@ const BLOCK_CELLS: usize = BLOCK_WORDS * BITS_PER_WORD;
 /// The coarsest block [`Reader::any_in_block`] is asked of: `2^6` cells
 /// a side, the cells a count is kept of.
 pub const COARSEST_BLOCK: u32 = 6;
-const _: () = assert!(BLOCK_CELLS == 1 << (2 * COARSEST_BLOCK));
+/// Coarsest blocks in a chunk.
+pub const COARSEST_BLOCKS_IN_CHUNK: usize = 16;
+/// Counts kept to a coarsest block: one a counted block of it.
+const COUNTS_IN_COARSEST: usize = BLOCKS_IN_CHUNK / COARSEST_BLOCKS_IN_CHUNK;
+const _: () = assert!(BLOCK_CELLS * COUNTS_IN_COARSEST == 1 << (2 * COARSEST_BLOCK));
 
 /// A superchunk layer's four chunk sets, a bit a chunk each, packed
 /// together in 8 bytes.
@@ -160,7 +165,7 @@ struct SuperChunkLayer {
     /// How many cells each block of each bucket has set, by Morton
     /// index: kept in step with every change, as the buckets' counts
     /// are, and meaningful where they are. What sampling passes over
-    /// most of a bitmap by, 32 bytes a bucket beside its 8 KiB.
+    /// most of a bitmap by, 128 bytes a bucket beside its 8 KiB.
     block_counts: [[u16; BLOCKS_IN_CHUNK]; CHUNKS_IN_SUPERCHUNK],
 }
 
@@ -370,7 +375,7 @@ impl<'a> Reader<'a> {
         self.lookup.any_in_block(self.superchunks, layer_type, cell, level)
     }
 
-    /// Which of the [`BLOCKS_IN_CHUNK`] blocks of `cell`'s chunk --
+    /// Which of the [`COARSEST_BLOCKS_IN_CHUNK`] blocks of `cell`'s chunk --
     /// `2^COARSEST_BLOCK` cells a side, in Morton order, a bit each --
     /// `layer_type` holds at any cell of: read off the counts kept, no
     /// cell looked at, and an empty chunk off its flag. `None` if its
@@ -558,14 +563,16 @@ impl Lookup {
         // The block's cells are a run of this many bits, in Morton order.
         let run = 1usize << (2 * level);
         let first = cell.in_chunk() & !(run - 1);
-        if layer.block_counts[chunk][first / BLOCK_CELLS] == 0 {
+        // The counts the run lies in: one, or those it is made of.
+        let counted = &layer.block_counts[chunk][first / BLOCK_CELLS..][..run.div_ceil(BLOCK_CELLS)];
+        if counted.iter().all(|&count| count == 0) {
             return Some(false);
         }
         let cells = layer.cells(chunk);
         Some(if run < BITS_PER_WORD {
             cells[first / BITS_PER_WORD] >> (first % BITS_PER_WORD) & ((1 << run) - 1) != 0
         } else {
-            run == BLOCK_CELLS || cells[first / BITS_PER_WORD..(first + run) / BITS_PER_WORD].iter().any(|&word| word != 0)
+            run >= BLOCK_CELLS || cells[first / BITS_PER_WORD..(first + run) / BITS_PER_WORD].iter().any(|&word| word != 0)
         })
     }
 
@@ -581,7 +588,7 @@ impl Lookup {
         if !contains(layer.flags.nonempty, chunk) {
             return Some(0);
         }
-        Some(layer.block_counts[chunk].iter().enumerate().fold(0, |holding, (block, &count)| holding | ((count != 0) as u16) << block))
+        Some(layer.block_counts[chunk].as_chunks::<COUNTS_IN_COARSEST>().0.iter().enumerate().fold(0, |holding, (block, counts)| holding | (counts.iter().any(|&count| count != 0) as u16) << block))
     }
 
     /// The aligned tile whose first cell is `first`, if in the world, of

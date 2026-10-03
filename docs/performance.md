@@ -62,10 +62,36 @@ and for the word each write lands in. Nothing gained at 64 or 256
 superchunks (348 against 350 ns a sample): the sample's cost is in
 finding it, not in what the rule reads after.
 
-What is left in a sample at scale is the walk itself: up to 64 words --
-eight lines of memory -- to find the chosen cell in its block. Counts
-of smaller blocks, a line of memory each, would end the walk in one
-line: not built.
+## Counts of smaller blocks
+
+What was left in a sample at scale was the walk itself: up to 64 words
+-- eight lines of memory -- to find the chosen cell in its block. The
+counts are now kept of blocks of 16 words (`BLOCK_WORDS`), 32x32 cells:
+128 bytes of counts a bucket where there were 32, and a walk of two
+lines at most.
+
+`diagnostics pasture <ticks> 333 1000 <superchunks> 12`, both built
+native, the same world to the cell:
+
+| superchunks | blocks of | ticks a second | a grass sample, ns | a sheep's wake, ns |
+|---|---|---|---|---|
+| 64 | 64 words | 19,356 and 19,010 | 173 | 557 |
+| 64 | 16 words | 20,263 and 19,841 | 179 | 544 |
+| 144 | 64 words | 10,802 and 10,808 | | |
+| 144 | 16 words | 10,407 and 10,394 | | |
+| 400 | 64 words | 3,381 | 369 | 910 |
+| 400 | 16 words | 3,671 | 300 | 809 |
+| 1,024 | 64 words | 1,263 | 470 | 1,205 |
+| 1,024 | 16 words | 1,443 | 350 | 1,068 |
+
+Nothing either way while the world fits the caches -- 4% slower at 144
+-- and 9% more ticks a second at 400 superchunks, 14% at 1,024, a
+quarter off a sample: it helps where memory is the limit, which is
+where a large world is. The far search's blocks of 64x64 cells are now
+four counts each.
+
+The table at the top was taken before this and before the native
+build.
 
 ## What a tick is made of
 

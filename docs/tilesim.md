@@ -332,7 +332,7 @@ geometric law -- `floor(ln(u) / ln(1 - p))`, `u` uniform in `(0, 1]` --
 which chooses each set cell with probability `p`, independently. The
 counts then find each chosen rank without a linear scan: a superchunk
 bitplane is passed over whole by its count, a chunk by its count, a
-block of 64 words -- 64x64 cells -- by its count, a word by its bits'
+block of 16 words -- 32x32 cells -- by its count, a word by its bits'
 count, and only the word holding a chosen cell is searched. A chunk is so sampled in proportion to its set cells against
 the rest of its superchunk.
 

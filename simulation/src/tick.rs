@@ -35,7 +35,7 @@ use pathfinding::{a_star, step_towards, Cell, Rows, Walls};
 use terrain::{WALL_EAST, WALL_SOUTH, WALL_SOUTH_EAST, WALL_SOUTH_WEST};
 use coordinates::ChunkPosition;
 use crate::sampling::sample_layer;
-use bitplane_manager::{count_missed, BLOCKS_IN_CHUNK, Applied, BitmapArena, NotHot, Reader, Shape, SuperChunk, Tile, Write, WriteQueues};
+use bitplane_manager::{count_missed, COARSEST_BLOCKS_IN_CHUNK, Applied, BitmapArena, NotHot, Reader, Shape, SuperChunk, Tile, Write, WriteQueues};
 use chunk_storage::LayerType;
 use coordinates::{CartesianCell, CellIndex, SuperChunkPosition, WORLD_SIDE_SUPERCHUNKS};
 use std::ops::AddAssign;
@@ -285,7 +285,7 @@ impl<'a> SuperChunkTick<'a> {
         let world = (1i64 << u32::BITS) >> level;
         if level == FARTHEST {
             // The chunks its blocks are in, each read at once.
-            let chunk = BLOCKS_IN_CHUNK.trailing_zeros() / 2;
+            let chunk = COARSEST_BLOCKS_IN_CHUNK.trailing_zeros() / 2;
             for (down, across) in ((top >> chunk)..=((top + AREA_SIDE as i64 - 1) >> chunk)).flat_map(|down| ((left >> chunk)..=((left + AREA_SIDE as i64 - 1) >> chunk)).map(move |across| (down, across))) {
                 if across < 0 || down < 0 || across << chunk >= world || down << chunk >= world {
                     continue;

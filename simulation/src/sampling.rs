@@ -10,7 +10,7 @@
 //! (`docs/tilesim.md`, "Sampling"): each set cell is then chosen with
 //! the probability asked, and only the chosen ones are found. The
 //! counts find them: a superchunk bitplane with no hot cell set is
-//! passed over whole, a chunk by its count, a block of 64 words by its
+//! passed over whole, a chunk by its count, a block of 16 words by its
 //! count, a word by its bits' count, and only the word holding a chosen
 //! cell is searched. So a sample costs the same few counts however far
 //! from the last it is: the rarer the samples, the less of a bitmap is

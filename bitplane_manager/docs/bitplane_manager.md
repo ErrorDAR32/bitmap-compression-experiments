@@ -15,7 +15,7 @@ allocation keeps four 16-bit chunk sets packed in 8 bytes (hot, dirty,
 waiting in the ring, non-empty), each bucket's count of set cells (a
 `u16` less one -- a stored layer has 1 to 65,536 -- beside the
 non-empty bit, as a hot bucket may be empty), the set cells of each
-block of 64 words of each bucket (`BLOCK_WORDS`: 64x64 cells, 16 a
+block of 16 words of each bucket (`BLOCK_WORDS`: 32x32 cells, 64 a
 bucket), and the set cells of its hot buckets together: the weights
 sampling picks by, and what it passes over a bitmap by.
 
