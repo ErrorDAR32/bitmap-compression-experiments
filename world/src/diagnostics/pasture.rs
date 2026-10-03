@@ -3,10 +3,10 @@
 //! each phase's time, each rule's time in the first -- added up over
 //! the threads -- and the memory held.
 
-use entities::diagnostics::world::World;
+use entity_rules::diagnostics::world::World;
 use mt_rules::grass;
 use crate::Ticked;
-use entities::sheep;
+use entity_rules::sheep;
 use simulation::diagnostics::entities::EntityStats;
 use simulation::entity_store::EntitiesApplied;
 use simulation::Simulation;

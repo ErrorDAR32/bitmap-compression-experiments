@@ -1,5 +1,6 @@
 //! A world saved and loaded: it goes on exactly as it would have -- to
-//! the cell, the entity and the random number -- its files are where
+//! the cell, the entity and the random number, however often it is
+//! stopped -- its files are where
 //! and what they are said to be, and files that are not a save are
 //! refused.
 //!
@@ -8,7 +9,7 @@
 use bitplane_manager::BitmapArena;
 use chunk_storage::disk::{self, DiskError};
 use chunk_storage::mock::{DIRT, GRASS};
-use entities::diagnostics::world::World;
+use entity_rules::diagnostics::world::World;
 use simulation::entity_store::{Attribute, Entities, Header};
 use simulation::Simulation;
 use std::path::PathBuf;
@@ -60,6 +61,33 @@ fn a_world_loaded_goes_on_as_the_one_saved() {
     assert!(eaten > 1_000 && born > 10, "{eaten} eaten, {born} born: a world doing something");
     assert!(everything(&first.arena, &first.entities) == everything(&second.arena, &second.entities), "the same 3,000 ticks on");
     assert_eq!(simulation.random_states().collect::<Vec<_>>(), second.simulation.random_states().collect::<Vec<_>>());
+}
+
+/// A world saved and loaded again and again mid run is, at a tick
+/// agreed, the world that ran straight to it: every cell, every entity,
+/// every random number.
+#[test]
+fn a_world_saved_and_loaded_mid_run_comes_to_the_same() {
+    const UNTIL: u64 = 4_000;
+    let mut straight = world::generate(11, 4);
+    while straight.entities.now() < UNTIL {
+        world::tick(&mut straight.simulation, &mut straight.arena, &mut straight.entities, 11);
+    }
+
+    let folder = folder("mid_run");
+    let mut stopped = world::generate(11, 4);
+    for stop in [1, 700, 701, 1_900, 3_333, UNTIL] {
+        while stopped.entities.now() < stop {
+            world::tick(&mut stopped.simulation, &mut stopped.arena, &mut stopped.entities, 11);
+        }
+        world::save(&folder, "Stopped", 11, &mut stopped.arena, &mut stopped.storage, &stopped.entities, &stopped.simulation).expect("saved");
+        // What ran is dropped whole: the next stretch runs on what the files hold alone.
+        stopped = world::load(&folder).expect("loaded");
+        assert_eq!(stopped.info.tick, stop);
+    }
+    assert!(straight.entities.len() > 16_000, "{} sheep: a flock that bred", straight.entities.len());
+    assert!(everything(&straight.arena, &straight.entities) == everything(&stopped.arena, &stopped.entities), "the same at tick {UNTIL}");
+    assert_eq!(straight.simulation.random_states().collect::<Vec<_>>(), stopped.simulation.random_states().collect::<Vec<_>>());
 }
 
 /// A save is a directory: a world file in text, and two files a

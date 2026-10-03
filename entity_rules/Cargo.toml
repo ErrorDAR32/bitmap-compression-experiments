@@ -1,8 +1,8 @@
 [package]
-name = "entities"
+name = "entity_rules"
 version = "0.1.0"
 edition = "2021"
-description = "TileSim's entities, a file each: so far the sheep"
+description = "TileSim's rules of its entities, a kind a file: so far the sheep"
 publish = false
 
 [dependencies]

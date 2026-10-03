@@ -419,7 +419,7 @@ The height map is ignored for now.
 
 An entity is a capability unit, not necessarily alive. The first form
 is built in the simulation (`simulation/src/entity_store/`), with sheep on
-it (`entities/src/sheep.rs`):
+it (`entity_rules/src/sheep.rs`):
 
 - **A record**: a header -- a random 64-bit ID, a type, the cell it
   stands on, the tick it next wakes at -- and attributes, typed values

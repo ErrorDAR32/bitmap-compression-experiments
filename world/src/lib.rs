@@ -1,5 +1,5 @@
 //! TileSim's world as a whole: made from a seed ([`generate`]), ticked
-//! -- its cells' rules (`mt_rules/`) and its entities (`entities/`)
+//! -- its cells' rules (`mt_rules/`) and its entities (`entity_rules/`)
 //! together ([`tick`]) -- saved ([`save`]) and loaded ([`load`]) as
 //! it was, to the cell and the random number. Where a save's files are
 //! and what they hold: `chunk_storage::disk`. The design:
@@ -20,7 +20,7 @@ use chunk_storage::disk::{self, DiskError, WorldInfo};
 use chunk_storage::{ChunkStorage, HeightMap, LayerCodec, LayerType, SuperChunkImage};
 use chunk_storage::mock::{grass_on_dirt, DIRT, GRASS};
 use coordinates::{ChunkPlace, ChunkPosition, SuperChunkPosition, WORLD_SIDE_SUPERCHUNKS};
-use entities::sheep::flock;
+use entity_rules::sheep::flock;
 use simulation::entity_store::{saved, Entities};
 use simulation::Simulation;
 use std::path::Path;

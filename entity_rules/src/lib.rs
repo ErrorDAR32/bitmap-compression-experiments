@@ -16,7 +16,7 @@
 //! Beside them, as in every crate: `diagnostics/`, here the mock world
 //! they are ticked on; and the tests, in `tests/`.
 
-//! What the entities are: `docs/entities.md`; function by function:
+//! What the entities are: `docs/entity_rules.md`; function by function:
 //! `docs/reference.md`.
 
 // Every item is documented, private ones included; `cargo clippy`

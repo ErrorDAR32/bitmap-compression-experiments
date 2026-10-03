@@ -19,7 +19,7 @@ spreading over dirt -- and the first entities: sheep eating it.
 | [`src/`](src/) | the `tilesim` crate: the program -- worlds made from a seed, run and saved, from the command line |
 | [`world/`](world/) | the world as a whole: made from a seed, ticked -- rules and entities together -- saved and loaded; and its diagnostics tool |
 | [`mt_rules/`](mt_rules/) | the Monte Carlo rules of the cells, a file each: so far grass over dirt |
-| [`entities/`](entities/) | the entities, a file each: so far the sheep, eating the grass |
+| [`entity_rules/`](entity_rules/) | the entities, a file each: so far the sheep, eating the grass |
 | [`coordinates/`](coordinates/) | where things are: cells, chunks and superchunks, cartesian and by Morton index |
 | [`chunk_storage/`](chunk_storage/) | chunks as stored, what loading and saving work on: height maps, the layer codec, superchunk images, the cold pool and the writeback ring |
 | [`pathfinding/`](pathfinding/) | how an entity finds its way: waves and A* over an area of 16x16 cells held as masks |
@@ -56,6 +56,6 @@ compare against never enter this build.
 Tessera depends on `bitmap/` and `utilities/` beside it; `coordinates/`
 on `bitmap/`; `chunk_storage/` on those and Tessera;
 `bitplane_manager/` on `chunk_storage/`, `coordinates/` and
-`allocator/`; `simulation/` on `bitplane_manager/`; `entities/` on
+`allocator/`; `simulation/` on `bitplane_manager/`; `entity_rules/` on
 `simulation/` and `pathfinding/`; TileSim itself, `src/`, on all of
 them; the viewer on TileSim.

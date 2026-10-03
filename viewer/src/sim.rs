@@ -28,7 +28,7 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
 use std::thread;
 use std::time::{Duration, Instant};
-use entities::diagnostics::world::World;
+use entity_rules::diagnostics::world::World;
 
 /// Ticks a second the simulation is held to unless told otherwise: the
 /// game's target.

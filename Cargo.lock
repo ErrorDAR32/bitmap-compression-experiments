@@ -2296,7 +2296,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "entities"
+name = "entity_rules"
 version = "0.1.0"
 dependencies = [
  "bitplane_manager",
@@ -4916,7 +4916,7 @@ dependencies = [
  "bitplane_manager",
  "chunk_storage",
  "coordinates",
- "entities",
+ "entity_rules",
  "simulation",
  "world",
 ]
@@ -5709,7 +5709,7 @@ dependencies = [
  "bitplane_manager",
  "chunk_storage",
  "coordinates",
- "entities",
+ "entity_rules",
  "mt_rules",
  "simulation",
  "utilities",

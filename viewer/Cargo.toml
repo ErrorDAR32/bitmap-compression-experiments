@@ -7,7 +7,7 @@ publish = false
 
 [dependencies]
 simulation = { path = "../simulation" }
-entities = { path = "../entities" }
+entity_rules = { path = "../entity_rules" }
 world = { path = "../world" }
 coordinates = { path = "../coordinates" }
 bitmap = { path = "../bitmap" }

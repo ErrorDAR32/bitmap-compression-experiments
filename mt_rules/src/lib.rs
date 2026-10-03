@@ -1,7 +1,7 @@
 //! TileSim's rules of the cells: every rule the cells run by, a file
 //! each -- a tick of Monte Carlo sampling on a superchunk's turn, and
 //! the writes it queues. Entities are a crate of their own
-//! (`entities/`); the world ticks both together (`world/`).
+//! (`entity_rules/`); the world ticks both together (`world/`).
 //!
 //! | module | rule |
 //! |---|---|

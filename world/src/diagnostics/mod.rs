@@ -2,7 +2,7 @@
 //! a file. They only gather: nothing here judges a result or prints one
 //! -- the tests (`tests/`) judge, and the diagnostics tool
 //! (`tool/`, a program) prints and keeps -- as in Tessera's. The mock
-//! world they tick is the entities' (`entities/src/diagnostics/world.rs`).
+//! world they tick is the entities' (`entity_rules/src/diagnostics/world.rs`).
 //!
 //! | file | what it gathers |
 //! |---|---|

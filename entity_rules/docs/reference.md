@@ -1,6 +1,6 @@
 # The entities, function by function
 
-The design is in `entities.md`.
+The design is in `entity_rules.md`.
 
 ## `sheep.rs`
 

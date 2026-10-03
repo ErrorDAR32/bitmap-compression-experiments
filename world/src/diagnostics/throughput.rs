@@ -3,7 +3,7 @@
 //! -- the process's, sampled every tick, and the arena's and storage's
 //! own.
 
-use entities::diagnostics::world::World;
+use entity_rules::diagnostics::world::World;
 use mt_rules::grass;
 use simulation::Simulation;
 use bitplane_manager::diagnostics::arena::ArenaStats;

@@ -1,11 +1,11 @@
 //! The world's tick: every rule of the cells and every entity, on each
 //! superchunk's turn. So far grass and sheep together: grass spreading and decaying over dirt
-//! (`mt_rules::grass`), sheep eating it (`entities::sheep`), one tick running both on each
+//! (`mt_rules::grass`), sheep eating it (`entity_rules::sheep`), one tick running both on each
 //! superchunk -- the grass first, then the sheep, all reading the world
 //! as the tick found it.
 
 use mt_rules::grass::{self, Grass};
-use entities::sheep::{self, SheepTickMetrics};
+use entity_rules::sheep::{self, SheepTickMetrics};
 use bitplane_manager::BitmapArena;
 use simulation::entity_store::Entities;
 use simulation::{Simulation, TickReport};

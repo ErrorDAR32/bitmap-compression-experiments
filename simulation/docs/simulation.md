@@ -45,7 +45,7 @@ for samples are kept between ticks.
 
 ## Entities
 
-`entities/`: what stands on the cells. An entity is a header -- a
+`src/entity_store/`: what stands on the cells. An entity is a header -- a
 random 64-bit ID, a type, its cell, the tick it next wakes at -- and
 attributes, typed values added and removed at run time. A superchunk
 holds its entities in a bucket a chunk, sorted by cell -- Morton order

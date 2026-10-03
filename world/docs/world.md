@@ -45,7 +45,10 @@ each superchunk's random numbers.
 
 **A world loaded goes on as the one saved would have**, to the cell,
 the entity and the random number (`tests/world.rs`: 1,500 ticks,
-saved, then 3,000 more on both). What makes it so:
+saved, then 3,000 more on both; and a world saved and loaded six
+times mid run -- at ticks 1, 700, 701, 1,900, 3,333 and 4,000, each
+stretch run on what the files hold alone -- against one run straight
+to tick 4,000: the same cells, entities and random numbers). What makes it so:
 
 - **Random numbers are a superchunk's own, and kept.** Each superchunk
   has a generator that goes on from tick to tick (`Simulation`), first

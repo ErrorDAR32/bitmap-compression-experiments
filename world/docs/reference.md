@@ -17,13 +17,13 @@ superchunk's image and state written, the world's file last -- a
 ## `tick.rs`
 
 **`tick(simulation, arena, entities, seed)`**: grass
-(`mt_rules::grass::rule`) and then sheep (`entities::sheep::rule`) on
+(`mt_rules::grass::rule`) and then sheep (`entity_rules::sheep::rule`) on
 each superchunk's turn; **`Ticked`** `{grass, sheep}`.
 
 ## `diagnostics/`
 
 The mock world they tick is the entities'
-(`entities::diagnostics::world::World`).
+(`entity_rules::diagnostics::world::World`).
 
 **`throughput::run(ticks, thousandths, superchunks, threads)`**: grass
 ticked flat out: each phase's time, samples, writes, cells missed, the
