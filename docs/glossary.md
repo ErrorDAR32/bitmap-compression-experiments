@@ -1,4 +1,4 @@
-# TileSim's vocabulary
+# TileSim's glossary
 
 Every word the code and the docs use for a thing of TileSim's own: what
 it means, and what it relates to. One word is one thing, everywhere --

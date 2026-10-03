@@ -3,9 +3,10 @@
 //!
 //! `cargo test`
 
-use utilities::table::csv::{lines, Line};
-use utilities::table::report::Report;
-use utilities::table::Table;
+use utilities::diagnostics::table::csv::{lines, Line};
+use utilities::diagnostics::table::report::Report;
+use utilities::transient_data::TRANSIENT_DATA;
+use utilities::diagnostics::table::Table;
 
 /// A table with every awkward field -- a comma, a quote, a newline, an
 /// empty one, one reading as a comment or a rule -- and rules comes back
@@ -35,4 +36,13 @@ fn a_table_round_trips_through_csv() {
     report.add("second", Table::from_csv(&csv));
     let text = report.to_text();
     assert_eq!(Report::from_text("round trip", &text).to_text(), text);
+
+    // Kept in the transient data's measurements and read back from there:
+    // the same, with the commit it was measured on noted.
+    let folder = TRANSIENT_DATA.measurements();
+    let kept = Report::from_text("round trip", &text).keep(&folder);
+    assert!(kept.starts_with(TRANSIENT_DATA.under("")) && kept.exists());
+    let read_back = Report::read(&folder, "round trip").expect("kept").to_text();
+    let without_commit: String = read_back.lines().filter(|line| !line.starts_with("# commit ")).map(|line| format!("{line}\n")).collect();
+    assert_eq!(without_commit, text);
 }

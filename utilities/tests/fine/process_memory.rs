@@ -2,7 +2,7 @@
 //!
 //! `cargo test`
 
-use utilities::memory::{process_memory, MemoryTrack};
+use utilities::diagnostics::process_memory::{process_memory, MemoryTrack};
 
 /// On Linux the process holds some memory, never more than its peak, and
 /// a track of it averages between nothing and the peak.

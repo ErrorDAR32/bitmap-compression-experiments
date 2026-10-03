@@ -3,11 +3,12 @@
 //!
 //! | module | what it is |
 //! |---|---|
-//! | [`table`] | the one table printer, and a measurement's report: its tables, printed and kept as CSV in a folder the caller names |
+//! | [`diagnostics`] | what every crate's diagnostics are made with: the table printer and a measurement's report, and the process's memory |
+//! | [`transient_data`] | where a crate's runs leave what they make, out of git |
 //! | [`rng`] | a seeded random source, whose whole state is one word |
 //! | [`fixed_list`] | a list of fixed capacity, allocated once, that never grows |
-//! | [`memory`] | the process's memory as the system counts it, now and at its peak, and tracked over a run |
-
+//! | [`cache`] | memory asked of the processor's caches ahead of its being read |
+//!
 //! The design: `docs/utilities.md`; function by function:
 //! `docs/reference.md`.
 
@@ -15,7 +16,8 @@
 // checks the private ones.
 #![warn(missing_docs, clippy::missing_docs_in_private_items)]
 
+pub mod cache;
+pub mod diagnostics;
 pub mod fixed_list;
-pub mod memory;
 pub mod rng;
-pub mod table;
+pub mod transient_data;

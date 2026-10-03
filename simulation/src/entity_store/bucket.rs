@@ -22,7 +22,7 @@
 
 use super::entity::{Attribute, AttributeType, EntityId, EntityRef, Header};
 use coordinates::CellIndex;
-use utilities::memory::prefetch;
+use utilities::cache::prefetch;
 
 /// The chunk is searched in 64x64 tiles of cells: a place is first
 /// narrowed to its tile, whose places are a run of the sorted list.

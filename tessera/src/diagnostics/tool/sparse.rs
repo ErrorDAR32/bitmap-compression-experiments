@@ -10,8 +10,8 @@ use tessera::diagnostics::examination::Examination;
 use tessera::BitStream;
 use tessera::Tessera;
 use tessera::corpus::{grown, corpus_seed};
-use utilities::table::report::Report;
-use utilities::table::Table;
+use utilities::diagnostics::table::report::Report;
+use utilities::diagnostics::table::Table;
 use bitmap::{Bitmap, HEIGHT, WIDTH};
 
 /// The densities looked at, from under a cell on average to a sixth of

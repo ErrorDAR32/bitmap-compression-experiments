@@ -7,8 +7,8 @@ use tessera::diagnostics::census::census;
 use tessera::BitStream;
 use tessera::tile::{Tile, FLOOR_LEVEL};
 use tessera::Tessera;
-use utilities::table::report::Report;
-use utilities::table::Table;
+use utilities::diagnostics::table::report::Report;
+use utilities::diagnostics::table::Table;
 
 /// Prints the census of every bitmap looked at.
 pub fn run(report: &mut Report) {

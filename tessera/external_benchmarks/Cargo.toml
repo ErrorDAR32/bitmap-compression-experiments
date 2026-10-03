@@ -6,6 +6,14 @@ description = "Tessera against existing bitmap compressors: CCITT Group 4, JBIG 
 publish = false
 default-run = "external_benchmarks"
 
+[[bin]]
+name = "external_benchmarks"
+path = "src/diagnostics/benchmarks.rs"
+
+[[bin]]
+name = "adversarial"
+path = "src/diagnostics/adversarial.rs"
+
 # Its own workspace: the external codecs never enter Tessera's build.
 [workspace]
 

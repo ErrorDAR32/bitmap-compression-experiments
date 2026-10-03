@@ -22,8 +22,8 @@
 use tessera::diagnostics::RAW_CELLS;
 use tessera::corpus::{families, HowMany, TIMING_PER_GENERATOR};
 use tessera::transient_data;
-use utilities::table::report::Report;
-use utilities::table::Table;
+use utilities::diagnostics::table::report::Report;
+use utilities::diagnostics::table::Table;
 use bitmap::Bitmap;
 use external_benchmarks::codecs::g4::G4;
 use external_benchmarks::codecs::tessera::Tessera;

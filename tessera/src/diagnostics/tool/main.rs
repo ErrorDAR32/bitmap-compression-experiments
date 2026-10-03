@@ -31,8 +31,8 @@ mod sparse;
 mod timing;
 
 use tessera::transient_data;
-use utilities::table::report::Report;
-use utilities::table::Table;
+use utilities::diagnostics::table::report::Report;
+use utilities::diagnostics::table::Table;
 
 /// What a tool does when run.
 enum Run {

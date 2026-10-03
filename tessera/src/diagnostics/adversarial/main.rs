@@ -37,8 +37,8 @@ use tessera::tile::{cells_in_tile, Tile};
 use tessera::Tessera;
 use tessera::corpus::corpus_seed;
 use tessera::transient_data;
-use utilities::table::report::Report;
-use utilities::table::Table;
+use utilities::diagnostics::table::report::Report;
+use utilities::diagnostics::table::Table;
 use bitmap::Bitmap;
 
 /// The command that saves a worst bitmap as a named bitmap.

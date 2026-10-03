@@ -22,10 +22,10 @@ use world::diagnostics::frames::{frame, sheep, FRAME_BYTES};
 use world::diagnostics::{pasture as pasture_run, throughput};
 use entity_rules::diagnostics::world::MockWorld;
 use simulation::{threads_for, Simulation};
-use world::transient_data::{measurements, publish};
-use utilities::memory::mebibytes;
-use utilities::table::report::Report;
-use utilities::table::Table;
+use world::transient_data::TRANSIENT_DATA;
+use utilities::diagnostics::process_memory::mebibytes;
+use utilities::diagnostics::table::report::Report;
+use utilities::diagnostics::table::Table;
 
 /// The `index`-th argument after the command, or `default`.
 fn argument(arguments: &[String], index: usize, default: usize) -> usize {
@@ -71,7 +71,7 @@ fn throughput(arguments: &[String]) {
     memory.row(&[format!("storage images ({})", run.storage.superchunks), mebibytes(run.storage.image_bytes)]);
     memory.row(&["storage ring".to_string(), mebibytes(run.storage.ring_bytes)]);
     report.add("memory", memory);
-    publish(report);
+    TRANSIENT_DATA.publish(report);
 }
 
 /// Ticks grass and sheep flat out and publishes the flock, what the
@@ -120,7 +120,7 @@ fn pasture(arguments: &[String]) {
     memory.row(&["wakes filed".to_string(), run.held.wakes.to_string()]);
     report.add("held", memory);
     report.add("census", census_table(run.census.iter().map(|census| [census.tick as u64, census.sheep as u64, census.grass, census.woken as u64, census.births as u64, census.deaths as u64])));
-    publish(report);
+    TRANSIENT_DATA.publish(report);
 }
 
 /// The flock and the grass over a run, a row a count: the tick, sheep,
@@ -165,7 +165,7 @@ fn video(arguments: &[String]) {
     let mut report = Report::new("video", &format!("diagnostics video {ticks} {grass_cells} {every} {flock}"));
     report.note(format!("one superchunk, a frame every {every} ticks: the flock and the grass at each"));
     report.add("census", census_table(rows.into_iter()));
-    eprintln!("census kept in {}", report.keep(&measurements()).display());
+    eprintln!("census kept in {}", report.keep(&TRANSIENT_DATA.measurements()).display());
 }
 
 /// Runs the command asked for, or lists them.

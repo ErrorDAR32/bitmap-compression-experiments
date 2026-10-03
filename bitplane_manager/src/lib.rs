@@ -58,7 +58,7 @@ use allocator::{Block, BlockPool};
 use bitmap::morton::morton_index;
 use bitmap::window::{left_columns, rows_from_morton, top_rows, window, WORD_TILE_SIDE};
 use bitmap::{CellWords, BITS_PER_WORD, WORDS};
-use utilities::memory::prefetch;
+use utilities::cache::prefetch;
 use chunk_storage::{ChunkStorage, LayerCodec, LayerType};
 use coordinates::{CellIndex, CellPlace, ChunkPlace, ChunkPosition, SuperchunkPosition, CHUNKS_IN_SUPERCHUNK};
 use std::cell::Cell;

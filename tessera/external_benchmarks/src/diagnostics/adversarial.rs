@@ -25,8 +25,8 @@
 use tessera::diagnostics::adversarial::{worst, search_at_once, Effort, Score, SEARCHES_AT_ONCE};
 use tessera::corpus::corpus_seed;
 use tessera::transient_data;
-use utilities::table::report::Report;
-use utilities::table::Table;
+use utilities::diagnostics::table::report::Report;
+use utilities::diagnostics::table::Table;
 use bitmap::Bitmap;
 use external_benchmarks::codecs::g4::G4;
 use external_benchmarks::codecs::tessera::Tessera;

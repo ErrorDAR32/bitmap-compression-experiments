@@ -9,7 +9,7 @@ use simulation::Simulation;
 use bitplane_manager::diagnostics::arena::ArenaStats;
 use chunk_storage::diagnostics::storage::StorageStats;
 use std::time::Duration;
-use utilities::memory::MemoryTrack;
+use utilities::diagnostics::process_memory::MemoryTrack;
 
 /// What a run did, and what it held.
 #[derive(Clone, Debug)]

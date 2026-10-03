@@ -4,21 +4,6 @@
 //!
 //! [`MemoryTrack`] reads it again and again over a run, for the peak
 //! and the average.
-//!
-//! And memory asked for ahead of its being read ([`prefetch`]).
-
-/// Asks the processor to bring `value`'s line of memory to its caches
-/// ahead of its being read; nothing where there is no such instruction.
-#[inline(always)]
-pub fn prefetch<T>(value: &T) {
-    #[cfg(target_arch = "x86_64")]
-    // SAFETY: a prefetch reads and writes nothing, and the address is a reference's: valid.
-    unsafe {
-        std::arch::x86_64::_mm_prefetch::<{ std::arch::x86_64::_MM_HINT_T0 }>(std::ptr::from_ref(value).cast())
-    }
-    #[cfg(not(target_arch = "x86_64"))]
-    let _ = value;
-}
 
 /// What the process holds in physical memory, in bytes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

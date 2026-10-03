@@ -277,8 +277,9 @@ fn reached_from(start: Cell, walls: &Walls) -> Rows {
 #[test]
 fn walls_one_thick_in_any_direction_are_never_crossed() {
     // Each case: the heights, and which side of the wall a cell is on (`None` on the ridge itself).
+    type Height = fn(usize, usize) -> u8;
     type Side = fn(usize, usize) -> Option<bool>;
-    let cases: [(&str, fn(usize, usize) -> u8, Side); 6] = [
+    let cases: [(&str, Height, Side); 6] = [
         ("a cliff down the middle", |x, _| if x < 8 { 9 } else { 0 }, |x, _| Some(x < 8)),
         ("a cliff across the middle", |_, y| if y < 8 { 9 } else { 0 }, |_, y| Some(y < 8)),
         ("a cliff along the diagonal", |x, y| if x > y { 9 } else { 0 }, |x, y| Some(x > y)),

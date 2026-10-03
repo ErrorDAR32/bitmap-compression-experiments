@@ -221,7 +221,7 @@ so neither timing includes allocating them.
 decode, check, and total the sizes and times), a table a family
 (**`add_table`**) and one for all.
 
-**`src/bin/adversarial.rs`**: the adversarial search against each codec in
+**`src/diagnostics/adversarial.rs`**: the adversarial search against each codec in
 turn (`OPPONENTS`), each with its own worst bitmap: **`score`** is Tessera's
 bits less the codec's (**`bits`**); worst bitmaps are replaced when beaten,
 and reported with both encoders' bits and median encode times

@@ -20,8 +20,8 @@ use tessera::diagnostics::examination::first_difference;
 use tessera::BitStream;
 use tessera::Tessera;
 use tessera::corpus::{families, HowMany, TIMING_PER_GENERATOR};
-use utilities::table::report::Report;
-use utilities::table::Table;
+use utilities::diagnostics::table::report::Report;
+use utilities::diagnostics::table::Table;
 use bitmap::Bitmap;
 use std::time::{Duration, Instant};
 

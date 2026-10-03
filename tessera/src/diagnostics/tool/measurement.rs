@@ -10,8 +10,8 @@ use tessera::BitStream;
 use tessera::Tessera;
 use tessera::corpus::checkerboards::checkerboards;
 use tessera::corpus::{families, HowMany, LINE_SETS, PLANS, SHAPES, SPARSE};
-use utilities::table::report::Report;
-use utilities::table::Table;
+use utilities::diagnostics::table::report::Report;
+use utilities::diagnostics::table::Table;
 use bitmap::Bitmap;
 
 /// `part` as a percentage of `whole`; 0 of nothing.

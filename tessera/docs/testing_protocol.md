@@ -279,8 +279,8 @@ Each is set, beside its reason, at the place given.
 | a painted rectangle or checkerboard patch | up to a quarter of the area's side; odd checker periods 3 to 15 | `PATCH_SHARE_OF_SIDE`, `SHORTEST_CHECKER_PERIOD`, `LONGEST_CHECKER_PERIOD`, same file |
 | a window's variants on the plane | 16: 4 turns, mirrored or not, inverted or not | `ROTATIONS`, `MIRRORINGS`, `INVERSIONS`, `src/diagnostics/adversarial/plane.rs` |
 | changes a search tries from each start | 400 on the window, then 100 on the plane, or the argument | `Effort::default`, `src/diagnostics/adversarial/mod.rs` |
-| zstd's levels | 3 and 19 | `ZSTD_LEVELS`, `external_benchmarks/src/main.rs` |
-| timings of each worst bitmap against a codec | 21, the median kept | `TIMINGS`, `external_benchmarks/src/diagnostics/adversarial/main.rs` |
+| zstd's levels | 3 and 19 | `ZSTD_LEVELS`, `external_benchmarks/src/diagnostics/benchmarks.rs` |
+| timings of each worst bitmap against a codec | 21, the median kept | `TIMINGS`, `external_benchmarks/src/diagnostics/adversarial.rs` |
 
 ## Phase one: fix, with the seed held still
 

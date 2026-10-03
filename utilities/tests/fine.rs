@@ -5,8 +5,8 @@
 
 #[path = "fine/fixed_list.rs"]
 mod fixed_list;
-#[path = "fine/memory.rs"]
-mod memory;
+#[path = "fine/process_memory.rs"]
+mod process_memory;
 #[path = "fine/rng.rs"]
 mod rng;
 #[path = "fine/table.rs"]

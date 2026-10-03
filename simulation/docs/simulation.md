@@ -179,7 +179,7 @@ under 2%.
 
 The wakes due in a tick are known before any is seen to
 (`SuperchunkEntities::woken`), so they are asked for ahead
-(`utilities::memory::prefetch`): a turn's first eight entities and four
+(`utilities::cache::prefetch`): a turn's first eight entities and four
 attribute runs before the first entity is given, then, as each is
 given, the entity eight on and the attributes of the one four on -- the
 entity, which says where they are, having come by then.

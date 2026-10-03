@@ -3,7 +3,7 @@
 //! measuring anything again.
 
 use tessera::transient_data::measurements;
-use utilities::table::report::{kept, Report};
+use utilities::diagnostics::table::report::{kept, Report};
 
 /// Prints the kept report named by the second argument, or every one.
 pub fn run() {

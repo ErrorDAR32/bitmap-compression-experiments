@@ -41,8 +41,8 @@ use tessera::Tessera;
 use tessera::corpus::checkerboards::checkerboard;
 use tessera::corpus::seed::seed_in_use;
 use tessera::corpus::{families, grown, corpus_seed, HowMany};
-use utilities::table::report::Report;
-use utilities::table::Table;
+use utilities::diagnostics::table::report::Report;
+use utilities::diagnostics::table::Table;
 use bitmap::Bitmap;
 
 /// Bitmaps each generator makes: the first of those the timed corpus

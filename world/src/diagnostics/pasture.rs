@@ -12,7 +12,7 @@ use simulation::entity_store::InstructionsApplied;
 use simulation::Simulation;
 use std::ops::AddAssign;
 use std::time::{Duration, Instant};
-use utilities::memory::MemoryTrack;
+use utilities::diagnostics::process_memory::MemoryTrack;
 
 /// What a run did, and what it held.
 #[derive(Clone, Debug)]

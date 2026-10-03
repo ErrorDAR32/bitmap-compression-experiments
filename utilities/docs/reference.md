@@ -2,14 +2,14 @@
 
 The design is in `utilities.md`.
 
-## `table/mod.rs`
+## `diagnostics/table/mod.rs`
 
 **`Table::new(headings)`**, **`left_aligned(headings)`**,
 **`row(fields)`**, **`rule()`**, **`print()`**, **`rendered()`**:
 columns sized to their widest field (**`column_widths`**,
 **`printed_line`**, **`rule_line`**).
 
-## `table/report.rs`
+## `diagnostics/table/report.rs`
 
 **`Report::new(name, command)`**, **`note`**, **`add(title, table)`**,
 **`print`**, **`to_text`** / **`from_text`**, **`read(folder, name)`**,
@@ -19,7 +19,7 @@ run whose standard output is something else (**`note_commit`**,
 **`write`**). **`path(folder, name)`**, **`kept(folder)`**:
 the reports kept.
 
-## `table/csv.rs`
+## `diagnostics/table/csv.rs`
 
 **`Line`**: a row, a rule (`RULE`) or a comment (`COMMENT`).
 **`lines(text)`**, **`Table::to_csv`**, **`from_lines`**, **`from_csv`**
@@ -27,20 +27,30 @@ the reports kept.
 
 ## `rng.rs`
 
-**`Rng::new(seed)`**, **`draw`**, **`below`**, **`between`**,
-**`percent_chance`**, **`unit`**.
+**`Rng::new(seed)`**, **`for_stream(seed, stream)`** -- a source of its
+own for a stream of a seed, its state mixed -- **`state()`** (what a
+save keeps), **`draw`**, **`below`**, **`between`**, **`percent_chance`**,
+**`unit`**.
 
 ## `fixed_list.rs`
 
 **`FixedList<T, N>`**: **`new`**, **`clear`**, **`push`** (past `N`
 panics), **`pop`**; derefs to a slice.
 
-## `memory.rs`
+## `diagnostics/process_memory.rs`
 
 **`process_memory()`**: **`Memory`** `{resident, peak}`, if the system
 says. **`MemoryTrack`**: **`read`** (one reading), **`average`**, **`peak`**.
 **`mebibytes(bytes)`**: how a report shows memory.
-**`Rng::for_stream(seed, stream)`**: a source of its own for a stream
-of a seed, its state mixed; **`state()`**: what a save keeps.
+
+## `transient_data.rs`
+
+**`TransientData::of(crate_folder)`**: a crate's `transient_data/`, from
+its `env!("CARGO_MANIFEST_DIR")`; **`under(relative)`**,
+**`measurements()`**, **`publish(report)`** -- printed, and kept as
+`measurements/<name>.csv`. `FOLDER`: the folder's name.
+
+## `cache.rs`
+
 **`prefetch(value)`**: its line of memory asked for ahead of being read;
 the crate's one `unsafe` line, on a reference's address.

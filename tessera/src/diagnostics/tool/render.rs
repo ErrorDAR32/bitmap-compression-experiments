@@ -4,7 +4,7 @@
 use tessera::diagnostics::bitmaps::looked_at;
 use tessera::diagnostics::png::png;
 use std::fs;
-use utilities::table::Table;
+use utilities::diagnostics::table::Table;
 use std::path::Path;
 use tessera::transient_data;
 

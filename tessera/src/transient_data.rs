@@ -17,40 +17,36 @@
 //! Function by function: `docs/lab.md`, "`transient_data.rs`".
 
 use crate::corpus::seed::seed_in_use;
-use std::path::{Path, PathBuf};
-use utilities::table::report::Report;
+use std::path::PathBuf;
+use utilities::diagnostics::table::report::Report;
+use utilities::transient_data::TransientData;
 
-/// The folder, under the crate's folder.
-pub const TRANSIENT_DATA: &str = "transient_data";
-
-/// `relative`, under [`TRANSIENT_DATA`], found from the crate's folder.
-fn under(relative: &str) -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join(TRANSIENT_DATA).join(relative)
-}
+/// The crate's transient data ([`utilities::transient_data`]).
+pub const TRANSIENT_DATA: TransientData = TransientData::of(env!("CARGO_MANIFEST_DIR"));
 
 /// The seed file.
 pub fn seed_file() -> PathBuf {
-    under("seed")
+    TRANSIENT_DATA.under("seed")
 }
 
 /// Where the measurements are kept.
 pub fn measurements() -> PathBuf {
-    under("measurements")
+    TRANSIENT_DATA.measurements()
 }
 
 /// Where the adversarial searches' worst bitmaps are kept.
 pub fn worst() -> PathBuf {
-    under("worst")
+    TRANSIENT_DATA.under("worst")
 }
 
 /// Where the renders go.
 pub fn renders() -> PathBuf {
-    under("renders")
+    TRANSIENT_DATA.under("renders")
 }
 
 /// Where the callgrind output goes.
 pub fn callgrind() -> PathBuf {
-    under("callgrind")
+    TRANSIENT_DATA.under("callgrind")
 }
 
 /// Notes the seed `report`'s corpus was grown from, if any was, then
@@ -59,5 +55,5 @@ pub fn publish(mut report: Report) {
     if let Some((seed, fresh)) = seed_in_use() {
         report.note(format!("seed {seed}{}", if fresh { ", fresh for this run" } else { "" }));
     }
-    report.publish(&measurements());
+    TRANSIENT_DATA.publish(report);
 }

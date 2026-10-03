@@ -6,8 +6,8 @@ use tessera::diagnostics::measured::Measured;
 use tessera::diagnostics::RAW_CELLS;
 use tessera::Tessera;
 use tessera::corpus::{grown, corpus_seed};
-use utilities::table::report::Report;
-use utilities::table::Table;
+use utilities::diagnostics::table::report::Report;
+use utilities::diagnostics::table::Table;
 
 /// The densities looked at, from all but incompressible to half.
 const DENSITIES: [f64; 4] = [0.5, 0.35, 0.2, 0.1];
