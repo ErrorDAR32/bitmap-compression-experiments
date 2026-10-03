@@ -16,6 +16,11 @@ use super::record::{sorted, Attribute, AttributeType, EntityId, EntityRef, Heade
 use super::wheel::{Wake, Wheel};
 use coordinates::{CellIndex, ChunkPosition, SuperChunkPosition, CHUNKS_IN_SUPERCHUNK};
 
+/// How many wakes ahead an entity's record is asked of memory.
+const RECORD_AHEAD: usize = 8;
+/// How many wakes ahead its attributes are: after its record.
+const ATTRIBUTES_AHEAD: usize = 4;
+
 /// A superchunk's entities: a bucket a chunk, in the chunks' Morton
 /// order, and when each wakes.
 pub struct SuperChunkEntities {
@@ -95,9 +100,25 @@ impl SuperChunkEntities {
     /// The entities waking at `tick`, which is in reach of the wheel: in
     /// Morton order by cell, then by ID, once every wake for it is filed
     /// and sorted -- as the tick sees them -- those no longer due passed
-    /// over.
+    /// over. Those to come are asked of memory ahead ([`RECORD_AHEAD`]).
     pub fn woken(&self, tick: u64) -> impl Iterator<Item = EntityRef<'_>> {
-        self.wheel.due(tick).iter().filter_map(move |wake| self.get(wake.id, wake.at).filter(|entity| entity.header.wake == tick))
+        let due = self.wheel.due(tick);
+        // The first have none before them to be asked for from.
+        for ahead in &due[..due.len().min(RECORD_AHEAD)] {
+            self.chunks[ahead.at.chunk_in_superchunk()].prefetch_record(ahead.at);
+        }
+        for ahead in &due[..due.len().min(ATTRIBUTES_AHEAD)] {
+            self.chunks[ahead.at.chunk_in_superchunk()].prefetch_attributes(ahead.at);
+        }
+        due.iter().enumerate().filter_map(move |(at, wake)| {
+            if let Some(ahead) = due.get(at + RECORD_AHEAD) {
+                self.chunks[ahead.at.chunk_in_superchunk()].prefetch_record(ahead.at);
+            }
+            if let Some(ahead) = due.get(at + ATTRIBUTES_AHEAD) {
+                self.chunks[ahead.at.chunk_in_superchunk()].prefetch_attributes(ahead.at);
+            }
+            self.get(wake.id, wake.at).filter(|entity| entity.header.wake == tick)
+        })
     }
 
     /// Puts `header`'s entity, with `attributes` sorted by type -- or,

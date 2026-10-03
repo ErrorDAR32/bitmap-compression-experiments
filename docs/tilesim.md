@@ -713,6 +713,16 @@ the same boom, crash and settling, to 10,319 sheep on 19% grass where
 it was 10,897 on 21% -- fewer starve in the trough, so the grass is
 kept a little shorter.
 
+### What the viewer's time goes to
+
+Profiled as it ran (`perf record -p`, 64 superchunks, flat out): the
+simulation's threads are 90 to 95% of it, painting and the window the
+rest; the ticks a second follow the flock -- 5,500 at 300,000 sheep,
+2,400 at 715,000, 10,900 under 140,000. What a wake costs is waiting
+for memory, not computing: so woken entities are now asked for ahead
+(`simulation/docs/simulation.md`, "Woken entities are asked of memory
+ahead"), a quarter off a wake.
+
 ### Pathfinding (built, first form)
 
 `pathfinding/`: over an area of 16x16 cells about a walker, held as

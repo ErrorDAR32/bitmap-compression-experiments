@@ -154,6 +154,35 @@ million wakes 283,000 are put whole where all were; the run's
 instructions the same within 0.2% -- a wake is bound by memory, not by
 what is carried.
 
+### Woken entities are asked of memory ahead
+
+At 256 ticks a second an entity moves far less than once a tick: of a
+flock of hundreds of thousands a few hundred wake in one, a handful a
+superchunk, each where nothing has read since it last woke. Profiled in
+the viewer at the flock's peak (700,000 sheep on 64 superchunks, `perf`,
+2,400 ticks a second), a third of the time was two reads waiting for
+memory: the woken entity's record (`Bucket::get`, 17%) and its
+attributes (`Edit::get`, 15%). Pathfinding, far search and all, was
+under 2%.
+
+The wakes due in a tick are known before any is seen to
+(`SuperChunkEntities::woken`), so they are asked for ahead
+(`utilities::memory::prefetch`): a turn's first eight records and four
+attribute runs before the first entity is given, then, as each is
+given, the record of the one eight on and the attributes of the one
+four on -- its record, which says where they are, having come by then.
+Finding where to ask searches the places alone, two bytes an entity,
+which stay in the caches.
+
+Measured (`diagnostics pasture 60000 333 4000 64 12`, the flock
+growing from 256,000): a wake 271 ns of a thread where it was 359;
+11,200 to 11,800 ticks a second where it was 11,000. Distances tried:
+4 and 2 without the first asked up front, 297 ns; 12 and 6, 286; 16 and
+12, 276.
+
+Still waited for: the cells about it (the 3x3 window, 10% at the peak),
+and the same entity again when the change is carried out (12%).
+
 Their API follows the bitplanes': outside a tick, changes are queued
 (`Entities::queue_put`, `queue_remove`) and applied (`apply`), as the
 arena's writes are -- queuing is the only way to change an entity; in a

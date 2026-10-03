@@ -40,3 +40,5 @@ panics), **`pop`**; derefs to a slice.
 **`process_memory()`**: **`Memory`** `{resident, peak}`, if the system
 says. **`MemoryTrack`**: **`sample`**, **`average`**, **`peak`**.
 **`mebibytes(bytes)`**: how a report shows memory.
+**`prefetch(value)`**: its line of memory asked for ahead of being read;
+the crate's one `unsafe` line, on a reference's address.

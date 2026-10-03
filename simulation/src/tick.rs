@@ -247,13 +247,9 @@ impl<'a> SuperChunkTick<'a> {
         at.offset(first.x as i32 - AREA_CENTRE as i32, first.y as i32 - AREA_CENTRE as i32)
     }
 
-    /// [`SuperChunkTick::area`] from further off: the [`AREA_SIDE`] by
-    /// [`AREA_SIDE`] aligned blocks of `2^level` cells a side around
-    /// `centre` -- its own at `(AREA_CENTRE, AREA_CENTRE)` of them -- a
-    /// block set if `layer_type` holds at any of its cells, hot if its
-    /// bitmap is. At [`FARTHEST`] the blocks are 64 cells a side: 1,024
-    /// cells across, as far as an entity reaches -- and read a chunk at
-    /// a time off the counts the arena keeps, no cell looked at.
+    /// [`SuperChunkTick::area`] from further off: the aligned blocks of
+    /// `2^level` cells a side around `centre`, one set if `layer_type`
+    /// holds at any of its cells. To [`FARTHEST`].
     pub fn area_of_blocks(&self, layer_type: LayerType, centre: CellIndex, level: u32) -> Area {
         let mut area = Area::default();
         let centre = centre.cartesian();
@@ -304,16 +300,8 @@ impl<'a> SuperChunkTick<'a> {
     }
 
     /// The step from `at` towards the nearest cell `layer_type` holds
-    /// at, looked for further and further off: first in the area around
-    /// `at`, by [`SuperChunkTick::step_towards`], no entity's cell
-    /// walked on or to; then, nothing found, over blocks of cells
-    /// ([`SuperChunkTick::area_of_blocks`]) -- the coarsest first,
-    /// [`FARTHEST`], 1,024 cells across, which costs next to nothing and
-    /// says whether there is any in reach and how far off; then the
-    /// finest that reach so far, and coarser, until one sees it: a step
-    /// towards the nearest block holding any, over the blocks held. One
-    /// step, as ever: the next is asked afresh. None if there is none in
-    /// reach.
+    /// at: in the area around it, else over blocks of cells, as far as
+    /// an entity reaches. None if there is none in reach.
     pub fn seek(&mut self, at: CellIndex, layer_type: LayerType) -> Option<Sought> {
         let near = self.area(layer_type, at);
         if let Some(to) = self.step_towards(at, &near.set, &near.hot) {

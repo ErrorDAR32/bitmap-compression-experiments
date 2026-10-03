@@ -110,7 +110,8 @@ has kept, and not made if not there -- a **`Put`**: `InPlace`; `Moved`
 stood. **`rewrite`**: attributes in place when the count is the same,
 else a new run at the end. **`remove(id, at)`**, **`slot(place)`**,
 **`edit(id, place, kind, value)`** (one attribute set in place, or the
-run made anew with it added or removed), **`find(place, id)`**, **`sweep`** once garbage reaches the attributes
+run made anew with it added or removed), **`prefetch_record(at)`**, **`prefetch_attributes(at)`**: asked of
+memory ahead, **`find(place, id)`**, **`sweep`** once garbage reaches the attributes
 in use (and 64).
 
 **`wheel.rs`**: `WHEEL_TICKS` (1024); **`Wake`** `{id, at}`;

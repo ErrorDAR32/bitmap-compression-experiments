@@ -23,6 +23,7 @@
 
 use super::record::{Attribute, AttributeType, EntityId, EntityRef, Header};
 use coordinates::CellIndex;
+use utilities::memory::prefetch;
 
 /// Blocks of places a bucket's are searched by: a 64x64 square of cells
 /// each, which in Morton order is a run of places.
@@ -107,6 +108,21 @@ impl Bucket {
     pub(crate) fn get(&self, id: EntityId, at: CellIndex) -> Option<EntityRef<'_>> {
         let at = self.find(place(at), id).ok()?;
         Some(self.entity(&self.records[at]))
+    }
+
+    /// Asks memory for the record of the entity on `at`, ahead.
+    pub(crate) fn prefetch_record(&self, at: CellIndex) {
+        if let Some(record) = self.records.get(self.slot(place(at)).0) {
+            prefetch(record);
+        }
+    }
+
+    /// Asks memory for the attributes of the entity on `at`, ahead: its
+    /// record is read, so asked for before.
+    pub(crate) fn prefetch_attributes(&self, at: CellIndex) {
+        if let Some(first) = self.records.get(self.slot(place(at)).0).and_then(|record| self.attributes.get(record.first as usize)) {
+            prefetch(first);
+        }
     }
 
     /// Every entity it holds, by cell in Morton order.
