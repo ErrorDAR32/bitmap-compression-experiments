@@ -32,8 +32,8 @@ pub fn grass_on_dirt(seed: u64, grass_cells: usize, codec: &mut LayerCodec) -> S
         state ^= state << 25;
         state ^= state >> 27;
         let cell = state.wrapping_mul(0x2545_F491_4F6C_DD1D) >> 44;
-        let (chunk, in_chunk) = ((cell / CHUNK_CELLS) as usize, (cell % CHUNK_CELLS) as usize);
-        grass[chunk][in_chunk / BITS_PER_WORD] |= 1 << (in_chunk % BITS_PER_WORD);
+        let (chunk, place) = ((cell / CHUNK_CELLS) as usize, (cell % CHUNK_CELLS) as usize);
+        grass[chunk][place / BITS_PER_WORD] |= 1 << (place % BITS_PER_WORD);
     }
     let mut encoded: Vec<(usize, LayerType, Vec<u64>)> = Vec::new();
     for (chunk, grass) in grass.iter().enumerate() {
@@ -42,6 +42,6 @@ pub fn grass_on_dirt(seed: u64, grass_cells: usize, codec: &mut LayerCodec) -> S
             encoded.push((chunk, GRASS, codec.encode(grass).to_vec()));
         }
     }
-    let changes: Vec<LayerChange> = encoded.iter().map(|(chunk, layer_type, words)| LayerChange { chunk: *chunk, layer_type: *layer_type, words }).collect();
+    let changes: Vec<LayerChange> = encoded.iter().map(|(chunk, layer_type, words)| LayerChange { chunk: *chunk, layer_type: *layer_type, encoded: words }).collect();
     SuperchunkImage::new(&HeightMap::default()).rewritten(&changes)
 }

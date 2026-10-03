@@ -93,7 +93,7 @@ Chunk storage (`chunk_storage/`) is two parts in memory:
 2. **The writeback ring**: a ring buffer of changed bitmaps, encoded,
    each tagged with its chunk's Morton index and its type; one of no
    words says the layer is gone. Writing back a dirty bucket appends to
-   the ring; it never touches the pool. Evicting a superchunk from the
+   the ring; it never touches the cold pool. Evicting a superchunk from the
    bitplanes fills the ring with its changed bitmaps, tagged.
 
 The ring is cold writeback only: it is never read to make a bitmap
@@ -101,7 +101,7 @@ hot. A bitmap with an entry in the ring is still in the bitplanes: an
 evicted bitmap's bucket stays allocated until its superchunk is
 flushed, and one made hot again before then is the bucket as it was.
 
-The ring is a sponge for writes into the pool. A superchunk is
+The ring is a sponge for writes into the cold pool. A superchunk is
 sequential even in memory, so changing one bitmap in place would mean
 resizing it and moving everything after it. Instead the ring absorbs
 writes, and a superchunk is rewritten once, its image merged with its
@@ -115,7 +115,7 @@ ring grows only when empty and still too small for an entry. Each
 flush is told to the bitplane manager, which only then drops the
 evicted buckets of that superchunk.
 
-A superchunk image, in the pool and on disk alike, every part starting
+A superchunk image, in the cold pool and on disk alike, every part starting
 on a word:
 
 1. **The chunk table**: the offset of each of its 16 chunks, in Morton
@@ -139,7 +139,7 @@ its words written sequentially as laid out in memory ("Saves", below).
    its layers still encoded.
 2. Cells are read and changed in the **bitmap arena**
    (`bitplane_manager/`): its buckets hold the hot bitmaps, raw, one
-   layer of one chunk each, decoded from the pool only when needed. The
+   layer of one chunk each, decoded from the cold pool only when needed. The
    arena is the only place with a cell API.
 3. The arena is made of allocations the size of a superchunk: each holds
    one layer type over one superchunk, a bucket for every one of its 16
@@ -219,7 +219,7 @@ superchunks on disk.
   storage (`chunk_storage/`, the cold area) and the bitplane manager
   (`bitplane_manager/`, the hot bitmap area). Nothing else allocates
   through it. So far only the bitplane manager uses it, its first form:
-  a pool of equal-size blocks. Chunk storage's images and ring are
+  a block pool of equal-size blocks. Chunk storage's images and ring are
   plain allocations until the area allocator below exists.
 - A custom allocator per area, not one global allocator: the system is
   asked for large blocks, 256 MiB at a time, tracked in a list; inside
@@ -725,7 +725,7 @@ ahead"), a quarter off a wake.
 
 ### Saves (built)
 
-A world is a directory: a `world` file in text -- name, seed, tick,
+A world is saved as a folder: a `world` file in text -- name, seed, tick,
 layer types -- and two files a superchunk, named by its 44-bit Morton
 index: its image, and its state -- its random numbers, its entities.
 A world loaded goes on exactly as the one saved would have, which is

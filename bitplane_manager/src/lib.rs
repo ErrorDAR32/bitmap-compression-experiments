@@ -626,7 +626,7 @@ pub struct BitmapArena {
     /// The arena's own lookups, remembering the last.
     lookup: Lookup,
     /// The blocks the allocations' buckets live in, taken and given back.
-    pool: BlockPool,
+    block_pool: BlockPool,
     /// Writes queued from outside a tick, not yet applied.
     queued: WriteQueues,
 }
@@ -641,7 +641,7 @@ impl Default for BitmapArena {
 impl BitmapArena {
     /// An arena with no bitmap hot.
     pub fn new() -> Self {
-        Self { directory: Vec::new(), lookup: Lookup::default(), pool: BlockPool::new(ALLOCATION_WORDS), queued: WriteQueues::default() }
+        Self { directory: Vec::new(), lookup: Lookup::default(), block_pool: BlockPool::new(ALLOCATION_WORDS), queued: WriteQueues::default() }
     }
 
     /// Every allocation in use, superchunk by superchunk in Morton order,
@@ -703,7 +703,7 @@ impl BitmapArena {
         });
         let layers = &mut self.directory[entry].layers;
         let layer = layers.binary_search_by_key(&layer_type, |layer| layer.layer_type).expect_err("not in use");
-        let block = self.pool.allocate();
+        let block = self.block_pool.allocate();
         let new = SuperchunkLayer { layer_type, block, flags: ChunkFlags::default(), counts_less_one: [0; CHUNKS_IN_SUPERCHUNK], hot_count: 0, block_counts: [[0; BLOCKS_IN_CHUNK]; CHUNKS_IN_SUPERCHUNK] };
         layers.insert(layer, new);
         (entry, layer)
@@ -851,11 +851,11 @@ impl BitmapArena {
     /// ring, its block back in the pool, and every superchunk left with
     /// none.
     fn release_unused(&mut self) {
-        let pool = &mut self.pool;
+        let block_pool = &mut self.block_pool;
         for entry in &mut self.directory {
             let (kept, released): (Vec<_>, Vec<_>) = entry.layers.drain(..).partition(|allocation| allocation.flags.hot | allocation.flags.in_ring != 0);
             entry.layers = kept;
-            released.into_iter().for_each(|allocation| pool.release(allocation.block));
+            released.into_iter().for_each(|allocation| block_pool.release(allocation.block));
         }
         self.directory.retain(|entry| !entry.layers.is_empty());
         self.lookup.forget();
@@ -877,7 +877,7 @@ impl BitmapArena {
         if allocation.flags.hot | allocation.flags.in_ring == 0 {
             let (entry, slot) = at;
             let block = self.directory[entry].layers.remove(slot).block;
-            self.pool.release(block);
+            self.block_pool.release(block);
             if self.directory[entry].layers.is_empty() {
                 self.directory.remove(entry);
             }

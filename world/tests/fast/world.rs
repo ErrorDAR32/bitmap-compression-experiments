@@ -91,7 +91,7 @@ fn a_world_saved_and_loaded_mid_run_comes_to_the_same() {
     assert_eq!(straight.simulation.random_states().collect::<Vec<_>>(), stopped.simulation.random_states().collect::<Vec<_>>());
 }
 
-/// A save is a directory: a world file in text, and two files a
+/// A save is a folder: a world file in text, and two files a
 /// superchunk named by its Morton index in hexadecimal.
 #[test]
 fn a_save_is_a_directory_of_files_named_by_morton_index() {
@@ -114,7 +114,7 @@ fn a_save_is_a_directory_of_files_named_by_morton_index() {
 #[test]
 fn files_that_are_not_a_save_are_refused() {
     let folder = folder("refused");
-    assert!(matches!(world::load(&folder), Err(DiskError::Io(..))), "no such directory");
+    assert!(matches!(world::load(&folder), Err(DiskError::Io(..))), "no such folder");
     let mut first = MockWorld::with_sheep(1, 1_000, 10);
     let simulation = Simulation::new(1);
     world::save(&folder, "One", 1, &mut first.arena, &mut first.storage, &first.entities, &simulation).expect("saved");

@@ -83,7 +83,7 @@ pub fn generate_with(seed: u64, superchunks: u32, grass_cells: usize, flock_size
                 walls.push((chunk, layer_type, codec.encode(cells).to_vec()));
             }
         }
-        let changes: Vec<LayerChange> = walls.iter().map(|(chunk, layer_type, words)| LayerChange { chunk: *chunk, layer_type: *layer_type, words }).collect();
+        let changes: Vec<LayerChange> = walls.iter().map(|(chunk, layer_type, words)| LayerChange { chunk: *chunk, layer_type: *layer_type, encoded: words }).collect();
         storage.insert(superchunk, grass_on_dirt(own, grass_cells, &mut codec).with_heights(&terrain.heights).rewritten(&changes));
         for place in ChunkPlace::all() {
             arena.make_hot_layers(ChunkPosition::of(superchunk, place), &layers, &storage, &mut codec);
@@ -101,11 +101,11 @@ pub fn generate_with(seed: u64, superchunks: u32, grass_cells: usize, flock_size
     World { info, arena, storage, entities, simulation: Simulation::for_superchunks(held.len()) }
 }
 
-/// Saves the world in `directory`, made if not there: `name` and `seed`
+/// Saves the world in `folder`, made if not there: `name` and `seed`
 /// what it is, the tick `entities`' -- between two ticks. Every dirty
 /// bitmap is written back and the ring flushed first, so the pool's
 /// images are the world's cells.
-pub fn save(directory: &Path, name: &str, seed: u64, arena: &mut BitmapArena, storage: &mut ChunkStorage, entities: &Entities, simulation: &Simulation) -> Result<Saved, DiskError> {
+pub fn save(folder: &Path, name: &str, seed: u64, arena: &mut BitmapArena, storage: &mut ChunkStorage, entities: &Entities, simulation: &Simulation) -> Result<Saved, DiskError> {
     let mut codec = LayerCodec::new();
     let held: Vec<SuperchunkPosition> = arena.superchunks().iter().map(|superchunk| superchunk.position()).collect();
     for &superchunk in &held {
@@ -128,28 +128,28 @@ pub fn save(directory: &Path, name: &str, seed: u64, arena: &mut BitmapArena, st
     let random: Vec<(u64, u64)> = simulation.random_states().collect();
     for superchunk in storage.superchunks() {
         let morton = superchunk.morton_index();
-        saved.bytes += disk::write_image(directory, superchunk, storage.image(superchunk).expect("a superchunk of the pool"))?;
+        saved.bytes += disk::write_image(folder, superchunk, storage.image(superchunk).expect("a superchunk of the pool"))?;
         let state = random.binary_search_by_key(&morton, |state| state.0).ok().map(|at| random[at].1);
         let (words, count) = saved::encode_state(state, entities.superchunk(morton));
-        saved.bytes += disk::write_state(directory, superchunk, &words)?;
+        saved.bytes += disk::write_state(folder, superchunk, &words)?;
         saved.superchunks += 1;
         saved.entities += count;
     }
     // The world's file last: a save cut short leaves the one before it.
-    saved.bytes += disk::write_world(directory, &WorldInfo { name: name.to_string(), seed, tick: entities.now(), layers })?;
+    saved.bytes += disk::write_world(folder, &WorldInfo { name: name.to_string(), seed, tick: entities.now(), layers })?;
     Ok(saved)
 }
 
-/// Loads the world saved in `directory`: every superchunk read into the
+/// Loads the world saved in `folder`: every superchunk read into the
 /// pool, every layer type of it made hot, its entities put back at its
 /// tick, its random numbers taken up -- as it was when saved, to the
 /// cell and the random number.
-pub fn load(directory: &Path) -> Result<World, DiskError> {
-    let info = disk::read_world(directory)?;
-    let superchunks = disk::saved_superchunks(directory)?;
+pub fn load(folder: &Path) -> Result<World, DiskError> {
+    let info = disk::read_world(folder)?;
+    let superchunks = disk::saved_superchunks(folder)?;
     let (mut codec, mut arena, mut storage) = (LayerCodec::new(), BitmapArena::new(), ChunkStorage::new(1 << 16));
     for &superchunk in &superchunks {
-        storage.insert(superchunk, disk::read_image(directory, superchunk)?);
+        storage.insert(superchunk, disk::read_image(folder, superchunk)?);
         for place in ChunkPlace::all() {
             arena.make_hot_layers(ChunkPosition::of(superchunk, place), &info.layers, &storage, &mut codec);
         }
@@ -159,12 +159,12 @@ pub fn load(directory: &Path) -> Result<World, DiskError> {
     entities.align(&held);
     let (mut random, mut crossings, mut expected) = (Vec::new(), Vec::new(), 0);
     for &superchunk in &superchunks {
-        let (words, path) = disk::read_state(directory, superchunk)?;
+        let (words, path) = disk::read_state(folder, superchunk)?;
         let state = saved::decode_state(&words, info.tick, &mut entities, &mut crossings).map_err(|what| DiskError::Invalid(path, what.to_string()))?;
         random.extend(state.random.map(|state| (superchunk.morton_index(), state)));
         expected += state.entities;
     }
-    let invalid = |what: String| DiskError::Invalid(directory.to_path_buf(), what);
+    let invalid = |what: String| DiskError::Invalid(folder.to_path_buf(), what);
     let applied = entities.apply();
     if applied.puts != expected || applied.lost + applied.refused != 0 {
         return Err(invalid(format!("{} of {expected} entities put back, {} on no superchunk saved, {} on a cell taken", applied.puts, applied.lost, applied.refused)));

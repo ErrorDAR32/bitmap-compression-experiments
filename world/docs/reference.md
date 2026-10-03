@@ -9,10 +9,10 @@ is given. **`generate(seed, superchunks)`**, **`generate_with(seed, superchunks,
 grass_cells, flock)`**: a square of them from the
 world's middle, each from the seed and its Morton index -- a
 **`World`** `{info, arena, storage, entities, simulation}`.
-**`save(directory, name, seed, arena, storage, entities, simulation)`**:
+**`save(folder, name, seed, arena, storage, entities, simulation)`**:
 every dirty bitmap written back, the ring flushed, then each
 superchunk's image and state written, the world's file last -- a
-**`Saved`** `{superchunks, entities, bytes}`. **`load(directory)`**: a
+**`Saved`** `{superchunks, entities, bytes}`. **`load(folder)`**: a
 `World`, or a `DiskError` naming the file and what is wrong.
 
 ## `tick.rs`

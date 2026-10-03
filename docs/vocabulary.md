@@ -54,22 +54,26 @@ what they always do and are not listed.
 
 | word | means | relates to | not |
 |---|---|---|---|
-| **chunk storage** | the cold side: every superchunk's image, and the writeback ring (`ChunkStorage`) | image, ring | |
+| **chunk storage** | the cold side: the cold pool and the writeback ring (`ChunkStorage`) | image, ring | |
+| **cold pool** | chunk storage's superchunk images, one per superchunk stored. Never "pool" alone | image, block pool | |
 | **image** | one superchunk as stored, one run of words, in memory as on disk: its height map and every chunk's encoded layers (`SuperchunkImage`) | chunk storage, save | |
 | **height map** | a superchunk's heights, raw, a byte a cell (`HeightMap`) | height | |
 | **layer codec** | encodes a layer for an image, and decodes it back, by Tessera (`LayerCodec`) | Tessera | |
+| **encoded layer** | a layer's bitmap as Tessera encodes it: what images and the writeback ring hold | layer codec, image | bitmap (a bitmap is decoded) |
+| **layer table** | a chunk's list in an image of its layers' types and where their encoded layers start | image | bitmap table |
 | **writeback ring** | where hot layers written back wait until their superchunk's image is rewritten (`WritebackRing`) | write back, flush | |
 | **write back** | encode a dirty layer into the writeback ring | dirty, flush | |
 | **flush** | rewrite a superchunk's image with what waits for it in the ring | write back, image | |
 | **evict** | drop a hot layer from the arena; a dirty one must be written back first | hot | |
 | **bitmap arena** | the hot side: every hot layer, in allocations a superchunk and a layer type each (`BitmapArena`) | allocation, bucket, directory | |
-| **allocation** | one layer type over one superchunk in the arena: one block of the pool, a bucket a chunk | block, bucket | |
+| **allocation** | one layer type over one superchunk in the arena: one block of the block pool, a bucket a chunk | block, bucket | |
 | **bucket** | one chunk's hot layer: its words in its allocation, and its counts | layer, allocation | |
 | **directory** | the arena's list of hot superchunks, sorted by Morton index, each with its allocations by layer type | lookup | |
 | **lookup** | finding a layer in the directory; a reader remembers its last sixteen | reader, directory | |
-| **block** | an equal-size piece of memory from the allocator's pool, owned by whoever holds it (`allocator::Block`) | pool, allocation | (for anything that is not memory) |
-| **pool** | the allocator's blocks, made, handed out, taken back (`BlockPool`) | block | |
-| **save** | a world on disk: a folder of a world file and every superchunk's image and state, named by Morton index | image, world | |
+| **block** | an equal-size piece of memory from the allocator's block pool, owned by whoever holds it (`allocator::Block`) | block pool, allocation | (for anything that is not memory) |
+| **block pool** | the allocator's blocks, made, handed out, taken back (`BlockPool`). Never "pool" alone | block | |
+| **save** | a world on disk: a folder of a world file and every superchunk's image and state, named by superchunk index | image, world | directory (the arena's list) |
+| **folder** | a folder of the file system: a save, or where measurements are kept | save | directory |
 
 ## The tick
 

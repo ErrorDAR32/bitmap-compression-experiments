@@ -51,7 +51,7 @@ fn one_cell(cell: CellPlace) -> CellWords {
 fn storage_with(superchunk: SuperchunkPosition, place: ChunkPlace, layers: &[(LayerType, CellWords)], codec: &mut LayerCodec) -> ChunkStorage {
     let encoded: Vec<(LayerType, Vec<u64>)> = layers.iter().map(|(layer_type, cells)| (*layer_type, codec.encode(cells).to_vec())).collect();
     let changes: Vec<LayerChange> =
-        encoded.iter().map(|(layer_type, words)| LayerChange { chunk: place.index(), layer_type: *layer_type, words }).collect();
+        encoded.iter().map(|(layer_type, words)| LayerChange { chunk: place.index(), layer_type: *layer_type, encoded: words }).collect();
     let mut storage = ChunkStorage::new(1 << 12);
     storage.insert(superchunk, SuperchunkImage::new(&HeightMap::default()).rewritten(&changes));
     storage

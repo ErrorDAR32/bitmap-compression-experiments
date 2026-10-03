@@ -8,9 +8,9 @@ decision about it: `tilesim.md`.
 
 ## `main.rs`
 
-`tilesim new <directory> [name] [seed] [superchunks]`: a world
+`tilesim new <folder> [name] [seed] [superchunks]`: a world
 generated from the seed (**`new`**, `world::generate`) and saved in the
-directory, which must not hold one. `tilesim run <directory> [ticks]`:
+folder, which must not hold one. `tilesim run <folder> [ticks]`:
 it loaded, ticked and saved again (**`run`**). `tilesim info
-<directory>`: what its world file says (**`info`**). **`number`**: an
+<folder>`: what its world file says (**`info`**). **`number`**: an
 argument, or its default. Anything else prints `USAGE`.

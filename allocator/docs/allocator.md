@@ -7,7 +7,7 @@ manager -- and nothing else allocates through it
 
 ## What it is now
 
-Its first form: a pool of equal-size blocks of 64-bit words.
+Its first form: a block pool of equal-size blocks of 64-bit words.
 
 - **A block is owned by its holder** (`Block`): its words go with it,
   so blocks held apart are changed apart -- the bitplane manager's
@@ -33,8 +33,8 @@ plain allocations until then.
 
 | folder | what is in it |
 |---|---|
-| `src/lib.rs` | the pool and its blocks |
-| `src/diagnostics/` | what a pool holds, gathered, judged by nothing here |
+| `src/lib.rs` | the block pool and its blocks |
+| `src/diagnostics/` | what a block pool holds, gathered, judged by nothing here |
 | `src/transient_data.rs` | where runs leave what they make, in `transient_data/`, out of git |
-| `tests/` | the pool's behaviour, judged |
+| `tests/` | the block pool's behaviour, judged |
 | `docs/` | this, and the reference, function by function |

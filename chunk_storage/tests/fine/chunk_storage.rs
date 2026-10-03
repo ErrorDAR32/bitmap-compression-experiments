@@ -77,7 +77,7 @@ fn images_hold_one_layer_a_type_in_type_order() {
     let mut codec = LayerCodec::new();
     let (drawn_words, one) = (codec.encode(&drawn()).to_vec(), codec.encode(&one_cell(CELL)).to_vec());
     let place = ChunkPlace::new(3, 2);
-    let change = |layer_type, words| LayerChange { chunk: place.index(), layer_type: LayerType(layer_type), words };
+    let change = |layer_type, words| LayerChange { chunk: place.index(), layer_type: LayerType(layer_type), encoded: words };
     let image = SuperchunkImage::new(&HeightMap::filled(9)).rewritten(&[
         change(42, &one),
         change(7, &drawn_words),
@@ -107,16 +107,16 @@ fn images_hold_one_layer_a_type_in_type_order() {
 fn broken_images_are_refused() {
     let mut codec = LayerCodec::new();
     let one = codec.encode(&one_cell(CELL)).to_vec();
-    let image = SuperchunkImage::new(&HeightMap::default()).rewritten(&[LayerChange { chunk: 15, layer_type: LayerType(1), words: &one }]);
+    let image = SuperchunkImage::new(&HeightMap::default()).rewritten(&[LayerChange { chunk: 15, layer_type: LayerType(1), encoded: &one }]);
     let words = image.words();
     assert!(SuperchunkImage::from_words(words[..100].into()).is_err());
     let mut bad_chunk_offset = words.to_vec();
     bad_chunk_offset[3] += 1;
     assert!(SuperchunkImage::from_words(bad_chunk_offset.into()).is_err());
     let last_chunk = words[15] as usize;
-    let mut bitmap_outside = words.to_vec();
-    bitmap_outside[last_chunk + 2] = (words.len() - last_chunk) as u64;
-    assert_eq!(SuperchunkImage::from_words(bitmap_outside.into()), Err(InvalidImage("a bitmap outside its chunk, or two at one offset")));
+    let mut layer_outside = words.to_vec();
+    layer_outside[last_chunk + 2] = (words.len() - last_chunk) as u64;
+    assert_eq!(SuperchunkImage::from_words(layer_outside.into()), Err(InvalidImage("an encoded layer outside its chunk, or two at one offset")));
 }
 
 /// The ring hands back each superchunk's entries in the order written,
@@ -133,7 +133,7 @@ fn the_ring_frees_from_its_tail_and_wraps() {
     assert!(!ring.push(chunk(b, 4), LayerType(4), &[44; 20]), "no room");
     assert_eq!(ring.tail_superchunk(), Some(a));
     let entries = ring.entries_of(a);
-    assert_eq!(entries.iter().map(|entry| (entry.chunk, entry.layer_type, ring.bitmap(entry)[0])).collect::<Vec<_>>(), [
+    assert_eq!(entries.iter().map(|entry| (entry.chunk, entry.layer_type, ring.encoded(entry)[0])).collect::<Vec<_>>(), [
         (1, LayerType(1), 11),
         (3, LayerType(3), 33)
     ]);
@@ -144,7 +144,7 @@ fn the_ring_frees_from_its_tail_and_wraps() {
     assert!(ring.push(chunk(a, 5), LayerType(5), &[55; 10]));
     assert!(ring.push(chunk(a, 6), LayerType(6), &[66; 2]));
     assert!(!ring.push(chunk(a, 7), LayerType(7), &[77; 1]), "full up to b's entry");
-    assert_eq!(ring.entries_of(a).iter().map(|entry| ring.bitmap(entry)[0]).collect::<Vec<_>>(), [55, 66]);
+    assert_eq!(ring.entries_of(a).iter().map(|entry| ring.encoded(entry)[0]).collect::<Vec<_>>(), [55, 66]);
     ring.release(b);
     assert_eq!(ring.tail_superchunk(), Some(a));
     ring.release(a);

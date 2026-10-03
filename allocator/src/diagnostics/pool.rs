@@ -1,9 +1,9 @@
-//! A pool's blocks: their size, how many were made, how many wait
+//! A block pool's blocks: their size, how many were made, how many wait
 //! released, and the bytes they come to.
 
 use crate::BlockPool;
 
-/// What a pool holds.
+/// What a block pool holds.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PoolStats {
     /// Bytes a block.
@@ -15,9 +15,9 @@ pub struct PoolStats {
 }
 
 impl PoolStats {
-    /// What `pool` holds now.
-    pub fn of(pool: &BlockPool) -> Self {
-        Self { block_bytes: (pool.block_words * size_of::<u64>()) as u64, made: pool.made, released: pool.released.len() }
+    /// What `block_pool` holds now.
+    pub fn of(block_pool: &BlockPool) -> Self {
+        Self { block_bytes: (block_pool.block_words * size_of::<u64>()) as u64, made: block_pool.made, released: block_pool.released.len() }
     }
 
     /// Bytes of every block made.

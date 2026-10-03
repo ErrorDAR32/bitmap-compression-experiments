@@ -26,7 +26,7 @@ entity (`../entities/`) on each superchunk's turn: grass, then sheep.
 
 ## Saved and loaded
 
-A save is a directory (`chunk_storage::disk`, and
+A save is a folder (`chunk_storage::disk`, and
 `../chunk_storage/docs/chunk_storage.md`, "On disk"):
 
 | file | what it holds |
@@ -75,7 +75,7 @@ Measured: 16 superchunks, 64,000 sheep: 24 MiB -- 1 MiB a superchunk of
 heights, raw, 250 KiB of layers, 260 KiB of entities.
 
 Not yet: superchunks no longer in the world are not removed from a
-save's directory; and every superchunk saved is loaded hot.
+save's folder; and every superchunk saved is loaded hot.
 
 ## Layout
 

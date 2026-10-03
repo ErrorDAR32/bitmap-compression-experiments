@@ -17,7 +17,7 @@ pub struct StorageStats {
 impl StorageStats {
     /// What `storage` holds now.
     pub fn of(storage: &ChunkStorage) -> Self {
-        let image_bytes = storage.pool.iter().map(|(_, image)| std::mem::size_of_val(image.words()) as u64).sum();
-        Self { superchunks: storage.pool.len(), image_bytes, ring_bytes: (storage.ring.capacity() * size_of::<u64>()) as u64 }
+        let image_bytes = storage.cold_pool.iter().map(|(_, image)| std::mem::size_of_val(image.words()) as u64).sum();
+        Self { superchunks: storage.cold_pool.len(), image_bytes, ring_bytes: (storage.ring.capacity() * size_of::<u64>()) as u64 }
     }
 }

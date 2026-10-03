@@ -1,11 +1,11 @@
-//! The writeback ring: changed bitmaps, encoded, on their way to the
-//! cold pool -- a sponge for writes, so a superchunk image is rewritten
-//! once for many of its bitmaps rather than once a bitmap.
+//! The writeback ring: changed layers, encoded, on their way to the
+//! cold pool -- a sponge for writes, so a superchunk's image is rewritten
+//! once for many of its layers rather than once per layer.
 //!
 //! A ring buffer of words. An entry is a header -- its chunk's Morton
 //! index in the world, its layer type, its length and whether it is
-//! dead -- then its bitmap's words; an entry of no words says the layer
-//! is gone. Entries never wrap: one that does not fit before the end
+//! dead -- then the encoded layer's words; an entry of no words says the
+//! layer is gone. Entries never wrap: one that does not fit before the end
 //! starts again at the start, a marker left where it would have gone.
 //! Entries are written at the head and freed from the tail: releasing a
 //! superchunk marks its entries dead, and the tail moves past dead
@@ -27,8 +27,8 @@ const HEADER_WORDS: usize = 3;
 const WRAP: u64 = u64::MAX;
 /// The length word's bit saying an entry is dead.
 const DEAD: u64 = 1;
-/// Bits of a chunk's Morton index that place it in its superchunk.
-const CHUNK_PLACE_BITS: u32 = CHUNKS_IN_SUPERCHUNK.trailing_zeros();
+/// The low bits of a chunk's Morton index: its place in its superchunk.
+const CHUNK_IN_SUPERCHUNK_BITS: u32 = CHUNKS_IN_SUPERCHUNK.trailing_zeros();
 
 /// A live entry of the ring.
 #[derive(Clone, Debug)]
@@ -37,11 +37,11 @@ pub struct RingEntry {
     pub chunk: usize,
     /// Its layer's type.
     pub layer_type: LayerType,
-    /// Where its bitmap's words are in the ring.
+    /// Where its encoded layer's words are in the ring.
     pub words: Range<usize>,
 }
 
-/// Changed bitmaps, encoded, in the order written.
+/// Changed layers, encoded, in the order written.
 pub struct WritebackRing {
     /// The ring's words.
     words: Box<[u64]>,
@@ -85,10 +85,10 @@ impl WritebackRing {
         }
     }
 
-    /// Appends `bitmap` as the layer of `layer_type` in `chunk` -- no
-    /// words for none -- if it fits: whether it did.
-    pub fn push(&mut self, chunk: ChunkPosition, layer_type: LayerType, bitmap: &[u64]) -> bool {
-        let size = HEADER_WORDS + bitmap.len();
+    /// Appends `encoded` as the layer of `layer_type` in `chunk` (no
+    /// words: no layer), if it fits. Returns whether it did.
+    pub fn push(&mut self, chunk: ChunkPosition, layer_type: LayerType, encoded: &[u64]) -> bool {
+        let size = HEADER_WORDS + encoded.len();
         let Some(at) = self.room_for(size) else {
             return false;
         };
@@ -97,8 +97,8 @@ impl WritebackRing {
         } else if at < self.head && self.head < self.words.len() {
             self.words[self.head] = WRAP;
         }
-        self.words[at..at + HEADER_WORDS].copy_from_slice(&[chunk.morton_index(), layer_type.0, (bitmap.len() as u64) << 1]);
-        self.words[at + HEADER_WORDS..at + size].copy_from_slice(bitmap);
+        self.words[at..at + HEADER_WORDS].copy_from_slice(&[chunk.morton_index(), layer_type.0, (encoded.len() as u64) << 1]);
+        self.words[at + HEADER_WORDS..at + size].copy_from_slice(encoded);
         self.head = at + size;
         self.entries += 1;
         true
@@ -144,9 +144,9 @@ impl WritebackRing {
 
     /// The live entries of `superchunk`, oldest first.
     pub fn entries_of(&self, superchunk: SuperchunkPosition) -> Vec<RingEntry> {
-        let key = superchunk.morton_index();
+        let superchunk_index = superchunk.morton_index();
         self.all_entries()
-            .filter(|&(_, chunk, .., dead)| !dead && chunk >> CHUNK_PLACE_BITS == key)
+            .filter(|&(_, chunk, .., dead)| !dead && chunk >> CHUNK_IN_SUPERCHUNK_BITS == superchunk_index)
             .map(|(start, chunk, layer_type, words, _)| RingEntry {
                 chunk: (chunk & (CHUNKS_IN_SUPERCHUNK as u64 - 1)) as usize,
                 layer_type,
@@ -155,16 +155,16 @@ impl WritebackRing {
             .collect()
     }
 
-    /// An entry's bitmap.
-    pub fn bitmap(&self, entry: &RingEntry) -> &[u64] {
+    /// An entry's encoded layer.
+    pub fn encoded(&self, entry: &RingEntry) -> &[u64] {
         &self.words[entry.words.clone()]
     }
 
     /// Frees every entry of `superchunk`: marks them dead, and moves the
     /// tail past the dead entries at it.
     pub fn release(&mut self, superchunk: SuperchunkPosition) {
-        let key = superchunk.morton_index();
-        let starts: Vec<usize> = self.all_entries().filter(|&(_, chunk, ..)| chunk >> CHUNK_PLACE_BITS == key).map(|(start, ..)| start).collect();
+        let superchunk_index = superchunk.morton_index();
+        let starts: Vec<usize> = self.all_entries().filter(|&(_, chunk, ..)| chunk >> CHUNK_IN_SUPERCHUNK_BITS == superchunk_index).map(|(start, ..)| start).collect();
         for start in starts {
             self.words[start + 2] |= DEAD;
         }

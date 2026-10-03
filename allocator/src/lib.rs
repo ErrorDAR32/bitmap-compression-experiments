@@ -1,11 +1,11 @@
-//! TileSim's allocator: a pool of equal-size blocks of words, handed out
+//! TileSim's allocator: a block pool of equal-size blocks of words, handed out
 //! and taken back, for structures that must never move once made -- a
 //! block stays where it is from its allocation on, so nothing in it is
 //! ever copied to make room. It serves chunk storage and the bitplane
 //! manager, and nothing else (`../docs/tilesim.md`, "Memory").
 //!
 //! A block is an owning handle: its holder has its words, and gives it
-//! back to the pool when done. A new block is asked of the system
+//! back to the block pool when done. A new block is asked of the system
 //! zeroed, so its pages cost nothing until first written. A released
 //! block is kept, not freed, and handed out again before any new one is
 //! made: holding whatever it held, which its next user overwrites.
@@ -24,9 +24,9 @@
 pub mod diagnostics;
 pub mod transient_data;
 
-/// A block of a pool's, owned by whoever holds it: its words go with
+/// A block of a block pool's, owned by whoever holds it: its words go with
 /// it, so blocks held apart are changed apart -- on different threads,
-/// say -- and it never moves while held. Released back to its pool when
+/// say -- and it never moves while held. Released back to its block pool when
 /// done with.
 #[derive(Debug)]
 pub struct Block(Box<[u64]>);
@@ -58,7 +58,7 @@ pub struct BlockPool {
 }
 
 impl BlockPool {
-    /// A pool of blocks of `block_words` words each, none made yet.
+    /// A block pool of blocks of `block_words` words each, none made yet.
     pub fn new(block_words: usize) -> Self {
         Self { block_words, made: 0, released: Vec::new() }
     }
@@ -74,7 +74,7 @@ impl BlockPool {
 
     /// Takes `block` back, to hand out again.
     pub fn release(&mut self, block: Block) {
-        debug_assert_eq!(block.len(), self.block_words, "a block of another pool");
+        debug_assert_eq!(block.len(), self.block_words, "a block of another block pool");
         self.released.push(block);
     }
 

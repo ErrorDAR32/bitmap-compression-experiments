@@ -14,17 +14,17 @@ pub struct ArenaStats {
     /// Hot bitmaps.
     pub hot_bitmaps: usize,
     /// The blocks the arena has made, in use or released.
-    pub pool: PoolStats,
+    pub block_pool: PoolStats,
 }
 
 impl ArenaStats {
     /// What `arena` holds now.
     pub fn of(arena: &BitmapArena) -> Self {
-        Self { superchunks: arena.directory.len(), allocations: arena.allocations(), hot_bitmaps: arena.len(), pool: PoolStats::of(&arena.pool) }
+        Self { superchunks: arena.directory.len(), allocations: arena.allocations(), hot_bitmaps: arena.len(), block_pool: PoolStats::of(&arena.block_pool) }
     }
 
     /// Bytes of the blocks in use.
     pub fn bytes_in_use(&self) -> u64 {
-        self.allocations as u64 * self.pool.block_bytes
+        self.allocations as u64 * self.block_pool.block_bytes
     }
 }
