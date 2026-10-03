@@ -13,14 +13,14 @@ use std::ops::AddAssign;
 
 /// What grass and sheep did in a tick.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct Ticked {
+pub struct TickCounts {
     /// What the grass did.
     pub grass: Grass,
     /// What the sheep did.
     pub sheep: SheepTickMetrics,
 }
 
-impl AddAssign for Ticked {
+impl AddAssign for TickCounts {
     /// Both added up.
     fn add_assign(&mut self, other: Self) {
         self.grass += other.grass;
@@ -31,6 +31,6 @@ impl AddAssign for Ticked {
 /// One tick of grass and sheep over every superchunk with a bitmap in
 /// use, on `simulation`'s threads, `seed` its random numbers' seed -- a
 /// new one a tick.
-pub fn tick(simulation: &mut Simulation, arena: &mut BitmapArena, entities: &mut Entities, seed: u64) -> TickReport<Ticked> {
-    simulation.tick(arena, entities, seed, |turn, samples| Ticked { grass: grass::rule(turn, samples), sheep: sheep::rule(turn) })
+pub fn tick(simulation: &mut Simulation, arena: &mut BitmapArena, entities: &mut Entities, seed: u64) -> TickReport<TickCounts> {
+    simulation.tick(arena, entities, seed, |turn, samples| TickCounts { grass: grass::rule(turn, samples), sheep: sheep::rule(turn) })
 }

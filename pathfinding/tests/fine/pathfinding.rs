@@ -234,7 +234,7 @@ fn walls_bar_steps_between_cells() {
     let (mut at, mut taken) = (from, 0);
     while at != to {
         let next = step_towards(&ALL, &walls, &goals, at, taken).expect("still a way").first;
-        assert!(!walls.bar(at, next.x as i8 - at.x as i8, next.y as i8 - at.y as i8), "{at:?} to {next:?} through a wall");
+        assert!(!walls.blocks_step(at, next.x as i8 - at.x as i8, next.y as i8 - at.y as i8), "{at:?} to {next:?} through a wall");
         (at, taken) = (next, taken + 1);
     }
     assert_eq!(taken, path.steps as u64);
@@ -242,9 +242,9 @@ fn walls_bar_steps_between_cells() {
     // A diagonal's wall bars the diagonal, not the two steps round it.
     let mut corner = Walls::default();
     corner.south_east[4] = 1 << 4;
-    assert!(corner.bar(cell(4, 4), 1, 1) && corner.bar(cell(5, 5), -1, -1));
-    assert!(!corner.bar(cell(4, 4), 1, 0) && !corner.bar(cell(4, 4), 0, 1) && !corner.bar(cell(5, 4), -1, 1));
+    assert!(corner.blocks_step(cell(4, 4), 1, 1) && corner.blocks_step(cell(5, 5), -1, -1));
+    assert!(!corner.blocks_step(cell(4, 4), 1, 0) && !corner.blocks_step(cell(4, 4), 0, 1) && !corner.blocks_step(cell(5, 4), -1, 1));
     assert_eq!(a_star(&ALL, &corner, cell(4, 4), cell(5, 5)).map(|path| path.steps), Some(2));
     corner.south_west[4] = 1 << 5;
-    assert!(corner.bar(cell(5, 4), -1, 1) && corner.bar(cell(4, 5), 1, -1));
+    assert!(corner.blocks_step(cell(5, 4), -1, 1) && corner.blocks_step(cell(4, 5), 1, -1));
 }

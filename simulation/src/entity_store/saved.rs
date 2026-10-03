@@ -12,7 +12,7 @@ use super::store::{Crossing, Entities, SuperChunkEntities};
 const FIRST_WORD: u64 = u64::from_le_bytes(*b"TSstate\x01");
 
 /// What a state file held, beside the entities queued.
-pub struct State {
+pub struct SavedState {
     /// Its random numbers' state, if it had ticked.
     pub random: Option<u64>,
     /// How many entities it holds.
@@ -22,7 +22,7 @@ pub struct State {
 /// The state file of a superchunk with `random` its random numbers'
 /// state and `entities` its entities, either of which it may lack: its
 /// words, and how many entities.
-pub fn encode(random: Option<u64>, entities: Option<&SuperChunkEntities>) -> (Vec<u64>, usize) {
+pub fn encode_state(random: Option<u64>, entities: Option<&SuperChunkEntities>) -> (Vec<u64>, usize) {
     let (count, crossings) = entities.map_or((0, &[][..]), |entities| (entities.len(), entities.crossings()));
     let mut words = vec![FIRST_WORD, random.is_some() as u64, random.unwrap_or(0), count as u64, crossings.len() as u64];
     for entity in entities.into_iter().flat_map(SuperChunkEntities::iter) {
@@ -36,7 +36,7 @@ pub fn encode(random: Option<u64>, entities: Option<&SuperChunkEntities>) -> (Ve
 
 /// Reads the state file `words` of a world at tick `now`: its entities
 /// queued to be put in `entities`, its crossings added to `crossings`.
-pub fn decode(words: &[u64], now: u64, entities: &mut Entities, crossings: &mut Vec<Crossing>) -> Result<State, &'static str> {
+pub fn decode_state(words: &[u64], now: u64, entities: &mut Entities, crossings: &mut Vec<Crossing>) -> Result<SavedState, &'static str> {
     let mut words = words.iter().copied();
     let mut next = || words.next().ok_or("cut short");
     if next()? != FIRST_WORD {
@@ -57,5 +57,5 @@ pub fn decode(words: &[u64], now: u64, entities: &mut Entities, crossings: &mut 
     for _ in 0..crossing_count {
         crossings.push(Crossing { id: EntityId(next()?), at: CellIndex(next()?), to: CellIndex(next()?) });
     }
-    Ok(State { random: (has_random == 1).then_some(random), entities: count as usize })
+    Ok(SavedState { random: (has_random == 1).then_some(random), entities: count as usize })
 }

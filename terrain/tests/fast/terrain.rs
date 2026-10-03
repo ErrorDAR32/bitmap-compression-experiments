@@ -84,15 +84,3 @@ fn a_cliff_is_walled_along_its_length() {
     assert!(walled(&terrain, 0, 499, 77) && walled(&terrain, 2, 499, 77) && walled(&terrain, 3, 500, 77));
     assert!(!walled(&terrain, 0, 500, 77) && !walled(&terrain, 0, 498, 77));
 }
-
-/// Prints the share of steps walled, for tuning: `cargo test -- --ignored --nocapture`.
-#[test]
-#[ignore]
-fn wall_share() {
-    for seed in [1, 2, 3] {
-        let start = std::time::Instant::now();
-        let terrain = Terrain::generate(seed, SuperChunkPosition { x: 2_097_152, y: 2_097_152 });
-        let counts = terrain.wall_counts();
-        println!("seed {seed}: {counts:?} = {:.2}% in {:?}", 100.0 * counts.iter().sum::<u64>() as f64 / (4.0 * 1024.0 * 1024.0), start.elapsed());
-    }
-}

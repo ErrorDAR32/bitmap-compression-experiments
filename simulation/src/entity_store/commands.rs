@@ -108,7 +108,7 @@ impl Commands {
     /// its cell's superchunk -- to its cell, to wake at its tick, with
     /// the attributes it has: none are carried. Its cell `from` itself,
     /// it only sleeps until then.
-    pub fn shift(&mut self, header: Header, from: CellIndex) {
+    pub fn move_entity(&mut self, header: Header, from: CellIndex) {
         debug_assert_eq!(header.at.superchunk(), from.superchunk(), "an entity moved from another superchunk: a crossing");
         self.commands.push(Command::Move { header, from });
     }

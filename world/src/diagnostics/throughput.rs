@@ -3,7 +3,7 @@
 //! -- the process's, sampled every tick, and the arena's and storage's
 //! own.
 
-use entity_rules::diagnostics::world::World;
+use entity_rules::diagnostics::world::MockWorld;
 use mt_rules::grass;
 use simulation::Simulation;
 use bitplane_manager::diagnostics::arena::ArenaStats;
@@ -45,7 +45,7 @@ pub struct Throughput {
 pub fn run(ticks: usize, thousandths: usize, superchunks: u32, threads: usize) -> Throughput {
     let mut memory = MemoryTrack::default();
     memory.sample();
-    let mut world = World::grass_on_dirt(superchunks, (1 << 20) * thousandths / 1000);
+    let mut world = MockWorld::grass_on_dirt(superchunks, (1 << 20) * thousandths / 1000);
     let start_grass = world.grass();
     let (mut computing, mut applying, mut writes, mut sampled, mut missed) = (Duration::ZERO, Duration::ZERO, 0, 0, 0);
     let mut simulation = Simulation::new(threads);

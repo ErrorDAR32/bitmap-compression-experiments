@@ -42,10 +42,12 @@ entity, its ID drawn and returned. **`step(entity, to, wake)`**,
 **`sleep(entity, wake)`**: a move, no attributes carried -- whole, as
 `update`, to another superchunk. **`set_attribute(entity, kind,
 value)`**, **`unset_attribute(entity, kind)`**: an edit of any entity in
-reach. **`commit(edit, to, wake)`**: an `Edit`'s entity moved if no
+reach. **`commit(edit, to, wake)`**: an `EntityEdit`'s entity moved if no
 attribute changed, else put whole. **`around(type, at)`**: the 3x3
 cells about `at`, an **`Around`** `{set, hot}` of nine bits;
 **`around_occupied(at)`**: those entities stand on;
+**`unwalled_around(at)`**: those no wall is before; **`walls_about(centre)`**:
+the area's walls, for paths;
 **`free_beside(at, open)`**: one of `open` none stands on, drawn.
 **`occupied_about(centre)`**: the entities on an area's cells.
 **`step_towards(at, goals, passable)`**, **`step_to(at, to,
@@ -54,7 +56,7 @@ cell, round the entities in the way. **`area_of_blocks(type, centre, level)`**: 
 `2^level` cells a side, set where the type holds at any cell.
 **`seek(at, type)`**: the step to the nearest cell the type holds at,
 the area first, then blocks, `FARTHEST` (6) first and the finest that
-reach after -- a **`Sought`**
+reach after -- a **`SoughtStep`**
 `{to, level}`. **`Area::count`**.
 **`settle_crossings`**: before the rule, each of
 last tick's crossings removed here if found there, else woken. **`slot_of`**: the slot of a
@@ -86,7 +88,7 @@ in the world.
 `NEVER`; **`EntityRef`** `{header, attributes}` with
 **`attribute(kind)`**; free functions on a list sorted by type:
 **`attribute`**, **`set_attribute`** (added if absent),
-**`remove_attribute`**; **`sorted`**. **`Edit::of(entity, room)`**: an
+**`remove_attribute`**; **`sorted`**. **`EntityEdit::of(entity, room)`**: an
 entity being changed -- **`header`**, **`get(kind)`**, **`set(kind,
 value)`**, **`unset(kind)`**, **`attributes`**, **`edited`**: its
 attributes copied into `room` when first one changes, not before.
@@ -146,7 +148,7 @@ tiles' runs of places (**`in_tile`**).
 **`commands.rs`**: **`Commands`**: the instructions queued for one
 superchunk -- put, move, edit, remove -- the puts' attributes in a list
 beside: **`put(header, from, attributes)`**, **`cross(header, to,
-attributes)`**, **`shift(header, from)`** (a move),
+attributes)`**, **`move_entity(header, from)`**,
 **`edit(id, at, kind, value)`**, **`remove`**, **`apply(superchunks, earliest,
 applied)`** in order, each on its cell's superchunk (a put elsewhere
 lost, one of an entity no longer where it stood passed over, a new

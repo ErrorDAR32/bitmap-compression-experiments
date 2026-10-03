@@ -12,7 +12,7 @@ use bitplane_manager::{BitmapArena, BucketKey, Write, WriteOp};
 use chunk_storage::{LayerCodec, LayerType};
 use coordinates::{CartesianCell, CellIndex, ChunkPlace, ChunkPosition, SuperChunkPosition, SUPERCHUNK_SIDE_CELLS};
 use simulation::around::{self, CENTRE, RING};
-use simulation::entity_store::{Attribute, AttributeType, Edit, Entities, EntityId, EntityType, Header, NEVER};
+use simulation::entity_store::{Attribute, AttributeType, EntityEdit, Entities, EntityId, EntityType, Header, NEVER};
 use simulation::{Simulation, SuperChunkTick};
 use terrain::{WALL_EAST, WALL_SOUTH_EAST, WALL_SOUTH_WEST};
 use std::sync::Mutex;
@@ -165,7 +165,7 @@ fn an_entity_is_put_whole_only_if_an_attribute_changed() {
     let report = simulation.tick(&mut arena, &mut entities, 0, |turn: &mut SuperChunkTick, _: &mut Vec<CellIndex>| {
         let mut room = Vec::new();
         for entity in turn.woken() {
-            let mut edit = Edit::of(entity, &mut room);
+            let mut edit = EntityEdit::of(entity, &mut room);
             // Set to what it is: no change. The second walker's is changed, and another added and removed.
             edit.set(NAME, 7);
             assert_eq!(edit.unset(MARK), None);
@@ -323,11 +323,11 @@ fn walls_of_the_terrain_bar_steps() {
                 let at = entity.header.at;
                 if at == from {
                     // The three cells east of it are behind the cliff.
-                    assert_eq!(turn.open_around(at), around::ALL & !(1 << 2 | 1 << 5 | 1 << 8));
+                    assert_eq!(turn.unwalled_around(at), around::ALL & !(1 << 2 | 1 << 5 | 1 << 8));
                 }
                 let passable = turn.area(STONE, at).hot;
                 let next = turn.step_to(at, to, &passable).expect("a way through the gap");
-                assert!(turn.open_around(at) >> around::bit_of(at, next) & 1 == 1, "a step through a wall");
+                assert!(turn.unwalled_around(at) >> around::bit_of(at, next) & 1 == 1, "a step through a wall");
                 turn.step(&entity.header, next, now + 1);
             }
             0

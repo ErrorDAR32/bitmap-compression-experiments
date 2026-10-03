@@ -67,7 +67,7 @@ impl EntityRef<'_> {
 /// one is. What it comes to is queued by `SuperChunkTick::commit`,
 /// which picks the instruction: an entity whose attributes were left
 /// alone is moved, or put back to sleep, and carries none.
-pub struct Edit<'a, 'b> {
+pub struct EntityEdit<'a, 'b> {
     /// The entity as the tick found it.
     entity: EntityRef<'a>,
     /// Its attributes as changed, once one is: the rule's room for them,
@@ -77,7 +77,7 @@ pub struct Edit<'a, 'b> {
     edited: bool,
 }
 
-impl<'a, 'b> Edit<'a, 'b> {
+impl<'a, 'b> EntityEdit<'a, 'b> {
     /// `entity`, to be changed, with `room` for its attributes.
     pub fn of(entity: EntityRef<'a>, room: &'b mut Vec<Attribute>) -> Self {
         Self { entity, changed: room, edited: false }

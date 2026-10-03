@@ -61,7 +61,7 @@ error)` or `Invalid(path, what)`. **`write_world(directory, info)`**,
 **`read_world(directory)`**; **`write_image(directory, superchunk,
 image)`**, **`read_image`**; **`write_state(directory, superchunk,
 words)`**, **`read_state`** -- the words, and the file's path;
-**`superchunks_in(directory)`**: those with an image, in Morton order.
+**`saved_superchunks(directory)`**: those with an image, in Morton order.
 Private: `superchunk_file`, `make_folder`, `write`, `write_words`,
 `read`, `read_words`, `images_in`, `WorldInfo::to_text`, `from_text`.
 

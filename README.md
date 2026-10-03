@@ -15,6 +15,7 @@ spreading over dirt -- and the first entities: sheep eating it.
 | folder | what it is |
 |---|---|
 | [`docs/design_statements.md`](docs/design_statements.md) | the design statements |
+| [`docs/testing_protocol.md`](docs/testing_protocol.md) | how TileSim is tested: diagnostics, tests and tools apart, and three tiers of test -- fine, fast, complete |
 | [`docs/tilesim.md`](docs/tilesim.md) | what TileSim is, and every decision about it so far: chunks, superchunks, layers, the simulation's plan |
 | [`src/`](src/) | the `tilesim` crate: the program -- worlds made from a seed, run and saved, from the command line |
 | [`world/`](world/) | the world as a whole: made from a seed, ticked -- rules and entities together -- saved and loaded; and its diagnostics tool |
@@ -22,6 +23,7 @@ spreading over dirt -- and the first entities: sheep eating it.
 | [`entity_rules/`](entity_rules/) | the entities, a file each: so far the sheep, eating the grass |
 | [`coordinates/`](coordinates/) | where things are: cells, chunks and superchunks, cartesian and by Morton index |
 | [`chunk_storage/`](chunk_storage/) | chunks as stored, what loading and saving work on: height maps, the layer codec, superchunk images, the cold pool and the writeback ring |
+| [`terrain/`](terrain/) | every cell's height from the world's seed, and the walls between cells more than a step apart in height |
 | [`pathfinding/`](pathfinding/) | how an entity finds its way: waves and A* over an area of 16x16 cells held as masks |
 | [`viewer/`](viewer/) | TileSim on the screen: a Bevy window asking the simulation, on a thread of its own, for the cells in view |
 | [`simulation/`](simulation/) | the simulation: Monte Carlo sampling, the two-phase tick and its outboxes, the thread dispatcher, and the entities -- a bucket a chunk, a timer wheel a superchunk |

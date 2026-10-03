@@ -20,7 +20,7 @@ use std::io::Write;
 use std::time::Duration;
 use world::diagnostics::frames::{frame, sheep, FRAME_BYTES};
 use world::diagnostics::{pasture as pasture_run, throughput};
-use entity_rules::diagnostics::world::World;
+use entity_rules::diagnostics::world::MockWorld;
 use simulation::{threads_for, Simulation};
 use world::transient_data::{measurements, publish};
 use utilities::memory::mebibytes;
@@ -142,7 +142,7 @@ fn share(part: Duration, whole: Duration) -> String {
 /// standard output.
 fn video(arguments: &[String]) {
     let (ticks, grass_cells, every, flock) = (argument(arguments, 0, 120_000), argument(arguments, 1, 2000), argument(arguments, 2, 256), argument(arguments, 3, 0));
-    let mut world = World::with_sheep(1, grass_cells, flock);
+    let mut world = MockWorld::with_sheep(1, grass_cells, flock);
     let superchunk = world.superchunks[0];
     let mut pixels = vec![0u8; FRAME_BYTES];
     let mut out = std::io::BufWriter::new(std::io::stdout().lock());

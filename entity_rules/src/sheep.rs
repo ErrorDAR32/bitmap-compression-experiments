@@ -41,7 +41,7 @@
 //! What is the sheep's own is here, and only that: the 3x3 cells about
 //! it, the area, the path, the cell seen free, the instruction that
 //! carries least are the simulation's (`simulation::around`,
-//! `SuperChunkTick`, `Edit`), there for every entity.
+//! `SuperChunkTick`, `EntityEdit`), there for every entity.
 //!
 //! The rule runs in a tick's first phase, as grass does, reading the
 //! world as the tick found it: two sheep may eat one cell in a tick,
@@ -51,7 +51,7 @@ use bitplane_manager::{BitmapArena, Write, WriteOp};
 use chunk_storage::mock::{DIRT, GRASS};
 use coordinates::{SuperChunkPosition, SUPERCHUNK_SIDE_CELLS};
 use simulation::around::{self, CENTRE, RING};
-use simulation::entity_store::{Attribute, AttributeType, Edit, Entities, EntityId, EntityType, Header};
+use simulation::entity_store::{Attribute, AttributeType, EntityEdit, Entities, EntityId, EntityType, Header};
 use simulation::{Simulation, SuperChunkTick, TickReport};
 use std::collections::HashSet;
 use std::ops::AddAssign;
@@ -150,10 +150,10 @@ pub fn rule(turn: &mut SuperChunkTick) -> SheepTickMetrics {
     for sheep in turn.woken() {
         done.woken += 1;
         let at = sheep.header.at;
-        let mut sheep = Edit::of(sheep, &mut room);
+        let mut sheep = EntityEdit::of(sheep, &mut room);
         let grass = turn.around(GRASS, at);
         // The neighbours it may step to: on the bitplanes held, no wall before them. Where entities stand is not read.
-        let mut open = grass.hot & RING & turn.open_around(at);
+        let mut steppable = grass.hot & RING & turn.unwalled_around(at);
         let hungry_at = sheep.get(HUNGRY_AT).unwrap_or(now);
         let roaming = sheep.get(ROAMING);
         // On its way out of thin pasture it does not stop to eat.
@@ -170,7 +170,7 @@ pub fn rule(turn: &mut SuperChunkTick) -> SheepTickMetrics {
             turn.queue(DIRT, Write::cell(at, WriteOp::Set));
             sheep.set(HUNGRY_AT, now + MEAL_TICKS);
             done.eaten += 1;
-            if let (false, Some(way)) = (lush, around::pick(turn.random(), open)) {
+            if let (false, Some(way)) = (lush, around::pick(turn.random(), steppable)) {
                 sheep.set(ROAMING, (now + MEAL_TICKS + ROAM_TICKS) << 4 | way as u64);
             }
         }
@@ -181,11 +181,11 @@ pub fn rule(turn: &mut SuperChunkTick) -> SheepTickMetrics {
         match sheep.get(PREGNANT) {
             Some(due) if now < due => needs = needs.min(due),
             // Its lamb is born on a cell seen free beside it; with none, it waits a step's time more.
-            Some(_) => match turn.free_beside(at, open) {
+            Some(_) => match turn.free_beside(at, steppable) {
                 Some(beside) => {
                     sheep.unset(PREGNANT);
                     // The lamb's cell is no longer one to step to.
-                    open &= !(1 << beside);
+                    steppable &= !(1 << beside);
                     let (cell, wake) = (around::cell(at, beside).expect("a hot neighbour is in the world"), next_step(turn));
                     turn.spawn(SHEEP, cell, wake, &[Attribute { kind: HUNGRY_AT, value: now + MEAL_TICKS }, Attribute { kind: LAMB, value: now + LAMB_TICKS }]);
                     done.births += 1;
@@ -209,13 +209,13 @@ pub fn rule(turn: &mut SuperChunkTick) -> SheepTickMetrics {
         } else if let Some(roaming) = roaming {
             // On the way it set off, until its time is up or the world held ends.
             let way = 1 << (roaming & 15);
-            if now >= roaming >> 4 || open & way == 0 {
+            if now >= roaming >> 4 || steppable & way == 0 {
                 sheep.unset(ROAMING);
             }
-            around::prefer(turn.random(), way, open)
-        } else if grass.set & open != 0 {
-            around::pick(turn.random(), grass.set & open)
-        } else if open == 0 {
+            around::prefer(turn.random(), way, steppable)
+        } else if grass.set & steppable != 0 {
+            around::pick(turn.random(), grass.set & steppable)
+        } else if steppable == 0 {
             // Hemmed in: no step to take, and no path to look for.
             None
         } else {
@@ -226,7 +226,7 @@ pub fn rule(turn: &mut SuperChunkTick) -> SheepTickMetrics {
                     done.far += (found.level > 0) as usize;
                     Some(around::bit_of(at, found.to))
                 }
-                None => around::pick(turn.random(), open),
+                None => around::pick(turn.random(), steppable),
             }
         };
         let to = way.and_then(|way| around::cell(at, way)).unwrap_or(at);

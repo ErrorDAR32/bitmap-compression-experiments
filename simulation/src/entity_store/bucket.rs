@@ -166,7 +166,7 @@ impl Bucket {
                     self.rewrite(from, stays, attributes);
                     return Put::Stayed;
                 }
-                (self.shift(from, goes, to), Put::Moved)
+                (self.shift_record(from, goes, to), Put::Moved)
             }
             (Err(_), true) if attributes.is_none() => return Put::PassedOver,
             (Err((_, true)), true) => return Put::Refused,
@@ -271,7 +271,7 @@ impl Bucket {
     /// Moves the record at `from` to `goes`, where the free cell at
     /// `to`'s entity goes, the records between the two shifted one
     /// along: where it now is.
-    fn shift(&mut self, from: usize, goes: usize, to: u16) -> usize {
+    fn shift_record(&mut self, from: usize, goes: usize, to: u16) -> usize {
         let was = self.places[from];
         let at = if goes > from {
             self.places[from..goes].rotate_left(1);

@@ -9,10 +9,17 @@ and the viewer (`../viewer/`) call it.
 
 `generate(seed, superchunks)`: every superchunk's contents come from
 the world's seed and the superchunk's Morton index, so a superchunk is
-the same whenever and in whatever order it is made. For now a
-superchunk is pasture: dirt, about a third of it grass, 4,000 sheep.
+the same whenever and in whatever order it is made. A superchunk is its
+terrain (`../terrain/`) -- heights, and the walls they make, four
+layers -- and on it, for now, pasture: dirt, about a third of it grass,
+4,000 sheep.
 
-## Ticked
+Each superchunk's random numbers are a stream of their own
+(`Rng::for_stream`): seeded by the seed moved along by the Morton
+index, as they first were, two superchunks drew one sequence a few
+draws apart -- two flocks came out with the same sheep.
+
+## TickCounts
 
 `tick` runs every rule of the cells (`../mt_rules/`) and every kind of
 entity (`../entities/`) on each superchunk's turn: grass, then sheep.

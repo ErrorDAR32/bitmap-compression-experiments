@@ -40,5 +40,7 @@ panics), **`pop`**; derefs to a slice.
 **`process_memory()`**: **`Memory`** `{resident, peak}`, if the system
 says. **`MemoryTrack`**: **`sample`**, **`average`**, **`peak`**.
 **`mebibytes(bytes)`**: how a report shows memory.
+**`Rng::for_stream(seed, stream)`**: a source of its own for a stream
+of a seed, its state mixed; **`state()`**: what a save keeps.
 **`prefetch(value)`**: its line of memory asked for ahead of being read;
 the crate's one `unsafe` line, on a reference's address.

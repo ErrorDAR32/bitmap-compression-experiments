@@ -30,7 +30,7 @@
 
 use crate::dispatcher::Dispatcher;
 use crate::around::{squeeze, Around};
-use crate::entity_store::{Attribute, AttributeType, Commands, Edit, Entities, EntitiesApplied, EntityId, EntityReader, EntityRef, EntityType, Header, SuperChunkEntities, NEVER, OCCUPIED_SIDE};
+use crate::entity_store::{Attribute, AttributeType, Commands, EntityEdit, Entities, EntitiesApplied, EntityId, EntityReader, EntityRef, EntityType, Header, SuperChunkEntities, NEVER, OCCUPIED_SIDE};
 use pathfinding::{a_star, step_towards, Cell, Rows, Walls};
 use terrain::{WALL_EAST, WALL_SOUTH, WALL_SOUTH_EAST, WALL_SOUTH_WEST};
 use coordinates::ChunkPosition;
@@ -72,7 +72,7 @@ pub const FARTHEST: u32 = bitplane_manager::COARSEST_BLOCK;
 
 /// A step found by [`SuperChunkTick::seek`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Sought {
+pub struct SoughtStep {
     /// The cell to step to.
     pub to: CellIndex,
     /// How far off it had to look: 0 in the area around, else the level
@@ -212,7 +212,7 @@ impl<'a> SuperChunkTick<'a> {
     /// nine bits ([`crate::around`]): those no wall of the terrain is
     /// before -- its own among them. Where the walls are not held, none
     /// bars.
-    pub fn open_around(&self, at: CellIndex) -> u16 {
+    pub fn unwalled_around(&self, at: CellIndex) -> u16 {
         let Some(corner) = at.offset(-1, -1) else {
             return crate::around::ALL;
         };
@@ -329,10 +329,10 @@ impl<'a> SuperChunkTick<'a> {
     /// The step from `at` towards the nearest cell `layer_type` holds
     /// at: in the area around it, else over blocks of cells, as far as
     /// an entity reaches. None if there is none in reach.
-    pub fn seek(&mut self, at: CellIndex, layer_type: LayerType) -> Option<Sought> {
+    pub fn seek(&mut self, at: CellIndex, layer_type: LayerType) -> Option<SoughtStep> {
         let near = self.area(layer_type, at);
         if let Some(to) = self.step_towards(at, &near.set, &near.hot) {
-            return Some(Sought { to, level: 0 });
+            return Some(SoughtStep { to, level: 0 });
         }
         let here = Cell { x: AREA_CENTRE as u8, y: AREA_CENTRE as u8 };
         let mut blocks = self.area_of_blocks(layer_type, at, FARTHEST);
@@ -361,8 +361,8 @@ impl<'a> SuperChunkTick<'a> {
         // The cell beside it the way the block is: stepped to if it is in the world held.
         let to = at.offset(path.first.x as i32 - AREA_CENTRE as i32, path.first.y as i32 - AREA_CENTRE as i32)?;
         // From far off no wall is seen: a step one bars is not taken.
-        let open = self.open_around(at) >> crate::around::bit_of(at, to) & 1 == 1;
-        (open && self.reader.holds(layer_type, to).is_ok()).then_some(Sought { to, level })
+        let open = self.unwalled_around(at) >> crate::around::bit_of(at, to) & 1 == 1;
+        (open && self.reader.holds(layer_type, to).is_ok()).then_some(SoughtStep { to, level })
     }
 
     /// The cell to step to from `at` to come, by the shortest way, to
@@ -484,7 +484,7 @@ impl<'a> SuperChunkTick<'a> {
         let after = Header { at: to, wake, ..*entity };
         if entity.at.superchunk() == to.superchunk() {
             let slot = self.slot_of(to.superchunk());
-            self.outbox.commands[slot].shift(after, entity.at);
+            self.outbox.commands[slot].move_entity(after, entity.at);
         } else if let Some(whole) = self.entity_reader.get(entity.id, entity.at) {
             self.update(entity, after, whole.attributes);
         }
@@ -510,7 +510,7 @@ impl<'a> SuperChunkTick<'a> {
     /// Queues what `edit`'s entity came to: on `to`, to wake at `wake`,
     /// by the instruction that carries least -- moved or put to sleep
     /// with the attributes it has if none was changed, else put whole.
-    pub fn commit(&mut self, edit: Edit, to: CellIndex, wake: u64) {
+    pub fn commit(&mut self, edit: EntityEdit, to: CellIndex, wake: u64) {
         let before = *edit.header();
         if edit.edited() {
             self.update(&before, Header { at: to, wake, ..before }, edit.attributes());

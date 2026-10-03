@@ -693,7 +693,7 @@ every entity will want: the nine cells beside it as bits, a free one
 for a lamb, the path to grass round the others. All of it is now the
 simulation's (`simulation/docs/simulation.md`, "What a rule is given"):
 four instructions -- put, move, edit, remove -- the neighbourhood and
-the path asked of the turn, and `Edit`, which picks the instruction
+the path asked of the turn, and `EntityEdit`, which picks the instruction
 from what changed. An entity acts on another by an edit, an attribute
 at a time. The sheep, written on them again, is a third shorter and
 does what it did.
@@ -736,6 +736,18 @@ tick to tick, not made anew from a tick's seed. The whole of it:
 The code is where its parts are: the files in `chunk_storage::disk`,
 the entities' words in `simulation`, and the save itself, which needs
 them all, in `world/`. The `tilesim` crate is the program alone.
+
+### Terrain and walls (built)
+
+Every cell has a height, from the world's seed and where the cell is
+(`terrain/`): hills of four octaves of noise, the same on any machine,
+seamless from superchunk to superchunk. Two cells beside one another
+more than one apart in height have a wall between them: no step is
+taken through it. The walls are four layers of bits, so rules read
+them as masks and never read a height; the pathfinding goes round
+them, and the sheep step through none. About 2% of steps are walled,
+in cliffs where the ground is steep. The whole of it:
+`terrain/docs/terrain.md`.
 
 ### Pathfinding (built, first form)
 

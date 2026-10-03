@@ -10,7 +10,7 @@ use chunk_storage::mock::{DIRT, GRASS};
 use coordinates::{CartesianCell, SUPERCHUNK_SIDE_CELLS};
 use simulation::entity_store::{Attribute, EntityId, EntityRef, Header};
 use simulation::Simulation;
-use entity_rules::diagnostics::world::World;
+use entity_rules::diagnostics::world::MockWorld;
 use entity_rules::sheep::{rule, tick, SheepTickMetrics, HUNGRY_AT, LAMB, MEAL_TICKS, PREGNANT, ROAMING, ROAM_TICKS, SHEEP, STARVE_TICKS, STEP_JITTER, STEP_TICKS};
 
 /// Every sheep knows when it is next hungry, is a sheep, and is
@@ -25,7 +25,7 @@ fn well_formed(sheep: EntityRef) {
 /// starves at.
 #[test]
 fn sheep_without_grass_starve() {
-    let mut world = World::with_sheep(1, 0, 500);
+    let mut world = MockWorld::with_sheep(1, 0, 500);
     let mut simulation = Simulation::new(1);
     let (mut eaten, mut deaths) = (0, 0);
     for seed in 0..MEAL_TICKS + STARVE_TICKS + 2 * (STEP_TICKS + STEP_JITTER) {
@@ -40,7 +40,7 @@ fn sheep_without_grass_starve() {
 /// go, and no sheep walks off the superchunks held.
 #[test]
 fn sheep_eat_breed_and_grow_up() {
-    let mut world = World::with_sheep(4, 300_000, 400);
+    let mut world = MockWorld::with_sheep(4, 300_000, 400);
     let mut simulation = Simulation::new(2);
     let (mut eaten, mut births, mut lost, mut lambs_seen, mut pregnant_seen) = (0, 0, 0, false, false);
     for seed in 0..40_000 {
@@ -66,7 +66,7 @@ fn sheep_eat_breed_and_grow_up() {
 /// that was not found.
 #[test]
 fn hungry_sheep_walk_to_the_nearest_grass() {
-    let mut world = World::grass_on_dirt(1, 0);
+    let mut world = MockWorld::grass_on_dirt(1, 0);
     let superchunk = world.superchunks[0];
     let corner = CartesianCell { x: superchunk.x * SUPERCHUNK_SIDE_CELLS, y: superchunk.y * SUPERCHUNK_SIDE_CELLS };
     let (sheep, grass) = (CartesianCell { x: corner.x + 500, y: corner.y + 500 }, CartesianCell { x: corner.x + 506, y: corner.y + 493 });
@@ -98,7 +98,7 @@ fn hungry_sheep_walk_to_the_nearest_grass() {
 /// most of what it can take before it starves -- and eats it.
 #[test]
 fn hungry_sheep_walk_to_grass_far_off() {
-    let mut world = World::grass_on_dirt(4, 0);
+    let mut world = MockWorld::grass_on_dirt(4, 0);
     let first = world.superchunks.iter().min_by_key(|superchunk| (superchunk.y, superchunk.x)).expect("four superchunks");
     let corner = CartesianCell { x: first.x * SUPERCHUNK_SIDE_CELLS, y: first.y * SUPERCHUNK_SIDE_CELLS };
     let (sheep, grass) = (CartesianCell { x: corner.x + 900, y: corner.y + 700 }, CartesianCell { x: corner.x + 1050, y: corner.y + 800 });
@@ -128,7 +128,7 @@ fn hungry_sheep_walk_to_grass_far_off() {
 /// grass.
 #[test]
 fn sheep_on_thin_pasture_roam_away() {
-    let mut world = World::grass_on_dirt(1, 0);
+    let mut world = MockWorld::grass_on_dirt(1, 0);
     let superchunk = world.superchunks[0];
     let start = CartesianCell { x: superchunk.x * SUPERCHUNK_SIDE_CELLS + 500, y: superchunk.y * SUPERCHUNK_SIDE_CELLS + 500 };
     world.arena.queue(GRASS, Write::cell(start.into(), WriteOp::Set));
@@ -159,7 +159,7 @@ fn sheep_on_thin_pasture_roam_away() {
 #[test]
 fn any_number_of_threads_ticks_sheep_the_same() {
     let run = |threads| {
-        let mut world = World::with_sheep(4, 200_000, 300);
+        let mut world = MockWorld::with_sheep(4, 200_000, 300);
         let mut simulation = Simulation::new(threads);
         let reports: Vec<_> = (0..1500).map(|seed| tick(&mut simulation, &mut world.arena, &mut world.entities, seed)).map(|report| (report.rules, report.entities)).collect();
         let sheep: Vec<_> = world.entities.iter().map(|sheep| (sheep.header, sheep.attributes.to_vec())).collect();
@@ -175,7 +175,7 @@ fn any_number_of_threads_ticks_sheep_the_same() {
 /// every tick checked.
 #[test]
 fn sheep_never_overlap() {
-    let mut world = World::with_sheep(4, 300_000, 60_000);
+    let mut world = MockWorld::with_sheep(4, 300_000, 60_000);
     assert_eq!(world.sheep(), 240_000, "each on a cell of its own from the start");
     let mut simulation = Simulation::new(4);
     let (mut stayed, mut births) = (0, 0);

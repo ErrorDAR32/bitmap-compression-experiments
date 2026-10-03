@@ -28,7 +28,7 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
 use std::thread;
 use std::time::{Duration, Instant};
-use entity_rules::diagnostics::world::World;
+use entity_rules::diagnostics::world::MockWorld;
 
 /// Ticks a second the simulation is held to unless told otherwise: the
 /// game's target.
@@ -153,7 +153,7 @@ pub fn start(superchunks: u32, thousandths: usize, flock: usize) -> (Sender<Requ
 /// The simulation's thread: requests read between ticks, a tick, and a
 /// wait for the next one's time.
 fn run(superchunks: u32, thousandths: usize, flock: usize, asked: &Receiver<Request>, answers: &Sender<Frame>) {
-    let mut world = World::with_sheep(superchunks, (1 << 20) * thousandths / 1000, flock);
+    let mut world = MockWorld::with_sheep(superchunks, (1 << 20) * thousandths / 1000, flock);
     let mut simulation = Simulation::for_superchunks(superchunks as usize);
     let (mut paused, mut pace, mut tick) = (false, Some(TARGET_PACE), 0u64);
     let mut census = census(superchunks, thousandths, flock);
@@ -208,7 +208,7 @@ fn run(superchunks: u32, thousandths: usize, flock: usize, asked: &Receiver<Requ
 
 /// The superchunks of `world` that `ask` asks for, copied: each one's
 /// grass, words as they are, and its sheep's cells.
-fn copy(world: &World, superchunks: u32, ask: Ask) -> Vec<Cells> {
+fn copy(world: &MockWorld, superchunks: u32, ask: Ask) -> Vec<Cells> {
     let side = side(superchunks);
     let (first, last) = (ask.viewport.first, ask.viewport.last);
     let in_view = (first.1..=last.1.min(side - 1)).flat_map(|y| (first.0..=last.0.min(side - 1)).map(move |x| (x, y)));
@@ -222,7 +222,7 @@ fn copy(world: &World, superchunks: u32, ask: Ask) -> Vec<Cells> {
 }
 
 /// `superchunk`'s grass: its chunks' words, one chunk after another.
-fn grass(world: &World, superchunk: SuperChunkPosition) -> Vec<u64> {
+fn grass(world: &MockWorld, superchunk: SuperChunkPosition) -> Vec<u64> {
     let mut words = Vec::with_capacity(CHUNKS_IN_SUPERCHUNK * CHUNK_WORDS);
     for place in ChunkPlace::all() {
         match world.arena.bucket(BucketKey { layer_type: GRASS, chunk: ChunkPosition::of(superchunk, place) }) {
@@ -234,7 +234,7 @@ fn grass(world: &World, superchunk: SuperChunkPosition) -> Vec<u64> {
 }
 
 /// The cells `superchunk`'s sheep stand on, from its top left.
-fn sheep(world: &World, superchunk: SuperChunkPosition) -> Vec<(u16, u16)> {
+fn sheep(world: &MockWorld, superchunk: SuperChunkPosition) -> Vec<(u16, u16)> {
     let Some(held) = world.entities.superchunk(superchunk.morton_index()) else {
         return Vec::new();
     };

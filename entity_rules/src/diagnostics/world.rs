@@ -11,7 +11,7 @@ use simulation::entity_store::Entities;
 use utilities::rng::Rng;
 
 /// A mock world: its hot bitmaps, its storage, and its superchunks.
-pub struct World {
+pub struct MockWorld {
     /// The hot bitmaps.
     pub arena: BitmapArena,
     /// The entities, holding the same superchunks as the arena.
@@ -22,7 +22,7 @@ pub struct World {
     pub superchunks: Vec<SuperChunkPosition>,
 }
 
-impl World {
+impl MockWorld {
     /// `count` superchunks in a square, row by row, each with grass drawn
     /// on `grass_cells` cells -- fewer where a cell is drawn twice.
     pub fn grass_on_dirt(count: u32, grass_cells: usize) -> Self {
@@ -42,7 +42,7 @@ impl World {
         Self { arena, entities, storage, superchunks }
     }
 
-    /// [`World::grass_on_dirt`], with `sheep` sheep on each superchunk,
+    /// [`MockWorld::grass_on_dirt`], with `sheep` sheep on each superchunk,
     /// on cells drawn at random.
     pub fn with_sheep(count: u32, grass_cells: usize, sheep: usize) -> Self {
         let mut world = Self::grass_on_dirt(count, grass_cells);

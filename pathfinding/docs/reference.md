@@ -27,3 +27,7 @@ nothing in the way counted, the `pick`-th of those equally near
 **`a_star(passable, from, to)`**: the shortest path, searched backwards
 from `to` (**`Queue`**: a binary heap in an array, `push`, `pop`;
 `STEPS`, the eight neighbours). `None` if there is no way.
+
+**`Walls`** `{east, south, south_east, south_west}`: the steps that
+cannot be taken; **`blocks_step(cell, dx, dy)`**. `Wave::advance`,
+`step_towards` and `a_star` each take them after `passable`.

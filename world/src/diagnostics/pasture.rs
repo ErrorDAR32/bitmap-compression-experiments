@@ -3,9 +3,9 @@
 //! each phase's time, each rule's time in the first -- added up over
 //! the threads -- and the memory held.
 
-use entity_rules::diagnostics::world::World;
+use entity_rules::diagnostics::world::MockWorld;
 use mt_rules::grass;
-use crate::Ticked;
+use crate::TickCounts;
 use entity_rules::sheep;
 use simulation::diagnostics::entities::EntityStats;
 use simulation::entity_store::EntitiesApplied;
@@ -28,7 +28,7 @@ pub struct PastureRun {
     /// Cells of grass at the start, and at the end.
     pub grass: (u64, u64),
     /// What grass and sheep did, added up.
-    pub done: Ticked,
+    pub done: TickCounts,
     /// What carrying out the changes to entities did, added up.
     pub entities: EntitiesApplied,
     /// Writes applied.
@@ -74,7 +74,7 @@ pub struct Census {
 #[derive(Clone, Copy, Default)]
 struct Timed {
     /// What they did.
-    done: Ticked,
+    done: TickCounts,
     /// The grass rule's time.
     grass: Duration,
     /// The sheep rule's time.
@@ -96,7 +96,7 @@ impl AddAssign for Timed {
 pub fn run(ticks: usize, thousandths: usize, sheep: usize, superchunks: u32, threads: usize) -> PastureRun {
     let mut memory = MemoryTrack::default();
     memory.sample();
-    let mut world = World::with_sheep(superchunks, (1 << 20) * thousandths / 1000, sheep);
+    let mut world = MockWorld::with_sheep(superchunks, (1 << 20) * thousandths / 1000, sheep);
     let (start_sheep, start_grass) = (world.sheep(), world.grass());
     let (mut timed, mut entities, mut writes, mut computing, mut applying) = (Timed::default(), EntitiesApplied::default(), 0, Duration::ZERO, Duration::ZERO);
     let mut simulation = Simulation::new(threads);
@@ -108,7 +108,7 @@ pub fn run(ticks: usize, thousandths: usize, sheep: usize, superchunks: u32, thr
             let grass = grass::rule(turn, samples);
             let grassed = Instant::now();
             let sheep = sheep::rule(turn);
-            Timed { done: Ticked { grass, sheep }, grass: grassed - start, sheep: grassed.elapsed() }
+            Timed { done: TickCounts { grass, sheep }, grass: grassed - start, sheep: grassed.elapsed() }
         });
         timed += report.rules;
         since += report.rules.done.sheep;

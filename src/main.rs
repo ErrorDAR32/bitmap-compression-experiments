@@ -74,7 +74,7 @@ fn run(directory: &Path, rest: &[&str]) -> Result<(), String> {
 /// Says what the world in `directory` is.
 fn info(directory: &Path) -> Result<(), String> {
     let info = disk::read_world(directory).map_err(|error| error.to_string())?;
-    let superchunks = disk::superchunks_in(directory).map_err(|error| error.to_string())?;
+    let superchunks = disk::saved_superchunks(directory).map_err(|error| error.to_string())?;
     println!("{}: seed {}, at tick {}, {} superchunks, layer types {:?}", info.name, info.seed, info.tick, superchunks.len(), info.layers.iter().map(|layer| layer.0).collect::<Vec<_>>());
     Ok(())
 }

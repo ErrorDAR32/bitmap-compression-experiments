@@ -109,7 +109,7 @@ on another: two wounding one in a tick each write their own attribute,
 where two whole copies would undo each other. Every instruction that
 puts an entity on a cell is checked as it is carried out.
 
-**An entity being changed** (`Edit`): its attributes read, set and
+**An entity being changed** (`EntityEdit`): its attributes read, set and
 removed as if already its own, nothing copied until one is changed, and
 `SuperChunkTick::commit` picks the instruction -- a move if none was,
 else a put. A rule states what the entity is to be; what that costs is
@@ -129,6 +129,13 @@ for the nearest goal, `step_to(at, to, passable)` for one cell -- waves
 and A* of `../../pathfinding/`, round the entities in the way, one step
 a wake.
 
+**Walls**: the terrain's (`../../terrain/`), four layers read as any
+other. `unwalled_around(at)` is the neighbours of a cell no wall is before,
+nine bits to narrow a step's choices by; `walls_about(centre)` the
+walls of the area, which `step_towards` and `step_to` go round by
+themselves. Where the wall layers are not held, nothing bars. The far
+search sees no walls: the step it gives is not taken if one bars it.
+
 **Further off** (`seek(at, type)`): nothing found in the area, the same
 search is made over blocks of cells, 16 by 16 of them
 (`area_of_blocks`), a block a goal if the type holds at any of its
@@ -141,7 +148,7 @@ any in reach and how far off. Then the finest blocks that reach so far
 block a run of bits in Morton order (`Reader::any_in_block`). The step
 is towards the nearest block holding any, over the blocks held,
 entities not looked at: it is turned back if one is in the way. It says
-how far it had to look (`Sought::level`). No route is kept here either:
+how far it had to look (`SoughtStep::level`). No route is kept here either:
 each step asks again, and the nearer it comes the finer it sees.
 
 Measured (`diagnostics pasture`, 16 superchunks, 64,000 sheep, one
@@ -165,7 +172,7 @@ superchunk, each where nothing has read since it last woke. Profiled in
 the viewer at the flock's peak (700,000 sheep on 64 superchunks, `perf`,
 2,400 ticks a second), a third of the time was two reads waiting for
 memory: the woken entity's record (`Bucket::get`, 17%) and its
-attributes (`Edit::get`, 15%). Pathfinding, far search and all, was
+attributes (`EntityEdit::get`, 15%). Pathfinding, far search and all, was
 under 2%.
 
 The wakes due in a tick are known before any is seen to

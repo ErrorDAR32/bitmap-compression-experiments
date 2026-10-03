@@ -85,7 +85,7 @@ pub fn read_state(directory: &Path, superchunk: SuperChunkPosition) -> Result<(V
 }
 
 /// Every superchunk with an image in `directory`, in Morton order.
-pub fn superchunks_in(directory: &Path) -> Result<Vec<SuperChunkPosition>, DiskError> {
+pub fn saved_superchunks(directory: &Path) -> Result<Vec<SuperChunkPosition>, DiskError> {
     let mut mortons = images_in(&directory.join(SUPERCHUNKS))?;
     mortons.sort_unstable();
     Ok(mortons.into_iter().map(SuperChunkPosition::from_morton_index).collect())

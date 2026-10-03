@@ -9,7 +9,7 @@
 use bitplane_manager::BitmapArena;
 use chunk_storage::disk::{self, DiskError};
 use chunk_storage::mock::{DIRT, GRASS};
-use entity_rules::diagnostics::world::World;
+use entity_rules::diagnostics::world::MockWorld;
 use simulation::entity_store::{Attribute, Entities, Header};
 use simulation::Simulation;
 use std::path::PathBuf;
@@ -38,7 +38,7 @@ fn everything(arena: &BitmapArena, entities: &Entities) -> Everything {
 #[test]
 fn a_world_loaded_goes_on_as_the_one_saved() {
     let folder = folder("goes_on");
-    let mut first = World::with_sheep(4, 300_000, 3_000);
+    let mut first = MockWorld::with_sheep(4, 300_000, 3_000);
     let mut simulation = Simulation::new(3);
     for _ in 0..1_500 {
         world::tick(&mut simulation, &mut first.arena, &mut first.entities, 7);
@@ -95,18 +95,18 @@ fn a_world_saved_and_loaded_mid_run_comes_to_the_same() {
 #[test]
 fn a_save_is_a_directory_of_files_named_by_morton_index() {
     let folder = folder("files");
-    let mut first = World::with_sheep(4, 1_000, 10);
+    let mut first = MockWorld::with_sheep(4, 1_000, 10);
     let simulation = Simulation::new(1);
     world::save(&folder, "Four fields", 99, &mut first.arena, &mut first.storage, &first.entities, &simulation).expect("saved");
     let text = std::fs::read_to_string(folder.join("world")).expect("the world's file");
     assert_eq!(text, "tilesim world 1\nname = Four fields\nseed = 99\ntick = 0\nlayers = 1 2\n");
     let mut names: Vec<String> = std::fs::read_dir(folder.join("superchunks")).expect("the superchunks").map(|entry| entry.unwrap().file_name().into_string().unwrap()).collect();
     names.sort();
-    let expected: Vec<String> = disk::superchunks_in(&folder).expect("listed").iter().flat_map(|superchunk| ["image", "state"].map(|kind| format!("{:011x}.{kind}", superchunk.morton_index()))).collect();
+    let expected: Vec<String> = disk::saved_superchunks(&folder).expect("listed").iter().flat_map(|superchunk| ["image", "state"].map(|kind| format!("{:011x}.{kind}", superchunk.morton_index()))).collect();
     assert_eq!(names, expected);
     assert_eq!(names.len(), 8);
     let held: Vec<u64> = first.arena.superchunks().iter().map(|superchunk| superchunk.morton()).collect();
-    assert_eq!(disk::superchunks_in(&folder).unwrap().iter().map(|superchunk| superchunk.morton_index()).collect::<Vec<_>>(), held);
+    assert_eq!(disk::saved_superchunks(&folder).unwrap().iter().map(|superchunk| superchunk.morton_index()).collect::<Vec<_>>(), held);
 }
 
 /// What is not a save is refused, saying which file and why.
@@ -114,7 +114,7 @@ fn a_save_is_a_directory_of_files_named_by_morton_index() {
 fn files_that_are_not_a_save_are_refused() {
     let folder = folder("refused");
     assert!(matches!(world::load(&folder), Err(DiskError::Io(..))), "no such directory");
-    let mut first = World::with_sheep(1, 1_000, 10);
+    let mut first = MockWorld::with_sheep(1, 1_000, 10);
     let simulation = Simulation::new(1);
     world::save(&folder, "One", 1, &mut first.arena, &mut first.storage, &first.entities, &simulation).expect("saved");
     let state = std::fs::read_dir(folder.join("superchunks")).unwrap().map(|entry| entry.unwrap().path()).find(|path| path.extension().unwrap() == "state").unwrap();

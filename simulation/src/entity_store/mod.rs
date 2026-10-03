@@ -32,6 +32,6 @@ mod store;
 mod wheel;
 
 pub use commands::{Commands, EntitiesApplied};
-pub use record::{attribute, remove_attribute, set_attribute, Attribute, AttributeType, Edit, EntityId, EntityRef, EntityType, Header, NEVER};
+pub use record::{attribute, remove_attribute, set_attribute, Attribute, AttributeType, EntityEdit, EntityId, EntityRef, EntityType, Header, NEVER};
 pub use store::{Crossing, Entities, EntityReader, SuperChunkEntities, OCCUPIED_SIDE};
 pub use wheel::{Wake, WHEEL_TICKS};

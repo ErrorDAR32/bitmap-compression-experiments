@@ -53,3 +53,17 @@ slope); and walkers larger than a cell.
 | `src/lib.rs` | areas, waves, a walker's step, the nearest cell, A* |
 | `tests/` | each judged against a search of every cell |
 | `docs/` | this, and the reference, function by function |
+
+## Walls
+
+A cell that may not be walked on is a bit of `passable`. A **wall** is
+not a cell: it is between two cells, and bars the step from one to the
+other both ways, whatever the cells are -- the terrain's cliffs
+(`../terrain/`). `Walls` holds them as four masks, the cells with a
+wall to their east, south, south-east and south-west: the upper or
+left cell of the two keeps it (`Walls::blocks_step`).
+
+A wave spreads each of the eight ways apart, each masked by its walls
+before it is shifted -- eight shifts a row where there were three. A*
+asks `blocks_step` of each step it tries. With no walls (`Walls::default`)
+both are what they were.
