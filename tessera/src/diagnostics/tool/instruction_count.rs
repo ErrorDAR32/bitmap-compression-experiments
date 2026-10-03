@@ -64,7 +64,8 @@ const SEED_VARIABLE: &str = "TESSERA_SEED";
 
 /// The two parts counted: a name, and the function callgrind collects
 /// inside, every call counted whole.
-const PARTS: [(&str, &str); 2] = [("encode", "tessera::Tessera::encode"), ("decode", "tessera::Tessera::decode")];
+// Methods as the profilers name them: `<type>::method`.
+const PARTS: [(&str, &str); 2] = [("encode", "<tessera::Tessera>::encode"), ("decode", "<tessera::Tessera>::decode")];
 
 /// The fixed sample.
 fn sample() -> Vec<Bitmap> {
