@@ -31,18 +31,23 @@ every superchunk in use, on the simulation's threads.
 `LIFE_WAKES`; counts its pregnancy down to a lamb born on its cell, or
 falls pregnant on a meal on lush pasture (`LUSH_CELLS` of the nine
 cells it stands amid grass, one in `CONCEIVE_ONE_IN`) if grown; counts
-its youth down; walks, and sleeps again (**`next_wake`**). Walking:
-hungry, onto a grass neighbour, else a step to the nearest grass in
-the area about it (**`path_to_grass`**: `SuperChunkTick::area` and
-`pathfinding::step_towards`, one step a wake); else onto any neighbour
-held (**`Around::step(turn, at, wanted)`**). **`Around::read(turn,
-at)`**: the 3x3 cells around a sheep, its own in the middle (`CENTRE`),
-read as one window and squeezed to nine bits, grass and hot. Returns
+its youth down; walks, and sleeps again (**`next_wake`**). A lamb is
+born on a free cell beside its mother, who waits for one. Walking, only
+ever to a free cell -- on the bitplanes held, no entity on it as the
+tick found it: hungry, onto a grass neighbour, else a step to the
+nearest grass no entity stands on in the area about it, round the
+entities in the way (**`path_to_grass`**: `SuperChunkTick::area` of
+grass and of `OCCUPIED`, and `pathfinding::step_towards`, one step a
+wake); else onto any free neighbour (**`Around::step(turn, at,
+wanted)`**, **`pick`**, **`bit_of`**). **`Around::read(turn, at)`**:
+the 3x3 cells around a sheep, its own in the middle (`CENTRE`), two
+windows squeezed to nine bits each, grass and free. Returns
 **`SheepTickMetrics`** `{woken, eaten, births, deaths, sought, paths}`
 -- paths looked for, and found -- added with `+=`.
 
 **`flock(entities, superchunk, count, random)`**: grown sheep, each
-some way from its last meal, queued on cells drawn at random, waking
+some way from its last meal, queued each on a cell of its own drawn at
+random, waking
 over the next `STEP_TICKS` ticks.
 
 ## `pasture.rs`
