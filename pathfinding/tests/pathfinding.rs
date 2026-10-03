@@ -6,7 +6,10 @@
 //!
 //! `cargo test`
 
-use pathfinding::{a_star, holds, nearest, step_towards, steps_apart, Cell, Path, Rows, Wave, SIDE};
+use pathfinding::{a_star, holds, nearest, step_towards, steps_apart, Cell, Path, Rows, Walls, Wave, SIDE};
+
+/// No walls.
+const OPEN: Walls = Walls { east: [0; SIDE], south: [0; SIDE], south_east: [0; SIDE], south_west: [0; SIDE] };
 
 /// Every cell.
 const ALL: Rows = [u16::MAX; SIDE];
@@ -66,12 +69,12 @@ fn searched(passable: &Rows, from: Cell, to: Cell) -> Option<u8> {
 #[test]
 fn paths_over_open_ground_are_straight() {
     for (from, to) in [(cell(8, 8), cell(15, 8)), (cell(8, 8), cell(0, 0)), (cell(3, 12), cell(9, 1)), (cell(8, 8), cell(9, 9))] {
-        let path = a_star(&ALL, from, to).expect("a way");
+        let path = a_star(&ALL, &OPEN, from, to).expect("a way");
         assert_eq!(path.steps, steps_apart(from, to));
         assert_eq!(steps_apart(from, path.first), 1);
         assert_eq!(steps_apart(path.first, to), path.steps - 1);
     }
-    assert_eq!(a_star(&ALL, cell(4, 4), cell(4, 4)), None, "nowhere to go");
+    assert_eq!(a_star(&ALL, &OPEN, cell(4, 4), cell(4, 4)), None, "nowhere to go");
 }
 
 /// A wall with one gap is walked round through the gap; with none,
@@ -84,13 +87,13 @@ fn paths_go_round_what_is_in_the_way() {
         *row &= !(1 << 10);
     }
     let (from, to) = (cell(8, 2), cell(12, 2));
-    let path = a_star(&passable, from, to).expect("through the gap");
+    let path = a_star(&passable, &OPEN, from, to).expect("through the gap");
     assert_eq!(Some(path.steps), searched(&passable, from, to));
     assert_eq!(path.steps, 13 + 13, "down to the gap and back up");
     passable[15] &= !(1 << 10);
-    assert_eq!(a_star(&passable, from, to), None, "walled off");
-    assert_eq!(a_star(&passable, from, cell(10, 2)).map(|path| path.steps), Some(2), "the end need not be passable");
-    assert_eq!(a_star(&[0; SIDE], cell(1, 1), cell(2, 2)).map(|path| path.steps), Some(1), "nor the start");
+    assert_eq!(a_star(&passable, &OPEN, from, to), None, "walled off");
+    assert_eq!(a_star(&passable, &OPEN, from, cell(10, 2)).map(|path| path.steps), Some(2), "the end need not be passable");
+    assert_eq!(a_star(&[0; SIDE], &OPEN, cell(1, 1), cell(2, 2)).map(|path| path.steps), Some(1), "nor the start");
 }
 
 /// Walking a path a first step at a time arrives in the steps it said,
@@ -107,7 +110,7 @@ fn paths_are_the_shortest_and_can_be_walked() {
         if from == to {
             continue;
         }
-        let path = a_star(&passable, from, to);
+        let path = a_star(&passable, &OPEN, from, to);
         assert_eq!(path.map(|path| path.steps), searched(&passable, from, to), "{from:?} to {to:?}");
         let Some(Path { steps, .. }) = path else {
             none += 1;
@@ -116,7 +119,7 @@ fn paths_are_the_shortest_and_can_be_walked() {
         found += 1;
         let (mut at, mut walked) = (from, 0);
         while at != to {
-            let next = a_star(&passable, at, to).expect("still a way").first;
+            let next = a_star(&passable, &OPEN, at, to).expect("still a way").first;
             assert_eq!(steps_apart(at, next), 1);
             assert!(next == to || holds(&passable, next), "walked onto what is in the way");
             (at, walked) = (next, walked + 1);
@@ -153,13 +156,13 @@ fn waves_spread_a_cell_a_step() {
     goals[8] = 1 << 8;
     let mut wave = Wave::from(&goals);
     for steps in 1..=7u8 {
-        assert!(wave.advance(&ALL));
+        assert!(wave.advance(&ALL, &OPEN));
         for (x, y) in (0..16).flat_map(|y| (0..16).map(move |x| (x, y))) {
             assert_eq!(holds(wave.reached(), cell(x, y)), steps_apart(cell(8, 8), cell(x, y)) <= steps, "({x}, {y}) after {steps} steps");
         }
     }
     let mut walled = Wave::from(&goals);
-    assert!(!walled.advance(&[0; SIDE]), "nowhere to spread");
+    assert!(!walled.advance(&[0; SIDE], &OPEN), "nowhere to spread");
     assert_eq!(walled.reached(), &goals);
 }
 
@@ -185,7 +188,7 @@ fn steps_by_waves_lead_to_the_nearest_goal() {
         over.iter_mut().zip(&goals).for_each(|(row, goals)| *row |= goals);
         let every_goal = (0..16).flat_map(|y| (0..16).map(move |x| cell(x, y))).filter(|&goal| holds(&goals, goal));
         let expected = every_goal.filter_map(|goal| searched(&over, from, goal)).min();
-        let step = step_towards(&over, &goals, from, random.draw());
+        let step = step_towards(&over, &OPEN, &goals, from, random.draw());
         assert_eq!(step.map(|path| path.steps), expected, "from {from:?}");
         let Some(Path { steps, .. }) = step else {
             none += 1;
@@ -194,7 +197,7 @@ fn steps_by_waves_lead_to_the_nearest_goal() {
         found += 1;
         let (mut at, mut walked) = (from, 0);
         while !holds(&goals, at) {
-            let next = step_towards(&over, &goals, at, random.draw()).expect("still a way").first;
+            let next = step_towards(&over, &OPEN, &goals, at, random.draw()).expect("still a way").first;
             assert_eq!(steps_apart(at, next), 1);
             assert!(holds(&over, next), "walked onto what is in the way");
             (at, walked) = (next, walked + 1);
@@ -203,4 +206,45 @@ fn steps_by_waves_lead_to_the_nearest_goal() {
         assert_eq!(walked, steps);
     }
     assert!(found > 500 && none > 20, "{found} found, {none} with no way");
+}
+
+/// A wall bars the step between two cells, both ways, whatever the cells
+/// are: a wall across the area with one gap is gone round by waves and
+/// by A* alike, and one with none is not crossed; a diagonal step is
+/// barred by its own wall alone.
+#[test]
+fn walls_bar_steps_between_cells() {
+    // A wall under row 7, all the way across: south, and both diagonals down.
+    let mut walls = Walls::default();
+    (walls.south[7], walls.south_east[7], walls.south_west[7]) = (u16::MAX, u16::MAX, u16::MAX);
+    let (from, to) = (cell(3, 5), cell(3, 10));
+    let mut goals: Rows = [0; SIDE];
+    goals[to.y as usize] = 1 << to.x;
+    assert_eq!(a_star(&ALL, &walls, from, to), None, "no way through");
+    assert_eq!(a_star(&ALL, &walls, to, from), None, "nor back");
+    assert_eq!(step_towards(&ALL, &walls, &goals, from, 0), None);
+
+    // A gap at column 12: the straight step down alone.
+    walls.south[7] &= !(1 << 12);
+    let path = a_star(&ALL, &walls, from, to).expect("through the gap");
+    assert_eq!(path.steps, 9 + 1 + 9, "nine across to the gap's column, down through it, and nine back");
+    let wave = step_towards(&ALL, &walls, &goals, from, 0).expect("through the gap");
+    assert_eq!(wave.steps, path.steps, "waves and A* agree");
+    // Walked a step at a time, it gets there in as many steps, never through the wall.
+    let (mut at, mut taken) = (from, 0);
+    while at != to {
+        let next = step_towards(&ALL, &walls, &goals, at, taken).expect("still a way").first;
+        assert!(!walls.bar(at, next.x as i8 - at.x as i8, next.y as i8 - at.y as i8), "{at:?} to {next:?} through a wall");
+        (at, taken) = (next, taken + 1);
+    }
+    assert_eq!(taken, path.steps as u64);
+
+    // A diagonal's wall bars the diagonal, not the two steps round it.
+    let mut corner = Walls::default();
+    corner.south_east[4] = 1 << 4;
+    assert!(corner.bar(cell(4, 4), 1, 1) && corner.bar(cell(5, 5), -1, -1));
+    assert!(!corner.bar(cell(4, 4), 1, 0) && !corner.bar(cell(4, 4), 0, 1) && !corner.bar(cell(5, 4), -1, 1));
+    assert_eq!(a_star(&ALL, &corner, cell(4, 4), cell(5, 5)).map(|path| path.steps), Some(2));
+    corner.south_west[4] = 1 << 5;
+    assert!(corner.bar(cell(5, 4), -1, 1) && corner.bar(cell(4, 5), 1, -1));
 }

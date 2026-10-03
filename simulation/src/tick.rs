@@ -31,7 +31,8 @@
 use crate::dispatcher::Dispatcher;
 use crate::around::{squeeze, Around};
 use crate::entity_store::{Attribute, AttributeType, Commands, Edit, Entities, EntitiesApplied, EntityId, EntityReader, EntityRef, EntityType, Header, SuperChunkEntities, NEVER, OCCUPIED_SIDE};
-use pathfinding::{a_star, step_towards, Cell, Rows};
+use pathfinding::{a_star, step_towards, Cell, Rows, Walls};
+use terrain::{WALL_EAST, WALL_SOUTH, WALL_SOUTH_EAST, WALL_SOUTH_WEST};
 use coordinates::ChunkPosition;
 use crate::sampling::sample_layer;
 use bitplane_manager::{count_missed, BLOCKS_IN_CHUNK, Applied, BitmapArena, NotHot, Reader, Shape, SuperChunk, Tile, Write, WriteQueues};
@@ -207,6 +208,29 @@ impl<'a> SuperChunkTick<'a> {
         Around { set: squeeze(window.set), hot: squeeze(window.hot) }
     }
 
+    /// Which of the 3x3 cells around `at` may be stepped to from it,
+    /// nine bits ([`crate::around`]): those no wall of the terrain is
+    /// before -- its own among them. Where the walls are not held, none
+    /// bars.
+    pub fn open_around(&self, at: CellIndex) -> u16 {
+        let Some(corner) = at.offset(-1, -1) else {
+            return crate::around::ALL;
+        };
+        let [east, south, south_east, south_west] =
+            self.reader.windows([WALL_EAST, WALL_SOUTH, WALL_SOUTH_EAST, WALL_SOUTH_WEST], corner, 3, 3).map(|window| squeeze(window.set));
+        // A wall is kept by the upper or left cell of the two: the centre's own for the ways down and east, its neighbours' for the rest.
+        let barred = (east >> 4 & 1) << 5 | (east >> 3 & 1) << 3 | (south >> 4 & 1) << 7 | (south >> 1 & 1) << 1 | (south_east >> 4 & 1) << 8 | (south_east & 1) | (south_west >> 4 & 1) << 6 | (south_west >> 2 & 1) << 2;
+        crate::around::ALL & !barred
+    }
+
+    /// The terrain's walls among the [`AREA_SIDE`] by [`AREA_SIDE`]
+    /// cells around `centre`, laid out as an [`Area`] is: what paths
+    /// are found round.
+    pub fn walls_about(&self, centre: CellIndex) -> Walls {
+        let [east, south, south_east, south_west] = self.areas([WALL_EAST, WALL_SOUTH, WALL_SOUTH_EAST, WALL_SOUTH_WEST], centre).map(|area| area.set);
+        Walls { east, south, south_east, south_west }
+    }
+
     /// Which of the 3x3 cells around `at` an entity stands on, as the
     /// tick found them, nine bits ([`crate::around`]) -- `at`'s own
     /// among them, if one stands there. Asked when a cell must be had,
@@ -246,7 +270,7 @@ impl<'a> SuperChunkTick<'a> {
         let passable: Rows = std::array::from_fn(|row| passable[row] & !occupied[row]);
         let goals: Rows = std::array::from_fn(|row| goals[row] & !occupied[row]);
         let here = Cell { x: AREA_CENTRE as u8, y: AREA_CENTRE as u8 };
-        let first = step_towards(&passable, &goals, here, self.random.draw())?.first;
+        let first = step_towards(&passable, &self.walls_about(at), &goals, here, self.random.draw())?.first;
         at.offset(first.x as i32 - AREA_CENTRE as i32, first.y as i32 - AREA_CENTRE as i32)
     }
 
@@ -312,7 +336,8 @@ impl<'a> SuperChunkTick<'a> {
         }
         let here = Cell { x: AREA_CENTRE as u8, y: AREA_CENTRE as u8 };
         let mut blocks = self.area_of_blocks(layer_type, at, FARTHEST);
-        let mut path = step_towards(&blocks.hot, &blocks.set, here, self.random.draw());
+        let no_walls = Walls::default();
+        let mut path = step_towards(&blocks.hot, &no_walls, &blocks.set, here, self.random.draw());
         // In its own block alone, there is no block to step towards: a finer level sees where in it.
         let own = blocks.set[AREA_CENTRE] >> AREA_CENTRE & 1 == 1;
         // The nearest is at least this many cells off: a level's blocks reach under nine blocks.
@@ -325,7 +350,7 @@ impl<'a> SuperChunkTick<'a> {
         while level < FARTHEST {
             if 9 << level > least + 1 {
                 blocks = self.area_of_blocks(layer_type, at, level);
-                if let Some(nearer) = step_towards(&blocks.hot, &blocks.set, here, self.random.draw()) {
+                if let Some(nearer) = step_towards(&blocks.hot, &no_walls, &blocks.set, here, self.random.draw()) {
                     path = Some(nearer);
                     break;
                 }
@@ -335,7 +360,9 @@ impl<'a> SuperChunkTick<'a> {
         let path = path?;
         // The cell beside it the way the block is: stepped to if it is in the world held.
         let to = at.offset(path.first.x as i32 - AREA_CENTRE as i32, path.first.y as i32 - AREA_CENTRE as i32)?;
-        self.reader.holds(layer_type, to).is_ok().then_some(Sought { to, level })
+        // From far off no wall is seen: a step one bars is not taken.
+        let open = self.open_around(at) >> crate::around::bit_of(at, to) & 1 == 1;
+        (open && self.reader.holds(layer_type, to).is_ok()).then_some(Sought { to, level })
     }
 
     /// The cell to step to from `at` to come, by the shortest way, to
@@ -352,7 +379,7 @@ impl<'a> SuperChunkTick<'a> {
         let occupied = self.occupied_about(at);
         let passable: Rows = std::array::from_fn(|row| passable[row] & !occupied[row]);
         let here = Cell { x: AREA_CENTRE as u8, y: AREA_CENTRE as u8 };
-        let first = a_star(&passable, here, Cell { x: across as u8, y: down as u8 })?.first;
+        let first = a_star(&passable, &self.walls_about(at), here, Cell { x: across as u8, y: down as u8 })?.first;
         at.offset(first.x as i32 - AREA_CENTRE as i32, first.y as i32 - AREA_CENTRE as i32)
     }
 
@@ -632,7 +659,7 @@ impl Simulation {
             .iter()
             .map(|&morton| match had.binary_search_by_key(&morton, |held| held.0) {
                 Ok(at) => (morton, Rng::new(had[at].1.state())),
-                Err(_) => (morton, Rng::new(seed ^ morton.wrapping_mul(0x9E37_79B9_7F4A_7C15))),
+                Err(_) => (morton, Rng::for_stream(seed, morton)),
             })
             .collect();
     }

@@ -79,6 +79,13 @@ impl SuperChunkImage {
         Ok(Self { words })
     }
 
+    /// This image with `heights` its heights, its layers as they are.
+    pub fn with_heights(&self, heights: &HeightMap) -> Self {
+        let mut words = self.words.clone();
+        words[HEIGHTS_START..CHUNKS_START].copy_from_slice(heights.words());
+        Self { words }
+    }
+
     /// Every word, as on disk.
     pub fn words(&self) -> &[u64] {
         &self.words

@@ -17,7 +17,8 @@ pub use tick::{tick, Ticked};
 
 use bitplane_manager::BitmapArena;
 use chunk_storage::disk::{self, DiskError, WorldInfo};
-use chunk_storage::{ChunkStorage, HeightMap, LayerCodec, LayerType, SuperChunkImage};
+use chunk_storage::{ChunkStorage, HeightMap, LayerChange, LayerCodec, LayerType, SuperChunkImage};
+use terrain::{Terrain, WALLS};
 use chunk_storage::mock::{grass_on_dirt, DIRT, GRASS};
 use coordinates::{ChunkPlace, ChunkPosition, SuperChunkPosition, WORLD_SIDE_SUPERCHUNKS};
 use entity_rules::sheep::flock;
@@ -57,29 +58,40 @@ pub struct Loaded {
 }
 
 /// A world made from `seed`, `superchunks` of them in a square from the
-/// world's middle: for now pasture -- dirt, a third of it grass, and a
-/// flock on each -- every superchunk's from the seed and where it is.
+/// world's middle: its terrain -- heights, and the walls they make --
+/// and on it, for now, pasture: dirt, a third of it grass, and a flock
+/// on each. Every superchunk's from the seed and where it is.
 pub fn generate(seed: u64, superchunks: u32) -> Loaded {
     let (mut codec, mut arena, mut storage) = (LayerCodec::new(), BitmapArena::new(), ChunkStorage::new(1 << 16));
     let side = (superchunks as f64).sqrt().ceil() as u32;
     let middle = WORLD_SIDE_SUPERCHUNKS / 2;
+    let layers: Vec<LayerType> = [DIRT, GRASS].into_iter().chain(WALLS.map(|(layer_type, _)| layer_type)).collect();
     let held: Vec<SuperChunkPosition> = (0..superchunks).map(|index| SuperChunkPosition { x: middle + index % side, y: middle + index / side }).collect();
     for &superchunk in &held {
-        let own = Rng::new(seed ^ superchunk.morton_index().wrapping_mul(0x9E37_79B9_7F4A_7C15)).draw();
-        storage.insert(superchunk, grass_on_dirt(own, GRASS_CELLS, &mut codec));
+        let own = Rng::for_stream(seed, superchunk.morton_index()).draw();
+        let terrain = Terrain::generate(seed, superchunk);
+        // Each way's walls, a layer a chunk that has any.
+        let mut walls: Vec<(usize, LayerType, Vec<u64>)> = Vec::new();
+        for (way, &(layer_type, _)) in WALLS.iter().enumerate() {
+            for (chunk, cells) in terrain.walls[way].iter().enumerate().filter(|(_, cells)| cells.iter().any(|&word| word != 0)) {
+                walls.push((chunk, layer_type, codec.encode(cells).to_vec()));
+            }
+        }
+        let changes: Vec<LayerChange> = walls.iter().map(|(chunk, layer_type, words)| LayerChange { chunk: *chunk, layer_type: *layer_type, words }).collect();
+        storage.insert(superchunk, grass_on_dirt(own, GRASS_CELLS, &mut codec).with_heights(&terrain.heights).rewritten(&changes));
         for place in ChunkPlace::all() {
-            arena.make_hot_layers(ChunkPosition::of(superchunk, place), &[DIRT, GRASS], &storage, &mut codec);
+            arena.make_hot_layers(ChunkPosition::of(superchunk, place), &layers, &storage, &mut codec);
         }
     }
     let mut entities = Entities::new();
     let mortons: Vec<u64> = arena.superchunks().iter().map(|superchunk| superchunk.morton()).collect();
     entities.align(&mortons);
     for &superchunk in &held {
-        let mut own = Rng::new(!seed ^ superchunk.morton_index().wrapping_mul(0x9E37_79B9_7F4A_7C15));
+        let mut own = Rng::for_stream(!seed, superchunk.morton_index());
         flock(&mut entities, superchunk, FLOCK, &mut own);
     }
     entities.apply();
-    let info = WorldInfo { name: String::new(), seed, tick: 0, layers: vec![DIRT, GRASS] };
+    let info = WorldInfo { name: String::new(), seed, tick: 0, layers };
     Loaded { info, arena, storage, entities, simulation: Simulation::for_superchunks(held.len()) }
 }
 

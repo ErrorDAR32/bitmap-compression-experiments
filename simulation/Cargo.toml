@@ -11,4 +11,5 @@ bitplane_manager = { path = "../bitplane_manager" }
 chunk_storage = { path = "../chunk_storage" }
 coordinates = { path = "../coordinates" }
 pathfinding = { path = "../pathfinding" }
+terrain = { path = "../terrain" }
 utilities = { path = "../utilities" }

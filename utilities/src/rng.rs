@@ -22,6 +22,16 @@ impl Rng {
         Self(seed)
     }
 
+    /// A source of its own for `stream` -- a superchunk's Morton index,
+    /// say -- of `seed`: its state is mixed, not `seed` moved along, so
+    /// two streams are not one sequence a few draws apart, as two
+    /// sources whose seeds differ by a multiple of the step would be.
+    pub fn for_stream(seed: u64, stream: u64) -> Self {
+        let mut mixer = Self(seed ^ stream.wrapping_mul(MIX_1));
+        let first = mixer.draw();
+        Self(first ^ mixer.draw().rotate_left(32))
+    }
+
     /// Its whole state: a generator made from it draws what this one
     /// would have. What a save keeps.
     pub fn state(&self) -> u64 {

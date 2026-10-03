@@ -126,3 +126,30 @@ fn files_that_are_not_a_save_are_refused() {
     std::fs::write(folder.join("world"), "something else\n").unwrap();
     assert!(matches!(world::load(&folder), Err(DiskError::Invalid(..))));
 }
+
+/// In a world generated, the ground has walls, and no sheep ever steps
+/// between two cells more than a step apart in height.
+#[test]
+fn sheep_never_step_through_a_wall() {
+    use std::collections::HashMap;
+    let seed = 5;
+    let mut made = world::generate(seed, 4);
+    let high = |at: coordinates::CellIndex| {
+        let cell = at.cartesian();
+        terrain::height(seed, cell.x, cell.y)
+    };
+    let mut stood: HashMap<u64, coordinates::CellIndex> = made.entities.iter().map(|sheep| (sheep.header.id.0, sheep.header.at)).collect();
+    let (mut moved, mut beside_walls) = (0, 0);
+    for _ in 0..1_500 {
+        world::tick(&mut made.simulation, &mut made.arena, &mut made.entities, seed);
+        for sheep in made.entities.iter() {
+            let at = sheep.header.at;
+            if let Some(was) = stood.insert(sheep.header.id.0, at).filter(|&was| was != at) {
+                assert!(!terrain::wall(high(was), high(at)), "from height {} to {}: {:?} to {:?}", high(was), high(at), was.cartesian(), at.cartesian());
+                moved += 1;
+            }
+            beside_walls += (0..9).any(|way| at.offset(way % 3 - 1, way / 3 - 1).is_some_and(|beside| terrain::wall(high(at), high(beside)))) as usize;
+        }
+    }
+    assert!(moved > 1_000 && beside_walls > 10_000, "{moved} steps, {beside_walls} sheep-ticks beside a wall");
+}

@@ -123,16 +123,56 @@ fn for_each(rows: &Rows, from: Cell, mut each: impl FnMut(Cell)) {
     }
 }
 
-/// `rows` and every neighbour of its cells: each row with the rows
-/// above and below it, spread a column each way.
-fn spread(rows: &Rows) -> Rows {
+/// The walls between cells of an area: steps that cannot be taken,
+/// whatever the cells either side are. A step is between two cells, so
+/// a wall is kept by the upper or left one of the two, a mask a way --
+/// east, south, south-east, south-west -- and bars the step both ways.
+/// None by default.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Walls {
+    /// Cells with a wall between them and the cell to their east.
+    pub east: Rows,
+    /// ...and the cell to their south.
+    pub south: Rows,
+    /// ...and the cell to their south-east.
+    pub south_east: Rows,
+    /// ...and the cell to their south-west.
+    pub south_west: Rows,
+}
+
+impl Walls {
+    /// Whether a wall bars the step from `cell` to its neighbour `dx`
+    /// across and `dy` down, a cell of the area too.
+    pub const fn bar(&self, cell: Cell, dx: i8, dy: i8) -> bool {
+        // The upper of the two keeps the wall; of two on a row, the left.
+        let (keeper, dx) = if dy < 0 || dy == 0 && dx < 0 { (Cell { x: (cell.x as i8 + dx) as u8, y: (cell.y as i8 + dy) as u8 }, -dx) } else { (cell, dx) };
+        let rows = match (dx, dy != 0) {
+            (1, false) => &self.east,
+            (0, true) => &self.south,
+            (1, true) => &self.south_east,
+            _ => &self.south_west,
+        };
+        holds(rows, keeper)
+    }
+}
+
+/// `rows` and every neighbour of its cells no wall of `walls` is before:
+/// each row with the rows above and below it, a column each way.
+fn spread(rows: &Rows, walls: &Walls) -> Rows {
     let mut wider = [0; SIDE];
     let mut y = 0;
     while y < SIDE {
-        let above = if y > 0 { rows[y - 1] } else { 0 };
-        let below = if y + 1 < SIDE { rows[y + 1] } else { 0 };
-        let band = above | rows[y] | below;
-        wider[y] = band | band << 1 | band >> 1;
+        let here = rows[y];
+        let mut row = here | (here & !walls.east[y]) << 1 | here >> 1 & !walls.east[y];
+        if y > 0 {
+            let above = rows[y - 1];
+            row |= above & !walls.south[y - 1] | (above & !walls.south_east[y - 1]) << 1 | (above & !walls.south_west[y - 1]) >> 1;
+        }
+        if y + 1 < SIDE {
+            let below = rows[y + 1];
+            row |= below & !walls.south[y] | below >> 1 & !walls.south_east[y] | below << 1 & !walls.south_west[y];
+        }
+        wider[y] = row;
         y += 1;
     }
     wider
@@ -158,10 +198,11 @@ impl Wave {
         &self.reached
     }
 
-    /// One step: every passable neighbour of a reached cell reached.
-    /// Whether any was -- if not, the wave has gone as far as it can.
-    pub fn advance(&mut self, passable: &Rows) -> bool {
-        let wider = spread(&self.reached);
+    /// One step: every passable neighbour of a reached cell, no wall
+    /// between them, reached. Whether any was -- if not, the wave has
+    /// gone as far as it can.
+    pub fn advance(&mut self, passable: &Rows, walls: &Walls) -> bool {
+        let wider = spread(&self.reached, walls);
         let mut grew = 0;
         for ((reached, &wider), &passable) in self.reached.iter_mut().zip(&wider).zip(passable) {
             let new = wider & passable & !*reached;
@@ -173,16 +214,17 @@ impl Wave {
 }
 
 /// A walker on `from`'s next step to the nearest cell of `goals` over
-/// the cells of `passable`, and how many steps away that goal is: waves
+/// the cells of `passable`, through no wall of `walls`, and how many
+/// steps away that goal is: waves
 /// spread from every goal until one comes beside the walker, which steps
 /// into it -- of the neighbours reached together, the `pick`-th, round
 /// and round, a random number, so walkers do not all lean one way.
 /// `from` itself need not be passable, nor is it a goal. `None` if no
 /// goal can be walked to.
-pub fn step_towards(passable: &Rows, goals: &Rows, from: Cell, pick: u64) -> Option<Path> {
+pub fn step_towards(passable: &Rows, walls: &Walls, goals: &Rows, from: Cell, pick: u64) -> Option<Path> {
     let mut beside: Rows = [0; SIDE];
     beside[from.y as usize] = 1 << from.x;
-    beside = spread(&beside);
+    beside = spread(&beside, walls);
     beside[from.y as usize] &= !(1 << from.x);
     let mut wave = Wave::from(goals);
     wave.reached[from.y as usize] &= !(1 << from.x);
@@ -206,7 +248,7 @@ pub fn step_towards(passable: &Rows, goals: &Rows, from: Cell, pick: u64) -> Opt
                 }
             }
         }
-        if !wave.advance(passable) {
+        if !wave.advance(passable, walls) {
             return None;
         }
         steps += 1;
@@ -275,7 +317,7 @@ impl Queue {
 }
 
 /// The shortest path from `from` to `to` over the cells of `passable`,
-/// a step to any of the eight neighbours: its first step and its
+/// through no wall of `walls`, a step to any of the eight neighbours: its first step and its
 /// length, by A*. `from` and `to` themselves need not be passable -- a
 /// walker stands on one and wants the other. `None` if there is no way,
 /// or if they are one cell.
@@ -284,7 +326,7 @@ impl Queue {
 /// the cell it was reached from, one step nearer `to`, so when `from`
 /// is reached what it remembers is the path's first step, with nothing
 /// to walk back along.
-pub fn a_star(passable: &Rows, from: Cell, to: Cell) -> Option<Path> {
+pub fn a_star(passable: &Rows, walls: &Walls, from: Cell, to: Cell) -> Option<Path> {
     if from == to {
         return None;
     }
@@ -314,7 +356,7 @@ pub fn a_star(passable: &Rows, from: Cell, to: Cell) -> Option<Path> {
                 continue;
             }
             let neighbour = Cell { x: x as u8, y: y as u8 };
-            if neighbour != from && !holds(passable, neighbour) || further >= steps[neighbour.index()] {
+            if neighbour != from && !holds(passable, neighbour) || walls.bar(cell, dx, dy) || further >= steps[neighbour.index()] {
                 continue;
             }
             steps[neighbour.index()] = further;

@@ -1,0 +1,11 @@
+[package]
+name = "terrain"
+version = "0.1.0"
+edition = "2021"
+description = "TileSim's terrain: every cell's height from the world's seed, and the walls between cells too far apart in height to step between"
+publish = false
+
+[dependencies]
+bitmap = { path = "../bitmap" }
+chunk_storage = { path = "../chunk_storage" }
+coordinates = { path = "../coordinates" }

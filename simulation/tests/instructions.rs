@@ -14,6 +14,7 @@ use coordinates::{CartesianCell, CellIndex, ChunkPlace, ChunkPosition, SuperChun
 use simulation::around::{self, CENTRE, RING};
 use simulation::entity_store::{Attribute, AttributeType, Edit, Entities, EntityId, EntityType, Header, NEVER};
 use simulation::{Simulation, SuperChunkTick};
+use terrain::{WALL_EAST, WALL_SOUTH_EAST, WALL_SOUTH_WEST};
 use std::sync::Mutex;
 
 /// The layer type the arena holds: every cell hot, none set.
@@ -283,4 +284,57 @@ fn a_cell_is_sought_further_and_further_off() {
             arena.apply();
         }
     }
+}
+
+/// The terrain's walls bar steps: the cells about an entity that may be
+/// stepped to leave out those a wall is before, and the way to a cell
+/// goes round a cliff, through its one gap.
+#[test]
+fn walls_of_the_terrain_bar_steps() {
+    let (mut arena, mut entities) = world(1);
+    let mut codec = LayerCodec::new();
+    for layer_type in [WALL_EAST, WALL_SOUTH_EAST, WALL_SOUTH_WEST] {
+        for place in ChunkPlace::all() {
+            arena.make_hot(BucketKey { layer_type, chunk: ChunkPosition::of(SuperChunkPosition { x: 10, y: 10 }, place) }, None, &mut codec);
+        }
+    }
+    // A cliff between columns 41 and 42, rows 20 to 40, with a gap at row 33: east walls, and the diagonals across it.
+    for y in (20..=40).filter(|&y| y != 33) {
+        arena.queue(WALL_EAST, Write::cell(cell(41, y), WriteOp::Set));
+    }
+    for y in 20..=40 {
+        if y != 33 && y != 32 {
+            arena.queue(WALL_SOUTH_EAST, Write::cell(cell(41, y), WriteOp::Set));
+        }
+        if y != 33 && y != 32 {
+            arena.queue(WALL_SOUTH_WEST, Write::cell(cell(42, y), WriteOp::Set));
+        }
+    }
+    arena.apply();
+    let (from, to) = (cell(41, 30), cell(43, 30));
+    entities.queue_put(walker(1, from, 0), &[]);
+    entities.apply();
+    let mut simulation = Simulation::new(1);
+    let mut steps = 0;
+    while entities.get(EntityId(1), to).is_none() {
+        simulation.tick(&mut arena, &mut entities, steps, |turn: &mut SuperChunkTick, _: &mut Vec<CellIndex>| {
+            let now = turn.now();
+            for entity in turn.woken() {
+                let at = entity.header.at;
+                if at == from {
+                    // The three cells east of it are behind the cliff.
+                    assert_eq!(turn.open_around(at), around::ALL & !(1 << 2 | 1 << 5 | 1 << 8));
+                }
+                let passable = turn.area(STONE, at).hot;
+                let next = turn.step_to(at, to, &passable).expect("a way through the gap");
+                assert!(turn.open_around(at) >> around::bit_of(at, next) & 1 == 1, "a step through a wall");
+                turn.step(&entity.header, next, now + 1);
+            }
+            0
+        });
+        steps += 1;
+        assert!(steps <= 12, "no way found in the steps it takes");
+    }
+    // Down to the gap at row 33, through it, and back up: three down, across, and up again.
+    assert_eq!(steps, 6);
 }

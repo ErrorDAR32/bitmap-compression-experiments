@@ -152,8 +152,8 @@ pub fn rule(turn: &mut SuperChunkTick) -> SheepTickMetrics {
         let at = sheep.header.at;
         let mut sheep = Edit::of(sheep, &mut room);
         let grass = turn.around(GRASS, at);
-        // The neighbours it may step to: on the bitplanes held. Where entities stand is not read.
-        let mut open = grass.hot & RING;
+        // The neighbours it may step to: on the bitplanes held, no wall before them. Where entities stand is not read.
+        let mut open = grass.hot & RING & turn.open_around(at);
         let hungry_at = sheep.get(HUNGRY_AT).unwrap_or(now);
         let roaming = sheep.get(ROAMING);
         // On its way out of thin pasture it does not stop to eat.
