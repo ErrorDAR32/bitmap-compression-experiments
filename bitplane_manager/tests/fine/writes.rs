@@ -4,16 +4,16 @@
 //!
 //! `cargo test`
 
-use bitplane_manager::{Applied, BitmapArena, BucketKey, Shape, Write, WriteOp};
+use bitplane_manager::{WritesApplied, BitmapArena, BucketKey, Shape, Write, WriteOp};
 use chunk_storage::mock::{grass_on_dirt, DIRT, GRASS};
 use chunk_storage::{ChunkStorage, LayerCodec, LayerType};
-use coordinates::{CartesianCell, ChunkPlace, ChunkPosition, SuperChunkPosition, SUPERCHUNK_SIDE_CELLS, WORLD_SIDE_SUPERCHUNKS};
+use coordinates::{CartesianCell, ChunkPlace, ChunkPosition, SuperchunkPosition, SUPERCHUNK_SIDE_CELLS, WORLD_SIDE_SUPERCHUNKS};
 
 /// The layer type the tests write.
 const STONE: LayerType = LayerType(9);
 
 /// A superchunk roughly in the middle of the world.
-const MIDDLE: SuperChunkPosition = SuperChunkPosition { x: WORLD_SIDE_SUPERCHUNKS / 2, y: WORLD_SIDE_SUPERCHUNKS / 2 };
+const MIDDLE: SuperchunkPosition = SuperchunkPosition { x: WORLD_SIDE_SUPERCHUNKS / 2, y: WORLD_SIDE_SUPERCHUNKS / 2 };
 
 /// An arena with `STONE` hot and empty in every chunk holding one of
 /// `cells`.
@@ -48,9 +48,9 @@ fn nothing_changes_until_applied() {
     let mut arena = arena_over(&[cell]);
     stone(&mut arena, WriteOp::Set, cell, Shape::Cell);
     assert_eq!((arena.queued(), holds(&arena, cell.x, cell.y)), (1, false));
-    assert_eq!(arena.apply(), Applied { writes: 1, changed: 1, missed: 0 });
+    assert_eq!(arena.apply(), WritesApplied { writes: 1, changed: 1, missed: 0 });
     assert_eq!((arena.queued(), holds(&arena, cell.x, cell.y)), (0, true));
-    assert_eq!(arena.apply(), Applied::default(), "nothing left queued");
+    assert_eq!(arena.apply(), WritesApplied::default(), "nothing left queued");
 }
 
 /// Overlapping writes apply in the order queued: the latest wins, and a
@@ -86,7 +86,7 @@ fn rectangles_cross_chunks_and_superchunks() {
     let mut arena = arena_over(&cells);
     stone(&mut arena, WriteOp::Set, corner, Shape::Rect { width: 6, height: 5 });
     assert_eq!(arena.apply().changed, 30);
-    let superchunks = [MIDDLE.x - 1, MIDDLE.x].into_iter().flat_map(|y| [MIDDLE.x - 1, MIDDLE.x].map(|x| SuperChunkPosition { x, y }));
+    let superchunks = [MIDDLE.x - 1, MIDDLE.x].into_iter().flat_map(|y| [MIDDLE.x - 1, MIDDLE.x].map(|x| SuperchunkPosition { x, y }));
     assert_eq!(superchunks.map(|superchunk| arena.superchunk_count(STONE, superchunk)).collect::<Vec<_>>(), [6, 6, 9, 9], "3 columns each side; 2 rows above, 3 below");
     for (x, y, held) in [(edge - 3, edge - 2, true), (edge + 2, edge + 2, true), (edge - 4, edge, false), (edge + 3, edge, false), (edge, edge - 3, false), (edge, edge + 3, false)] {
         assert_eq!(holds(&arena, x, y), held, "cell ({x}, {y})");
@@ -113,7 +113,7 @@ fn discs_cover_their_radius() {
 fn cold_bitmaps_are_missed() {
     let mut arena = arena_over(&[CartesianCell { x: 0, y: 0 }]);
     stone(&mut arena, WriteOp::Set, CartesianCell { x: 250, y: 0 }, Shape::Rect { width: 10, height: 2 });
-    assert_eq!(arena.apply(), Applied { writes: 1, changed: 12, missed: 8 });
+    assert_eq!(arena.apply(), WritesApplied { writes: 1, changed: 12, missed: 8 });
     assert!(arena.holds(STONE, CartesianCell { x: 256, y: 0 }.into()).is_err());
 }
 

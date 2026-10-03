@@ -21,7 +21,7 @@ encoding. **`decode(words, cells)`**: the bitmap whose stream starts at
 
 ## `superchunk_image.rs`
 
-**`SuperChunkImage::new(heights)`**: no layers. **`from_words`**: words
+**`SuperchunkImage::new(heights)`**: no layers. **`from_words`**: words
 checked to be an image (**`check_chunk`** each chunk: a table that fits,
 types sorted one a type, offsets inside the chunk and apart), else
 **`InvalidImage`**. **`words`**, **`height_words`**, **`height`**.

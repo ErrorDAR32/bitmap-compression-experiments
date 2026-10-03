@@ -236,7 +236,7 @@ fn walls_bar_steps_between_cells() {
     let (mut at, mut taken) = (from, 0);
     while at != to {
         let next = step_towards(&ALL, &walls, &goals, at, taken).expect("still a way").first;
-        assert!(!walls.blocks_step(at, next.x as i8 - at.x as i8, next.y as i8 - at.y as i8), "{at:?} to {next:?} through a wall");
+        assert!(!walls.bars_step(at, next.x as i8 - at.x as i8, next.y as i8 - at.y as i8), "{at:?} to {next:?} through a wall");
         (at, taken) = (next, taken + 1);
     }
     assert_eq!(taken, path.steps as u64);
@@ -246,10 +246,10 @@ fn walls_bar_steps_between_cells() {
     east[4] = 1 << 4;
     let corner = Walls::new(east, [0; SIDE]);
     for (from, (dx, dy)) in [((4, 4), (1, 0)), ((4, 4), (1, 1)), ((5, 4), (-1, 1)), ((4, 3), (1, 1)), ((5, 3), (-1, 1)), ((4, 4), (1, -1)), ((5, 5), (-1, -1))] {
-        assert!(corner.blocks_step(cell(from.0, from.1), dx, dy), "{from:?} by ({dx}, {dy})");
+        assert!(corner.bars_step(cell(from.0, from.1), dx, dy), "{from:?} by ({dx}, {dy})");
     }
     for (from, (dx, dy)) in [((4, 4), (0, 1)), ((4, 4), (0, -1)), ((4, 4), (-1, 1)), ((5, 4), (1, 1)), ((5, 4), (0, 1))] {
-        assert!(!corner.blocks_step(cell(from.0, from.1), dx, dy), "{from:?} by ({dx}, {dy})");
+        assert!(!corner.bars_step(cell(from.0, from.1), dx, dy), "{from:?} by ({dx}, {dy})");
     }
     assert_eq!(a_star(&ALL, &corner, cell(4, 4), cell(5, 4)).map(|path| path.steps), Some(3), "round the wall's end, the diagonals barred");
 }

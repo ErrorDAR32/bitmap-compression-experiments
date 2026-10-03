@@ -17,14 +17,14 @@
 //! superchunk's entities while that one changes them.
 
 use super::bucket::Put;
-use super::record::{Attribute, AttributeType, EntityId, Header};
-use super::store::SuperChunkEntities;
+use super::entity::{Attribute, AttributeType, EntityId, Header};
+use super::store::SuperchunkEntities;
 use coordinates::CellIndex;
 use std::ops::AddAssign;
 
 /// One change.
 #[derive(Clone, Copy, Debug)]
-enum Command {
+enum Instruction {
     /// Puts an entity -- in place of the one with its ID where it stood,
     /// or new -- with the attributes `first..first + count` of the
     /// queue's list.
@@ -75,14 +75,14 @@ enum Command {
 /// Changes queued for one superchunk, in order, and the attributes they
 /// carry.
 #[derive(Default)]
-pub struct Commands {
+pub struct Instructions {
     /// The changes.
-    commands: Vec<Command>,
+    instructions: Vec<Instruction>,
     /// The attributes the puts carry.
     attributes: Vec<Attribute>,
 }
 
-impl Commands {
+impl Instructions {
     /// Queues putting `header`'s entity, with `attributes`: in place of
     /// the one with its ID standing on `from`, a cell of its cell's
     /// superchunk -- its cell itself, if it has not moved or is new.
@@ -100,7 +100,7 @@ impl Commands {
     /// Queues a put.
     fn push(&mut self, header: Header, from: CellIndex, crossing: Option<CellIndex>, attributes: &[Attribute]) {
         debug_assert_eq!(header.at.superchunk(), from.superchunk(), "an entity put from another superchunk: a crossing");
-        self.commands.push(Command::Put { header, from, crossing, first: self.attributes.len() as u32, count: attributes.len() as u32 });
+        self.instructions.push(Instruction::Put { header, from, crossing, first: self.attributes.len() as u32, count: attributes.len() as u32 });
         self.attributes.extend_from_slice(attributes);
     }
 
@@ -110,33 +110,33 @@ impl Commands {
     /// it only sleeps until then.
     pub fn move_entity(&mut self, header: Header, from: CellIndex) {
         debug_assert_eq!(header.at.superchunk(), from.superchunk(), "an entity moved from another superchunk: a crossing");
-        self.commands.push(Command::Move { header, from });
+        self.instructions.push(Instruction::Move { header, from });
     }
 
     /// Queues setting the attribute of type `kind` of the entity whose
     /// ID is `id` standing on `at` to `value`, or with none removing it.
     pub fn edit(&mut self, id: EntityId, at: CellIndex, kind: AttributeType, value: Option<u64>) {
-        self.commands.push(Command::Edit { id, at, kind, value });
+        self.instructions.push(Instruction::Edit { id, at, kind, value });
     }
 
     /// Queues removing the entity whose ID is `id` standing on `at`.
     pub fn remove(&mut self, id: EntityId, at: CellIndex) {
-        self.commands.push(Command::Remove { id, at });
+        self.instructions.push(Instruction::Remove { id, at });
     }
 
     /// How many changes are queued.
     pub fn len(&self) -> usize {
-        self.commands.len()
+        self.instructions.len()
     }
 
     /// Whether none is.
     pub fn is_empty(&self) -> bool {
-        self.commands.is_empty()
+        self.instructions.is_empty()
     }
 
     /// Empties the queue, keeping its room.
     pub fn clear(&mut self) {
-        self.commands.clear();
+        self.instructions.clear();
         self.attributes.clear();
     }
 
@@ -146,24 +146,24 @@ impl Commands {
     /// superchunk not among them is lost; one of an entity no longer
     /// where it stood is passed over; a new entity on a cell another
     /// stands on is refused, and one moving to it stays where it stood.
-    pub fn apply(&self, superchunks: &mut [SuperChunkEntities], earliest: u64, applied: &mut EntitiesApplied) {
-        for &command in &self.commands {
-            let at = match command {
-                Command::Put { header, .. } | Command::Move { header, .. } => header.at,
-                Command::Edit { at, .. } | Command::Remove { at, .. } => at,
+    pub fn apply(&self, superchunks: &mut [SuperchunkEntities], earliest: u64, applied: &mut InstructionsApplied) {
+        for &instruction in &self.instructions {
+            let at = match instruction {
+                Instruction::Put { header, .. } | Instruction::Move { header, .. } => header.at,
+                Instruction::Edit { at, .. } | Instruction::Remove { at, .. } => at,
             };
             let morton = at.superchunk();
             let found = match superchunks {
-                [only] if only.morton() == morton => Some(0),
-                _ => superchunks.binary_search_by_key(&morton, SuperChunkEntities::morton).ok(),
+                [only] if only.morton_index() == morton => Some(0),
+                _ => superchunks.binary_search_by_key(&morton, SuperchunkEntities::morton_index).ok(),
             };
             let Some(place) = found else {
-                applied.lost += matches!(command, Command::Put { .. }) as usize;
+                applied.lost += matches!(instruction, Instruction::Put { .. }) as usize;
                 continue;
             };
             let superchunk = &mut superchunks[place];
-            match command {
-                Command::Put { header, from, crossing, first, count } => {
+            match instruction {
+                Instruction::Put { header, from, crossing, first, count } => {
                     let put = superchunk.put(earliest, header, from, Some(&self.attributes[first as usize..(first + count) as usize]));
                     match put {
                         Put::New | Put::InPlace | Put::Moved => applied.puts += 1,
@@ -175,13 +175,13 @@ impl Commands {
                         superchunk.cross(header.id, header.at, to);
                     }
                 }
-                Command::Move { header, from } => match superchunk.put(earliest, header, from, None) {
+                Instruction::Move { header, from } => match superchunk.put(earliest, header, from, None) {
                     Put::Stayed => (applied.moves, applied.stayed) = (applied.moves + 1, applied.stayed + 1),
                     Put::PassedOver => {}
                     _ => applied.moves += 1,
                 },
-                Command::Edit { id, at, kind, value } => applied.edits += superchunk.edit(id, at, kind, value) as usize,
-                Command::Remove { id, at } => {
+                Instruction::Edit { id, at, kind, value } => applied.edits += superchunk.edit(id, at, kind, value) as usize,
+                Instruction::Remove { id, at } => {
                     applied.removes += superchunk.remove(id, at) as usize;
                 }
             }
@@ -189,14 +189,14 @@ impl Commands {
     }
 
     /// Counts the puts as lost: their superchunk holds no entities.
-    pub fn count_lost(&self, applied: &mut EntitiesApplied) {
-        applied.lost += self.commands.iter().filter(|command| matches!(command, Command::Put { .. })).count();
+    pub fn count_lost(&self, applied: &mut InstructionsApplied) {
+        applied.lost += self.instructions.iter().filter(|instruction| matches!(instruction, Instruction::Put { .. })).count();
     }
 }
 
 /// What carrying out the changes did.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct EntitiesApplied {
+pub struct InstructionsApplied {
     /// Entities put: made, or made anew whole.
     pub puts: usize,
     /// Entities moved, or set to wake at another tick, their attributes
@@ -215,7 +215,7 @@ pub struct EntitiesApplied {
     pub refused: usize,
 }
 
-impl AddAssign for EntitiesApplied {
+impl AddAssign for InstructionsApplied {
     /// Both added up.
     fn add_assign(&mut self, other: Self) {
         self.puts += other.puts;

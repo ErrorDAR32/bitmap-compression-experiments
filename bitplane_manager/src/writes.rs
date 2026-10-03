@@ -13,10 +13,10 @@
 //! fields alone; a rectangle or a disc is laid out in cartesian
 //! coordinates, the cheaper for geometry.
 
-use crate::{contains, BitmapArena, SuperChunkLayer};
+use crate::{contains, BitmapArena, SuperchunkLayer};
 use bitmap::morton::morton_index;
 use chunk_storage::LayerType;
-use coordinates::{CellIndex, ChunkPosition, SuperChunkPosition, CHUNK_SIDE, SUPERCHUNK_SIDE_CELLS};
+use coordinates::{CellIndex, ChunkPosition, SuperchunkPosition, CHUNK_SIDE, SUPERCHUNK_SIDE_CELLS};
 
 /// What a write does to each cell it covers.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -103,7 +103,7 @@ impl Write {
 
 /// What applying the queued writes did.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct Applied {
+pub struct WritesApplied {
     /// Writes applied.
     pub writes: usize,
     /// Cells that changed.
@@ -112,7 +112,7 @@ pub struct Applied {
     pub missed: u64,
 }
 
-impl std::ops::AddAssign for Applied {
+impl std::ops::AddAssign for WritesApplied {
     /// Both added up.
     fn add_assign(&mut self, other: Self) {
         self.writes += other.writes;
@@ -198,13 +198,13 @@ impl Write {
         let empty = left > right;
         rows.flat_map(move |y| columns.clone().map(move |x| (x, y)))
             .filter(move |_| !empty)
-            .map(|(x, y)| SuperChunkPosition { x, y }.morton_index())
+            .map(|(x, y)| SuperchunkPosition { x, y }.morton_index())
     }
 }
 
 /// Counts the cells of the part of `write` in the superchunk whose Morton
 /// index is `superchunk` -- which has no bitmap in use -- as missed.
-pub fn count_missed(superchunk: u64, write: Write, applied: &mut Applied) {
+pub fn count_missed(superchunk: u64, write: Write, applied: &mut WritesApplied) {
     apply_in(None, superchunk, LayerType(0), write, applied);
 }
 
@@ -212,12 +212,12 @@ pub fn count_missed(superchunk: u64, write: Write, applied: &mut Applied) {
 /// the superchunk whose Morton index is `superchunk` and whose layers
 /// are `layers` -- `None` if it has none in use: a cell straight from its
 /// Morton index, a shape chunk by chunk over its bounds there.
-pub(crate) fn apply_in(layers: Option<&mut [SuperChunkLayer]>, superchunk: u64, layer_type: LayerType, write: Write, applied: &mut Applied) {
+pub(crate) fn apply_in(layers: Option<&mut [SuperchunkLayer]>, superchunk: u64, layer_type: LayerType, write: Write, applied: &mut WritesApplied) {
     let layer = layers.and_then(|layers| {
         let at = layers.binary_search_by_key(&layer_type, |layer| layer.layer_type).ok()?;
         Some(&mut layers[at])
     });
-    let op = |layer: &SuperChunkLayer, chunk, cell| match write.op {
+    let op = |layer: &SuperchunkLayer, chunk, cell| match write.op {
         WriteOp::Set => true,
         WriteOp::Unset => false,
         WriteOp::Flip => !layer.get(chunk, cell),
@@ -241,7 +241,7 @@ pub(crate) fn apply_in(layers: Option<&mut [SuperChunkLayer]>, superchunk: u64, 
         return;
     };
     // The bounds' part inside this superchunk.
-    let position = SuperChunkPosition::from_morton_index(superchunk);
+    let position = SuperchunkPosition::from_morton_index(superchunk);
     let (first_x, first_y) = (position.x * SUPERCHUNK_SIDE_CELLS, position.y * SUPERCHUNK_SIDE_CELLS);
     let (left, top) = (left.max(first_x), top.max(first_y));
     let (right, bottom) = (right.min(first_x + (SUPERCHUNK_SIDE_CELLS - 1)), bottom.min(first_y + (SUPERCHUNK_SIDE_CELLS - 1)));
@@ -289,8 +289,8 @@ impl BitmapArena {
     /// and empties them: where writes to one bitplane overlap, the latest
     /// wins. A write covering cells of bitmaps that are not hot leaves
     /// those cells out.
-    pub fn apply(&mut self) -> Applied {
-        let mut applied = Applied::default();
+    pub fn apply(&mut self) -> WritesApplied {
+        let mut applied = WritesApplied::default();
         let queued = std::mem::take(&mut self.queued);
         for (layer_type, writes) in queued.iter() {
             applied.writes += writes.len();

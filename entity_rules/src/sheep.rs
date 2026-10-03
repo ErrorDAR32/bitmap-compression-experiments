@@ -41,7 +41,7 @@
 //! What is the sheep's own is here, and only that: the 3x3 cells about
 //! it, the area, the path, the cell seen free, the instruction that
 //! carries least are the simulation's (`simulation::around`,
-//! `SuperChunkTick`, `EntityEdit`), there for every entity.
+//! `Turn`, `EntityEdit`), there for every entity.
 //!
 //! The rule runs in a tick's first phase, as grass does, reading the
 //! world as the tick found it: two sheep may eat one cell in a tick,
@@ -49,11 +49,11 @@
 
 use bitplane_manager::{BitmapArena, Write, WriteOp};
 use chunk_storage::mock::{DIRT, GRASS};
-use coordinates::{SuperChunkPosition, SUPERCHUNK_SIDE_CELLS};
+use coordinates::{SuperchunkPosition, SUPERCHUNK_SIDE_CELLS};
 use simulation::around::{self, CENTRE, RING};
 use terrain::{WALL_EAST, WALL_SOUTH};
 use simulation::entity_store::{Attribute, AttributeType, EntityEdit, Entities, EntityId, EntityType, Header};
-use simulation::{Simulation, SuperChunkTick, TickReport};
+use simulation::{Simulation, Turn, TickReport};
 use std::collections::HashSet;
 use std::ops::AddAssign;
 use utilities::rng::Rng;
@@ -144,7 +144,7 @@ pub fn tick(simulation: &mut Simulation, arena: &mut BitmapArena, entities: &mut
 /// The rule, on one superchunk's turn: every sheep waking sees to what
 /// it woke for -- a meal, a lamb, growing up -- and sleeps again, as
 /// long as it can.
-pub fn rule(turn: &mut SuperChunkTick) -> SheepTickMetrics {
+pub fn rule(turn: &mut Turn) -> SheepTickMetrics {
     let mut done = SheepTickMetrics::default();
     let mut room = Vec::new();
     let now = turn.now();
@@ -244,7 +244,7 @@ pub fn rule(turn: &mut SuperChunkTick) -> SheepTickMetrics {
 }
 
 /// The tick a sheep taking a step now wakes next.
-fn next_step(turn: &mut SuperChunkTick) -> u64 {
+fn next_step(turn: &mut Turn) -> u64 {
     turn.now() + STEP_TICKS + turn.random().below(STEP_JITTER)
 }
 
@@ -252,7 +252,7 @@ fn next_step(turn: &mut SuperChunkTick) -> u64 {
 /// on a cell of its own of `superchunk` drawn from `random` -- at most
 /// half its cells' worth of them -- waking over the next [`STEP_TICKS`]
 /// ticks: put in the world by [`Entities::apply`].
-pub fn flock(entities: &mut Entities, superchunk: SuperChunkPosition, count: usize, random: &mut Rng) {
+pub fn flock(entities: &mut Entities, superchunk: SuperchunkPosition, count: usize, random: &mut Rng) {
     let (left, top) = (superchunk.x * SUPERCHUNK_SIDE_CELLS, superchunk.y * SUPERCHUNK_SIDE_CELLS);
     let side = SUPERCHUNK_SIDE_CELLS as u64;
     assert!(count as u64 <= side * side / 2, "{count} sheep on a superchunk: too many to draw a cell each");

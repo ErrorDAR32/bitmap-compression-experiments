@@ -17,10 +17,10 @@ pub use tick::{tick, TickCounts};
 
 use bitplane_manager::BitmapArena;
 use chunk_storage::disk::{self, DiskError, WorldInfo};
-use chunk_storage::{ChunkStorage, HeightMap, LayerChange, LayerCodec, LayerType, SuperChunkImage};
+use chunk_storage::{ChunkStorage, HeightMap, LayerChange, LayerCodec, LayerType, SuperchunkImage};
 use terrain::{Terrain, WALLS};
 use chunk_storage::mock::{grass_on_dirt, DIRT, GRASS};
-use coordinates::{ChunkPlace, ChunkPosition, SuperChunkPosition, WORLD_SIDE_SUPERCHUNKS};
+use coordinates::{ChunkPlace, ChunkPosition, SuperchunkPosition, WORLD_SIDE_SUPERCHUNKS};
 use entity_rules::sheep::flock;
 use simulation::entity_store::{saved, Entities};
 use simulation::Simulation;
@@ -72,7 +72,7 @@ pub fn generate_with(seed: u64, superchunks: u32, grass_cells: usize, flock_size
     let side = (superchunks as f64).sqrt().ceil() as u32;
     let middle = WORLD_SIDE_SUPERCHUNKS / 2;
     let layers: Vec<LayerType> = [DIRT, GRASS].into_iter().chain(WALLS.map(|(layer_type, _)| layer_type)).collect();
-    let held: Vec<SuperChunkPosition> = (0..superchunks).map(|index| SuperChunkPosition { x: middle + index % side, y: middle + index / side }).collect();
+    let held: Vec<SuperchunkPosition> = (0..superchunks).map(|index| SuperchunkPosition { x: middle + index % side, y: middle + index / side }).collect();
     for &superchunk in &held {
         let own = Rng::for_stream(seed, superchunk.morton_index()).draw();
         let terrain = Terrain::generate(seed, superchunk);
@@ -90,7 +90,7 @@ pub fn generate_with(seed: u64, superchunks: u32, grass_cells: usize, flock_size
         }
     }
     let mut entities = Entities::new();
-    let mortons: Vec<u64> = arena.superchunks().iter().map(|superchunk| superchunk.morton()).collect();
+    let mortons: Vec<u64> = arena.superchunks().iter().map(|superchunk| superchunk.morton_index()).collect();
     entities.align(&mortons);
     for &superchunk in &held {
         let mut own = Rng::for_stream(!seed, superchunk.morton_index());
@@ -107,7 +107,7 @@ pub fn generate_with(seed: u64, superchunks: u32, grass_cells: usize, flock_size
 /// images are the world's cells.
 pub fn save(directory: &Path, name: &str, seed: u64, arena: &mut BitmapArena, storage: &mut ChunkStorage, entities: &Entities, simulation: &Simulation) -> Result<Saved, DiskError> {
     let mut codec = LayerCodec::new();
-    let held: Vec<SuperChunkPosition> = arena.superchunks().iter().map(|superchunk| superchunk.position()).collect();
+    let held: Vec<SuperchunkPosition> = arena.superchunks().iter().map(|superchunk| superchunk.position()).collect();
     for &superchunk in &held {
         arena.write_back(superchunk, storage, &mut codec);
     }
@@ -117,7 +117,7 @@ pub fn save(directory: &Path, name: &str, seed: u64, arena: &mut BitmapArena, st
     for &superchunk in &held {
         // One with no cell ever set has no image yet: saved all the same.
         if storage.image(superchunk).is_none() {
-            storage.insert(superchunk, SuperChunkImage::new(&HeightMap::default()));
+            storage.insert(superchunk, SuperchunkImage::new(&HeightMap::default()));
         }
     }
     let mut layers: Vec<LayerType> = arena.keys().map(|key| key.layer_type).collect();
@@ -155,7 +155,7 @@ pub fn load(directory: &Path) -> Result<World, DiskError> {
         }
     }
     let mut entities = Entities::at_tick(info.tick);
-    let held: Vec<u64> = arena.superchunks().iter().map(|superchunk| superchunk.morton()).collect();
+    let held: Vec<u64> = arena.superchunks().iter().map(|superchunk| superchunk.morton_index()).collect();
     entities.align(&held);
     let (mut random, mut crossings, mut expected) = (Vec::new(), Vec::new(), 0);
     for &superchunk in &superchunks {

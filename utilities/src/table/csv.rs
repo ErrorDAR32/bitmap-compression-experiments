@@ -1,17 +1,17 @@
-//! A table as CSV, and back: the headings as the first record (a
-//! stacked heading's lines joined by newlines), then a record a row, and
-//! a line `---` wherever a rule goes.
+//! A table as CSV, and back: the headings as the first row (a stacked
+//! heading's lines joined by newlines), then one CSV row per table row,
+//! and a line `---` wherever a rule goes.
 //!
-//! A field is quoted -- inside `"`, a `"` in it doubled -- when it holds
-//! a comma, a quote or a newline, or is empty, or could be read as one
-//! of the lines that are not records: a rule, or a report's note or
+//! A field is quoted -- inside `"`, with any `"` in it doubled -- when it
+//! holds a comma, a quote or a newline, or is empty, or could be read as
+//! one of the lines that are not rows: a rule, or a report's note or
 //! title (`#`, [`super::report`]). Everything else is written bare.
 
 use super::Table;
 
 /// The line that marks a rule.
 pub const RULE: &str = "---";
-/// What a line that is not a record starts with: a report's note or
+/// What a line that is not a row starts with: a report's note or
 /// title.
 pub const COMMENT: char = '#';
 /// Between fields.
@@ -22,8 +22,8 @@ const QUOTE: char = '"';
 /// A line of CSV text, as read.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Line {
-    /// A record: its fields.
-    Record(Vec<String>),
+    /// A row: its fields.
+    Row(Vec<String>),
     /// A rule.
     Rule,
     /// A line starting with [`COMMENT`], without it.
@@ -45,13 +45,13 @@ fn field(field: &str) -> String {
     }
 }
 
-/// `fields` as one CSV record, ended by a newline.
-fn record<S: AsRef<str>>(fields: &[S]) -> String {
+/// `fields` as one CSV row, ended by a newline.
+fn csv_row<S: AsRef<str>>(fields: &[S]) -> String {
     let fields: Vec<String> = fields.iter().map(|text| field(text.as_ref())).collect();
     format!("{}\n", fields.join(&SEPARATOR.to_string()))
 }
 
-/// Every line of `text`: records, rules, comments and blanks. A quoted
+/// Every line of `text`: rows, rules, comments and blanks. A quoted
 /// field may run over several lines.
 pub fn lines(text: &str) -> Vec<Line> {
     let mut lines = Vec::new();
@@ -86,7 +86,7 @@ pub fn lines(text: &str) -> Vec<Line> {
         // A rule is the one bare line that reads as a lone `---`: a field
         // `---` is always quoted.
         let bare_rule = fields.len() == 1 && fields[0] == RULE;
-        lines.push(if bare_rule { Line::Rule } else { Line::Record(fields) });
+        lines.push(if bare_rule { Line::Rule } else { Line::Row(fields) });
     }
     lines
 }
@@ -95,12 +95,12 @@ impl Table {
     /// The table as CSV: its headings, its rows, its rules.
     pub fn to_csv(&self) -> String {
         let headings: Vec<String> = self.headings.iter().map(|lines| lines.join("\n")).collect();
-        let mut text = record(&headings);
+        let mut text = csv_row(&headings);
         for (index, row) in self.rows.iter().enumerate() {
             if self.rules.contains(&index) {
                 text.push_str(&format!("{RULE}\n"));
             }
-            text.push_str(&record(row));
+            text.push_str(&csv_row(row));
         }
         if self.rules.contains(&self.rows.len()) {
             text.push_str(&format!("{RULE}\n"));
@@ -108,19 +108,19 @@ impl Table {
         text
     }
 
-    /// The table `lines` hold: the first record its headings, the rest
+    /// The table `lines` hold: the first row its headings, the rest
     /// its rows, and a rule at every rule line. Comments and blanks are
     /// skipped.
     pub fn from_lines(lines: &[Line]) -> Self {
-        let mut records = lines.iter().filter(|line| matches!(line, Line::Record(_) | Line::Rule));
-        let headings = match records.next() {
-            Some(Line::Record(headings)) => headings.clone(),
+        let mut rows = lines.iter().filter(|line| matches!(line, Line::Row(_) | Line::Rule));
+        let headings = match rows.next() {
+            Some(Line::Row(headings)) => headings.clone(),
             other => panic!("a table starts with its headings, not {other:?}"),
         };
         let mut table = Table::new(&headings.iter().map(String::as_str).collect::<Vec<_>>());
-        for line in records {
+        for line in rows {
             match line {
-                Line::Record(row) => table.row(row),
+                Line::Row(row) => table.row(row),
                 _ => table.rule(),
             }
         }

@@ -18,20 +18,20 @@
 //!
 //! | file | what is in it |
 //! |---|---|
-//! | `record` | an entity: its header and its attributes; and one being changed by its rule |
+//! | `entity` | an entity: its header and its attributes; and one being changed by its rule |
 //! | `bucket` | a chunk's entities, sorted by cell, one a cell, their attributes beside them |
 //! | `wheel` | a superchunk's timer wheel |
 //! | `store` | a superchunk's entities, and every superchunk's |
-//! | `commands` | changes to entities, an instruction each -- put, move, edit, remove -- queued for a superchunk and carried out by it |
+//! | `instructions` | changes to entities, an instruction each -- put, move, edit, remove -- queued for a superchunk and carried out by it |
 
 mod bucket;
-mod commands;
-mod record;
+mod instructions;
+mod entity;
 pub mod saved;
 mod store;
 mod wheel;
 
-pub use commands::{Commands, EntitiesApplied};
-pub use record::{attribute, remove_attribute, set_attribute, Attribute, AttributeType, EntityEdit, EntityId, EntityRef, EntityType, Header, NEVER};
-pub use store::{Crossing, Entities, EntityReader, SuperChunkEntities, OCCUPIED_SIDE};
+pub use instructions::{Instructions, InstructionsApplied};
+pub use entity::{attribute, remove_attribute, set_attribute, Attribute, AttributeType, EntityEdit, EntityId, EntityRef, EntityType, Header, NEVER};
+pub use store::{Crossing, Entities, EntityReader, SuperchunkEntities, OCCUPIED_SIDE};
 pub use wheel::{Wake, WHEEL_TICKS};

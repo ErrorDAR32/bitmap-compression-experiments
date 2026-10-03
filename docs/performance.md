@@ -116,7 +116,7 @@ ahead").
 
 ## The cells about a woken sheep, asked for ahead
 
-`SuperChunkTick::woken_reading(layers)`: as woken entities are asked of
+`Turn::woken_reading(layers)`: as woken entities are asked of
 memory ahead, so are the cells about them, of the layers the rule says
 it reads -- the sheep's grass and the four walls.
 

@@ -3,7 +3,7 @@
 //! is all it knows of the world. What the cells are, which may be walked
 //! on and where the walker wants to go are for whoever calls it; an
 //! entity's turn reads an area of the bitplanes around a cell
-//! (`simulation`'s `SuperChunkTick::area`) and hands it here.
+//! (`simulation`'s `Turn::area`) and hands it here.
 //!
 //! | what | what it does |
 //! |---|---|
@@ -173,7 +173,7 @@ impl Walls {
 
     /// Whether a wall bars the step from `cell` to its neighbour `dx`
     /// across and `dy` down, a cell of the area too.
-    pub const fn blocks_step(&self, cell: Cell, dx: i8, dy: i8) -> bool {
+    pub const fn bars_step(&self, cell: Cell, dx: i8, dy: i8) -> bool {
         // The upper of the two keeps the wall; of two on a row, the left.
         let (keeper, dx) = if dy < 0 || dy == 0 && dx < 0 { (Cell { x: (cell.x as i8 + dx) as u8, y: (cell.y as i8 + dy) as u8 }, -dx) } else { (cell, dx) };
         let rows = match (dx, dy != 0) {
@@ -386,7 +386,7 @@ pub fn a_star(passable: &Rows, walls: &Walls, from: Cell, to: Cell) -> Option<Pa
                 continue;
             }
             let neighbour = Cell { x: x as u8, y: y as u8 };
-            if neighbour != from && !holds(passable, neighbour) || walls.blocks_step(cell, dx, dy) || further >= steps[neighbour.index()] {
+            if neighbour != from && !holds(passable, neighbour) || walls.bars_step(cell, dx, dy) || further >= steps[neighbour.index()] {
                 continue;
             }
             steps[neighbour.index()] = further;

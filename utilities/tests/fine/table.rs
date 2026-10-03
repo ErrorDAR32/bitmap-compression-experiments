@@ -23,7 +23,7 @@ fn a_table_round_trips_through_csv() {
     let read: Vec<String> = lines(&csv)
         .into_iter()
         .filter_map(|line| match line {
-            Line::Record(fields) => Some(fields[0].clone()),
+            Line::Row(fields) => Some(fields[0].clone()),
             _ => None,
         })
         .collect();

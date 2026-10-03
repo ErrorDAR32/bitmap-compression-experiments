@@ -31,5 +31,5 @@ from `to` (**`Queue`**: a binary heap in an array, `push`, `pop`;
 **`Walls::new(east, south)`**: the steps that cannot be taken -- the
 walls east and south of cells, and the diagonals they bar, worked out
 from them (a wall on either way round); **`east`**, **`south`**,
-**`blocks_step(cell, dx, dy)`**. `Wave::advance`,
+**`bars_step(cell, dx, dy)`**. `Wave::advance`,
 `step_towards` and `a_star` each take them after `passable`.

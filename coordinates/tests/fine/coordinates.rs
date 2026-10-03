@@ -6,12 +6,12 @@
 
 use bitmap::morton::morton_index;
 use coordinates::{
-    CartesianCell, CellAddress, CellIndex, CellPlace, ChunkPlace, SuperChunkPosition, CHUNK_SIDE, SUPERCHUNK_SIDE_CELLS,
+    CartesianCell, CellAddress, CellIndex, CellPlace, ChunkPlace, SuperchunkPosition, CHUNK_SIDE, SUPERCHUNK_SIDE_CELLS,
     WORLD_SIDE_SUPERCHUNKS,
 };
 
 /// A superchunk roughly in the middle of the world, where it starts.
-const MIDDLE: SuperChunkPosition = SuperChunkPosition { x: WORLD_SIDE_SUPERCHUNKS / 2, y: WORLD_SIDE_SUPERCHUNKS / 2 };
+const MIDDLE: SuperchunkPosition = SuperchunkPosition { x: WORLD_SIDE_SUPERCHUNKS / 2, y: WORLD_SIDE_SUPERCHUNKS / 2 };
 
 #[test]
 #[should_panic(expected = "outside a superchunk")]
@@ -42,7 +42,7 @@ fn cartesian_cells_and_addresses_convert_both_ways() {
     assert_eq!(
         CartesianCell { x: middle - 1, y: middle - 1 }.address(),
         CellAddress {
-            superchunk: SuperChunkPosition { x: MIDDLE.x - 1, y: MIDDLE.y - 1 },
+            superchunk: SuperchunkPosition { x: MIDDLE.x - 1, y: MIDDLE.y - 1 },
             chunk: ChunkPlace::new(3, 3),
             cell: CellPlace { x: 255, y: 255 },
         }
@@ -66,7 +66,7 @@ fn chunks_in_a_superchunk_go_in_morton_order() {
 /// left, bottom right, at the world's corner and in its middle alike.
 #[test]
 fn superchunks_sort_in_morton_order() {
-    let key = |x, y| SuperChunkPosition { x, y }.morton_index();
+    let key = |x, y| SuperchunkPosition { x, y }.morton_index();
     assert!(key(0, 0) < key(1, 0) && key(1, 0) < key(0, 1) && key(0, 1) < key(1, 1));
     assert!(key(1, 1) < key(2, 0));
     let (x, y) = (MIDDLE.x & !1, MIDDLE.y & !1);

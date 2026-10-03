@@ -8,7 +8,7 @@ The design is in `terrain.md`.
 stepped between. `WALL_EAST`, `WALL_SOUTH` (layer types 8 and 9);
 `WALLS`: each with the neighbour it is towards. A diagonal has no wall
 of its own: `pathfinding::Walls::new` and
-`SuperChunkTick::unwalled_around` bar it from the two. `OCTAVES`, `ONE`.
+`Turn::unwalled_around` bar it from the two. `OCTAVES`, `ONE`.
 
 **`height(seed, x, y)`**: a cell's height. Private: **`point`**, an
 octave's number at a point; **`between`**; **`octave`**, one octave's

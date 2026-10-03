@@ -21,9 +21,9 @@ the reports kept.
 
 ## `table/csv.rs`
 
-**`Line`**: a record, a rule (`RULE`) or a comment (`COMMENT`).
+**`Line`**: a row, a rule (`RULE`) or a comment (`COMMENT`).
 **`lines(text)`**, **`Table::to_csv`**, **`from_lines`**, **`from_csv`**
-(**`field`**, **`record`**: quoting).
+(**`field`**, **`csv_row`**: quoting).
 
 ## `rng.rs`
 
@@ -38,7 +38,7 @@ panics), **`pop`**; derefs to a slice.
 ## `memory.rs`
 
 **`process_memory()`**: **`Memory`** `{resident, peak}`, if the system
-says. **`MemoryTrack`**: **`sample`**, **`average`**, **`peak`**.
+says. **`MemoryTrack`**: **`read`** (one reading), **`average`**, **`peak`**.
 **`mebibytes(bytes)`**: how a report shows memory.
 **`Rng::for_stream(seed, stream)`**: a source of its own for a stream
 of a seed, its state mixed; **`state()`**: what a save keeps.

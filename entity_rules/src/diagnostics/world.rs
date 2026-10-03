@@ -5,7 +5,7 @@
 use bitplane_manager::BitmapArena;
 use chunk_storage::mock::{grass_on_dirt, DIRT, GRASS};
 use chunk_storage::{ChunkStorage, LayerCodec};
-use coordinates::{ChunkPlace, ChunkPosition, SuperChunkPosition, WORLD_SIDE_SUPERCHUNKS};
+use coordinates::{ChunkPlace, ChunkPosition, SuperchunkPosition, WORLD_SIDE_SUPERCHUNKS};
 use crate::sheep::{flock, SHEEP};
 use simulation::entity_store::Entities;
 use utilities::rng::Rng;
@@ -19,7 +19,7 @@ pub struct MockWorld {
     /// The superchunks as stored.
     pub storage: ChunkStorage,
     /// The superchunks, row by row.
-    pub superchunks: Vec<SuperChunkPosition>,
+    pub superchunks: Vec<SuperchunkPosition>,
 }
 
 impl MockWorld {
@@ -29,7 +29,7 @@ impl MockWorld {
         let (mut codec, mut arena, mut storage) = (LayerCodec::new(), BitmapArena::new(), ChunkStorage::new(1 << 16));
         let side = (count as f64).sqrt().ceil() as u32;
         let middle = WORLD_SIDE_SUPERCHUNKS / 2;
-        let superchunks: Vec<SuperChunkPosition> = (0..count).map(|index| SuperChunkPosition { x: middle + index % side, y: middle + index / side }).collect();
+        let superchunks: Vec<SuperchunkPosition> = (0..count).map(|index| SuperchunkPosition { x: middle + index % side, y: middle + index / side }).collect();
         for (seed, &superchunk) in superchunks.iter().enumerate() {
             storage.insert(superchunk, grass_on_dirt(seed as u64 + 1, grass_cells, &mut codec));
             for place in ChunkPlace::all() {
@@ -37,7 +37,7 @@ impl MockWorld {
             }
         }
         let mut entities = Entities::new();
-        let mortons: Vec<u64> = arena.superchunks().iter().map(|superchunk| superchunk.morton()).collect();
+        let mortons: Vec<u64> = arena.superchunks().iter().map(|superchunk| superchunk.morton_index()).collect();
         entities.align(&mortons);
         Self { arena, entities, storage, superchunks }
     }

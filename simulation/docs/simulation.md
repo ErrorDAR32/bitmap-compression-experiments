@@ -3,7 +3,7 @@
 The rules ticked over the hot bitplanes. It reads and writes them only
 through the handles the bitplane manager gives: a superchunk's layers to
 read (`LayerView`), cells to read anywhere (`Reader`), and writes
-applied to one superchunk (`SuperChunk::apply`). The decisions behind it
+applied to one superchunk (`Superchunk::apply`). The decisions behind it
 are in `../../docs/tilesim.md`, "The speed of light", "The tick" and
 "Sampling".
 
@@ -26,7 +26,7 @@ sample costs the same few counts however rare samples are.
 `Simulation::tick(arena, entities, seed, rule)`, every superchunk in two phases:
 
 1. **Computing**: each superchunk runs the rule on itself
-   (`SuperChunkTick`): samples its own cells, reads any cell as the
+   (`Turn`): samples its own cells, reads any cell as the
    tick found it, queues writes into its outbox -- nine queues, by the
    superchunk they land in: itself and its eight neighbours. Farther is
    past the speed of light (1024 cells a tick, a superchunk's side), and
@@ -61,7 +61,7 @@ a cell, and the superchunk a change lands in checks as it carries it
 out: a mover whose cell is taken stays where it stood, changed all the
 same; a new entity is not put. A rule need not look first -- few
 cells have an entity, and a step turned back costs less than looking
-every step -- but can: `SuperChunkTick::occupied` reads the cells
+every step -- but can: `Turn::occupied` reads the cells
 entities stand on about a cell from the buckets, an aligned 8x8 tile
 being a run of a bucket's places. No bitplane of them is kept: it cost
 a fifth of the ticks on 12 threads. Crossing to another
@@ -70,7 +70,7 @@ tick, until the next tick's first phase reads whether it arrived
 (`Crossing`): two superchunks changed apart tell each other nothing.
 
 They tick in the same two phases as the cells. In the first, a
-superchunk's entities waking run the rule (`SuperChunkTick::woken`) in
+superchunk's entities waking run the rule (`Turn::woken`) in
 Morton order -- each tick's wakes sorted by cell, then ID, once all are
 filed -- so they read and write forwards through memory,
 and their changes -- an instruction each, below -- are queued in the
@@ -82,7 +82,7 @@ superchunk turns its wheel and carries the changes out. An entity
 moving to a neighbour goes as a whole copy made in the first phase. One
 put in a superchunk not held is lost, and counted.
 
-An entity sees the world about it at once: `SuperChunkTick::area`
+An entity sees the world about it at once: `Turn::area`
 reads the 16x16 cells of a layer about a cell as masks, a row a word,
 which is what `../../pathfinding/` finds a way over. An entity takes
 one pathfinding step each time it ticks, and keeps no route.
@@ -93,7 +93,7 @@ A kind of entity (`../../entities/`) writes only what is its own: the
 rest is here, the same for every kind.
 
 **Instructions**, one for each thing done to an entity, each carrying
-no more than it changes (`entity_store/commands.rs`):
+no more than it changes (`entity_store/instructions.rs`):
 
 | instruction | queued by | what it does | carries |
 |---|---|---|---|
@@ -111,12 +111,12 @@ puts an entity on a cell is checked as it is carried out.
 
 **An entity being changed** (`EntityEdit`): its attributes read, set and
 removed as if already its own, nothing copied until one is changed, and
-`SuperChunkTick::commit` picks the instruction -- a move if none was,
+`Turn::commit` picks the instruction -- a move if none was,
 else a put. A rule states what the entity is to be; what that costs is
 not its concern.
 
 **The cells beside it** (`around`): the 3x3 about a cell as nine bits,
-read in one window (`SuperChunkTick::around`); sets of neighbours are
+read in one window (`Turn::around`); sets of neighbours are
 masks narrowed with `&`, one drawn with `pick` or `prefer`.
 `around_occupied` gives those entities stand on, `free_beside` one that
 none does -- for what must have its cell, as a newborn; a step need not
@@ -177,7 +177,7 @@ attributes (`EntityEdit::get`, 15%). Pathfinding, far search and all, was
 under 2%.
 
 The wakes due in a tick are known before any is seen to
-(`SuperChunkEntities::woken`), so they are asked for ahead
+(`SuperchunkEntities::woken`), so they are asked for ahead
 (`utilities::memory::prefetch`): a turn's first eight records and four
 attribute runs before the first entity is given, then, as each is
 given, the record of the one eight on and the attributes of the one

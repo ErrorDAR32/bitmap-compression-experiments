@@ -16,7 +16,7 @@
 use bitmap::morton::morton_index;
 use bitmap::{CellWords, BITS_PER_WORD, WORDS};
 use chunk_storage::{Height, HeightMap, LayerType};
-use coordinates::{CellPlace, ChunkPlace, SuperChunkPosition, CHUNKS_IN_SUPERCHUNK, CHUNK_SIDE, SUPERCHUNK_SIDE_CELLS};
+use coordinates::{CellPlace, ChunkPlace, SuperchunkPosition, CHUNKS_IN_SUPERCHUNK, CHUNK_SIDE, SUPERCHUNK_SIDE_CELLS};
 
 /// The most two cells beside one another may differ in height and still
 /// be stepped between.
@@ -90,7 +90,7 @@ pub struct Terrain {
 
 impl Terrain {
     /// The terrain of `superchunk` in the world whose seed is `seed`.
-    pub fn generate(seed: u64, superchunk: SuperChunkPosition) -> Self {
+    pub fn generate(seed: u64, superchunk: SuperchunkPosition) -> Self {
         let (left, top) = (superchunk.x * SUPERCHUNK_SIDE_CELLS, superchunk.y * SUPERCHUNK_SIDE_CELLS);
         Self::from_heights(|x, y| height(seed, left.wrapping_add_signed(x), top.wrapping_add_signed(y)))
     }

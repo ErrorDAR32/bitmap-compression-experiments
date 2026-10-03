@@ -1,5 +1,5 @@
 //! The crate's one random source: SplitMix64, seeded, whose whole state
-//! is one word, so whatever draws from it -- a sample bitmap, a search --
+//! is one word, so whatever draws from it -- a test bitmap, a search --
 //! is settled by its seed alone, on every run and every machine.
 
 /// SplitMix64's constants, as published with it: the step added to

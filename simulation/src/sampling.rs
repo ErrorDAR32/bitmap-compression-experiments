@@ -106,7 +106,7 @@ pub fn sample(arena: &BitmapArena, layer_type: LayerType, probability: f64, rand
     arena
         .superchunks()
         .iter()
-        .filter_map(|superchunk| superchunk.layer(layer_type).map(|layer| (superchunk.morton(), layer)))
+        .filter_map(|superchunk| superchunk.layer(layer_type).map(|layer| (superchunk.morton_index(), layer)))
         .map(|(superchunk, layer)| sample_layer(superchunk, layer, probability, random, &mut emit))
         .sum()
 }

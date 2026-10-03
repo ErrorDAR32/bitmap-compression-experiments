@@ -8,9 +8,9 @@
 
 use bitplane_manager::{BitmapArena, BucketKey};
 use chunk_storage::{LayerCodec, LayerType};
-use coordinates::{CartesianCell, CellIndex, ChunkPlace, ChunkPosition, SuperChunkPosition, SUPERCHUNK_SIDE_CELLS};
+use coordinates::{CartesianCell, CellIndex, ChunkPlace, ChunkPosition, SuperchunkPosition, SUPERCHUNK_SIDE_CELLS};
 use simulation::entity_store::{remove_attribute, set_attribute, AttributeType, Entities, EntityId, EntityReader, EntityType, Header, NEVER, WHEEL_TICKS};
-use simulation::{Simulation, SuperChunkTick};
+use simulation::{Simulation, Turn};
 use std::sync::Mutex;
 
 /// The layer type the arena holds: none of its cells are read.
@@ -29,12 +29,12 @@ fn world(side: u32) -> (BitmapArena, Entities) {
     for y in 10..10 + side {
         for x in 10..10 + side {
             for place in ChunkPlace::all() {
-                arena.make_hot(BucketKey { layer_type: STONE, chunk: ChunkPosition::of(SuperChunkPosition { x, y }, place) }, None, &mut codec);
+                arena.make_hot(BucketKey { layer_type: STONE, chunk: ChunkPosition::of(SuperchunkPosition { x, y }, place) }, None, &mut codec);
             }
         }
     }
     let mut entities = Entities::new();
-    let mortons: Vec<u64> = arena.superchunks().iter().map(|superchunk| superchunk.morton()).collect();
+    let mortons: Vec<u64> = arena.superchunks().iter().map(|superchunk| superchunk.morton_index()).collect();
     assert_eq!(entities.align(&mortons), 0);
     (arena, entities)
 }
@@ -51,7 +51,7 @@ fn walker(id: u64, at: CellIndex, wake: u64) -> Header {
 
 /// Each walker woken counts it, flips `ODD`, and wakes next tick, where
 /// it stands: how many woke.
-fn count_and_flip(turn: &mut SuperChunkTick, _: &mut Vec<CellIndex>) -> usize {
+fn count_and_flip(turn: &mut Turn, _: &mut Vec<CellIndex>) -> usize {
     let mut woken = 0;
     let mut attributes = Vec::new();
     for entity in turn.woken() {
@@ -132,7 +132,7 @@ fn entities_cross_borders_and_stay_at_the_edge_of_the_world_held() {
     entities.queue_put(walker(9, cell(start, 100), 0), &[simulation::entity_store::Attribute { kind: WOKEN, value: 0 }]);
     entities.apply();
     let mut simulation = Simulation::new(2);
-    let step = |turn: &mut SuperChunkTick, _: &mut Vec<CellIndex>| {
+    let step = |turn: &mut Turn, _: &mut Vec<CellIndex>| {
         for entity in turn.woken() {
             let after = Header { at: entity.header.at.offset(1, 0).unwrap(), wake: turn.now() + 1, ..entity.header };
             turn.update(&entity.header, after, &[simulation::entity_store::Attribute { kind: WOKEN, value: entity.attribute(WOKEN).unwrap() + 1 }]);
@@ -145,7 +145,7 @@ fn entities_cross_borders_and_stay_at_the_edge_of_the_world_held() {
         most = most.max(entities.len());
     }
     assert_eq!(most, 2, "here and there for the tick it crossed in");
-    let right = SuperChunkPosition { x: 11, y: 10 }.morton_index();
+    let right = SuperchunkPosition { x: 11, y: 10 }.morton_index();
     let entity = entities.superchunk(right).and_then(|superchunk| superchunk.iter().next()).expect("in the right neighbour");
     assert_eq!((entity.header.at, entity.attribute(WOKEN)), (cell(start + 10, 100), Some(10)));
     assert_eq!(entities.len(), 1, "the one left behind removed");
@@ -160,7 +160,7 @@ fn entities_cross_borders_and_stay_at_the_edge_of_the_world_held() {
 /// superchunks, across their borders: the same on one thread and four.
 #[test]
 fn any_number_of_threads_ticks_entities_the_same() {
-    let wander = |turn: &mut SuperChunkTick, _: &mut Vec<CellIndex>| {
+    let wander = |turn: &mut Turn, _: &mut Vec<CellIndex>| {
         let mut changes = 0;
         for entity in turn.woken() {
             let header = entity.header;
@@ -339,7 +339,7 @@ fn entities_never_overlap() {
     entities.queue_put(walker(5001, cell(corner + 7, corner + 7), 0), &[]);
     let applied = entities.apply();
     assert_eq!((applied.puts, applied.refused, entities.len()), (900, 2, 900));
-    let jostle = |turn: &mut SuperChunkTick, _: &mut Vec<CellIndex>| {
+    let jostle = |turn: &mut Turn, _: &mut Vec<CellIndex>| {
         for entity in turn.woken() {
             let header = entity.header;
             let (dx, dy) = (turn.random().below(3) as i32 - 1, turn.random().below(3) as i32 - 1);

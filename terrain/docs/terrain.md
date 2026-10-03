@@ -41,7 +41,7 @@ found from the heights beyond the edge, which are the world's, not the
 neighbour's to give.
 
 Who reads them: the turn gives the neighbours no wall is before
-(`SuperChunkTick::unwalled_around`) and the walls of the area about a cell
+(`Turn::unwalled_around`) and the walls of the area about a cell
 (`walls_about`); the waves and A* of `../pathfinding/` go round them.
 
 Measured, three seeds: 0.7% of the steps across or down walled; 40 ms

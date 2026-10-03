@@ -22,7 +22,7 @@ use bitplane_manager::BucketKey;
 use chunk_storage::mock::GRASS;
 use chunk_storage::LayerType;
 use terrain::{WALL_EAST, WALL_SOUTH};
-use coordinates::{ChunkPlace, ChunkPosition, SuperChunkPosition, CHUNKS_IN_SUPERCHUNK, SUPERCHUNK_SIDE_CELLS, WORLD_SIDE_SUPERCHUNKS};
+use coordinates::{ChunkPlace, ChunkPosition, SuperchunkPosition, CHUNKS_IN_SUPERCHUNK, SUPERCHUNK_SIDE_CELLS, WORLD_SIDE_SUPERCHUNKS};
 use simulation::Simulation;
 use std::fs::{create_dir_all, File};
 use std::io::{BufWriter, Write};
@@ -165,7 +165,7 @@ fn run(superchunks: u32, thousandths: usize, flock: usize, asked: &Receiver<Requ
     let made = world::generate_with(SEED, superchunks, (1 << 20) * thousandths / 1000, flock);
     let across = side(superchunks);
     let middle = WORLD_SIDE_SUPERCHUNKS / 2;
-    let positions = (0..superchunks).map(|index| SuperChunkPosition { x: middle + index % across, y: middle + index / across }).collect();
+    let positions = (0..superchunks).map(|index| SuperchunkPosition { x: middle + index % across, y: middle + index / across }).collect();
     let mut world = MockWorld { arena: made.arena, entities: made.entities, storage: made.storage, superchunks: positions };
     let mut simulation = Simulation::for_superchunks(superchunks as usize);
     let (mut paused, mut pace, mut tick) = (false, Some(TARGET_PACE), 0u64);
@@ -238,7 +238,7 @@ fn copy(world: &MockWorld, superchunks: u32, ask: Ask) -> Vec<Cells> {
 
 /// `superchunk`'s cells of `layer_type`: its chunks' words, one chunk
 /// after another.
-fn layer(world: &MockWorld, layer_type: LayerType, superchunk: SuperChunkPosition) -> Vec<u64> {
+fn layer(world: &MockWorld, layer_type: LayerType, superchunk: SuperchunkPosition) -> Vec<u64> {
     let mut words = Vec::with_capacity(CHUNKS_IN_SUPERCHUNK * CHUNK_WORDS);
     for place in ChunkPlace::all() {
         match world.arena.bucket(BucketKey { layer_type, chunk: ChunkPosition::of(superchunk, place) }) {
@@ -250,7 +250,7 @@ fn layer(world: &MockWorld, layer_type: LayerType, superchunk: SuperChunkPositio
 }
 
 /// The cells `superchunk`'s sheep stand on, from its top left.
-fn sheep(world: &MockWorld, superchunk: SuperChunkPosition) -> Vec<(u16, u16)> {
+fn sheep(world: &MockWorld, superchunk: SuperchunkPosition) -> Vec<(u16, u16)> {
     let Some(held) = world.entities.superchunk(superchunk.morton_index()) else {
         return Vec::new();
     };

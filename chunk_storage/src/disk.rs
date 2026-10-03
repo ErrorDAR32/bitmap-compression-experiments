@@ -6,8 +6,8 @@
 //! entities. Design: `../docs/chunk_storage.md`, "On disk".
 
 use crate::layer_codec::LayerType;
-use crate::superchunk_image::SuperChunkImage;
-use coordinates::SuperChunkPosition;
+use crate::superchunk_image::SuperchunkImage;
+use coordinates::SuperchunkPosition;
 use std::fmt;
 use std::fs;
 use std::io;
@@ -40,7 +40,7 @@ impl std::error::Error for DiskError {}
 
 /// A superchunk's file in `directory`: its Morton index in hexadecimal,
 /// and `extension`.
-fn superchunk_file(directory: &Path, superchunk: SuperChunkPosition, extension: &str) -> PathBuf {
+fn superchunk_file(directory: &Path, superchunk: SuperchunkPosition, extension: &str) -> PathBuf {
     directory.join(SUPERCHUNKS).join(format!("{:011x}.{extension}", superchunk.morton_index()))
 }
 
@@ -59,36 +59,36 @@ pub fn read_world(directory: &Path) -> Result<WorldInfo, DiskError> {
 }
 
 /// Writes `image` as `superchunk`'s in `directory`: how many bytes.
-pub fn write_image(directory: &Path, superchunk: SuperChunkPosition, image: &SuperChunkImage) -> Result<u64, DiskError> {
+pub fn write_image(directory: &Path, superchunk: SuperchunkPosition, image: &SuperchunkImage) -> Result<u64, DiskError> {
     make_folder(&directory.join(SUPERCHUNKS))?;
     write_words(&superchunk_file(directory, superchunk, "image"), image.words())
 }
 
 /// The image of `superchunk` in `directory`, checked.
-pub fn read_image(directory: &Path, superchunk: SuperChunkPosition) -> Result<SuperChunkImage, DiskError> {
+pub fn read_image(directory: &Path, superchunk: SuperchunkPosition) -> Result<SuperchunkImage, DiskError> {
     let path = superchunk_file(directory, superchunk, "image");
-    SuperChunkImage::from_words(read_words(&path)?.into_boxed_slice()).map_err(|invalid| DiskError::Invalid(path, invalid.0.to_string()))
+    SuperchunkImage::from_words(read_words(&path)?.into_boxed_slice()).map_err(|invalid| DiskError::Invalid(path, invalid.0.to_string()))
 }
 
 /// Writes `words` as `superchunk`'s state in `directory`: how many
 /// bytes.
-pub fn write_state(directory: &Path, superchunk: SuperChunkPosition, words: &[u64]) -> Result<u64, DiskError> {
+pub fn write_state(directory: &Path, superchunk: SuperchunkPosition, words: &[u64]) -> Result<u64, DiskError> {
     make_folder(&directory.join(SUPERCHUNKS))?;
     write_words(&superchunk_file(directory, superchunk, "state"), words)
 }
 
 /// The state of `superchunk` in `directory`: its words, and its file,
 /// to say what is wrong with them.
-pub fn read_state(directory: &Path, superchunk: SuperChunkPosition) -> Result<(Vec<u64>, PathBuf), DiskError> {
+pub fn read_state(directory: &Path, superchunk: SuperchunkPosition) -> Result<(Vec<u64>, PathBuf), DiskError> {
     let path = superchunk_file(directory, superchunk, "state");
     Ok((read_words(&path)?, path))
 }
 
 /// Every superchunk with an image in `directory`, in Morton order.
-pub fn saved_superchunks(directory: &Path) -> Result<Vec<SuperChunkPosition>, DiskError> {
+pub fn saved_superchunks(directory: &Path) -> Result<Vec<SuperchunkPosition>, DiskError> {
     let mut mortons = images_in(&directory.join(SUPERCHUNKS))?;
     mortons.sort_unstable();
-    Ok(mortons.into_iter().map(SuperChunkPosition::from_morton_index).collect())
+    Ok(mortons.into_iter().map(SuperchunkPosition::from_morton_index).collect())
 }
 
 /// Makes `folder`, and those above it, if not there.

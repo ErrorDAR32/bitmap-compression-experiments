@@ -10,14 +10,14 @@ cell asked of a bitmap not hot.
 **`ChunkSet`** (`u16`, a bit a chunk), **`contains`**, **`put`**,
 **`members`**. **`ChunkFlags`**: the four sets, packed in 8 bytes.
 
-**`SuperChunkLayer`**: one layer type over one superchunk -- its owned
+**`SuperchunkLayer`**: one layer type over one superchunk -- its owned
 block, flags, counts less one, hot count. **`count`** / **`set_count`**
 a bucket's set cells; **`cells`** / **`cells_mut`** a bucket's words;
 **`get`** a cell by Morton index; **`put_cell`** a cell set or clear if
 not already, the bucket dirty and the counts moved by one: whether it
 changed.
 
-**`SuperChunk`** `{morton, layers}`: one superchunk, owning its layers.
+**`Superchunk`** `{morton, layers}`: one superchunk, owning its layers.
 **`morton`**, **`position`**, **`layer(type)`** -- a **`LayerView`**
 (**`hot_count`**, **`is_hot(chunk)`**, **`count(chunk)`**,
 **`cells(chunk)`**, **`block_counts(chunk)`** -- the set cells of each
@@ -25,7 +25,7 @@ of its `BLOCKS_IN_CHUNK` blocks of `BLOCK_WORDS` words) -- and **`apply(type, wr
 write's part in it. Private: **`layer_index`**.
 
 **`Reader::new(superchunks)`**: **`holds(type, cell)`**,
-**`window(type, origin, width, height)`** -- a **`Tile`** `{set, hot}`,
+**`window(type, origin, width, height)`** -- a **`Window`** `{set, hot}`,
 up to 8x8 cells row by row from `origin`, bit `y * 8 + x` --
 **`windows(types, ...)`**, the same of several types at once, where it
 lies worked out once --
@@ -72,7 +72,7 @@ bytes); **`Write::cell(at, op)`**; **`bounds`** and **`covers`**: a
 shape's cartesian rectangle and its cells; **`superchunks`** (public,
 for routing): the superchunks a write lands in.
 
-**`Applied`** `{writes, changed, missed}`, added with `+=`.
+**`WritesApplied`** `{writes, changed, missed}`, added with `+=`.
 
 **`WriteQueues`**: a queue a layer type, the last 16 types written
 found again without a search, each in its place in a small cache by a

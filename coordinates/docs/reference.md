@@ -8,7 +8,7 @@ The design is in `coordinates.md`.
 `CHUNKS_IN_SUPERCHUNK` (16), `SUPERCHUNK_SIDE_CELLS` (1024),
 `WORLD_SIDE_SUPERCHUNKS` (2^22: a cell's coordinates fit a `u32`).
 
-**`SuperChunkPosition`** `{x, y}`: **`morton_index()`**, the coordinates'
+**`SuperchunkPosition`** `{x, y}`: **`morton_index()`**, the coordinates'
 bits interleaved, x in the even bits, 44 bits; **`from_morton_index`**
 undoes it.
 

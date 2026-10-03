@@ -16,7 +16,7 @@
 //! superchunk at the tail ([`WritebackRing::tail_superchunk`]) until it
 //! does.
 
-use coordinates::{ChunkPosition, SuperChunkPosition, CHUNKS_IN_SUPERCHUNK};
+use coordinates::{ChunkPosition, SuperchunkPosition, CHUNKS_IN_SUPERCHUNK};
 use crate::layer_codec::LayerType;
 use std::ops::Range;
 
@@ -137,13 +137,13 @@ impl WritebackRing {
     }
 
     /// The superchunk of the oldest live entry, if any.
-    pub fn tail_superchunk(&self) -> Option<SuperChunkPosition> {
+    pub fn tail_superchunk(&self) -> Option<SuperchunkPosition> {
         let (_, chunk, ..) = self.all_entries().find(|&(.., dead)| !dead)?;
         Some(ChunkPosition::from_morton_index(chunk).superchunk_and_place().0)
     }
 
     /// The live entries of `superchunk`, oldest first.
-    pub fn entries_of(&self, superchunk: SuperChunkPosition) -> Vec<RingEntry> {
+    pub fn entries_of(&self, superchunk: SuperchunkPosition) -> Vec<RingEntry> {
         let key = superchunk.morton_index();
         self.all_entries()
             .filter(|&(_, chunk, .., dead)| !dead && chunk >> CHUNK_PLACE_BITS == key)
@@ -162,7 +162,7 @@ impl WritebackRing {
 
     /// Frees every entry of `superchunk`: marks them dead, and moves the
     /// tail past the dead entries at it.
-    pub fn release(&mut self, superchunk: SuperChunkPosition) {
+    pub fn release(&mut self, superchunk: SuperchunkPosition) {
         let key = superchunk.morton_index();
         let starts: Vec<usize> = self.all_entries().filter(|&(_, chunk, ..)| chunk >> CHUNK_PLACE_BITS == key).map(|(start, ..)| start).collect();
         for start in starts {

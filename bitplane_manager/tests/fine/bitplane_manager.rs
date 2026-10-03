@@ -5,19 +5,19 @@
 //! `cargo test`
 
 use bitmap::{Bitmap, CellWords, WORDS};
-use bitplane_manager::{Applied, BitmapArena, BucketKey, NotHot, Reader, Shape, Tile, Write, WriteOp, BLOCKS_IN_CHUNK, BLOCK_WORDS};
+use bitplane_manager::{WritesApplied, BitmapArena, BucketKey, NotHot, Reader, Shape, Window, Write, WriteOp, BLOCKS_IN_CHUNK, BLOCK_WORDS};
 use chunk_storage::mock::{grass_on_dirt, DIRT, GRASS};
-use chunk_storage::{ChunkStorage, HeightMap, LayerChange, LayerCodec, LayerType, SuperChunkImage};
-use coordinates::{CartesianCell, CellIndex, CellPlace, ChunkPlace, ChunkPosition, SuperChunkPosition, SUPERCHUNK_SIDE, SUPERCHUNK_SIDE_CELLS, WORLD_SIDE_SUPERCHUNKS};
+use chunk_storage::{ChunkStorage, HeightMap, LayerChange, LayerCodec, LayerType, SuperchunkImage};
+use coordinates::{CartesianCell, CellIndex, CellPlace, ChunkPlace, ChunkPosition, SuperchunkPosition, SUPERCHUNK_SIDE, SUPERCHUNK_SIDE_CELLS, WORLD_SIDE_SUPERCHUNKS};
 
 /// A cell of a chunk.
 const CELL: CellPlace = CellPlace { x: 3, y: 200 };
 
 /// The superchunk the tests work in.
-const ORIGIN: SuperChunkPosition = SuperChunkPosition { x: 0, y: 0 };
+const ORIGIN: SuperchunkPosition = SuperchunkPosition { x: 0, y: 0 };
 
 /// A superchunk roughly in the middle of the world, where it starts.
-const MIDDLE: SuperChunkPosition = SuperChunkPosition { x: WORLD_SIDE_SUPERCHUNKS / 2, y: WORLD_SIDE_SUPERCHUNKS / 2 };
+const MIDDLE: SuperchunkPosition = SuperchunkPosition { x: WORLD_SIDE_SUPERCHUNKS / 2, y: WORLD_SIDE_SUPERCHUNKS / 2 };
 
 /// A bitmap's cells, with a rectangle and a circle drawn.
 fn drawn() -> CellWords {
@@ -29,13 +29,13 @@ fn drawn() -> CellWords {
 
 /// Queues `op` on `cell` of `layer_type`'s bitplane, and applies it:
 /// what applying did.
-fn write(arena: &mut BitmapArena, layer_type: LayerType, op: WriteOp, cell: CartesianCell) -> Applied {
+fn write(arena: &mut BitmapArena, layer_type: LayerType, op: WriteOp, cell: CartesianCell) -> WritesApplied {
     arena.queue(layer_type, Write::cell(cell.into(), op));
     arena.apply()
 }
 
 /// The cell at `cell` in the chunk at `place` of `superchunk`.
-fn cell_in(superchunk: SuperChunkPosition, place: ChunkPlace, cell: CellPlace) -> CartesianCell {
+fn cell_in(superchunk: SuperchunkPosition, place: ChunkPlace, cell: CellPlace) -> CartesianCell {
     CartesianCell::at(coordinates::CellAddress { superchunk, chunk: place, cell })
 }
 
@@ -48,12 +48,12 @@ fn one_cell(cell: CellPlace) -> CellWords {
 
 /// Chunk storage holding a superchunk at `superchunk` whose chunk at
 /// `place` has `layers`, each with its cells.
-fn storage_with(superchunk: SuperChunkPosition, place: ChunkPlace, layers: &[(LayerType, CellWords)], codec: &mut LayerCodec) -> ChunkStorage {
+fn storage_with(superchunk: SuperchunkPosition, place: ChunkPlace, layers: &[(LayerType, CellWords)], codec: &mut LayerCodec) -> ChunkStorage {
     let encoded: Vec<(LayerType, Vec<u64>)> = layers.iter().map(|(layer_type, cells)| (*layer_type, codec.encode(cells).to_vec())).collect();
     let changes: Vec<LayerChange> =
         encoded.iter().map(|(layer_type, words)| LayerChange { chunk: place.index(), layer_type: *layer_type, words }).collect();
     let mut storage = ChunkStorage::new(1 << 12);
-    storage.insert(superchunk, SuperChunkImage::new(&HeightMap::default()).rewritten(&changes));
+    storage.insert(superchunk, SuperchunkImage::new(&HeightMap::default()).rewritten(&changes));
     storage
 }
 
@@ -92,7 +92,7 @@ fn hot_bitmaps_hold_their_chunks_cells() {
 #[test]
 fn buckets_come_by_superchunk_then_type_then_chunk() {
     let (mut codec, mut arena) = (LayerCodec::new(), BitmapArena::new());
-    let superchunks = [SuperChunkPosition { x: 2, y: 0 }, ORIGIN, SuperChunkPosition { x: 1, y: 0 }];
+    let superchunks = [SuperchunkPosition { x: 2, y: 0 }, ORIGIN, SuperchunkPosition { x: 1, y: 0 }];
     let places = [ChunkPlace::new(1, 1), ChunkPlace::new(0, 1), ChunkPlace::new(1, 0), ChunkPlace::new(0, 0)];
     for layer_type in [LayerType(9), LayerType(4)] {
         for superchunk in superchunks {
@@ -101,7 +101,7 @@ fn buckets_come_by_superchunk_then_type_then_chunk() {
             }
         }
     }
-    let superchunks_in_order = [ORIGIN, SuperChunkPosition { x: 1, y: 0 }, SuperChunkPosition { x: 2, y: 0 }];
+    let superchunks_in_order = [ORIGIN, SuperchunkPosition { x: 1, y: 0 }, SuperchunkPosition { x: 2, y: 0 }];
     let places_in_order = [ChunkPlace::new(0, 0), ChunkPlace::new(1, 0), ChunkPlace::new(0, 1), ChunkPlace::new(1, 1)];
     let chunks_in_order: Vec<ChunkPosition> = superchunks_in_order
         .into_iter()
@@ -215,7 +215,7 @@ fn evicted_bitmaps_wait_for_the_ring() {
 fn a_full_ring_releases_what_it_flushed() {
     let (mut codec, mut arena) = (LayerCodec::new(), BitmapArena::new());
     let mut storage = ChunkStorage::new(8);
-    let (first, second) = (SuperChunkPosition { x: 7, y: 7 }, SuperChunkPosition { x: 8, y: 7 });
+    let (first, second) = (SuperchunkPosition { x: 7, y: 7 }, SuperchunkPosition { x: 8, y: 7 });
     let key = |superchunk| BucketKey { layer_type: LayerType(3), chunk: ChunkPosition::of(superchunk, ChunkPlace::new(0, 0)) };
     // An entry bigger than the ring grows it to the power of two over the
     // entry -- under two entries -- so the second entry flushes the first.
@@ -339,7 +339,7 @@ fn windows_read_at_once_are_the_cells_read_one_by_one() {
     for y in 0..5 {
         for x in 0..5 {
             for place in ChunkPlace::all() {
-                let chunk = ChunkPosition::of(SuperChunkPosition { x, y }, place);
+                let chunk = ChunkPosition::of(SuperchunkPosition { x, y }, place);
                 // Some chunks of grass left cold, and dirt over half the superchunks.
                 if !(x + y + place.index() as u32).is_multiple_of(7) {
                     arena.make_hot(BucketKey { layer_type: GRASS, chunk }, None, &mut codec);
@@ -364,7 +364,7 @@ fn windows_read_at_once_are_the_cells_read_one_by_one() {
         let (width, height) = (1 + number as u32 % 8, 1 + (number as u32 / 8) % 8);
         let origin = CellIndex::from(CartesianCell { x, y });
         for layer_type in [GRASS, DIRT] {
-            let mut expected = Tile::default();
+            let mut expected = Window::default();
             for (dx, dy) in (0..height).flat_map(|dy| (0..width).map(move |dx| (dx, dy))) {
                 if let Ok(set) = reader.holds(layer_type, CellIndex::from(CartesianCell { x: x + dx, y: y + dy })) {
                     expected.hot |= 1 << (dy * 8 + dx);

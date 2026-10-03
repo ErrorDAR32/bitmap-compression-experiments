@@ -44,7 +44,7 @@ pub struct Throughput {
 /// on `thousandths` of each one's cells, on `threads` threads.
 pub fn run(ticks: usize, thousandths: usize, superchunks: u32, threads: usize) -> Throughput {
     let mut memory = MemoryTrack::default();
-    memory.sample();
+    memory.read();
     let mut world = MockWorld::grass_on_dirt(superchunks, (1 << 20) * thousandths / 1000);
     let start_grass = world.grass();
     let (mut computing, mut applying, mut writes, mut sampled, mut missed) = (Duration::ZERO, Duration::ZERO, 0, 0, 0);
@@ -56,7 +56,7 @@ pub fn run(ticks: usize, thousandths: usize, superchunks: u32, threads: usize) -
         writes += report.applied.writes;
         missed += report.applied.missed;
         sampled += report.rules.sampled;
-        memory.sample();
+        memory.read();
     }
     Throughput {
         ticks,

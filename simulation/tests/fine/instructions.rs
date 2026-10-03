@@ -10,10 +10,10 @@
 
 use bitplane_manager::{BitmapArena, BucketKey, Write, WriteOp};
 use chunk_storage::{LayerCodec, LayerType};
-use coordinates::{CartesianCell, CellIndex, ChunkPlace, ChunkPosition, SuperChunkPosition, SUPERCHUNK_SIDE_CELLS};
+use coordinates::{CartesianCell, CellIndex, ChunkPlace, ChunkPosition, SuperchunkPosition, SUPERCHUNK_SIDE_CELLS};
 use simulation::around::{self, CENTRE, RING};
 use simulation::entity_store::{Attribute, AttributeType, EntityEdit, Entities, EntityId, EntityType, Header, NEVER};
-use simulation::{Simulation, SuperChunkTick};
+use simulation::{Simulation, Turn};
 use terrain::{WALL_EAST, WALL_SOUTH};
 use std::sync::Mutex;
 
@@ -35,12 +35,12 @@ fn world(side: u32) -> (BitmapArena, Entities) {
     for y in 10..10 + side {
         for x in 10..10 + side {
             for place in ChunkPlace::all() {
-                arena.make_hot(BucketKey { layer_type: STONE, chunk: ChunkPosition::of(SuperChunkPosition { x, y }, place) }, None, &mut codec);
+                arena.make_hot(BucketKey { layer_type: STONE, chunk: ChunkPosition::of(SuperchunkPosition { x, y }, place) }, None, &mut codec);
             }
         }
     }
     let mut entities = Entities::new();
-    let mortons: Vec<u64> = arena.superchunks().iter().map(|superchunk| superchunk.morton()).collect();
+    let mortons: Vec<u64> = arena.superchunks().iter().map(|superchunk| superchunk.morton_index()).collect();
     assert_eq!(entities.align(&mortons), 0);
     (arena, entities)
 }
@@ -56,7 +56,7 @@ fn walker(id: u64, at: CellIndex, wake: u64) -> Header {
 }
 
 /// Every walker woken steps a cell to the right, to wake next tick.
-fn step_right(turn: &mut SuperChunkTick, _: &mut Vec<CellIndex>) -> usize {
+fn step_right(turn: &mut Turn, _: &mut Vec<CellIndex>) -> usize {
     let now = turn.now();
     for entity in turn.woken() {
         turn.step(&entity.header, entity.header.at.offset(1, 0).expect("in the world"), now + 1);
@@ -125,7 +125,7 @@ fn entities_edit_another_an_attribute_at_a_time() {
     entities.queue_put(walker(2, cell(1040, 30), 0), &[]);
     entities.apply();
     let mut simulation = Simulation::new(2);
-    let report = simulation.tick(&mut arena, &mut entities, 0, |turn: &mut SuperChunkTick, _: &mut Vec<CellIndex>| {
+    let report = simulation.tick(&mut arena, &mut entities, 0, |turn: &mut Turn, _: &mut Vec<CellIndex>| {
         for entity in turn.woken() {
             let kind = if entity.header.id == EntityId(1) { MARK } else { SCAR };
             turn.set_attribute(&target, kind, entity.header.id.0);
@@ -140,7 +140,7 @@ fn entities_edit_another_an_attribute_at_a_time() {
 
     entities.queue_put(walker(3, cell(1031, 31), 1), &[]);
     entities.apply();
-    simulation.tick(&mut arena, &mut entities, 1, |turn: &mut SuperChunkTick, _: &mut Vec<CellIndex>| {
+    simulation.tick(&mut arena, &mut entities, 1, |turn: &mut Turn, _: &mut Vec<CellIndex>| {
         for entity in turn.woken() {
             turn.unset_attribute(&target, MARK);
             turn.set_attribute(&target, NAME, 8);
@@ -162,7 +162,7 @@ fn an_entity_is_put_whole_only_if_an_attribute_changed() {
     entities.queue_put(walker(2, cell(40, 40), 0), &[Attribute { kind: NAME, value: 7 }]);
     entities.apply();
     let mut simulation = Simulation::new(1);
-    let report = simulation.tick(&mut arena, &mut entities, 0, |turn: &mut SuperChunkTick, _: &mut Vec<CellIndex>| {
+    let report = simulation.tick(&mut arena, &mut entities, 0, |turn: &mut Turn, _: &mut Vec<CellIndex>| {
         let mut room = Vec::new();
         for entity in turn.woken() {
             let mut edit = EntityEdit::of(entity, &mut room);
@@ -198,7 +198,7 @@ fn the_cells_beside_an_entity_are_asked_as_masks() {
     entities.apply();
     let seen = Mutex::new(Vec::new());
     let mut simulation = Simulation::new(1);
-    simulation.tick(&mut arena, &mut entities, 0, |turn: &mut SuperChunkTick, _: &mut Vec<CellIndex>| {
+    simulation.tick(&mut arena, &mut entities, 0, |turn: &mut Turn, _: &mut Vec<CellIndex>| {
         for entity in turn.woken() {
             let at = entity.header.at;
             let (stone, taken) = (turn.around(STONE, at), turn.around_occupied(at));
@@ -230,7 +230,7 @@ fn a_step_to_a_cell_goes_round_what_is_in_the_way() {
     let mut simulation = Simulation::new(1);
     let mut steps = 0;
     while entities.get(EntityId(1), to).is_none() {
-        simulation.tick(&mut arena, &mut entities, steps, |turn: &mut SuperChunkTick, _: &mut Vec<CellIndex>| {
+        simulation.tick(&mut arena, &mut entities, steps, |turn: &mut Turn, _: &mut Vec<CellIndex>| {
             let now = turn.now();
             for entity in turn.woken() {
                 let at = entity.header.at;
@@ -267,7 +267,7 @@ fn a_cell_is_sought_further_and_further_off() {
             arena.queue(STONE, Write::cell(goal, WriteOp::Set));
             arena.apply();
         }
-        simulation.tick(&mut arena, &mut entities, seed as u64, |turn: &mut SuperChunkTick, _: &mut Vec<CellIndex>| {
+        simulation.tick(&mut arena, &mut entities, seed as u64, |turn: &mut Turn, _: &mut Vec<CellIndex>| {
             for entity in turn.woken() {
                 let found = turn.seek(from, STONE);
                 assert_eq!(found.map(|found| found.level), level, "{across} across, {down} down");
@@ -295,7 +295,7 @@ fn walls_of_the_terrain_bar_steps() {
     let mut codec = LayerCodec::new();
     for layer_type in [WALL_EAST, WALL_SOUTH] {
         for place in ChunkPlace::all() {
-            arena.make_hot(BucketKey { layer_type, chunk: ChunkPosition::of(SuperChunkPosition { x: 10, y: 10 }, place) }, None, &mut codec);
+            arena.make_hot(BucketKey { layer_type, chunk: ChunkPosition::of(SuperchunkPosition { x: 10, y: 10 }, place) }, None, &mut codec);
         }
     }
     // A cliff between columns 41 and 42, rows 20 to 40, with a gap at row 33: walls east of column 41, which bar the diagonals across it too.
@@ -309,7 +309,7 @@ fn walls_of_the_terrain_bar_steps() {
     let mut simulation = Simulation::new(1);
     let mut steps = 0;
     while entities.get(EntityId(1), to).is_none() {
-        simulation.tick(&mut arena, &mut entities, steps, |turn: &mut SuperChunkTick, _: &mut Vec<CellIndex>| {
+        simulation.tick(&mut arena, &mut entities, steps, |turn: &mut Turn, _: &mut Vec<CellIndex>| {
             let now = turn.now();
             for entity in turn.woken() {
                 let at = entity.header.at;

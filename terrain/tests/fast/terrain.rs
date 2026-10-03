@@ -4,7 +4,7 @@
 //!
 //! `cargo test`
 
-use coordinates::{CellPlace, ChunkPlace, SuperChunkPosition, SUPERCHUNK_SIDE_CELLS};
+use coordinates::{CellPlace, ChunkPlace, SuperchunkPosition, SUPERCHUNK_SIDE_CELLS};
 use terrain::{height, wall, Terrain, STEP, WALLS};
 
 /// The height of the cell `(x, y)` of a superchunk's `terrain`.
@@ -22,7 +22,7 @@ fn walled(terrain: &Terrain, way: usize, x: u32, y: u32) -> bool {
 /// superchunk's heights are the world's, whichever superchunk is made.
 #[test]
 fn heights_are_settled_by_the_seed_and_the_cell() {
-    let superchunk = SuperChunkPosition { x: 2_000_000, y: 2_000_001 };
+    let superchunk = SuperchunkPosition { x: 2_000_000, y: 2_000_001 };
     let (left, top) = (superchunk.x * SUPERCHUNK_SIDE_CELLS, superchunk.y * SUPERCHUNK_SIDE_CELLS);
     let (first, again, other) = (Terrain::generate(7, superchunk), Terrain::generate(7, superchunk), Terrain::generate(8, superchunk));
     assert!(first.heights == again.heights);
@@ -36,7 +36,7 @@ fn heights_are_settled_by_the_seed_and_the_cell() {
 /// superchunk, and no cell is far from its neighbour's.
 #[test]
 fn the_ground_rolls() {
-    let terrain = Terrain::generate(1, SuperChunkPosition { x: 2_097_152, y: 2_097_152 });
+    let terrain = Terrain::generate(1, SuperchunkPosition { x: 2_097_152, y: 2_097_152 });
     let (mut low, mut high, mut steepest) = (u8::MAX, 0, 0);
     for y in 0..1024 {
         for x in 0..1024 {
@@ -56,7 +56,7 @@ fn the_ground_rolls() {
 /// and some of the ground is walled, most of it not.
 #[test]
 fn walls_are_where_heights_are_more_than_a_step_apart() {
-    let superchunk = SuperChunkPosition { x: 2_097_152, y: 2_097_152 };
+    let superchunk = SuperchunkPosition { x: 2_097_152, y: 2_097_152 };
     let (left, top) = (superchunk.x * SUPERCHUNK_SIDE_CELLS, superchunk.y * SUPERCHUNK_SIDE_CELLS);
     let terrain = Terrain::generate(1, superchunk);
     for y in (0..1024).step_by(7).chain([1023]) {

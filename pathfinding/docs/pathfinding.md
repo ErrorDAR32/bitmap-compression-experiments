@@ -4,7 +4,7 @@ How an entity finds its way: over an **area** of 16x16 cells about it,
 held as masks, a row a `u16` -- all this crate knows of the world. What
 the cells are, which may be walked on and where the walker wants to go
 are for whoever calls it: an entity's turn reads the area of a layer
-about a cell (`simulation`'s `SuperChunkTick::area`), and a rule hands
+about a cell (`simulation`'s `Turn::area`), and a rule hands
 here the masks it made of it.
 
 ## A step a tick
@@ -64,9 +64,9 @@ upper or left cell of the two. A diagonal step has no wall of its own:
 it is open only when both ways round it -- across then down, down then
 across -- are. `Walls::new` takes the east and south masks and works out
 once, a mask a diagonal, the diagonal steps they bar
-(`Walls::blocks_step`).
+(`Walls::bars_step`).
 
 A wave spreads each of the eight ways apart, each masked by its walls
 before it is shifted -- eight shifts a row where there were three. A*
-asks `blocks_step` of each step it tries. With no walls (`Walls::default`)
+asks `bars_step` of each step it tries. With no walls (`Walls::default`)
 both are what they were.

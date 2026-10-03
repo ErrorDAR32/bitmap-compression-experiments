@@ -1,5 +1,5 @@
 //! TileSim's coordinates: where things are, by cascade: a cell anywhere in the world is a
-//! [`CartesianCell`]; it lies in one superchunk ([`SuperChunkPosition`]), in
+//! [`CartesianCell`]; it lies in one superchunk ([`SuperchunkPosition`]), in
 //! one chunk of it ([`ChunkPlace`]), at one cell of that chunk
 //! ([`CellPlace`]). A chunk anywhere in the world is a
 //! [`ChunkPosition`]. [`CartesianCell::address`] and [`CartesianCell::at`]
@@ -48,14 +48,14 @@ const CHUNK_PLACE_BITS: u32 = SUPERCHUNK_SIDE.trailing_zeros();
 /// A superchunk's place in the world, counted in superchunks from the
 /// world's top left, each under [`WORLD_SIDE_SUPERCHUNKS`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct SuperChunkPosition {
+pub struct SuperchunkPosition {
     /// Superchunks from the world's left edge.
     pub x: u32,
     /// Superchunks from the world's top edge.
     pub y: u32,
 }
 
-impl SuperChunkPosition {
+impl SuperchunkPosition {
     /// The superchunk's place in Morton order over the whole world: its
     /// coordinates' bits interleaved, `x` in the even bits and `y` in the
     /// odd ones, as a bitmap's cells and a superchunk's chunks are
@@ -68,7 +68,7 @@ impl SuperChunkPosition {
     }
 
     /// The superchunk whose Morton index is `index`:
-    /// [`SuperChunkPosition::morton_index`] undone.
+    /// [`SuperchunkPosition::morton_index`] undone.
     pub fn from_morton_index(index: u64) -> Self {
         Self { x: gather(index), y: gather(index >> 1) }
     }
@@ -188,17 +188,17 @@ pub struct ChunkPosition {
 
 impl ChunkPosition {
     /// The chunk at `place` in the superchunk at `superchunk`.
-    pub fn of(superchunk: SuperChunkPosition, place: ChunkPlace) -> Self {
+    pub fn of(superchunk: SuperchunkPosition, place: ChunkPlace) -> Self {
         let join = |superchunk: u32, place: u8| superchunk << CHUNK_PLACE_BITS | place as u32;
         Self { x: join(superchunk.x, place.x), y: join(superchunk.y, place.y) }
     }
 
     /// The superchunk the chunk is in, and its place there:
     /// [`ChunkPosition::of`] undone.
-    pub fn superchunk_and_place(self) -> (SuperChunkPosition, ChunkPlace) {
+    pub fn superchunk_and_place(self) -> (SuperchunkPosition, ChunkPlace) {
         let place = |coordinate: u32| (coordinate % SUPERCHUNK_SIDE as u32) as u8;
         (
-            SuperChunkPosition { x: self.x >> CHUNK_PLACE_BITS, y: self.y >> CHUNK_PLACE_BITS },
+            SuperchunkPosition { x: self.x >> CHUNK_PLACE_BITS, y: self.y >> CHUNK_PLACE_BITS },
             ChunkPlace::new(place(self.x), place(self.y)),
         )
     }
@@ -231,7 +231,7 @@ pub struct CellPlace {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct CellAddress {
     /// The superchunk the cell is in.
-    pub superchunk: SuperChunkPosition,
+    pub superchunk: SuperchunkPosition,
     /// The chunk of it the cell is in.
     pub chunk: ChunkPlace,
     /// The cell's place in that chunk.
@@ -277,7 +277,7 @@ impl CartesianCell {
     /// alone locates it: from the lowest bit, 16 for its place in its
     /// chunk ([`morton_index`] of its [`CellPlace`]), 4 for its chunk's
     /// place in its superchunk ([`ChunkPlace::index`]), 44 for its
-    /// superchunk ([`SuperChunkPosition::morton_index`]).
+    /// superchunk ([`SuperchunkPosition::morton_index`]).
     pub fn morton_index(self) -> u64 {
         interleave(self.x, self.y)
     }
@@ -310,7 +310,7 @@ pub struct CellIndex(pub u64);
 
 impl CellIndex {
     /// The cell's superchunk's Morton index
-    /// ([`SuperChunkPosition::morton_index`]).
+    /// ([`SuperchunkPosition::morton_index`]).
     pub fn superchunk(self) -> u64 {
         self.0 >> SUPERCHUNK_CELL_BITS
     }

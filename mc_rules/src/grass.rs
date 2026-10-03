@@ -26,7 +26,7 @@
 
 use bitplane_manager::{BitmapArena, Write, WriteOp};
 use simulation::entity_store::Entities;
-use simulation::{Simulation, SuperChunkTick, TickReport};
+use simulation::{Simulation, Turn, TickReport};
 use chunk_storage::mock::{DIRT, GRASS};
 use coordinates::{CellIndex, NEIGHBOURS};
 use std::ops::AddAssign;
@@ -69,7 +69,7 @@ pub fn tick(simulation: &mut Simulation, arena: &mut BitmapArena, entities: &mut
 /// the chances of spreading and of decay together, in Morton order;
 /// each draws a neighbour, and whether it tries to spread or to decay,
 /// and queues the writes if the neighbour lets it.
-pub fn rule(turn: &mut SuperChunkTick, samples: &mut Vec<CellIndex>) -> Grass {
+pub fn rule(turn: &mut Turn, samples: &mut Vec<CellIndex>) -> Grass {
     let sampled = turn.sample(GRASS, SPREAD_CHANCE + DECAY_CHANCE, samples);
     let spread_share = SPREAD_CHANCE / (SPREAD_CHANCE + DECAY_CHANCE);
     let (mut spreads, mut decays) = (0, 0);

@@ -15,9 +15,9 @@ fn memory_is_read_and_tracked() {
     let mut track = MemoryTrack::default();
     // Kept from being optimized away, so the memory is really held.
     let held = std::hint::black_box(vec![1u8; 32 << 20]);
-    track.sample();
+    track.read();
     drop(held);
-    track.sample();
-    let (average, peak) = (track.average().expect("sampled"), track.peak().expect("sampled"));
+    track.read();
+    let (average, peak) = (track.average().expect("read"), track.peak().expect("read"));
     assert!(average > 0 && average <= peak && peak >= 32 << 20);
 }

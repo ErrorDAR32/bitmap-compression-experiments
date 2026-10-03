@@ -64,7 +64,7 @@ impl EntityRef<'_> {
 
 /// An entity being changed by its rule: its attributes read, set and
 /// removed as if they were its own already, and nothing copied until
-/// one is. What it comes to is queued by `SuperChunkTick::commit`,
+/// one is. What it comes to is queued by `Turn::commit`,
 /// which picks the instruction: an entity whose attributes were left
 /// alone is moved, or put back to sleep, and carries none.
 pub struct EntityEdit<'a, 'b> {

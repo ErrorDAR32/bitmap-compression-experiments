@@ -15,7 +15,7 @@
 //! end.
 //!
 //! An image is never changed in place: changes to it make a new one
-//! ([`SuperChunkImage::rewritten`]).
+//! ([`SuperchunkImage::rewritten`]).
 
 use coordinates::{CellPlace, ChunkPlace, CHUNKS_IN_SUPERCHUNK};
 use crate::height_map::{height_in, Height, HeightMap, HEIGHT_WORDS};
@@ -46,12 +46,12 @@ pub struct LayerChange<'a> {
 
 /// A superchunk's words: its chunk table, its heights, its chunks.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct SuperChunkImage {
+pub struct SuperchunkImage {
     /// Every word, as on disk.
     words: Box<[u64]>,
 }
 
-impl SuperChunkImage {
+impl SuperchunkImage {
     /// A superchunk with `heights` and no layers.
     pub fn new(heights: &HeightMap) -> Self {
         Self { words: build(heights.words(), &Default::default()) }

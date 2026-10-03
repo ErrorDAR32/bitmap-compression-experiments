@@ -7,13 +7,13 @@
 use bitplane_manager::{BitmapArena, Shape, Write, WriteOp};
 use chunk_storage::mock::{grass_on_dirt, DIRT, GRASS};
 use chunk_storage::{ChunkStorage, LayerCodec};
-use coordinates::{CartesianCell, ChunkPlace, ChunkPosition, SuperChunkPosition, SUPERCHUNK_SIDE_CELLS};
+use coordinates::{CartesianCell, ChunkPlace, ChunkPosition, SuperchunkPosition, SUPERCHUNK_SIDE_CELLS};
 use simulation::entity_store::Entities;
 use simulation::Simulation;
 use mc_rules::grass::{tick, DECAY_CHANCE, SPREAD_CHANCE};
 
 /// The superchunk the tests run on.
-const SUPERCHUNK: SuperChunkPosition = SuperChunkPosition { x: 3, y: 3 };
+const SUPERCHUNK: SuperchunkPosition = SuperchunkPosition { x: 3, y: 3 };
 
 /// Cells in a superchunk.
 const CELLS: u32 = 1 << 20;

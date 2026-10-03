@@ -5,8 +5,8 @@
 //! crossing: its ID, the cell it stands on, the cell it crossed to.
 
 use coordinates::CellIndex;
-use super::record::{Attribute, AttributeType, EntityId, EntityType, Header, NEVER};
-use super::store::{Crossing, Entities, SuperChunkEntities};
+use super::entity::{Attribute, AttributeType, EntityId, EntityType, Header, NEVER};
+use super::store::{Crossing, Entities, SuperchunkEntities};
 
 /// The first word: `TSstate` and the format's number, 1.
 const FIRST_WORD: u64 = u64::from_le_bytes(*b"TSstate\x01");
@@ -22,10 +22,10 @@ pub struct SavedState {
 /// The state file of a superchunk with `random` its random numbers'
 /// state and `entities` its entities, either of which it may lack: its
 /// words, and how many entities.
-pub fn encode_state(random: Option<u64>, entities: Option<&SuperChunkEntities>) -> (Vec<u64>, usize) {
+pub fn encode_state(random: Option<u64>, entities: Option<&SuperchunkEntities>) -> (Vec<u64>, usize) {
     let (count, crossings) = entities.map_or((0, &[][..]), |entities| (entities.len(), entities.crossings()));
     let mut words = vec![FIRST_WORD, random.is_some() as u64, random.unwrap_or(0), count as u64, crossings.len() as u64];
-    for entity in entities.into_iter().flat_map(SuperChunkEntities::iter) {
+    for entity in entities.into_iter().flat_map(SuperchunkEntities::iter) {
         let header = entity.header;
         words.extend([header.id.0, header.kind.0, header.at.0, header.wake, entity.attributes.len() as u64]);
         words.extend(entity.attributes.iter().flat_map(|attribute| [attribute.kind.0, attribute.value]));

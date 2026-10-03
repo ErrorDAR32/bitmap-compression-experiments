@@ -7,7 +7,7 @@ use bitmap::BITS_PER_WORD;
 use bitplane_manager::{BitmapArena, BucketKey};
 use chunk_storage::mock::GRASS;
 use simulation::entity_store::Entities;
-use coordinates::{ChunkPlace, ChunkPosition, SuperChunkPosition, CHUNK_SIDE, SUPERCHUNK_SIDE_CELLS};
+use coordinates::{ChunkPlace, ChunkPosition, SuperchunkPosition, CHUNK_SIDE, SUPERCHUNK_SIDE_CELLS};
 
 /// Dirt's colour.
 pub const BROWN: [u8; 3] = [116, 80, 46];
@@ -24,7 +24,7 @@ pub const FRAME_BYTES: usize = (SUPERCHUNK_SIDE_CELLS * SUPERCHUNK_SIDE_CELLS * 
 
 /// `superchunk`'s cells into `pixels` ([`FRAME_BYTES`] of them): brown,
 /// green where grass holds.
-pub fn frame(arena: &BitmapArena, superchunk: SuperChunkPosition, pixels: &mut [u8]) {
+pub fn frame(arena: &BitmapArena, superchunk: SuperchunkPosition, pixels: &mut [u8]) {
     let side = SUPERCHUNK_SIDE_CELLS as usize;
     for pixel in pixels.as_chunks_mut().0 {
         *pixel = BROWN;
@@ -47,7 +47,7 @@ pub fn frame(arena: &BitmapArena, superchunk: SuperChunkPosition, pixels: &mut [
 
 /// `superchunk`'s entities in `entities` drawn over `pixels`, a frame
 /// of it ([`frame`]): a white square each.
-pub fn sheep(entities: &Entities, superchunk: SuperChunkPosition, pixels: &mut [u8]) {
+pub fn sheep(entities: &Entities, superchunk: SuperchunkPosition, pixels: &mut [u8]) {
     let Some(held) = entities.superchunk(superchunk.morton_index()) else {
         return;
     };

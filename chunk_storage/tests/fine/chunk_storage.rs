@@ -5,14 +5,14 @@
 //! `cargo test`
 
 use bitmap::{Bitmap, CellWords, WORDS};
-use chunk_storage::{ChunkStorage, HeightMap, InvalidImage, LayerChange, LayerCodec, LayerType, SuperChunkImage, WritebackRing};
-use coordinates::{CellPlace, ChunkPlace, ChunkPosition, SuperChunkPosition, WORLD_SIDE_SUPERCHUNKS};
+use chunk_storage::{ChunkStorage, HeightMap, InvalidImage, LayerChange, LayerCodec, LayerType, SuperchunkImage, WritebackRing};
+use coordinates::{CellPlace, ChunkPlace, ChunkPosition, SuperchunkPosition, WORLD_SIDE_SUPERCHUNKS};
 
 /// A cell of a chunk.
 const CELL: CellPlace = CellPlace { x: 3, y: 200 };
 
 /// A superchunk roughly in the middle of the world, where it starts.
-const MIDDLE: SuperChunkPosition = SuperChunkPosition { x: WORLD_SIDE_SUPERCHUNKS / 2, y: WORLD_SIDE_SUPERCHUNKS / 2 };
+const MIDDLE: SuperchunkPosition = SuperchunkPosition { x: WORLD_SIDE_SUPERCHUNKS / 2, y: WORLD_SIDE_SUPERCHUNKS / 2 };
 
 /// A bitmap's cells, with a rectangle and a circle drawn.
 fn drawn() -> CellWords {
@@ -59,7 +59,7 @@ fn every_cell_has_its_own_height() {
             heights.set(chunk, CellPlace { x, y }, height_of(chunk, x, y));
         }
     }
-    let image = SuperChunkImage::new(&heights);
+    let image = SuperchunkImage::new(&heights);
     for chunk in ChunkPlace::all() {
         for (x, y) in [(0, 0), (255, 0), (0, 255), (255, 255), (CELL.x, CELL.y), (128, 77)] {
             assert_eq!(heights.get(chunk, CellPlace { x, y }), height_of(chunk, x, y), "chunk {chunk:?}, cell ({x}, {y})");
@@ -78,7 +78,7 @@ fn images_hold_one_layer_a_type_in_type_order() {
     let (drawn_words, one) = (codec.encode(&drawn()).to_vec(), codec.encode(&one_cell(CELL)).to_vec());
     let place = ChunkPlace::new(3, 2);
     let change = |layer_type, words| LayerChange { chunk: place.index(), layer_type: LayerType(layer_type), words };
-    let image = SuperChunkImage::new(&HeightMap::filled(9)).rewritten(&[
+    let image = SuperchunkImage::new(&HeightMap::filled(9)).rewritten(&[
         change(42, &one),
         change(7, &drawn_words),
         change(u64::MAX, &one),
@@ -96,7 +96,7 @@ fn images_hold_one_layer_a_type_in_type_order() {
     assert_eq!(image.height(place, CELL), 9);
     assert_eq!(image.words()[0] as usize, 16 + chunk_storage::HEIGHT_WORDS, "the first chunk after the chunk table and heights");
 
-    let read_back = SuperChunkImage::from_words(image.words().into()).expect("an image");
+    let read_back = SuperchunkImage::from_words(image.words().into()).expect("an image");
     assert_eq!(read_back, image);
     // Rewriting again keeps every bitmap as it was.
     assert_eq!(image.rewritten(&[]), image);
@@ -107,16 +107,16 @@ fn images_hold_one_layer_a_type_in_type_order() {
 fn broken_images_are_refused() {
     let mut codec = LayerCodec::new();
     let one = codec.encode(&one_cell(CELL)).to_vec();
-    let image = SuperChunkImage::new(&HeightMap::default()).rewritten(&[LayerChange { chunk: 15, layer_type: LayerType(1), words: &one }]);
+    let image = SuperchunkImage::new(&HeightMap::default()).rewritten(&[LayerChange { chunk: 15, layer_type: LayerType(1), words: &one }]);
     let words = image.words();
-    assert!(SuperChunkImage::from_words(words[..100].into()).is_err());
+    assert!(SuperchunkImage::from_words(words[..100].into()).is_err());
     let mut bad_chunk_offset = words.to_vec();
     bad_chunk_offset[3] += 1;
-    assert!(SuperChunkImage::from_words(bad_chunk_offset.into()).is_err());
+    assert!(SuperchunkImage::from_words(bad_chunk_offset.into()).is_err());
     let last_chunk = words[15] as usize;
     let mut bitmap_outside = words.to_vec();
     bitmap_outside[last_chunk + 2] = (words.len() - last_chunk) as u64;
-    assert_eq!(SuperChunkImage::from_words(bitmap_outside.into()), Err(InvalidImage("a bitmap outside its chunk, or two at one offset")));
+    assert_eq!(SuperchunkImage::from_words(bitmap_outside.into()), Err(InvalidImage("a bitmap outside its chunk, or two at one offset")));
 }
 
 /// The ring hands back each superchunk's entries in the order written,
@@ -125,7 +125,7 @@ fn broken_images_are_refused() {
 #[test]
 fn the_ring_frees_from_its_tail_and_wraps() {
     let mut ring = WritebackRing::new(40);
-    let (a, b) = (SuperChunkPosition { x: 1, y: 0 }, SuperChunkPosition { x: 0, y: 1 });
+    let (a, b) = (SuperchunkPosition { x: 1, y: 0 }, SuperchunkPosition { x: 0, y: 1 });
     let chunk = |superchunk, index| ChunkPosition::of(superchunk, ChunkPlace::from_index(index));
     assert!(ring.push(chunk(a, 1), LayerType(1), &[11; 5]));
     assert!(ring.push(chunk(b, 2), LayerType(2), &[22; 5]));
@@ -158,7 +158,7 @@ fn the_ring_frees_from_its_tail_and_wraps() {
 #[test]
 fn flushing_writes_the_ring_into_the_pool() {
     let (mut codec, mut storage, mut flushed) = (LayerCodec::new(), ChunkStorage::new(1 << 12), Vec::new());
-    storage.insert(MIDDLE, SuperChunkImage::new(&HeightMap::filled(4)));
+    storage.insert(MIDDLE, SuperchunkImage::new(&HeightMap::filled(4)));
     let chunk = ChunkPosition::of(MIDDLE, ChunkPlace::new(2, 1));
     storage.write_back(chunk, LayerType(1), codec.encode(&one_cell(CELL)), &mut flushed);
     storage.write_back(chunk, LayerType(2), codec.encode(&drawn()), &mut flushed);
@@ -184,14 +184,14 @@ fn a_full_ring_flushes_its_tail() {
     let (mut codec, mut storage, mut flushed) = (LayerCodec::new(), ChunkStorage::new(8), Vec::new());
     let words = codec.encode(&drawn()).to_vec();
     assert!(words.len() > 8, "bigger than the ring");
-    let first = ChunkPosition::of(SuperChunkPosition { x: 5, y: 5 }, ChunkPlace::new(0, 0));
+    let first = ChunkPosition::of(SuperchunkPosition { x: 5, y: 5 }, ChunkPlace::new(0, 0));
     storage.write_back(first, LayerType(1), &words, &mut flushed);
     assert!(flushed.is_empty(), "grown, nothing flushed");
-    let second = ChunkPosition::of(SuperChunkPosition { x: 6, y: 5 }, ChunkPlace::new(1, 1));
+    let second = ChunkPosition::of(SuperchunkPosition { x: 6, y: 5 }, ChunkPlace::new(1, 1));
     storage.write_back(second, LayerType(1), &words, &mut flushed);
-    assert_eq!(flushed, [SuperChunkPosition { x: 5, y: 5 }]);
+    assert_eq!(flushed, [SuperchunkPosition { x: 5, y: 5 }]);
     assert_eq!(decoded(&mut codec, storage.layer(first, LayerType(1)).expect("flushed")), drawn());
-    assert_eq!(storage.image(SuperChunkPosition { x: 5, y: 5 }).expect("made").height(ChunkPlace::new(3, 3), CELL), 0);
+    assert_eq!(storage.image(SuperchunkPosition { x: 5, y: 5 }).expect("made").height(ChunkPlace::new(3, 3), CELL), 0);
     assert!(storage.layer(second, LayerType(1)).is_none(), "still in the ring");
 }
 

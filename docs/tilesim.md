@@ -701,7 +701,7 @@ does what it did.
 ### Grass looked for as far as a sheep reaches
 
 A hungry sheep with no grass in the 16x16 cells about it used to
-wander. Now the search widens (`SuperChunkTick::seek`): the same 16x16
+wander. Now the search widens (`Turn::seek`): the same 16x16
 search over blocks of cells, to 64 cells a side -- 1,024 across, the
 reach of any entity -- and it steps towards the nearest block with
 grass in it. It still takes one step a wake and keeps no route; a sheep
@@ -760,7 +760,7 @@ step is found by waves: every goal's front moved a cell at once, each
 row a few shifts and ors, the whole search's memory one line of cache;
 the walker steps into the first wave to come beside it. A* is there
 too, for one place to go. An entity's turn reads the area
-(`SuperChunkTick::area`), and the rule makes the masks: for a sheep,
+(`Turn::area`), and the rule makes the masks: for a sheep,
 grass the goals, the bitplanes held what may be walked on -- but for
 the cells other entities stand on, which are in its way.
 

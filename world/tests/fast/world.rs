@@ -106,7 +106,7 @@ fn a_save_is_a_directory_of_files_named_by_morton_index() {
     let expected: Vec<String> = disk::saved_superchunks(&folder).expect("listed").iter().flat_map(|superchunk| ["image", "state"].map(|kind| format!("{:011x}.{kind}", superchunk.morton_index()))).collect();
     assert_eq!(names, expected);
     assert_eq!(names.len(), 8);
-    let held: Vec<u64> = first.arena.superchunks().iter().map(|superchunk| superchunk.morton()).collect();
+    let held: Vec<u64> = first.arena.superchunks().iter().map(|superchunk| superchunk.morton_index()).collect();
     assert_eq!(disk::saved_superchunks(&folder).unwrap().iter().map(|superchunk| superchunk.morton_index()).collect::<Vec<_>>(), held);
 }
 

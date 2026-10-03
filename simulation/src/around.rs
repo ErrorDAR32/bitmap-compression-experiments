@@ -7,7 +7,7 @@
 //! is stepped to.
 //!
 //! Read at once: a window of the bitplane from the cell up and left
-//! (`SuperChunkTick::around`), its three rows of three squeezed
+//! (`Turn::around`), its three rows of three squeezed
 //! together; no cell is looked at alone.
 
 use coordinates::CellIndex;

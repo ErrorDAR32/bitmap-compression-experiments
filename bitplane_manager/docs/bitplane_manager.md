@@ -27,7 +27,7 @@ rarely searches. Each superchunk owns its blocks and its outbox, so
 superchunks are changed apart.
 
 **Windows**: up to 8x8 cells at any cell read at once
-(`Reader::window`), as a `Tile` -- two masks, row by row: the cells set,
+(`Reader::window`), as a `Window` -- two masks, row by row: the cells set,
 and the cells in hot bitmaps. A window overlaps one to four aligned
 tiles, a bitmap word each (`bitmap::tile`); only those it reaches are
 read. Its chunk's bucket is looked up once, the tiles beside and below

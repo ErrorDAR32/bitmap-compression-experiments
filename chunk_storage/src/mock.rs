@@ -8,7 +8,7 @@
 use coordinates::{CHUNKS_IN_SUPERCHUNK, CHUNK_SIDE};
 use crate::height_map::HeightMap;
 use crate::layer_codec::{LayerCodec, LayerType};
-use crate::superchunk_image::{LayerChange, SuperChunkImage};
+use crate::superchunk_image::{LayerChange, SuperchunkImage};
 use bitmap::{CellWords, BITS_PER_WORD, WORDS};
 
 /// Dirt: every cell grass is not on.
@@ -23,7 +23,7 @@ const CHUNK_CELLS: u64 = (CHUNK_SIDE * CHUNK_SIDE) as u64;
 /// cells drawn at random from `seed` -- fewer if a cell is drawn twice.
 /// Each chunk has a dirt layer, and a grass layer if any grass fell on
 /// it.
-pub fn grass_on_dirt(seed: u64, grass_cells: usize, codec: &mut LayerCodec) -> SuperChunkImage {
+pub fn grass_on_dirt(seed: u64, grass_cells: usize, codec: &mut LayerCodec) -> SuperchunkImage {
     let mut grass: [CellWords; CHUNKS_IN_SUPERCHUNK] = [[0; WORDS]; CHUNKS_IN_SUPERCHUNK];
     let mut state = seed | 1;
     for _ in 0..grass_cells {
@@ -43,5 +43,5 @@ pub fn grass_on_dirt(seed: u64, grass_cells: usize, codec: &mut LayerCodec) -> S
         }
     }
     let changes: Vec<LayerChange> = encoded.iter().map(|(chunk, layer_type, words)| LayerChange { chunk: *chunk, layer_type: *layer_type, words }).collect();
-    SuperChunkImage::new(&HeightMap::default()).rewritten(&changes)
+    SuperchunkImage::new(&HeightMap::default()).rewritten(&changes)
 }

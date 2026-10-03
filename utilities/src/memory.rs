@@ -2,7 +2,8 @@
 //! physical memory now, and the most it has held. Read from
 //! `/proc/self/status`, so only on Linux; elsewhere nothing is known.
 //!
-//! [`MemoryTrack`] samples it over a run, for the peak and the average.
+//! [`MemoryTrack`] reads it again and again over a run, for the peak
+//! and the average.
 //!
 //! And memory asked for ahead of its being read ([`prefetch`]).
 
@@ -39,36 +40,36 @@ pub fn process_memory() -> Option<Memory> {
     Some(Memory { resident: field("VmRSS:")?, peak: field("VmHWM:")? })
 }
 
-/// The process's memory sampled over a run: how many samples, their sum,
-/// and the system's peak at the last.
+/// The process's memory read again and again over a run: how many
+/// readings, their sum, and the system's peak at the last one.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct MemoryTrack {
-    /// Samples taken.
-    samples: u64,
+    /// Readings taken.
+    readings: u64,
     /// Their resident bytes, added up.
     resident_sum: u64,
-    /// The peak at the last sample.
+    /// The peak at the last reading.
     peak: u64,
 }
 
 impl MemoryTrack {
-    /// Samples the process's memory now, if the system says.
-    pub fn sample(&mut self) {
+    /// Reads the process's memory now, if the system says.
+    pub fn read(&mut self) {
         if let Some(memory) = process_memory() {
-            self.samples += 1;
+            self.readings += 1;
             self.resident_sum += memory.resident;
             self.peak = memory.peak;
         }
     }
 
-    /// The average resident bytes over the samples, if any were taken.
+    /// The average resident bytes over the readings, if any were taken.
     pub fn average(&self) -> Option<u64> {
-        (self.samples > 0).then(|| self.resident_sum / self.samples)
+        (self.readings > 0).then(|| self.resident_sum / self.readings)
     }
 
-    /// The most the process has held, at the last sample, if any.
+    /// The most the process has held, at the last reading, if any.
     pub fn peak(&self) -> Option<u64> {
-        (self.samples > 0).then_some(self.peak)
+        (self.readings > 0).then_some(self.peak)
     }
 }
 

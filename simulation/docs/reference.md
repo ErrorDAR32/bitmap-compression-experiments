@@ -13,15 +13,15 @@ probability, random, emit)`**: every superchunk's, in Morton order.
 
 ## `tick.rs`
 
-**`Outbox`**: nine `WriteQueues` and nine `Commands`, by **`slot(dx,
+**`Outbox`**: nine `WriteQueues` and nine `Instructions`, by **`slot(dx,
 dy)`**.
 
-**`SuperChunkTick`**: a superchunk's turn in the first phase:
+**`Turn`**: a superchunk's turn in the first phase:
 **`superchunk`**, **`random`**, **`sample(type, probability, samples)`**
 of its own cells, **`holds(type, cell)`** anywhere, **`queue(type,
 write)`** -- into the slot of each superchunk it lands in.
 **`window(type, origin, width, height)`**: up to 8x8 cells from
-`origin` as the tick found them, as a `Tile`, through the reader.
+`origin` as the tick found them, as a `Window`, through the reader.
 **`area(type, centre)`**: the 16x16 cells about `centre` (`AREA_SIDE`,
 `AREA_CENTRE`), four windows, as an **`Area`** `{set, hot}`, a row a
 `u16`: what pathfinding is handed. **`windows(types, ...)`**,
@@ -84,7 +84,7 @@ in the world.
 
 ## `entity_store/`
 
-**`record.rs`**: `EntityId`, `EntityType`, `AttributeType` (`u64`s);
+**`entity.rs`**: `EntityId`, `EntityType`, `AttributeType` (`u64`s);
 **`Attribute`** `{kind, value}`; **`Header`** `{id, kind, at, wake}`,
 `NEVER`; **`EntityRef`** `{header, attributes}` with
 **`attribute(kind)`**; free functions on a list sorted by type:
@@ -126,7 +126,7 @@ if within a turn of `earliest`, else the list further off --
 wakes now in reach filed; **`sort(tick)`**: a tick's wakes by cell,
 then ID.
 
-**`store.rs`**: **`SuperChunkEntities`**: a bucket a chunk and a wheel;
+**`store.rs`**: **`SuperchunkEntities`**: a bucket a chunk and a wheel;
 **`get(id, at)`**, **`iter`**, **`chunk(index)`**, **`woken(tick)`** -- the wheel's slot,
 each wake found and still due -- **`put(earliest, header, from,
 attributes)`** -- within a chunk or from one to another, a `Put` --
@@ -146,7 +146,7 @@ bitplanes' `Reader`: **`get(id, at)`**, **`chunk(position)`**,
 among up to 16x16 (`OCCUPIED_SIDE`), a row a word, from the up to nine
 tiles' runs of places (**`in_tile`**).
 
-**`commands.rs`**: **`Commands`**: the instructions queued for one
+**`instructions.rs`**: **`Instructions`**: the instructions queued for one
 superchunk -- put, move, edit, remove -- the puts' attributes in a list
 beside: **`put(header, from, attributes)`**, **`cross(header, to,
 attributes)`**, **`move_entity(header, from)`**,
@@ -154,7 +154,7 @@ attributes)`**, **`move_entity(header, from)`**,
 applied)`** in order, each on its cell's superchunk (a put elsewhere
 lost, one of an entity no longer where it stood passed over, a new
 one on a cell taken refused, a mover to one staying),
-**`count_lost`**, **`clear`**. **`EntitiesApplied`** `{puts, moves,
+**`count_lost`**, **`clear`**. **`InstructionsApplied`** `{puts, moves,
 edits, removes, lost, stayed, refused}`, added with `+=`.
 
 **`saved.rs`**: a superchunk's state as words: **`encode(random,

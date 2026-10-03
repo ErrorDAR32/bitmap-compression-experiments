@@ -8,7 +8,7 @@ use mc_rules::grass;
 use crate::TickCounts;
 use entity_rules::sheep;
 use simulation::diagnostics::entities::EntityStats;
-use simulation::entity_store::EntitiesApplied;
+use simulation::entity_store::InstructionsApplied;
 use simulation::Simulation;
 use std::ops::AddAssign;
 use std::time::{Duration, Instant};
@@ -30,7 +30,7 @@ pub struct PastureRun {
     /// What grass and sheep did, added up.
     pub done: TickCounts,
     /// What carrying out the changes to entities did, added up.
-    pub entities: EntitiesApplied,
+    pub entities: InstructionsApplied,
     /// Writes applied.
     pub writes: usize,
     /// The first phase's time, added up.
@@ -95,10 +95,10 @@ impl AddAssign for Timed {
 /// each, on `threads` threads.
 pub fn run(ticks: usize, thousandths: usize, sheep: usize, superchunks: u32, threads: usize) -> PastureRun {
     let mut memory = MemoryTrack::default();
-    memory.sample();
+    memory.read();
     let mut world = MockWorld::with_sheep(superchunks, (1 << 20) * thousandths / 1000, sheep);
     let (start_sheep, start_grass) = (world.sheep(), world.grass());
-    let (mut timed, mut entities, mut writes, mut computing, mut applying) = (Timed::default(), EntitiesApplied::default(), 0, Duration::ZERO, Duration::ZERO);
+    let (mut timed, mut entities, mut writes, mut computing, mut applying) = (Timed::default(), InstructionsApplied::default(), 0, Duration::ZERO, Duration::ZERO);
     let mut simulation = Simulation::new(threads);
     let mut census = vec![Census { tick: 0, sheep: start_sheep, grass: start_grass, ..Census::default() }];
     let mut since = sheep::SheepTickMetrics::default();
@@ -120,7 +120,7 @@ pub fn run(ticks: usize, thousandths: usize, sheep: usize, superchunks: u32, thr
         writes += report.applied.writes;
         computing += report.computing;
         applying += report.applying;
-        memory.sample();
+        memory.read();
     }
     PastureRun {
         ticks,

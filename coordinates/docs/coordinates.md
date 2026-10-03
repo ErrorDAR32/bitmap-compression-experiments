@@ -16,7 +16,7 @@ does -- and a step past the world's edge is refused.
 
 Cartesian coordinates (`CartesianCell`) are kept for what they are
 cheaper at: geometry, drawing. Chunks (`ChunkPosition`, `ChunkPlace`)
-and superchunks (`SuperChunkPosition`) have Morton indices too, nested:
+and superchunks (`SuperchunkPosition`) have Morton indices too, nested:
 a chunk's is its cells' without the low 16 bits, a superchunk's without
 the low 20.
 
