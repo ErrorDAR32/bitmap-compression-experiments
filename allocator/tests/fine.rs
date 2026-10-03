@@ -3,5 +3,5 @@
 //!
 //! `cargo test --test fine`
 
-#[path = "fine/pool.rs"]
-mod pool;
+#[path = "fine/block_pool.rs"]
+mod block_pool;

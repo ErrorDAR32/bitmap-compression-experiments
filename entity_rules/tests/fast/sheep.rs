@@ -11,7 +11,7 @@ use coordinates::{CartesianCell, SUPERCHUNK_SIDE_CELLS};
 use simulation::entity_store::{Attribute, EntityId, EntityRef, Header};
 use simulation::Simulation;
 use entity_rules::diagnostics::world::MockWorld;
-use entity_rules::sheep::{rule, tick, SheepTickMetrics, HUNGRY_AT, LAMB, MEAL_TICKS, PREGNANT, ROAMING, ROAM_TICKS, SHEEP, STARVE_TICKS, STEP_JITTER, STEP_TICKS};
+use entity_rules::sheep::{rule, tick, SheepCounts, HUNGRY_AT, LAMB, MEAL_TICKS, PREGNANT, ROAMING, ROAM_TICKS, SHEEP, STARVE_TICKS, STEP_JITTER, STEP_TICKS};
 
 /// Every sheep knows when it is next hungry, is a sheep, and is
 /// never both a lamb and pregnant.
@@ -77,7 +77,7 @@ fn hungry_sheep_walk_to_the_nearest_grass() {
     world.entities.queue_put(header, &[Attribute { kind: HUNGRY_AT, value: 0 }]);
     world.entities.apply();
     let mut simulation = Simulation::new(1);
-    let (mut done, mut ate_at) = (SheepTickMetrics::default(), None);
+    let (mut done, mut ate_at) = (SheepCounts::default(), None);
     for seed in 0..12 * (STEP_TICKS + STEP_JITTER) {
         // The grass rule left out: the one cell of grass must stay until eaten.
         let report = simulation.tick(&mut world.arena, &mut world.entities, seed, |turn, _| rule(turn));
@@ -109,7 +109,7 @@ fn hungry_sheep_walk_to_grass_far_off() {
     world.entities.queue_put(header, &[Attribute { kind: HUNGRY_AT, value: 0 }]);
     world.entities.apply();
     let mut simulation = Simulation::new(2);
-    let (mut done, mut ate_at) = (SheepTickMetrics::default(), None);
+    let (mut done, mut ate_at) = (SheepCounts::default(), None);
     for seed in 0..STARVE_TICKS {
         let report = simulation.tick(&mut world.arena, &mut world.entities, seed, |turn, _| rule(turn));
         if report.rules.eaten > 0 && ate_at.is_none() {

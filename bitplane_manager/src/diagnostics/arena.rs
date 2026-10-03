@@ -2,7 +2,7 @@
 //! bitmaps, and the bytes of the blocks they live in.
 
 use crate::BitmapArena;
-use allocator::diagnostics::pool::PoolStats;
+use allocator::diagnostics::block_pool::BlockPoolStats;
 
 /// What an arena holds.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -14,13 +14,13 @@ pub struct ArenaStats {
     /// Hot bitmaps.
     pub hot_bitmaps: usize,
     /// The blocks the arena has made, in use or released.
-    pub block_pool: PoolStats,
+    pub block_pool: BlockPoolStats,
 }
 
 impl ArenaStats {
     /// What `arena` holds now.
     pub fn of(arena: &BitmapArena) -> Self {
-        Self { superchunks: arena.directory.len(), allocations: arena.allocations(), hot_bitmaps: arena.len(), block_pool: PoolStats::of(&arena.block_pool) }
+        Self { superchunks: arena.directory.len(), allocations: arena.allocations(), hot_bitmaps: arena.len(), block_pool: BlockPoolStats::of(&arena.block_pool) }
     }
 
     /// Bytes of the blocks in use.

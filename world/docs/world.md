@@ -32,19 +32,19 @@ A save is a folder (`chunk_storage::disk`, and
 | file | what it holds |
 |---|---|
 | `world` | text: the world's name, its seed, the tick it is at, its layer types |
-| `superchunks/<morton>.image` | a superchunk's cells and heights: its image, as the pool holds it |
-| `superchunks/<morton>.state` | its random numbers' state, its entities with their attributes, its crossings |
+| `superchunks/<index>.image` | a superchunk's cells and heights: its image, as the cold pool holds it |
+| `superchunks/<index>.state` | its random stream's state, its entities with their attributes, its crossings |
 
-`<morton>` is the superchunk's Morton index, 44 bits, 11 hexadecimal
+`<index>` is the superchunk index, 44 bits, 11 hexadecimal
 digits: its name, and nothing else is.
 
 **Saving** is between two ticks. Every dirty bitmap is written back and
-the ring flushed, so the pool's images are the world's cells; each
+the ring flushed, so the cold pool's images are the world's cells; each
 image is written as it is, and beside it the superchunk's state. The
 world's file is written last, each file beside itself and then
 renamed, so a save cut short leaves the one before readable.
 
-**Loading** reads every image into the pool, makes every layer type of
+**Loading** reads every image into the cold pool, makes every layer type of
 the world hot on every chunk -- a type with no cell left on a
 superchunk has no stored layer, and must be hot all the same to be
 written to -- puts the entities back at the world's tick, and takes up

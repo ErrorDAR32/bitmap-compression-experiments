@@ -1,4 +1,4 @@
-//! TileSim's pathfinding: A* over an **area**, 16x16 cells held as
+//! TileSim's pathfinding: A* over an **area**, 16x16 cells kept as
 //! masks -- a row a `u16`, cell `(x, y)` at bit `x` of row `y` -- which
 //! is all it knows of the world. What the cells are, which may be walked
 //! on and where the walker wants to go are for whoever calls it; an
@@ -52,7 +52,7 @@ pub struct Cell {
 }
 
 impl Cell {
-    /// Its place in the area, row by row.
+    /// Its index in the area, row by row.
     const fn index(self) -> usize {
         self.y as usize * SIDE + self.x as usize
     }
@@ -317,7 +317,7 @@ impl Queue {
         }
     }
 
-    /// Takes the next cell out: its place in the area, and the steps to
+    /// Takes the next cell out: its index in the area, and the steps to
     /// it when it was queued.
     fn pop(&mut self) -> Option<(usize, u8)> {
         if self.len == 0 {

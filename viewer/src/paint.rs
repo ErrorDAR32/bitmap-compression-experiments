@@ -5,7 +5,7 @@
 //!
 //! A cell is a pixel in one solid colour: dirt brown, grass green, a
 //! sheep white. From far off, where
-//! a pixel is many cells, it is their colours mixed: a block of cells
+//! a pixel is many cells, it is their colours mixed: a tile of cells
 //! `2^detail` a side is, in Morton order, a run of bits, so the grass
 //! in it is counted from the words without a cell looked at.
 
@@ -26,7 +26,7 @@ const SIDE: usize = SUPERCHUNK_SIDE_CELLS as usize;
 const SHEEP_REACH: usize = 0;
 
 /// One superchunk's pixels.
-pub struct Tile {
+pub struct Painted {
     /// Where it is in the world's square, `(x, y)` from the top left.
     pub at: (u32, u32),
     /// Pixels along its side: its cells', halved `detail` times.
@@ -51,8 +51,8 @@ pub struct Picture {
     pub sync_share: f64,
     /// What painting took of the painter's thread, in seconds.
     pub paint_seconds: f64,
-    /// The superchunks asked for.
-    pub tiles: Vec<Tile>,
+    /// The superchunks asked for, painted.
+    pub superchunks: Vec<Painted>,
 }
 
 /// Starts the painter's thread: every frame from `frames` painted, and
@@ -64,7 +64,7 @@ pub fn start(frames: Receiver<Frame>) -> Receiver<Picture> {
         .spawn(move || {
             for frame in frames {
                 let started = Instant::now();
-                let tiles = frame.cells.iter().map(|cells| if frame.detail == 0 { paint(cells) } else { paint_far(cells, frame.detail) }).collect();
+                let superchunks = frame.cells.iter().map(|cells| if frame.detail == 0 { paint(cells) } else { paint_far(cells, frame.detail) }).collect();
                 let picture = Picture {
                     tick: frame.tick,
                     ticks_a_second: frame.ticks_a_second,
@@ -73,7 +73,7 @@ pub fn start(frames: Receiver<Frame>) -> Receiver<Picture> {
                     sync_seconds: frame.sync_seconds,
                     sync_share: frame.sync_share,
                     paint_seconds: started.elapsed().as_secs_f64(),
-                    tiles,
+                    superchunks,
                 };
                 if painted.send(picture).is_err() {
                     return;
@@ -91,7 +91,7 @@ const fn opaque(colour: [u8; 3]) -> [u8; 4] {
 
 /// A superchunk's cells as pixels: dirt, its grass over it, its sheep
 /// over that.
-fn paint(cells: &Cells) -> Tile {
+fn paint(cells: &Cells) -> Painted {
     let mut pixels = vec![opaque(BROWN); SIDE * SIDE];
     let green = opaque(GREEN);
     for (place, chunk) in ChunkPlace::all().zip(cells.grass.as_chunks::<CHUNK_WORDS>().0) {
@@ -127,7 +127,7 @@ fn paint(cells: &Cells) -> Tile {
             }
         }
     }
-    Tile { at: cells.at, side: SIDE as u32, pixels: pixels.into_flattened() }
+    Painted { at: cells.at, side: SIDE as u32, pixels: pixels.into_flattened() }
 }
 
 /// `from` and `to` mixed, `part` of `whole` of it `to`.
@@ -136,24 +136,24 @@ fn mixed(from: [u8; 3], to: [u8; 3], part: usize, whole: usize) -> [u8; 3] {
     std::array::from_fn(|channel| ((from[channel] as usize * (whole - part) + to[channel] as usize * part) / whole) as u8)
 }
 
-/// A superchunk's cells as pixels from far off, a pixel a block of
+/// A superchunk's cells as pixels from far off, a pixel a tile of
 /// cells `2^detail` a side: dirt and grass mixed by the grass in the
-/// block -- counted from its run of bits -- and white mixed in by the
+/// tile -- counted from its run of bits -- and white mixed in by the
 /// sheep on it, each as many cells as it is drawn from near.
-fn paint_far(cells: &Cells, detail: u32) -> Tile {
-    let (side, chunk_side, block_cells) = (SIDE >> detail, CHUNK_SIDE >> detail, 1usize << (2 * detail));
+fn paint_far(cells: &Cells, detail: u32) -> Painted {
+    let (side, chunk_side, tile_cells) = (SIDE >> detail, CHUNK_SIDE >> detail, 1usize << (2 * detail));
     let mut grass = vec![0u16; side * side];
     for (place, chunk) in ChunkPlace::all().zip(cells.grass.as_chunks::<CHUNK_WORDS>().0) {
         let (left, top) = (place.x() as usize * chunk_side, place.y() as usize * chunk_side);
-        for block in 0..chunk_side * chunk_side {
-            let count: u32 = if block_cells >= BITS_PER_WORD {
-                let words = block_cells / BITS_PER_WORD;
-                chunk[block * words..][..words].iter().map(|word| word.count_ones()).sum()
+        for tile in 0..chunk_side * chunk_side {
+            let count: u32 = if tile_cells >= BITS_PER_WORD {
+                let words = tile_cells / BITS_PER_WORD;
+                chunk[tile * words..][..words].iter().map(|word| word.count_ones()).sum()
             } else {
-                let bit = block * block_cells;
-                (chunk[bit / BITS_PER_WORD] >> (bit % BITS_PER_WORD) & ((1 << block_cells) - 1)).count_ones()
+                let bit = tile * tile_cells;
+                (chunk[bit / BITS_PER_WORD] >> (bit % BITS_PER_WORD) & ((1 << tile_cells) - 1)).count_ones()
             };
-            let (x, y) = morton_coordinates(block);
+            let (x, y) = morton_coordinates(tile);
             grass[(top + y as usize) * side + left + x as usize] = count as u16;
         }
     }
@@ -165,8 +165,8 @@ fn paint_far(cells: &Cells, detail: u32) -> Tile {
     let sheep_cells = (2 * SHEEP_REACH + 1) * (2 * SHEEP_REACH + 1);
     let mut pixels = Vec::with_capacity(side * side * 4);
     for (&grass, &sheep) in grass.iter().zip(&sheep) {
-        let ground = mixed(BROWN, GREEN, grass as usize, block_cells);
-        pixels.extend_from_slice(&opaque(mixed(ground, WHITE, sheep as usize * sheep_cells, block_cells)));
+        let ground = mixed(BROWN, GREEN, grass as usize, tile_cells);
+        pixels.extend_from_slice(&opaque(mixed(ground, WHITE, sheep as usize * sheep_cells, tile_cells)));
     }
-    Tile { at: cells.at, side: side as u32, pixels }
+    Painted { at: cells.at, side: side as u32, pixels }
 }

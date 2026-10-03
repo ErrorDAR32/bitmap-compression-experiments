@@ -20,7 +20,7 @@ first. A block of another size is a bug (checked in debug builds).
 
 ## `diagnostics/pool.rs`
 
-**`PoolStats::of(block_pool)`**: the block pool's block size in bytes, blocks made,
+**`BlockPoolStats::of(block_pool)`**: the block pool's block size in bytes, blocks made,
 blocks waiting released. **`bytes_made()`**: the bytes of every block
 made.
 

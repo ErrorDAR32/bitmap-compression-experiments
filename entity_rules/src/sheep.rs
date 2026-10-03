@@ -104,7 +104,7 @@ pub const LAMB_TICKS: u64 = 4608;
 
 /// What the sheep did in a tick.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct SheepTickMetrics {
+pub struct SheepCounts {
     /// Sheep woken.
     pub woken: usize,
     /// Cells of grass eaten.
@@ -121,7 +121,7 @@ pub struct SheepTickMetrics {
     pub far: usize,
 }
 
-impl AddAssign for SheepTickMetrics {
+impl AddAssign for SheepCounts {
     /// Both added up.
     fn add_assign(&mut self, other: Self) {
         self.woken += other.woken;
@@ -135,17 +135,18 @@ impl AddAssign for SheepTickMetrics {
 }
 
 /// One tick of the sheep alone over every hot superchunk, on
-/// `simulation`'s threads, `seed` its random numbers' seed -- a new one
-/// a tick: the cells change only as the sheep change them.
-pub fn tick(simulation: &mut Simulation, arena: &mut BitmapArena, entities: &mut Entities, seed: u64) -> TickReport<SheepTickMetrics> {
+/// `simulation`'s threads -- `seed`, the world's, seeding a superchunk's
+/// random stream the first tick it is in: the cells change only as the
+/// sheep change them.
+pub fn tick(simulation: &mut Simulation, arena: &mut BitmapArena, entities: &mut Entities, seed: u64) -> TickReport<SheepCounts> {
     simulation.tick(arena, entities, seed, |turn, _| rule(turn))
 }
 
 /// The rule, on one superchunk's turn: every sheep waking sees to what
 /// it woke for -- a meal, a lamb, growing up -- and sleeps again, as
 /// long as it can.
-pub fn rule(turn: &mut Turn) -> SheepTickMetrics {
-    let mut done = SheepTickMetrics::default();
+pub fn rule(turn: &mut Turn) -> SheepCounts {
+    let mut done = SheepCounts::default();
     let mut room = Vec::new();
     let now = turn.now();
     for sheep in turn.woken_reading([GRASS, WALL_EAST, WALL_SOUTH]) {
@@ -208,7 +209,7 @@ pub fn rule(turn: &mut Turn) -> SheepTickMetrics {
         let way = if !hungry {
             None
         } else if let Some(roaming) = roaming {
-            // On the way it set off, until its time is up or the hot world ends.
+            // On the way it set off, until its time is up or it comes to the edge of the hot superchunks.
             let way = 1 << (roaming & 15);
             if now >= roaming >> 4 || steppable & way == 0 {
                 sheep.unset(ROAMING);

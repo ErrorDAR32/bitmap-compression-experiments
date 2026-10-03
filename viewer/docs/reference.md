@@ -30,22 +30,22 @@ next one's time if paced; paused, it waits for a request.
 
 ## `paint.rs`
 
-**`Tile`** `{at, side, pixels}`: a superchunk's pixels, four bytes each.
+**`Painted`** `{at, side, pixels}`: a superchunk's pixels, four bytes each.
 **`Picture`**: a frame, painted. **`start(frames)`**: the painter's
 thread; where pictures come. **`paint(cells)`**: dirt, the grass over
 it, the sheep over that, a pixel each (`SHEEP_REACH`, none); **`opaque`**.
-**`paint_far(cells, detail)`**: a pixel a block of cells `2^detail` a
+**`paint_far(cells, detail)`**: a pixel a tile of cells `2^detail` a
 side, its grass counted from its run of bits, its colours **`mixed`**.
 
 ## `main.rs`
 
-`TILE_SIDE`, `PAN_SPEED`, `ZOOM_SPEED`, `WHEEL_ZOOM`, `SYNC_EVERY`
+`SPRITE_SIDE`, `PAN_SPEED`, `ZOOM_SPEED`, `WHEEL_ZOOM`, `SYNC_EVERY`
 (a sixtieth of a second), `COARSEST` (6), `KEPT_SIDE` (64).
 **`frame_holds(detail)`**: superchunks a frame carries at most.
 
 **`Link`**: the requests' sender, the pictures' receiver, whether a frame
-is awaited, and the pause and pace last sent. **`Tiles`**: an image a
-superchunk. **`Seen`**: what the last frame said. **`Hud`**: the text.
+is awaited, and the pause and pace last sent. **`Sprites`**: a sprite
+and its image a superchunk. **`Seen`**: what the last frame said. **`Hud`**: the text.
 
 **`grouped(number)`**: its digits in threes. **`setup`**: the camera over the world's middle, the whole of it in
 view; an image a superchunk, dirt until the first frame; the text.

@@ -6,10 +6,10 @@ the sheep.
 ## What is here, and what is not
 
 What an entity *is* belongs to the simulation
-(`simulation/src/entity_store/`): its record and attributes, the bucket a
-chunk that holds it sorted by cell, the timer wheel a superchunk that
-wakes it, the changes it queues in a tick's first phase and the check,
-as each is carried out in the second, that no two stand on one cell.
+(`simulation/src/entity_store/`): its header and attributes, the bucket
+a chunk that keeps it sorted by cell, the timer wheel a superchunk that
+wakes it, the instructions it queues in a tick's first phase and the
+check, as each is applied in the second, that no two stand on one cell.
 The simulation knows no kind of entity.
 
 What each kind *does* is here: a file a kind, holding
@@ -52,7 +52,7 @@ to be -- what was measured, what was thrown away -- in
 something, so a satisfied flock costs the tick nothing; only a hungry
 sheep walks, one pathfinding step a wake (`pathfinding/`), no route
 kept; and it steps without looking whether a cell is taken, the step
-turned back when it is carried out if so.
+turned back when it is applied if so.
 
 ## Layout
 

@@ -37,8 +37,8 @@ takes long. A test that only prints belongs to none: it is a tool.
 
 | crate | fine | fast | complete |
 |---|---|---|---|
-| `allocator` | pool | | |
-| `bitmap` | bitmap, morton, tile | | |
+| `allocator` | block_pool | | |
+| `bitmap` | bitmap, morton, window | | |
 | `bitplane_manager` | bitplane_manager, writes | | |
 | `chunk_storage` | chunk_storage | | |
 | `coordinates` | coordinates | | |

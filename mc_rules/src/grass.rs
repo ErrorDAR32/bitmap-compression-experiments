@@ -39,7 +39,7 @@ pub const DECAY_CHANCE: f64 = 0.000_02;
 
 /// What the rule did in a tick.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct Grass {
+pub struct GrassCounts {
     /// Cells of grass sampled.
     pub sampled: usize,
     /// Spreads queued: two samples may spread onto one cell, which then
@@ -49,7 +49,7 @@ pub struct Grass {
     pub decays: usize,
 }
 
-impl AddAssign for Grass {
+impl AddAssign for GrassCounts {
     /// Both added up.
     fn add_assign(&mut self, other: Self) {
         self.sampled += other.sampled;
@@ -59,9 +59,10 @@ impl AddAssign for Grass {
 }
 
 /// One tick of grass over every superchunk with a bitmap in use, on
-/// `simulation`'s threads, `seed` its random numbers' seed -- a new one a
-/// tick -- `entities` ticked with it, none of them woken by grass.
-pub fn tick(simulation: &mut Simulation, arena: &mut BitmapArena, entities: &mut Entities, seed: u64) -> TickReport<Grass> {
+/// `simulation`'s threads -- `seed`, the world's, seeding a superchunk's
+/// random stream the first tick it is in -- `entities` ticked with it,
+/// none of them woken by grass.
+pub fn tick(simulation: &mut Simulation, arena: &mut BitmapArena, entities: &mut Entities, seed: u64) -> TickReport<GrassCounts> {
     simulation.tick(arena, entities, seed, rule)
 }
 
@@ -69,7 +70,7 @@ pub fn tick(simulation: &mut Simulation, arena: &mut BitmapArena, entities: &mut
 /// the chances of spreading and of decay together, in Morton order;
 /// each draws a neighbour, and whether it tries to spread or to decay,
 /// and queues the writes if the neighbour lets it.
-pub fn rule(turn: &mut Turn, samples: &mut Vec<CellIndex>) -> Grass {
+pub fn rule(turn: &mut Turn, samples: &mut Vec<CellIndex>) -> GrassCounts {
     let sampled = turn.sample(GRASS, SPREAD_CHANCE + DECAY_CHANCE, samples);
     let spread_share = SPREAD_CHANCE / (SPREAD_CHANCE + DECAY_CHANCE);
     let (mut spreads, mut decays) = (0, 0);
@@ -92,5 +93,5 @@ pub fn rule(turn: &mut Turn, samples: &mut Vec<CellIndex>) -> Grass {
             decays += 1;
         }
     }
-    Grass { sampled, spreads, decays }
+    GrassCounts { sampled, spreads, decays }
 }

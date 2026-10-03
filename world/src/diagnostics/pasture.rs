@@ -30,7 +30,7 @@ pub struct PastureRun {
     /// What grass and sheep did, added up.
     pub done: TickCounts,
     /// What applying the instructions did, added up.
-    pub entities: InstructionsApplied,
+    pub instructions: InstructionsApplied,
     /// Writes applied.
     pub writes: usize,
     /// The first phase's time, added up.
@@ -41,7 +41,7 @@ pub struct PastureRun {
     pub grass_time: Duration,
     /// The sheep rule's time, over every thread.
     pub sheep_time: Duration,
-    /// The process's memory, sampled after every tick.
+    /// The process's memory, read after every tick.
     pub memory: MemoryTrack,
     /// What the entities held at the end.
     pub held: EntityStats,
@@ -98,10 +98,10 @@ pub fn run(ticks: usize, thousandths: usize, sheep: usize, superchunks: u32, thr
     memory.read();
     let mut world = MockWorld::with_sheep(superchunks, (1 << 20) * thousandths / 1000, sheep);
     let (start_sheep, start_grass) = (world.sheep(), world.grass());
-    let (mut timed, mut entities, mut writes, mut computing, mut applying) = (Timed::default(), InstructionsApplied::default(), 0, Duration::ZERO, Duration::ZERO);
+    let (mut timed, mut instructions, mut writes, mut computing, mut applying) = (Timed::default(), InstructionsApplied::default(), 0, Duration::ZERO, Duration::ZERO);
     let mut simulation = Simulation::new(threads);
     let mut census = vec![Census { tick: 0, sheep: start_sheep, grass: start_grass, ..Census::default() }];
-    let mut since = sheep::SheepTickMetrics::default();
+    let mut since = sheep::SheepCounts::default();
     for tick in 0..ticks {
         let report = simulation.tick(&mut world.arena, &mut world.entities, tick as u64, |turn, samples| {
             let start = Instant::now();
@@ -114,9 +114,9 @@ pub fn run(ticks: usize, thousandths: usize, sheep: usize, superchunks: u32, thr
         since += report.rules.done.sheep;
         if (tick + 1) % CENSUS_EVERY == 0 || tick + 1 == ticks {
             census.push(Census { tick: tick + 1, sheep: world.sheep(), grass: world.grass(), woken: since.woken, births: since.births, deaths: since.deaths });
-            since = sheep::SheepTickMetrics::default();
+            since = sheep::SheepCounts::default();
         }
-        entities += report.instructions_applied;
+        instructions += report.instructions_applied;
         writes += report.writes_applied.writes;
         computing += report.computing;
         applying += report.applying;
@@ -129,7 +129,7 @@ pub fn run(ticks: usize, thousandths: usize, sheep: usize, superchunks: u32, thr
         sheep: (start_sheep, world.sheep()),
         grass: (start_grass, world.grass()),
         done: timed.done,
-        entities,
+        instructions,
         writes,
         computing,
         applying,

@@ -48,12 +48,12 @@ pub fn frame(arena: &BitmapArena, superchunk: SuperchunkPosition, pixels: &mut [
 /// `superchunk`'s entities in `entities` drawn over `pixels`, a frame
 /// of it ([`frame`]): a white square each.
 pub fn sheep(entities: &Entities, superchunk: SuperchunkPosition, pixels: &mut [u8]) {
-    let Some(held) = entities.superchunk(superchunk.morton_index()) else {
+    let Some(kept) = entities.superchunk(superchunk.morton_index()) else {
         return;
     };
     let side = SUPERCHUNK_SIDE_CELLS;
     let (left, top) = (superchunk.x * side, superchunk.y * side);
-    for entity in held.iter() {
+    for entity in kept.iter() {
         let at = entity.header.at.cartesian();
         let (x, y) = (at.x - left, at.y - top);
         for y in y.saturating_sub(SHEEP_REACH)..=(y + SHEEP_REACH).min(side - 1) {

@@ -1,4 +1,4 @@
-//! The block block_pool: blocks never move, and released ones come back first.
+//! The block pool: blocks never move, and released ones come back first.
 //!
 //! `cargo test`
 

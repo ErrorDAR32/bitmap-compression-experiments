@@ -6,6 +6,7 @@
 //! between ([`Terrain`]). A diagonal step has no wall of its own: it is
 //! open only when both ways round it, across then down and down then
 //! across, are.
+//!
 //! The design: `docs/terrain.md`; function by function:
 //! `docs/reference.md`.
 

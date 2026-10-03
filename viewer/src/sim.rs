@@ -251,12 +251,12 @@ fn layer(world: &MockWorld, layer_type: LayerType, superchunk: SuperchunkPositio
 
 /// The cells `superchunk`'s sheep stand on, from its top left.
 fn sheep(world: &MockWorld, superchunk: SuperchunkPosition) -> Vec<(u16, u16)> {
-    let Some(held) = world.entities.superchunk(superchunk.morton_index()) else {
+    let Some(kept) = world.entities.superchunk(superchunk.morton_index()) else {
         return Vec::new();
     };
     let (left, top) = (superchunk.x * SUPERCHUNK_SIDE_CELLS, superchunk.y * SUPERCHUNK_SIDE_CELLS);
-    let mut cells = Vec::with_capacity(held.len());
-    for entity in held.iter() {
+    let mut cells = Vec::with_capacity(kept.len());
+    for entity in kept.iter() {
         let at = entity.header.at.cartesian();
         cells.push(((at.x - left) as u16, (at.y - top) as u16));
     }

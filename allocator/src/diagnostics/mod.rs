@@ -4,6 +4,6 @@
 //!
 //! | file | what it gathers |
 //! |---|---|
-//! | `pool.rs` | a pool's blocks: their size, how many were made, how many wait released |
+//! | `block_pool.rs` | a block pool's blocks: their size, how many were made, how many wait released |
 
-pub mod pool;
+pub mod block_pool;

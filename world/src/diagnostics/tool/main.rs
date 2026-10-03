@@ -85,7 +85,7 @@ fn pasture(arguments: &[String]) {
     let sheep = run.done.sheep;
     report.note(format!(
         "{ticks} ticks over {superchunks} superchunk(s) on {threads} thread(s); sheep {} -> {}; grass {} -> {}; {} entities lost past the superchunks used",
-        run.sheep.0, run.sheep.1, run.grass.0, run.grass.1, run.entities.lost
+        run.sheep.0, run.sheep.1, run.grass.0, run.grass.1, run.instructions.lost
     ));
     let mut flock = Table::new(&["wakes", "wakes a tick", "eaten", "born", "died", "put whole", "moved or slept", "removed"]);
     flock.row(&[
@@ -94,9 +94,9 @@ fn pasture(arguments: &[String]) {
         sheep.eaten.to_string(),
         sheep.births.to_string(),
         sheep.deaths.to_string(),
-        run.entities.puts.to_string(),
-        run.entities.moves.to_string(),
-        run.entities.removes.to_string(),
+        run.instructions.puts.to_string(),
+        run.instructions.moves.to_string(),
+        run.instructions.removes.to_string(),
     ]);
     report.add("sheep", flock);
     let total = run.computing + run.applying;
@@ -105,7 +105,7 @@ fn pasture(arguments: &[String]) {
     phases.row(&["computing".to_string(), format!("{:.1}", run.computing.as_secs_f64() * 1e3), share(run.computing, total), "-".to_string()]);
     phases.row(&["  grass rule, a sample (all threads)".to_string(), format!("{:.1}", run.grass_time.as_secs_f64() * 1e3), "-".to_string(), per(run.grass_time, run.done.grass.sampled)]);
     phases.row(&["  sheep rule, a wake (all threads)".to_string(), format!("{:.1}", run.sheep_time.as_secs_f64() * 1e3), "-".to_string(), per(run.sheep_time, sheep.woken)]);
-    phases.row(&["applying, a write or change".to_string(), format!("{:.1}", run.applying.as_secs_f64() * 1e3), share(run.applying, total), per(run.applying, run.writes + run.entities.puts + run.entities.moves + run.entities.edits + run.entities.removes)]);
+    phases.row(&["applying, a write or instruction".to_string(), format!("{:.1}", run.applying.as_secs_f64() * 1e3), share(run.applying, total), per(run.applying, run.writes + run.instructions.puts + run.instructions.moves + run.instructions.edits + run.instructions.removes)]);
     phases.row(&["the tick".to_string(), format!("{:.1}", total.as_secs_f64() * 1e3), share(total, total), "-".to_string()]);
     report.add("time", phases);
     let mut rates = Table::new(&["ticks a second", "wakes a second"]);
@@ -147,14 +147,14 @@ fn video(arguments: &[String]) {
     let mut pixels = vec![0u8; FRAME_BYTES];
     let mut out = std::io::BufWriter::new(std::io::stdout().lock());
     let mut simulation = Simulation::new(1);
-    let (mut rows, mut since) = (Vec::new(), entity_rules::sheep::SheepTickMetrics::default());
+    let (mut rows, mut since) = (Vec::new(), entity_rules::sheep::SheepCounts::default());
     for tick in 0..=ticks {
         if tick % every == 0 {
             frame(&world.arena, superchunk, &mut pixels);
             sheep(&world.entities, superchunk, &mut pixels);
             out.write_all(&pixels).expect("standard output");
             rows.push([tick as u64, world.sheep() as u64, world.grass(), since.woken as u64, since.births as u64, since.deaths as u64]);
-            since = entity_rules::sheep::SheepTickMetrics::default();
+            since = entity_rules::sheep::SheepCounts::default();
             if tick % (every * 50) == 0 {
                 eprintln!("tick {tick:>7}: grass {}, sheep {}", world.grass(), world.sheep());
             }

@@ -5,7 +5,7 @@ use crate::BlockPool;
 
 /// What a block pool holds.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct PoolStats {
+pub struct BlockPoolStats {
     /// Bytes a block.
     pub block_bytes: u64,
     /// Blocks made, held out or released.
@@ -14,7 +14,7 @@ pub struct PoolStats {
     pub released: usize,
 }
 
-impl PoolStats {
+impl BlockPoolStats {
     /// What `block_pool` holds now.
     pub fn of(block_pool: &BlockPool) -> Self {
         Self { block_bytes: (block_pool.block_words * size_of::<u64>()) as u64, made: block_pool.made, released: block_pool.released.len() }

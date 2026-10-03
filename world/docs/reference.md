@@ -28,7 +28,7 @@ The mock world they tick is the entities'
 
 **`throughput::run(ticks, thousandths, superchunks, threads)`**: grass
 ticked flat out: each phase's time, samples, writes, cells missed, the
-process's memory sampled every tick, the arena's and storage's stats --
+process's memory read every tick, the arena's and storage's stats --
 a **`Throughput`**.
 
 **`pasture::run(ticks, thousandths, sheep, superchunks, threads)`**:

@@ -151,7 +151,7 @@ fn hot_bitmaps_never_move() {
     assert!(arena.bucket(next).expect("hot").cells().iter().all(|&word| word == 0), "and cleared");
 }
 
-/// Writing back encodes only what changed into the ring, and the pool
+/// Writing back encodes only what changed into the ring, and the cold pool
 /// holds it once flushed; a layer left with no cell set leaves its
 /// chunk. A changed bitmap cannot be evicted before it is written back.
 #[test]
@@ -183,8 +183,8 @@ fn changes_write_back_through_the_ring() {
 
 /// A bitmap written back and evicted waits in its allocation until its
 /// superchunk is flushed: made hot again before then, it is the bucket
-/// as it was, though the pool does not have it yet; after, it is
-/// released, and made hot again it is decoded from the pool.
+/// as it was, though the cold pool does not have it yet; after, it is
+/// released, and made hot again it is decoded from the cold pool.
 #[test]
 fn evicted_bitmaps_wait_for_the_ring() {
     let (mut codec, mut arena, mut flushed) = (LayerCodec::new(), BitmapArena::new(), Vec::new());
@@ -197,7 +197,7 @@ fn evicted_bitmaps_wait_for_the_ring() {
     assert!(arena.evict(key));
     assert_eq!((arena.len(), arena.allocations()), (0, 1), "evicted, waiting");
 
-    assert!(storage.layer(key.chunk, key.layer_type).is_none(), "not in the pool yet");
+    assert!(storage.layer(key.chunk, key.layer_type).is_none(), "not in the cold pool yet");
     assert!(arena.make_hot(key, None, &mut codec));
     assert_eq!(arena.holds(LayerType(1), cell.into()), Ok(true), "the bucket as it was");
     assert!(arena.evict(key));
@@ -206,7 +206,7 @@ fn evicted_bitmaps_wait_for_the_ring() {
     arena.flushed(&flushed);
     assert_eq!(arena.allocations(), 0, "released once flushed");
     arena.make_hot(key, storage.layer(key.chunk, key.layer_type), &mut codec);
-    assert_eq!(arena.holds(LayerType(1), cell.into()), Ok(true), "decoded from the pool");
+    assert_eq!(arena.holds(LayerType(1), cell.into()), Ok(true), "decoded from the cold pool");
 }
 
 /// When writing back fills the ring, the superchunk at its tail is

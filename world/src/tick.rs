@@ -4,8 +4,8 @@
 //! superchunk -- the grass first, then the sheep, all reading the world
 //! as the tick found it.
 
-use mc_rules::grass::{self, Grass};
-use entity_rules::sheep::{self, SheepTickMetrics};
+use mc_rules::grass::{self, GrassCounts};
+use entity_rules::sheep::{self, SheepCounts};
 use bitplane_manager::BitmapArena;
 use simulation::entity_store::Entities;
 use simulation::{Simulation, TickReport};
@@ -15,9 +15,9 @@ use std::ops::AddAssign;
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct TickCounts {
     /// What the grass did.
-    pub grass: Grass,
+    pub grass: GrassCounts,
     /// What the sheep did.
-    pub sheep: SheepTickMetrics,
+    pub sheep: SheepCounts,
 }
 
 impl AddAssign for TickCounts {
@@ -29,8 +29,8 @@ impl AddAssign for TickCounts {
 }
 
 /// One tick of grass and sheep over every superchunk with a bitmap in
-/// use, on `simulation`'s threads, `seed` its random numbers' seed -- a
-/// new one a tick.
+/// use, on `simulation`'s threads -- `seed`, the world's, seeding a
+/// superchunk's random stream the first tick it is in.
 pub fn tick(simulation: &mut Simulation, arena: &mut BitmapArena, entities: &mut Entities, seed: u64) -> TickReport<TickCounts> {
     simulation.tick(arena, entities, seed, |turn, samples| TickCounts { grass: grass::rule(turn, samples), sheep: sheep::rule(turn) })
 }

@@ -32,7 +32,7 @@ pub struct Throughput {
     pub computing: Duration,
     /// The second phase's time, added up: applying.
     pub applying: Duration,
-    /// The process's memory, sampled after every tick.
+    /// The process's memory, read after every tick.
     pub memory: MemoryTrack,
     /// What the arena held at the end.
     pub arena: ArenaStats,

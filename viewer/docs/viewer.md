@@ -54,9 +54,9 @@ good.
 A world of 1,024 superchunks -- 32,768 cells a side -- is seen whole,
 which a pixel a cell cannot do: that would be 4 GiB of pixels a frame.
 
-- **From far off, a pixel is a block of cells**, `2^detail` a side, as
-  many as a screen pixel covers, up to 64: the block's colours mixed,
-  brown and green by its grass, white by its sheep. An aligned block is
+- **From far off, a pixel is a tile of cells**, `2^detail` a side, as
+  many as a screen pixel covers, up to 64: the tile's colours mixed,
+  brown and green by its grass, white by its sheep. A tile is
   a run of bits in Morton order, so its grass is counted from the words
   with no cell looked at.
 - **A frame carries only so many superchunks** -- 8 drawn fine, 32

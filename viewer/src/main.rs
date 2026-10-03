@@ -40,7 +40,7 @@ use std::sync::Mutex;
 use world::diagnostics::frames::BROWN;
 
 /// A superchunk's side on the screen's plane: a cell a unit.
-const TILE_SIDE: f32 = SUPERCHUNK_SIDE_CELLS as f32;
+const SPRITE_SIDE: f32 = SUPERCHUNK_SIDE_CELLS as f32;
 
 /// Screen heights the view moves a second, by the keys.
 const PAN_SPEED: f32 = 0.8;
@@ -95,7 +95,7 @@ struct Link {
 
 /// The world as drawn: an image a superchunk, row by row.
 #[derive(Resource)]
-struct Tiles {
+struct Sprites {
     /// Superchunks along the world's side.
     side: u32,
     /// Each superchunk's image.
@@ -115,8 +115,8 @@ struct Seen {
     sheep: usize,
     /// Cells of grass.
     grass: u64,
-    /// Superchunks the frame held.
-    tiles: usize,
+    /// Superchunks the frame painted.
+    painted: usize,
     /// Superchunks in view.
     in_view: u32,
     /// How coarsely they are drawn: a pixel `2^detail` cells a side.
@@ -165,7 +165,7 @@ fn main() {
                 .set(WindowPlugin { primary_window: Some(Window { title: "TileSim".to_string(), ..default() }), ..default() }),
         )
         .insert_resource(Link { requests, frames: Mutex::new(paint::start(frames)), waiting: false, since: SYNC_EVERY, asked: None, paused: false, pace, watch_for })
-        .insert_resource(Tiles { side: side(superchunks), images: Vec::new(), sides: Vec::new() })
+        .insert_resource(Sprites { side: side(superchunks), images: Vec::new(), sides: Vec::new() })
         .init_resource::<Seen>()
         .add_systems(Startup, setup)
         .add_systems(Update, (steer, keys, sync, hud).chain())
@@ -183,22 +183,22 @@ fn picture(side: u32, pixels: Vec<u8>) -> Image {
 
 /// The camera over the world's middle, the whole of it in view; an
 /// image a superchunk, dirt until the first frame comes; and the text.
-fn setup(mut commands: Commands, mut images: ResMut<Assets<Image>>, mut tiles: ResMut<Tiles>, window: Single<&Window>) {
-    let world_side = tiles.side as f32 * TILE_SIDE;
+fn setup(mut commands: Commands, mut images: ResMut<Assets<Image>>, mut sprites: ResMut<Sprites>, window: Single<&Window>) {
+    let world_side = sprites.side as f32 * SPRITE_SIDE;
     let scale = world_side / window.height().min(window.width());
     commands.spawn((
         Camera2d,
         Projection::Orthographic(OrthographicProjection { scale, ..OrthographicProjection::default_2d() }),
         Transform::from_xyz(world_side / 2.0, -world_side / 2.0, 0.0),
     ));
-    for index in 0..tiles.side * tiles.side {
+    for index in 0..sprites.side * sprites.side {
         let image = images.add(picture(1, DIRT.to_vec()));
-        let (x, y) = ((index % tiles.side) as f32, (index / tiles.side) as f32);
+        let (x, y) = ((index % sprites.side) as f32, (index / sprites.side) as f32);
         // A superchunk's side on the screen's plane whatever its image's; the world's y grows downwards, the plane's upwards.
-        let sprite = Sprite { image: image.clone(), custom_size: Some(Vec2::splat(TILE_SIDE)), ..default() };
-        commands.spawn((sprite, Transform::from_xyz((x + 0.5) * TILE_SIDE, -(y + 0.5) * TILE_SIDE, 0.0)));
-        tiles.images.push(image);
-        tiles.sides.push(1);
+        let sprite = Sprite { image: image.clone(), custom_size: Some(Vec2::splat(SPRITE_SIDE)), ..default() };
+        commands.spawn((sprite, Transform::from_xyz((x + 0.5) * SPRITE_SIDE, -(y + 0.5) * SPRITE_SIDE, 0.0)));
+        sprites.images.push(image);
+        sprites.sides.push(1);
     }
     commands.spawn((
         Text::new(""),
@@ -259,7 +259,7 @@ fn keys(mut link: ResMut<Link>, keys: Res<ButtonInput<KeyCode>>) {
 /// for the next: the superchunks now in view.
 fn sync(
     mut link: ResMut<Link>,
-    mut tiles: ResMut<Tiles>,
+    mut sprites: ResMut<Sprites>,
     mut images: ResMut<Assets<Image>>,
     mut seen: ResMut<Seen>,
     camera: Single<(&Transform, &Projection), With<Camera2d>>,
@@ -275,18 +275,18 @@ fn sync(
             ticks_a_second: frame.ticks_a_second,
             sheep: frame.sheep,
             grass: frame.grass,
-            tiles: frame.tiles.len(),
+            painted: frame.superchunks.len(),
             in_view: seen.in_view,
             detail: seen.detail,
             sync_seconds: frame.sync_seconds,
             sync_share: frame.sync_share,
             paint_seconds: frame.paint_seconds,
         };
-        for tile in frame.tiles {
-            let index = (tile.at.1 * tiles.side + tile.at.0) as usize;
-            if let Some(mut image) = images.get_mut(&tiles.images[index]) {
-                *image = picture(tile.side, tile.pixels);
-                tiles.sides[index] = tile.side;
+        for painted in frame.superchunks {
+            let index = (painted.at.1 * sprites.side + painted.at.0) as usize;
+            if let Some(mut image) = images.get_mut(&sprites.images[index]) {
+                *image = picture(painted.side, painted.pixels);
+                sprites.sides[index] = painted.side;
             }
         }
     }
@@ -299,10 +299,10 @@ fn sync(
     };
     let half = Vec2::new(window.width(), window.height()) * view.scale / 2.0;
     let middle = Vec2::new(transform.translation.x, -transform.translation.y);
-    let last = tiles.side as f32 - 1.0;
-    let superchunk = |cells: f32| (cells / TILE_SIDE).floor().clamp(0.0, last) as u32;
+    let last = sprites.side as f32 - 1.0;
+    let superchunk = |cells: f32| (cells / SPRITE_SIDE).floor().clamp(0.0, last) as u32;
     let (left, right, top, bottom) = (middle.x - half.x, middle.x + half.x, middle.y - half.y, middle.y + half.y);
-    if right < 0.0 || bottom < 0.0 || left > (last + 1.0) * TILE_SIDE || top > (last + 1.0) * TILE_SIDE {
+    if right < 0.0 || bottom < 0.0 || left > (last + 1.0) * SPRITE_SIDE || top > (last + 1.0) * SPRITE_SIDE {
         // Nothing of the world in view: nothing to ask for.
         return;
     }
@@ -319,13 +319,13 @@ fn sync(
     let ask = Ask { viewport, detail, skip, most };
     (seen.in_view, seen.detail) = (in_view, detail);
     // Fine images of superchunks gone out of view are dropped: each is 4 MiB here and as much on the graphics card.
-    for index in 0..tiles.sides.len() {
-        let (x, y) = (index as u32 % tiles.side, index as u32 / tiles.side);
+    for index in 0..sprites.sides.len() {
+        let (x, y) = (index as u32 % sprites.side, index as u32 / sprites.side);
         let out_of_view = x < viewport.first.0 || x > viewport.last.0 || y < viewport.first.1 || y > viewport.last.1;
-        if out_of_view && tiles.sides[index] > KEPT_SIDE {
-            if let Some(mut image) = images.get_mut(&tiles.images[index]) {
+        if out_of_view && sprites.sides[index] > KEPT_SIDE {
+            if let Some(mut image) = images.get_mut(&sprites.images[index]) {
                 *image = picture(1, DIRT.to_vec());
-                tiles.sides[index] = 1;
+                sprites.sides[index] = 1;
             }
         }
     }
@@ -354,7 +354,7 @@ fn hud(mut text: Single<&mut Text, With<Hud>>, seen: Res<Seen>, link: Res<Link>)
         grouped(seen.grass),
         seen.in_view,
         1u32 << seen.detail,
-        seen.tiles,
+        seen.painted,
         seen.sync_seconds * 1e6,
         seen.sync_share * 100.0,
         seen.paint_seconds * 1e3
