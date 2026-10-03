@@ -24,16 +24,6 @@
 //! | `store` | a superchunk's entities, and every superchunk's |
 //! | `commands` | changes to entities, queued for a superchunk and carried out by it |
 
-use chunk_storage::LayerType;
-
-/// The layer type of the cells entities stand on: a bitplane the
-/// entities keep, a cell set where one stands, cleared when it leaves.
-/// A rule reads it as any bitplane -- a window of it is the entities
-/// about a cell, as a mask -- and never writes it. It is kept where it
-/// is hot; where it is not, entities still never overlap, their buckets
-/// seeing to it, but a rule cannot see them.
-pub const OCCUPIED: LayerType = LayerType(8);
-
 mod bucket;
 mod commands;
 mod record;
@@ -42,5 +32,5 @@ mod wheel;
 
 pub use commands::{Commands, EntitiesApplied};
 pub use record::{attribute, remove_attribute, set_attribute, Attribute, AttributeType, EntityId, EntityRef, EntityType, Header, NEVER};
-pub use store::{Crossing, Entities, EntityReader, SuperChunkEntities};
+pub use store::{Crossing, Entities, EntityReader, SuperChunkEntities, OCCUPIED_SIDE};
 pub use wheel::{Wake, WHEEL_TICKS};

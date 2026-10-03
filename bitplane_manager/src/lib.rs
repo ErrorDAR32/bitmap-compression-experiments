@@ -192,10 +192,12 @@ impl SuperChunkLayer {
     /// dirty, and its count and the hot count move by one. Whether it
     /// changed.
     fn put_cell(&mut self, chunk: usize, cell: usize, set: bool) -> bool {
-        if self.get(chunk, cell) == set {
+        // The one word read and written, found once.
+        let (word, bit) = (&mut self.block[chunk * WORDS + cell / BITS_PER_WORD], 1 << (cell % BITS_PER_WORD));
+        if (*word & bit != 0) == set {
             return false;
         }
-        self.cells_mut(chunk)[cell / BITS_PER_WORD] ^= 1 << (cell % BITS_PER_WORD);
+        *word ^= bit;
         put(&mut self.flags.dirty, chunk, true);
         let (count, block) = (self.count(chunk), &mut self.block_counts[chunk][cell / BLOCK_CELLS]);
         if set {
@@ -343,7 +345,15 @@ impl<'a> Reader<'a> {
     /// to four bitmap words read, turned and cut, so a cell's whole
     /// neighbourhood, say, is a few masks.
     pub fn window(&self, layer_type: LayerType, origin: CellIndex, width: u32, height: u32) -> Tile {
-        self.lookup.window(self.superchunks, layer_type, origin, width, height)
+        let [tile] = self.windows([layer_type], origin, width, height);
+        tile
+    }
+
+    /// [`Reader::window`], of each of `types` at once: one window of
+    /// cells read in several layers costs little more than in one, where
+    /// it lies being worked out once.
+    pub fn windows<const N: usize>(&self, types: [LayerType; N], origin: CellIndex, width: u32, height: u32) -> [Tile; N] {
+        self.lookup.windows(self.superchunks, types, origin, width, height)
     }
 
     /// Where the superchunk whose Morton index is `superchunk` is among
@@ -381,20 +391,11 @@ fn tile_of(bucket: Option<&CellWords>, tile: usize) -> Tile {
 /// place among the entry's layers.
 type Place = (usize, usize);
 
-/// A lookup remembered: its superchunk and where that is in the
-/// directory, and its layer type and where that is in the superchunk's
-/// layers, if the superchunk has it.
-#[derive(Clone, Copy)]
-struct LastLookup {
-    /// The superchunk looked up, by Morton index.
-    superchunk: u64,
-    /// Its entry in the directory.
-    entry: usize,
-    /// The layer type looked up.
-    layer_type: LayerType,
-    /// Its place among the superchunk's layers, if it has one.
-    layer: Option<usize>,
-}
+/// The key of a place in the cache with nothing remembered: no
+/// superchunk has this Morton index.
+const NOTHING_REMEMBERED: (u64, u64) = (u64::MAX, u64::MAX);
+/// A superchunk's lack of a layer type, remembered.
+const NO_LAYER: u32 = u32::MAX;
 
 /// Lookups remembered: a cache of this many, by superchunk and type.
 const REMEMBERED: usize = 16;
@@ -405,18 +406,29 @@ const REMEMBERED: usize = 16;
 /// superchunk and type has one place in the cache, by a hash of the two,
 /// so finding it there is one comparison. One a thread: each remembers
 /// its own.
-#[derive(Default)]
 struct Lookup {
-    /// The lookups remembered, each in its place.
-    remembered: [Cell<Option<LastLookup>>; REMEMBERED],
+    /// The lookups remembered, each in its place: the superchunk and
+    /// the layer type looked up -- no superchunk's Morton index where
+    /// none is remembered...
+    keys: [Cell<(u64, u64)>; REMEMBERED],
+    /// ...and where each was found: its entry in the directory, and its
+    /// place among the entry's layers, or [`NO_LAYER`].
+    found: [Cell<(u32, u32)>; REMEMBERED],
     /// The last superchunk looked up alone, and its entry.
     superchunk: Cell<Option<(u64, usize)>>,
+}
+
+impl Default for Lookup {
+    /// Nothing remembered.
+    fn default() -> Self {
+        Self { keys: std::array::from_fn(|_| Cell::new(NOTHING_REMEMBERED)), found: Default::default(), superchunk: Cell::new(None) }
+    }
 }
 
 impl Lookup {
     /// Forgets every lookup: the directory's shape changed.
     fn forget(&self) {
-        self.remembered.iter().for_each(|place| place.set(None));
+        self.keys.iter().for_each(|key| key.set(NOTHING_REMEMBERED));
         self.superchunk.set(None);
     }
 
@@ -444,55 +456,61 @@ impl Lookup {
     /// Where the allocation for `layer_type` over the superchunk whose
     /// Morton index is `superchunk` is in `directory`, if in use.
     fn find(&self, directory: &[SuperChunk], layer_type: LayerType, superchunk: u64) -> Option<Place> {
-        let remembered = &self.remembered[Self::place(superchunk, layer_type)];
-        if let Some(last) = remembered.get() {
-            if last.superchunk == superchunk && last.layer_type == layer_type {
-                return last.layer.map(|layer| (last.entry, layer));
-            }
+        let place = Self::place(superchunk, layer_type);
+        if self.keys[place].get() == (superchunk, layer_type.0) {
+            let (entry, layer) = self.found[place].get();
+            return (layer != NO_LAYER).then_some((entry as usize, layer as usize));
         }
         let entry = self.superchunk(directory, superchunk).ok()?;
         let layer = directory[entry].layer_index(layer_type);
-        remembered.set(Some(LastLookup { superchunk, entry, layer_type, layer }));
+        self.keys[place].set((superchunk, layer_type.0));
+        self.found[place].set((entry as u32, layer.map_or(NO_LAYER, |layer| layer as u32)));
         layer.map(|layer| (entry, layer))
     }
 
     /// The window of `width` by `height` cells (each up to 8) whose top
-    /// left cell is `origin`, of `layer_type` in `directory`, row by row:
-    /// put together from the up to four aligned tiles -- a bitmap word
-    /// each -- it overlaps, only those it reaches read. Its chunk's bucket
-    /// is looked up once; the tiles beside and below are stepped to on the
-    /// tile's index in the chunk, and only one across the chunk's edge is
-    /// looked up again.
-    fn window(&self, directory: &[SuperChunk], layer_type: LayerType, origin: CellIndex, width: u32, height: u32) -> Tile {
+    /// left cell is `origin`, of each of `types` in `directory`, row by
+    /// row: put together from the up to four aligned tiles -- a bitmap
+    /// word each -- it overlaps, only those it reaches read. Where the
+    /// window lies among the tiles is worked out once, for every type;
+    /// each type's chunk's bucket is looked up once, the tiles beside and
+    /// below stepped to on the tile's index in the chunk, and only one
+    /// across the chunk's edge looked up again.
+    fn windows<const N: usize>(&self, directory: &[SuperChunk], types: [LayerType; N], origin: CellIndex, width: u32, height: u32) -> [Tile; N] {
         let place = origin.0 & (BITS_PER_WORD as u64 - 1);
         // The window's top left in its tile: the place's even bits, and its odd ones.
         let across = (place & 1 | place >> 1 & 2 | place >> 2 & 4) as u32;
         let down = (place >> 1 & 1 | place >> 2 & 2 | place >> 3 & 4) as u32;
         let first = CellIndex(origin.0 - place);
-        let bucket = self.bucket(directory, layer_type, first);
         let tile = first.in_chunk() / BITS_PER_WORD;
         let (x, y) = (tile & TILE_X, tile & TILE_Y);
         // The tile beside and below, in the chunk: a carry through the other coordinate's bits.
         let (beside, below) = (((x | TILE_Y) + 1) & TILE_X, ((y | TILE_X) + 2) & TILE_Y);
         let (wide, tall) = (across + width > TILE_SIDE, down + height > TILE_SIDE);
         let side = TILE_SIDE as i32;
-        let top_left = tile_of(bucket, tile);
-        let (mut top_right, mut bottom_left, mut bottom_right) = (Tile::default(), Tile::default(), Tile::default());
-        if wide {
-            top_right = if x != TILE_X { tile_of(bucket, beside | y) } else { self.tile_at(directory, layer_type, first.offset(side, 0)) };
-        }
-        if tall {
-            bottom_left = if y != TILE_Y { tile_of(bucket, x | below) } else { self.tile_at(directory, layer_type, first.offset(0, side)) };
-        }
-        if wide && tall {
-            bottom_right =
-                if x != TILE_X && y != TILE_Y { tile_of(bucket, beside | below) } else { self.tile_at(directory, layer_type, first.offset(side, side)) };
-        }
         let kept = left_columns(width) & top_rows(height);
-        Tile {
-            set: window([[top_left.set, top_right.set], [bottom_left.set, bottom_right.set]], across, down) & kept,
-            hot: window([[top_left.hot, top_right.hot], [bottom_left.hot, bottom_right.hot]], across, down) & kept,
-        }
+        types.map(|layer_type| {
+            let bucket = self.bucket(directory, layer_type, first);
+            let top_left = tile_of(bucket, tile);
+            let (mut top_right, mut bottom_left, mut bottom_right) = (Tile::default(), Tile::default(), Tile::default());
+            if wide {
+                top_right = if x != TILE_X { tile_of(bucket, beside | y) } else { self.tile_at(directory, layer_type, first.offset(side, 0)) };
+            }
+            if tall {
+                bottom_left = if y != TILE_Y { tile_of(bucket, x | below) } else { self.tile_at(directory, layer_type, first.offset(0, side)) };
+            }
+            if wide && tall {
+                bottom_right = if x != TILE_X && y != TILE_Y {
+                    tile_of(bucket, beside | below)
+                } else {
+                    self.tile_at(directory, layer_type, first.offset(side, side))
+                };
+            }
+            Tile {
+                set: window([[top_left.set, top_right.set], [bottom_left.set, bottom_right.set]], across, down) & kept,
+                hot: window([[top_left.hot, top_right.hot], [bottom_left.hot, bottom_right.hot]], across, down) & kept,
+            }
+        })
     }
 
     /// The hot bucket of `cell`'s chunk in `layer_type`, in `directory`.

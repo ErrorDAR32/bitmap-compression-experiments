@@ -56,10 +56,12 @@ passed over.
 **Entities never overlap**: a cell holds one. A bucket has one record
 a cell, and the superchunk a change lands in checks as it carries it
 out: a mover whose cell is taken stays where it stood, changed all the
-same; a new entity is not put. The cells entities stand on are a
-bitplane, `OCCUPIED`, kept as they are put, moved and removed, for
-rules to read -- a rule steps to cells free as the tick found them, the
-first check, of which the one above is the second. Crossing to another
+same; a new entity is not put. A rule need not look first -- few
+cells have an entity, and a step turned back costs less than looking
+every step -- but can: `SuperChunkTick::occupied` reads the cells
+entities stand on about a cell from the buckets, an aligned 8x8 tile
+being a run of a bucket's places. No bitplane of them is kept: it cost
+a fifth of the ticks on 12 threads. Crossing to another
 superchunk, an entity is put there as new and stays here asleep a
 tick, until the next tick's first phase reads whether it arrived
 (`Crossing`): two superchunks changed apart tell each other nothing.

@@ -27,6 +27,8 @@ write's part in it. Private: **`layer_index`**.
 **`Reader::new(superchunks)`**: **`holds(type, cell)`**,
 **`window(type, origin, width, height)`** -- a **`Tile`** `{set, hot}`,
 up to 8x8 cells row by row from `origin`, bit `y * 8 + x` --
+**`windows(types, ...)`**, the same of several types at once, where it
+lies worked out once --
 **`superchunk(morton)`**, remembering the last lookups.
 **`chunk_at(superchunk, index)`**: a chunk's position from Morton
 indices.

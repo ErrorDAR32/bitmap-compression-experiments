@@ -8,7 +8,7 @@
 use bitplane_manager::{Write, WriteOp};
 use chunk_storage::mock::{DIRT, GRASS};
 use coordinates::{CartesianCell, SUPERCHUNK_SIDE_CELLS};
-use simulation::entities::{Attribute, EntityId, EntityRef, Header, OCCUPIED};
+use simulation::entities::{Attribute, EntityId, EntityRef, Header};
 use simulation::Simulation;
 use tilesim::diagnostics::world::World;
 use tilesim::pasture::tick;
@@ -76,7 +76,7 @@ fn hungry_sheep_walk_to_the_nearest_grass() {
     world.arena.apply();
     let header = Header { id: EntityId(1), kind: SHEEP, at: sheep.into(), wake: 0 };
     world.entities.queue_put(header, &[Attribute { kind: HUNGER, value: MEAL_WAKES }]);
-    world.entities.apply(&mut world.arena);
+    world.entities.apply();
     let mut simulation = Simulation::new(1);
     let (mut done, mut ate_at) = (SheepTickMetrics::default(), None);
     for seed in 0..12 * (STEP_TICKS + STEP_JITTER) {
@@ -111,8 +111,7 @@ fn any_number_of_threads_ticks_sheep_the_same() {
 
 /// Sheep never overlap: a crowded flock, eating, breeding and walking
 /// over four superchunks and their borders, stands one to a cell after
-/// every tick checked, and the bitplane of the cells entities stand on
-/// says the same.
+/// every tick checked.
 #[test]
 fn sheep_never_overlap() {
     let mut world = World::with_sheep(4, 300_000, 60_000);
@@ -126,8 +125,6 @@ fn sheep_never_overlap() {
             let mut cells: Vec<_> = world.entities.iter().map(|sheep| sheep.header.at).collect();
             cells.sort_unstable();
             assert!(cells.windows(2).all(|pair| pair[0] != pair[1]), "tick {seed}: two sheep on a cell");
-            let occupied: u64 = world.superchunks.iter().map(|&superchunk| world.arena.superchunk_count(OCCUPIED, superchunk) as u64).sum();
-            assert_eq!(occupied as usize, cells.len(), "tick {seed}: the cells occupied are the cells stood on");
         }
     }
     assert!(stayed > 1_000, "{stayed} sheep found their cell taken, and stayed");

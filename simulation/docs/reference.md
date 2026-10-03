@@ -24,7 +24,10 @@ write)`** -- into the slot of each superchunk it lands in.
 `origin` as the tick found them, as a `Tile`, through the reader.
 **`area(type, centre)`**: the 16x16 cells about `centre` (`AREA_SIDE`,
 `AREA_CENTRE`), four windows, as an **`Area`** `{set, hot}`, a row a
-`u16`: what pathfinding is handed. **`now`**, **`woken()`**: its entities
+`u16`: what pathfinding is handed. **`windows(types, ...)`**,
+**`areas(types, centre)`**: of several types at once.
+**`occupied(origin, width, height)`**: the cells entities stand on, as
+the tick found them. **`now`**, **`woken()`**: its entities
 waking this tick, in Morton order, borrowed from
 the world as the tick found it, not from the turn, so changes can be
 queued while going through them. **`entity(id, at)`**,
@@ -64,13 +67,13 @@ in the world.
 **`attribute`**, **`set_attribute`** (added if absent),
 **`remove_attribute`**; **`sorted`**.
 
-`OCCUPIED`: the layer type of the cells entities stand on.
-
 **`bucket.rs`**: **`place(cell)`**: a cell's place in its chunk, a
 `u16`. **`Bucket`**: `Record`s (a header, its attributes' first index
 and count) sorted by cell, one a cell; their places alone in a list
-beside, which is what is searched; the attributes; the garbage count.
+beside, which is what is searched, among one block's at a time (`starts`,
+`BLOCKS`); the attributes; the garbage count.
 **`get(id, at)`**, **`iter`**, **`occupied(place)`**,
+**`in_tile(first)`** (the places on an aligned 8x8 tile, a run),
 **`put(header, was, attributes)`** -- a **`Put`**: `InPlace`; `Moved`
 (**`shift`**) to its cell if that is another and free, else `Stayed`;
 `New` if it is not there, `was` is its cell and it is free, else
@@ -90,8 +93,8 @@ then ID.
 **`store.rs`**: **`SuperChunkEntities`**: a bucket a chunk and a wheel;
 **`get(id, at)`**, **`iter`**, **`chunk(index)`**, **`woken(tick)`** -- the wheel's slot,
 each wake found and still due -- **`put(earliest, header, from,
-attributes)`** -- within a chunk or from one to another, a `Change`
-`{put, left, entered}` -- **`remove(id, at)`**, **`cross(id, at, to)`**,
+attributes)`** -- within a chunk or from one to another, a `Put` --
+**`in_tile(chunk, first)`**, **`remove(id, at)`**, **`cross(id, at, to)`**,
 **`crossings`** (a **`Crossing`** `{id, at, to}` each), **`settle`**, **`turn`**, **`sort_wakes(tick)`**
 -- after the second phase for the next tick, after `Entities::apply`
 for the tick about to run -- **`counts`**.
@@ -99,19 +102,21 @@ for the tick about to run -- **`counts`**.
 index, and changes queued outside a tick: **`now`**, **`len`**,
 **`superchunk(morton)`**, **`get(id, at)`**, **`align(mortons)`** --
 added empty, dropped, how many entities dropped -- **`queue_put(header,
-attributes)`**, **`queue_remove(header)`**, **`queued`**, **`apply(arena)`**
+attributes)`**, **`queue_remove(header)`**, **`queued`**, **`apply`**
 -- as the arena's `queue` and `apply` -- **`iter`**, **`advance`**.
 **`EntityReader`**: every superchunk's entities read in a tick, as the
-bitplanes' `Reader`: **`get(id, at)`**, **`chunk(position)`**.
+bitplanes' `Reader`: **`get(id, at)`**, **`chunk(position)`**,
+**`occupied(origin, width, height)`** -- the cells entities stand on
+among up to 16x16 (`OCCUPIED_SIDE`), a row a word, from the up to nine
+tiles' runs of places (**`in_tile`**).
 
 **`commands.rs`**: **`Commands`**: puts and removes queued for one
 superchunk, the puts' attributes in a list beside:
 **`put(header, from, attributes)`**, **`cross(header, to,
-attributes)`**, **`remove`**, **`apply(superchunks, bitplanes, earliest,
+attributes)`**, **`remove`**, **`apply(superchunks, earliest,
 applied)`** in order, each on its cell's superchunk (a put elsewhere
 lost, one of an entity no longer where it stood passed over, a new
-one on a cell taken refused, a mover to one staying), the cells left
-and entered written to `OCCUPIED`,
+one on a cell taken refused, a mover to one staying),
 **`count_lost`**, **`clear`**. **`EntitiesApplied`** `{puts, removes,
 lost, stayed, refused}`, added with `+=`.
 

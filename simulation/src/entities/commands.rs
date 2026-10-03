@@ -7,8 +7,6 @@
 
 use super::bucket::Put;
 use super::record::{Attribute, EntityId, Header};
-use super::OCCUPIED;
-use bitplane_manager::{Applied, SuperChunk, Write, WriteOp};
 use super::store::SuperChunkEntities;
 use coordinates::CellIndex;
 use std::ops::AddAssign;
@@ -101,14 +99,7 @@ impl Commands {
     /// superchunk not among them is lost; one of an entity no longer
     /// where it stood is passed over; a new entity on a cell another
     /// stands on is refused, and one moving to it stays where it stood.
-    /// `bitplanes` are the arena's superchunks, one for each of
-    /// `superchunks` in the same order: the cells entities leave and
-    /// enter are cleared and set in their [`OCCUPIED`] bitplane, where
-    /// it is hot.
-    pub fn apply(&self, superchunks: &mut [SuperChunkEntities], bitplanes: &mut [SuperChunk], earliest: u64, applied: &mut EntitiesApplied) {
-        debug_assert_eq!(superchunks.len(), bitplanes.len(), "a superchunk of bitplanes for each of entities");
-        // What the bitplane's writes come to is not the entities' to report.
-        let mut written = Applied::default();
+    pub fn apply(&self, superchunks: &mut [SuperChunkEntities], earliest: u64, applied: &mut EntitiesApplied) {
         for &command in &self.commands {
             let at = match command {
                 Command::Put { header, .. } => header.at,
@@ -123,32 +114,22 @@ impl Commands {
                 applied.lost += matches!(command, Command::Put { .. }) as usize;
                 continue;
             };
-            let (superchunk, bitplanes) = (&mut superchunks[place], &mut bitplanes[place]);
-            let mut occupy = |cell: CellIndex, op: WriteOp| bitplanes.apply(OCCUPIED, Write::cell(cell, op), &mut written);
+            let superchunk = &mut superchunks[place];
             match command {
                 Command::Put { header, from, crossing, first, count } => {
-                    let change = superchunk.put(earliest, header, from, &self.attributes[first as usize..(first + count) as usize]);
-                    match change.put {
+                    let put = superchunk.put(earliest, header, from, &self.attributes[first as usize..(first + count) as usize]);
+                    match put {
                         Put::New | Put::InPlace | Put::Moved => applied.puts += 1,
                         Put::Stayed => (applied.puts, applied.stayed) = (applied.puts + 1, applied.stayed + 1),
                         Put::Refused => applied.refused += 1,
                         Put::PassedOver => {}
                     }
-                    if let Some(left) = change.left {
-                        occupy(left, WriteOp::Unset);
-                    }
-                    if let Some(entered) = change.entered {
-                        occupy(entered, WriteOp::Set);
-                    }
-                    if let (Some(to), Put::InPlace) = (crossing, change.put) {
+                    if let (Some(to), Put::InPlace) = (crossing, put) {
                         superchunk.cross(header.id, header.at, to);
                     }
                 }
                 Command::Remove { id, at } => {
-                    if superchunk.remove(id, at) {
-                        applied.removes += 1;
-                        occupy(at, WriteOp::Unset);
-                    }
+                    applied.removes += superchunk.remove(id, at) as usize;
                 }
             }
         }

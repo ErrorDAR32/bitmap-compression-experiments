@@ -29,7 +29,7 @@
 //! tick comes out the same on any number of threads.
 
 use crate::dispatcher::Dispatcher;
-use crate::entities::{Attribute, Commands, Entities, EntitiesApplied, EntityId, EntityReader, EntityRef, Header, SuperChunkEntities, NEVER};
+use crate::entities::{Attribute, Commands, Entities, EntitiesApplied, EntityId, EntityReader, EntityRef, Header, SuperChunkEntities, NEVER, OCCUPIED_SIDE};
 use coordinates::ChunkPosition;
 use crate::sampling::sample_layer;
 use bitplane_manager::{count_missed, Applied, BitmapArena, NotHot, Reader, Shape, SuperChunk, Tile, Write, WriteQueues};
@@ -128,12 +128,25 @@ impl<'a> SuperChunkTick<'a> {
         self.reader.window(layer_type, origin, width, height)
     }
 
+    /// [`SuperChunkTick::window`], of each of `types` at once: grass and
+    /// the cells entities stand on about a cell, say, for little more
+    /// than either alone.
+    pub fn windows<const N: usize>(&self, types: [LayerType; N], origin: CellIndex, width: u32, height: u32) -> [Tile; N] {
+        self.reader.windows(types, origin, width, height)
+    }
+
     /// The [`AREA_SIDE`] by [`AREA_SIDE`] cells around `centre` -- it at
     /// `(AREA_CENTRE, AREA_CENTRE)` of them -- of `layer_type`, as the
     /// tick found them: four windows, a row a word. What an entity sees
     /// of the world about it at once: where to find a path over, say.
     pub fn area(&self, layer_type: LayerType, centre: CellIndex) -> Area {
-        let mut area = Area::default();
+        let [area] = self.areas([layer_type], centre);
+        area
+    }
+
+    /// [`SuperChunkTick::area`], of each of `types` at once.
+    pub fn areas<const N: usize>(&self, types: [LayerType; N], centre: CellIndex) -> [Area; N] {
+        let mut areas = [Area::default(); N];
         let (reach, half) = (AREA_CENTRE as i32, AREA_SIDE as u32 / 2);
         for quarter in 0..4u32 {
             let (across, down) = (quarter % 2 * half, quarter / 2 * half);
@@ -141,14 +154,16 @@ impl<'a> SuperChunkTick<'a> {
             let Some(origin) = centre.offset(across as i32 - reach, down as i32 - reach) else {
                 continue;
             };
-            let window = self.reader.window(layer_type, origin, half, half);
-            for row in 0..half {
-                let at = (down + row) as usize;
-                area.set[at] |= ((window.set >> (8 * row) & 0xff) as u16) << across;
-                area.hot[at] |= ((window.hot >> (8 * row) & 0xff) as u16) << across;
+            let windows = self.reader.windows(types, origin, half, half);
+            for (area, window) in areas.iter_mut().zip(windows) {
+                for row in 0..half {
+                    let at = (down + row) as usize;
+                    area.set[at] |= ((window.set >> (8 * row) & 0xff) as u16) << across;
+                    area.hot[at] |= ((window.hot >> (8 * row) & 0xff) as u16) << across;
+                }
             }
         }
-        area
+        areas
     }
 
     /// Whether `layer_type` holds at `cell`, as the tick found it.
@@ -197,6 +212,17 @@ impl<'a> SuperChunkTick<'a> {
     /// superchunk is not held.
     pub fn entities_in(&self, chunk: ChunkPosition) -> Option<impl Iterator<Item = EntityRef<'a>> + 'a> {
         self.entity_reader.chunk(chunk)
+    }
+
+    /// The cells entities stand on among the `width` by `height` cells
+    /// (each up to [`OCCUPIED_SIDE`]) whose top left cell is `origin` --
+    /// in any superchunk held -- as the tick found them, a row a word:
+    /// cell `(x, y)` from `origin` at bit `x` of row `y`. Asked of the
+    /// entities themselves, a few of them read, so it costs what it
+    /// costs only when asked: a step onto a cell an entity stands on is
+    /// turned back as it is carried out, asked or not.
+    pub fn occupied(&self, origin: CellIndex, width: u32, height: u32) -> [u16; OCCUPIED_SIDE] {
+        self.entity_reader.occupied(origin, width, height)
     }
 
     /// A new entity's ID, drawn from the superchunk's random numbers.
@@ -408,7 +434,7 @@ impl Simulation {
                             superchunk.apply(layer_type, write, &mut applied);
                         }
                     }
-                    outbox.commands[slot(-dx, -dy)].apply(std::slice::from_mut(entities), std::slice::from_mut(superchunk), now + 1, &mut entities_applied);
+                    outbox.commands[slot(-dx, -dy)].apply(std::slice::from_mut(entities), now + 1, &mut entities_applied);
                 }
                 entities.sort_wakes(now + 1);
             }

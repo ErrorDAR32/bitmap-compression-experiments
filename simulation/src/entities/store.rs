@@ -14,7 +14,6 @@ use super::bucket::{place, Bucket, Put};
 use super::commands::{Commands, EntitiesApplied};
 use super::record::{sorted, Attribute, EntityId, EntityRef, Header, NEVER};
 use super::wheel::{Wake, Wheel};
-use bitplane_manager::BitmapArena;
 use coordinates::{CellIndex, ChunkPosition, SuperChunkPosition, CHUNKS_IN_SUPERCHUNK};
 
 /// A superchunk's entities: a bucket a chunk, in the chunks' Morton
@@ -45,16 +44,6 @@ pub struct Crossing {
     pub to: CellIndex,
 }
 
-/// What putting an entity changed of where entities stand.
-#[derive(Clone, Copy, Debug)]
-pub(crate) struct Change {
-    /// What came of it.
-    pub(crate) put: Put,
-    /// The cell it left, if it moved.
-    pub(crate) left: Option<CellIndex>,
-    /// The cell it now stands on, if it did not before.
-    pub(crate) entered: Option<CellIndex>,
-}
 
 impl SuperChunkEntities {
     /// No entities, in the superchunk whose Morton index is `morton`.
@@ -111,10 +100,10 @@ impl SuperChunkEntities {
     /// Puts `header`'s entity, with `attributes` sorted by type, which
     /// stood on `from`, a cell of this superchunk -- its own cell, if it
     /// has not moved or is new -- and files its wake, no earlier than
-    /// `earliest`: what came of it, and the cells left and entered. One
-    /// whose cell is taken stays on `from`, changed all the same, and
-    /// wakes there; a new one is not put.
-    pub(crate) fn put(&mut self, earliest: u64, header: Header, from: CellIndex, attributes: &[Attribute]) -> Change {
+    /// `earliest`: what came of it. One whose cell is taken stays on
+    /// `from`, changed all the same, and wakes there; a new one is not
+    /// put.
+    pub(crate) fn put(&mut self, earliest: u64, header: Header, from: CellIndex, attributes: &[Attribute]) -> Put {
         debug_assert_eq!(header.at.superchunk(), self.morton, "an entity put in a superchunk it is not in");
         debug_assert_eq!(from.superchunk(), self.morton, "an entity put from another superchunk: a crossing");
         debug_assert!(sorted(attributes), "attributes sorted by type, each type once");
@@ -135,11 +124,15 @@ impl SuperChunkEntities {
         if !matches!(put, Put::Refused | Put::PassedOver) && header.wake != NEVER {
             self.wheel.file(earliest, header.wake, Wake { id: header.id, at: stands });
         }
-        match put {
-            Put::New => Change { put, left: None, entered: Some(header.at) },
-            Put::Moved => Change { put, left: Some(from), entered: Some(header.at) },
-            Put::InPlace | Put::Stayed | Put::Refused | Put::PassedOver => Change { put, left: None, entered: None },
-        }
+        put
+    }
+
+    /// The places, in the chunk at `chunk`, of the entities standing on
+    /// the aligned 8x8 tile of cells whose first is at `first` there: a
+    /// run of the bucket's places, a tile being a run of cells in Morton
+    /// order.
+    pub(crate) fn in_tile(&self, chunk: usize, first: u16) -> &[u16] {
+        self.chunks[chunk].in_tile(first)
     }
 
     /// Removes the entity whose ID is `id` standing on `at`: whether it
@@ -278,15 +271,12 @@ impl Entities {
         self.queued.len()
     }
 
-    /// Applies the changes queued, in order, and empties the queue, the
-    /// entities first made to hold `arena`'s superchunks: an entity put
-    /// in a superchunk not held is lost, one put on a cell another
-    /// stands on refused. Where they stand is kept in `arena`'s
-    /// [`OCCUPIED`](super::OCCUPIED) bitplane, where it is hot.
-    pub fn apply(&mut self, arena: &mut BitmapArena) -> EntitiesApplied {
-        let mortons: Vec<u64> = arena.superchunks().iter().map(|superchunk| superchunk.morton()).collect();
-        let mut applied = EntitiesApplied { lost: self.align(&mortons), ..EntitiesApplied::default() };
-        self.queued.apply(&mut self.superchunks, arena.superchunks_mut(), self.now, &mut applied);
+    /// Applies the changes queued, in order, and empties the queue: an
+    /// entity put in a superchunk not held is lost, one put on a cell
+    /// another stands on refused.
+    pub fn apply(&mut self) -> EntitiesApplied {
+        let mut applied = EntitiesApplied::default();
+        self.queued.apply(&mut self.superchunks, self.now, &mut applied);
         self.queued.clear();
         let now = self.now;
         self.superchunks.iter_mut().for_each(|superchunk| superchunk.sort_wakes(now));
@@ -302,6 +292,21 @@ impl Entities {
     pub(crate) fn advance(&mut self) {
         self.now += 1;
     }
+}
+
+/// Cells along the side of the most [`EntityReader::occupied`] reads at
+/// once: a row's bits.
+pub const OCCUPIED_SIDE: usize = 16;
+
+/// The bits of a Morton index that place a cell in its aligned 8x8 tile.
+const TILE_PLACES: u64 = 63;
+
+/// The column and row, in its aligned 8x8 tile, of the cell whose Morton
+/// index -- or place in its chunk -- is `index`: its even bits, and its
+/// odd ones.
+const fn in_tile(index: u64) -> (u32, u32) {
+    let place = index & TILE_PLACES;
+    ((place & 1 | place >> 1 & 2 | place >> 2 & 4) as u32, (place >> 1 & 1 | place >> 2 & 2 | place >> 3 & 4) as u32)
 }
 
 /// Reads entities from superchunks in a tick's first phase, across
@@ -327,6 +332,45 @@ impl<'a> EntityReader<'a> {
     /// The entity whose ID is `id`, standing on `at`, if held.
     pub fn get(&self, id: EntityId, at: CellIndex) -> Option<EntityRef<'a>> {
         self.superchunk(at.superchunk())?.get(id, at)
+    }
+
+    /// The cells entities stand on among the `width` by `height` cells
+    /// (each up to 16) whose top left cell is `origin`, a row a word:
+    /// cell `(x, y)` from `origin` at bit `x` of row `y`. Found from the
+    /// buckets, which are sorted by cell: the cells lie on up to nine
+    /// aligned 8x8 tiles, each a run of a bucket's places, so what is
+    /// read is the few entities there, not the cells. Where no
+    /// superchunk is held, no entity stands.
+    pub fn occupied(&self, origin: CellIndex, width: u32, height: u32) -> [u16; OCCUPIED_SIDE] {
+        debug_assert!(width as usize <= OCCUPIED_SIDE && height as usize <= OCCUPIED_SIDE, "more cells than a row's bits");
+        let mut rows = [0; OCCUPIED_SIDE];
+        let (across, down) = in_tile(origin.0);
+        let first = CellIndex(origin.0 & !TILE_PLACES);
+        let mut held: Option<&SuperChunkEntities> = None;
+        for (tile_x, tile_y) in (0..3).flat_map(|tile_y| (0..3).map(move |tile_x| (tile_x, tile_y))) {
+            // Where the tile's first cell is among the cells asked for: before them, by up to 7.
+            let (left, top) = (8 * tile_x - across as i32, 8 * tile_y - down as i32);
+            if left >= width as i32 || top >= height as i32 {
+                continue;
+            }
+            let Some(tile) = first.offset(8 * tile_x, 8 * tile_y) else {
+                continue;
+            };
+            if held.is_none_or(|held| held.morton != tile.superchunk()) {
+                held = self.superchunk(tile.superchunk());
+            }
+            let Some(superchunk) = held else {
+                continue;
+            };
+            for &place in superchunk.in_tile(tile.chunk_in_superchunk(), tile.in_chunk() as u16) {
+                let (x, y) = in_tile(place as u64);
+                let (x, y) = (left + x as i32, top + y as i32);
+                if x >= 0 && y >= 0 && x < width as i32 && y < height as i32 {
+                    rows[y as usize] |= 1 << x;
+                }
+            }
+        }
+        rows
     }
 
     /// The entities on `chunk`, in Morton order by cell, then by ID, if

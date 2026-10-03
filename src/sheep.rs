@@ -13,10 +13,11 @@
 //!   growing before it strips it.
 //! - **Dies**: of hunger, or of old age, at one wake in
 //!   [`LIFE_WAKES`].
-//! - **Never stands where another does**: it steps only onto cells no
-//!   entity stood on as the tick found them, and if another takes the
-//!   cell first it stays where it is; a lamb is born on a free cell
-//!   beside its mother, who waits for one.
+//! - **Never stands where another does**: a step onto a cell an entity
+//!   stands on is turned back as it is carried out, and the sheep stays
+//!   where it is -- it does not look first, few cells having one; a
+//!   lamb is born on a cell seen free beside its mother, who waits for
+//!   one; and a path to grass goes round the entities in the way.
 //! - **Walks**: hungry, onto a neighbour with grass if there is one,
 //!   else a step along the shortest path to the nearest grass in the
 //!   [`AREA_SIDE`] by [`AREA_SIDE`] cells about it (`pathfinding`'s
@@ -35,7 +36,7 @@
 use bitplane_manager::{Write, WriteOp};
 use chunk_storage::mock::{DIRT, GRASS};
 use coordinates::{CellIndex, SuperChunkPosition, SUPERCHUNK_SIDE_CELLS};
-use simulation::entities::{remove_attribute, set_attribute, Attribute, AttributeType, Entities, EntityId, EntityType, Header, OCCUPIED};
+use simulation::entities::{remove_attribute, set_attribute, Attribute, AttributeType, Entities, EntityId, EntityType, Header};
 use pathfinding::{step_towards, Cell};
 use simulation::{SuperChunkTick, AREA_CENTRE, AREA_SIDE};
 use std::collections::HashSet;
@@ -130,7 +131,7 @@ pub fn rule(turn: &mut SuperChunkTick) -> SheepTickMetrics {
         let lamb = sheep.attribute(LAMB);
         match sheep.attribute(PREGNANT) {
             // With no free cell beside it for the lamb, it waits a wake more.
-            Some(1) if around.free != 0 => {
+            Some(1) if around.clear_of_entities(turn, at) != 0 => {
                 remove_attribute(&mut attributes, PREGNANT);
                 let beside = around.pick(turn, at, around.free);
                 // The lamb's cell is no longer one to step to.
@@ -183,9 +184,17 @@ fn next_wake(turn: &mut SuperChunkTick) -> u64 {
 struct Around {
     /// The cells with grass.
     grass: u16,
-    /// The neighbours a sheep may step to: on the bitplanes held, and no
-    /// entity standing on them as the tick found them.
+    /// The neighbours a sheep may step to: on the bitplanes held. Where
+    /// entities stand is not read, a step: few cells have one, and one
+    /// that has turns the sheep back as its step is carried out, which
+    /// costs less than looking every time.
     free: u16,
+}
+
+/// A window of 3x3 cells, row by row, as nine bits: row r's three
+/// cells, at bits 8r to 8r + 2, to bits 3r to 3r + 2.
+fn squeeze(rows: u64) -> u16 {
+    (rows & 0o7 | rows >> 5 & 0o70 | rows >> 10 & 0o700) as u16
 }
 
 /// The middle of [`Around`]: the sheep's own cell.
@@ -193,23 +202,31 @@ const CENTRE: u16 = 1 << 4;
 
 impl Around {
     /// The 3x3 cells around `at`, read at once: a window of the grass
-    /// and one of the cells entities stand on, from the cell up and
-    /// left, each one's three rows of three squeezed together. At the
-    /// world's edge, none.
+    /// from the cell up and left, its three rows of three squeezed
+    /// together. At the world's edge, none.
     fn read(turn: &SuperChunkTick, at: CellIndex) -> Self {
         let Some(corner) = at.offset(-1, -1) else {
             return Self { grass: 0, free: 0 };
         };
-        let (grass, occupied) = (turn.window(GRASS, corner, 3, 3), turn.window(OCCUPIED, corner, 3, 3));
-        // Row r's three cells, at bits 8r to 8r + 2, to bits 3r to 3r + 2.
-        let squeeze = |rows: u64| (rows & 0o7 | rows >> 5 & 0o70 | rows >> 10 & 0o700) as u16;
-        Self { grass: squeeze(grass.set), free: squeeze(grass.hot & !occupied.set) & !CENTRE }
+        let grass = turn.window(GRASS, corner, 3, 3);
+        Self { grass: squeeze(grass.set), free: squeeze(grass.hot) & !CENTRE }
+    }
+
+    /// Leaves free only the neighbours no entity stood on as the tick
+    /// found them, and gives them: read when it matters that a cell be
+    /// had -- a lamb is not born where it cannot stand.
+    fn clear_of_entities(&mut self, turn: &SuperChunkTick, at: CellIndex) -> u16 {
+        if let Some(corner) = at.offset(-1, -1) {
+            let occupied = turn.occupied(corner, 3, 3);
+            self.free &= !(occupied[0] | occupied[1] << 3 | occupied[2] << 6);
+        }
+        self.free
     }
 
     /// Where a sheep on `at` steps: one of the free neighbours in
     /// `wanted`, drawn at random among them, or with none wanted any
-    /// free neighbour, else nowhere. Another may take the cell first
-    /// this tick: the sheep then stays where it stands.
+    /// free neighbour, else nowhere. An entity may stand on the cell, or
+    /// take it first this tick: the sheep then stays where it stands.
     fn step(&self, turn: &mut SuperChunkTick, at: CellIndex, wanted: u16) -> CellIndex {
         let choices = if wanted & self.free != 0 { wanted & self.free } else { self.free };
         if choices == 0 { at } else { self.pick(turn, at, choices) }
@@ -234,17 +251,19 @@ impl Around {
 }
 
 // The area a turn reads is the area paths are found over.
-const _: () = assert!(pathfinding::SIDE == AREA_SIDE);
+const _: () = assert!(pathfinding::SIDE == AREA_SIDE && simulation::entities::OCCUPIED_SIDE == AREA_SIDE);
 
 /// A sheep on `at`'s next step to the nearest grass no entity stands on
 /// in the area about it, by the shortest path over the bitplanes held
 /// and round the entities in the way -- of the steps equally good, one
 /// drawn at random; `None` with no such grass there, or no way to it.
 fn path_to_grass(turn: &mut SuperChunkTick, at: CellIndex) -> Option<CellIndex> {
-    let (grass, occupied) = (turn.area(GRASS, at), turn.area(OCCUPIED, at));
+    let grass = turn.area(GRASS, at);
+    let reach = AREA_CENTRE as i32;
+    let occupied = at.offset(-reach, -reach).map_or([0; AREA_SIDE], |corner| turn.occupied(corner, AREA_SIDE as u32, AREA_SIDE as u32));
     // Where an entity stands is neither walked on nor walked to.
-    let passable: [u16; AREA_SIDE] = std::array::from_fn(|row| grass.hot[row] & !occupied.set[row]);
-    let goals: [u16; AREA_SIDE] = std::array::from_fn(|row| grass.set[row] & !occupied.set[row]);
+    let passable: [u16; AREA_SIDE] = std::array::from_fn(|row| grass.hot[row] & !occupied[row]);
+    let goals: [u16; AREA_SIDE] = std::array::from_fn(|row| grass.set[row] & !occupied[row]);
     let here = Cell { x: AREA_CENTRE as u8, y: AREA_CENTRE as u8 };
     let first = step_towards(&passable, &goals, here, turn.random().draw())?.first;
     at.offset(first.x as i32 - AREA_CENTRE as i32, first.y as i32 - AREA_CENTRE as i32)

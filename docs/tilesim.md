@@ -598,19 +598,31 @@ million, and held there as the grass came back.
 A cell holds one entity, ever. It is kept where entities are held, not
 by the rules: a chunk's bucket has one record a cell.
 
-- **Two checks.** In the first phase a rule reads the cells entities
-  stand on as the tick found them and steps only to a free one; that
-  cannot see what others decide this tick. In the second, the
-  superchunk owning the cell checks again as it carries the change out:
-  a mover whose cell was taken first stays where it stood, changed all
-  the same, and a new entity is not put. The second check is the search
-  that finds where the record goes, and costs nothing more.
+- **Checked as the change is carried out.** The superchunk owning the
+  cell looks as it carries a change out, in the second phase: a mover
+  whose cell is taken -- by an entity standing there, or one that got
+  there first this tick -- stays where it stood, changed all the same,
+  and a new entity is not put. The look is the search that finds where
+  the record goes, and costs nothing more.
+- **A rule need not look first.** Few cells have an entity, so a step
+  taken blind is seldom turned back, and looking every step costs more
+  than the steps lost. A rule looks when it matters that the cell be
+  had: a lamb is not born where it cannot stand, and a path goes round
+  the entities in the way.
 - **Staying is always safe**: a mover's own cell is its own until it
   has moved, so none can have taken it.
-- **Where entities stand is a bitplane** (`OCCUPIED`), kept by the
-  entities as they are put, moved and removed, read by rules as any
-  other: a sheep's free neighbours are a mask, and pathfinding goes
-  round the entities in the way.
+- **No bitplane of the cells entities stand on.** One was kept, a cell
+  set and cleared with every step, and read as any bitplane: it cost a
+  fifth of the ticks a second on 12 threads -- a second cell of memory
+  written, far from the first, for every step -- and was taken out.
+  Where entities stand is asked of the entities (`occupied`): a bucket
+  is sorted by cell, and an aligned 8x8 tile is a run of cells in
+  Morton order, so the entities on it are a run of the bucket's
+  places, found by one search. It costs only when asked.
+- **A bucket is searched by block**: where each block of 64x64 cells'
+  places start is kept, 16 a chunk, so a search is among one block's
+  places -- a few steps, on one or two lines of memory -- not all the
+  chunk's.
 - **Crossing a superchunk border.** Two superchunks are changed apart,
   so the one left cannot know whether the one entered took the entity.
   The entity is put there as new and stays here too, asleep, a tick:
@@ -620,12 +632,17 @@ by the rules: a chunk's bucket has one record a cell.
   superchunks tell each other nothing. An entity is two for the tick
   it crosses in; one walking to the edge of the superchunks held stays
   there, where it used to be lost.
-- **Sheep**: step only to free cells; a lamb is born on a free cell
-  beside its mother, who waits for one.
+- **Sheep**: a lamb is born on a cell seen free beside its mother, who
+  waits for one.
 
-Measured (`diagnostics pasture 3000 333 4000`): a sheep's wake 174 ns
-over 16 superchunks and 361 over 64, one thread, as before the checks;
-64 superchunks on 12 threads, 2,990 ticks a second.
+Measured against the build before it (`diagnostics pasture`, 4,000
+sheep a superchunk): 16 superchunks on one thread, 20,000 ticks, 4.07
+seconds against 4.08, 3% more instructions; 64 superchunks on 12
+threads, about 5,300 ticks a second both, within what one run differs
+from the next. What was tried on the way, each measured: the bitplane
+written through the write queues' own path, 36% slower on one thread;
+written a bit at a time, and read with the grass in one window, 10%
+slower on one thread and 20% on 12.
 
 ### Pathfinding (built, first form)
 

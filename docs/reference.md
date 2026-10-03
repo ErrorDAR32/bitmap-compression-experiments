@@ -32,16 +32,17 @@ every superchunk in use, on the simulation's threads.
 falls pregnant on a meal on lush pasture (`LUSH_CELLS` of the nine
 cells it stands amid grass, one in `CONCEIVE_ONE_IN`) if grown; counts
 its youth down; walks, and sleeps again (**`next_wake`**). A lamb is
-born on a free cell beside its mother, who waits for one. Walking, only
-ever to a free cell -- on the bitplanes held, no entity on it as the
-tick found it: hungry, onto a grass neighbour, else a step to the
-nearest grass no entity stands on in the area about it, round the
-entities in the way (**`path_to_grass`**: `SuperChunkTick::area` of
-grass and of `OCCUPIED`, and `pathfinding::step_towards`, one step a
-wake); else onto any free neighbour (**`Around::step(turn, at,
-wanted)`**, **`pick`**, **`bit_of`**). **`Around::read(turn, at)`**:
-the 3x3 cells around a sheep, its own in the middle (`CENTRE`), two
-windows squeezed to nine bits each, grass and free. Returns
+born on a cell seen free beside its mother
+(**`Around::clear_of_entities`**), who waits for one. Walking: hungry,
+onto a grass neighbour, else a step to the nearest grass no entity
+stands on in the area about it, round the entities in the way
+(**`path_to_grass`**: `SuperChunkTick::area` of grass, `occupied`, and
+`pathfinding::step_towards`, one step a wake); else onto any neighbour
+held (**`Around::step(turn, at, wanted)`**, **`pick`**, **`bit_of`**)
+-- without looking whether an entity stands there: the step is turned
+back if one does. **`Around::read(turn, at)`**: the 3x3 cells around a
+sheep, its own in the middle (`CENTRE`), one window **`squeeze`**d to
+nine bits, grass and free. Returns
 **`SheepTickMetrics`** `{woken, eaten, births, deaths, sought, paths}`
 -- paths looked for, and found -- added with `+=`.
 
