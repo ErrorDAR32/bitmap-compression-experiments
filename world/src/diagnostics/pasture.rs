@@ -29,7 +29,7 @@ pub struct PastureRun {
     pub grass: (u64, u64),
     /// What grass and sheep did, added up.
     pub done: TickCounts,
-    /// What carrying out the changes to entities did, added up.
+    /// What applying the instructions did, added up.
     pub entities: InstructionsApplied,
     /// Writes applied.
     pub writes: usize,
@@ -116,8 +116,8 @@ pub fn run(ticks: usize, thousandths: usize, sheep: usize, superchunks: u32, thr
             census.push(Census { tick: tick + 1, sheep: world.sheep(), grass: world.grass(), woken: since.woken, births: since.births, deaths: since.deaths });
             since = sheep::SheepTickMetrics::default();
         }
-        entities += report.entities;
-        writes += report.applied.writes;
+        entities += report.instructions_applied;
+        writes += report.writes_applied.writes;
         computing += report.computing;
         applying += report.applying;
         memory.read();

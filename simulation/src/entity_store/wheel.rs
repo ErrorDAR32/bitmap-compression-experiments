@@ -1,9 +1,10 @@
 //! A superchunk's timer wheel: which entities wake at which tick, so a
-//! tick's work is the entities waking then, not every entity held.
+//! tick's work is the entities waking then, not every entity.
 //!
 //! A slot a tick for the next [`WHEEL_TICKS`] ticks, the tick's number
 //! modulo that its slot; a wake further off waits in a list beside them,
-//! filed into its slot every half turn, once its tick is in reach. A
+//! filed into its slot once its tick is in reach, looked over every
+//! half of [`WHEEL_TICKS`]. A
 //! wake names its entity by ID and cell -- which finds it in its chunk's
 //! bucket -- and is only good if the entity still wakes at that tick:
 //! one that moved away, died or was woken for another tick is not
@@ -53,7 +54,7 @@ impl Wheel {
 
     /// Files `wake` for `tick`, no earlier than `earliest`: the tick about
     /// to run between ticks, the next one during a tick's second phase,
-    /// after [`Wheel::turn`].
+    /// after [`Wheel::pass`].
     pub(crate) fn file(&mut self, earliest: u64, tick: u64, wake: Wake) {
         assert!(tick >= earliest, "a wake at tick {tick}, before {earliest}");
         if tick - earliest < WHEEL_TICKS {
@@ -63,10 +64,10 @@ impl Wheel {
         }
     }
 
-    /// Turns the wheel past `tick`, just run: its slot emptied for the
-    /// tick a whole turn on, and every half turn the wakes further off
-    /// that are now in reach filed.
-    pub(crate) fn turn(&mut self, tick: u64) {
+    /// Passes `tick`, just run: its slot emptied for the tick
+    /// [`WHEEL_TICKS`] on, and every half of that the wakes further off
+    /// now in reach filed.
+    pub(crate) fn pass(&mut self, tick: u64) {
         self.slots[(tick % WHEEL_TICKS) as usize].clear();
         if !tick.is_multiple_of(WHEEL_TICKS / 2) {
             return;

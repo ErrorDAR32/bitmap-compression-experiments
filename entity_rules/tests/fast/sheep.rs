@@ -1,6 +1,6 @@
 //! Sheep on grass: they eat it, starve without it, breed lambs that
 //! grow up -- attributes coming and going -- walk to the nearest grass
-//! when hungry, however far off within their reach, leave thin pasture, never stand two on a cell, never walk off the bitplanes held, and tick the same on
+//! when hungry, however far off within their reach, leave thin pasture, never stand two on a cell, never walk off the hot bitplanes, and tick the same on
 //! any number of threads.
 //!
 //! `cargo test`
@@ -37,7 +37,7 @@ fn sheep_without_grass_starve() {
 
 /// On grass, sheep eat -- each cell eaten turned to dirt -- breed, and
 /// their lambs grow up: pregnancy and youth added and removed as they
-/// go, and no sheep walks off the superchunks held.
+/// go, and no sheep walks off the hot superchunks.
 #[test]
 fn sheep_eat_breed_and_grow_up() {
     let mut world = MockWorld::with_sheep(4, 300_000, 400);
@@ -45,7 +45,7 @@ fn sheep_eat_breed_and_grow_up() {
     let (mut eaten, mut births, mut lost, mut lambs_seen, mut pregnant_seen) = (0, 0, 0, false, false);
     for seed in 0..40_000 {
         let report = tick(&mut simulation, &mut world.arena, &mut world.entities, seed);
-        (eaten, births, lost) = (eaten + report.rules.eaten, births + report.rules.births, lost + report.entities.lost);
+        (eaten, births, lost) = (eaten + report.rules.eaten, births + report.rules.births, lost + report.instructions_applied.lost);
         if seed % 500 == 0 {
             for sheep in world.entities.iter() {
                 well_formed(sheep);
@@ -56,7 +56,7 @@ fn sheep_eat_breed_and_grow_up() {
     }
     assert!(eaten > 5_000 && births > 100, "{eaten} eaten, {births} born");
     assert!(lambs_seen && pregnant_seen);
-    assert_eq!(lost, 0, "no sheep walks off the superchunks held");
+    assert_eq!(lost, 0, "no sheep walks off the hot superchunks");
     assert!(world.entities.iter().any(|sheep| sheep.attribute(LAMB).is_none() && sheep.attribute(HUNGRY_AT).is_some()), "grown sheep");
 }
 
@@ -161,7 +161,7 @@ fn any_number_of_threads_ticks_sheep_the_same() {
     let run = |threads| {
         let mut world = MockWorld::with_sheep(4, 200_000, 300);
         let mut simulation = Simulation::new(threads);
-        let reports: Vec<_> = (0..1500).map(|seed| tick(&mut simulation, &mut world.arena, &mut world.entities, seed)).map(|report| (report.rules, report.entities)).collect();
+        let reports: Vec<_> = (0..1500).map(|seed| tick(&mut simulation, &mut world.arena, &mut world.entities, seed)).map(|report| (report.rules, report.instructions_applied)).collect();
         let sheep: Vec<_> = world.entities.iter().map(|sheep| (sheep.header, sheep.attributes.to_vec())).collect();
         (reports, sheep, world.grass())
     };
@@ -181,7 +181,7 @@ fn sheep_never_overlap() {
     let (mut stayed, mut births) = (0, 0);
     for seed in 0..2_000 {
         let report = tick(&mut simulation, &mut world.arena, &mut world.entities, seed);
-        (stayed, births) = (stayed + report.entities.stayed, births + report.rules.births);
+        (stayed, births) = (stayed + report.instructions_applied.stayed, births + report.rules.births);
         if seed % 100 == 99 {
             let mut cells: Vec<_> = world.entities.iter().map(|sheep| sheep.header.at).collect();
             cells.sort_unstable();

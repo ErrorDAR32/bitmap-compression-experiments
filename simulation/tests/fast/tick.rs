@@ -70,7 +70,7 @@ fn any_number_of_threads_ticks_the_same() {
     let (mut one, mut four) = (arena(3, scattered()), arena(3, scattered()));
     for seed in 0..20 {
         let (a, b) = (Simulation::new(1).tick(&mut one, &mut Entities::new(), seed, creep), Simulation::new(4).tick(&mut four, &mut Entities::new(), seed, creep));
-        assert_eq!((a.rules, a.applied), (b.rules, b.applied), "tick {seed}");
+        assert_eq!((a.rules, a.writes_applied), (b.rules, b.writes_applied), "tick {seed}");
     }
     assert_eq!(every_cell(&one), every_cell(&four));
 }
@@ -91,7 +91,7 @@ fn writes_cross_borders_and_reads_see_the_tick_start() {
         }
         samples.len()
     });
-    assert_eq!((report.rules, report.applied.changed), (1, 1));
+    assert_eq!((report.rules, report.writes_applied.changed), (1, 1));
     assert_eq!(arena.holds(STONE, across), Ok(true), "set in the neighbour");
     assert_eq!(arena.superchunk_count(STONE, SuperchunkPosition { x: 11, y: 10 }), 1);
 }
@@ -109,7 +109,7 @@ fn shapes_split_over_the_superchunks_they_cover() {
         }
         0
     });
-    assert_eq!(report.applied.changed, 15, "the 4x4 from two up and left of the meeting point, one cell set already");
+    assert_eq!(report.writes_applied.changed, 15, "the 4x4 from two up and left of the meeting point, one cell set already");
     for (x, y, cells) in [(10, 10, 4), (11, 10, 4), (10, 11, 4), (11, 11, 4)] {
         assert_eq!(arena.superchunk_count(STONE, SuperchunkPosition { x, y }), cells, "superchunk ({x}, {y})");
     }
@@ -128,7 +128,7 @@ fn writes_to_cold_neighbours_are_missed() {
         }
         0
     });
-    assert_eq!((report.applied.changed, report.applied.missed), (0, 1));
+    assert_eq!((report.writes_applied.changed, report.writes_applied.missed), (0, 1));
 }
 
 /// A write two superchunks away is past the speed of light.
@@ -147,7 +147,7 @@ fn writes_past_the_speed_of_light_panic() {
 
 /// The area about a cell read at once is its cells read one by one:
 /// inside a superchunk, across the borders of four, and at the edge of
-/// the superchunks held, where some cells are not hot.
+/// the hot superchunks, where some cells are not hot.
 #[test]
 fn areas_read_at_once_are_the_cells_read_one_by_one() {
     let mut arena = arena(3, scattered());

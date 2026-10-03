@@ -40,8 +40,8 @@ fn world(side: u32) -> (BitmapArena, Entities) {
         }
     }
     let mut entities = Entities::new();
-    let mortons: Vec<u64> = arena.superchunks().iter().map(|superchunk| superchunk.morton_index()).collect();
-    assert_eq!(entities.align(&mortons), 0);
+    let superchunk_indices: Vec<u64> = arena.superchunks().iter().map(|superchunk| superchunk.morton_index()).collect();
+    assert_eq!(entities.align(&superchunk_indices), 0);
     (arena, entities)
 }
 
@@ -80,7 +80,7 @@ fn a_step_carries_no_attributes_and_keeps_them() {
     let (mut moves, mut puts) = (0, 0);
     for seed in 0..10 {
         let report = simulation.tick(&mut arena, &mut entities, seed, step_right);
-        (moves, puts) = (moves + report.entities.moves, puts + report.entities.puts);
+        (moves, puts) = (moves + report.instructions_applied.moves, puts + report.instructions_applied.puts);
     }
     for (id, x) in [(1, 50), (2, 260), (3, 1030)] {
         let entity = entities.get(EntityId(id), cell(x, 30)).expect("ten steps on");
@@ -92,7 +92,7 @@ fn a_step_carries_no_attributes_and_keeps_them() {
 }
 
 /// A step onto a cell an entity stands on is turned back as it is
-/// carried out: the stepper stays, and wakes when it was to all the
+/// applied: the stepper stays, and wakes when it was to all the
 /// same.
 #[test]
 fn a_step_onto_a_taken_cell_is_turned_back() {
@@ -104,7 +104,7 @@ fn a_step_onto_a_taken_cell_is_turned_back() {
     let (mut stayed, mut moves) = (0, 0);
     for seed in 0..3 {
         let report = simulation.tick(&mut arena, &mut entities, seed, step_right);
-        (stayed, moves) = (stayed + report.entities.stayed, moves + report.entities.moves);
+        (stayed, moves) = (stayed + report.instructions_applied.stayed, moves + report.instructions_applied.moves);
     }
     assert_eq!((stayed, moves), (3, 3), "turned back each tick, and woken the next");
     let stepper = entities.get(EntityId(1), cell(40, 30)).expect("where it stood");
@@ -133,7 +133,7 @@ fn entities_edit_another_an_attribute_at_a_time() {
         }
         0
     });
-    assert_eq!((report.entities.edits, report.entities.puts), (2, 0));
+    assert_eq!((report.instructions_applied.edits, report.instructions_applied.puts), (2, 0));
     let edited = entities.get(target.id, target.at).expect("where it stood");
     assert_eq!(edited.attributes, [Attribute { kind: NAME, value: 7 }, Attribute { kind: MARK, value: 1 }, Attribute { kind: SCAR, value: 2 }]);
     assert_eq!(edited.header, target);
@@ -180,7 +180,7 @@ fn an_entity_is_put_whole_only_if_an_attribute_changed() {
         }
         0
     });
-    assert_eq!((report.entities.moves, report.entities.puts), (1, 1));
+    assert_eq!((report.instructions_applied.moves, report.instructions_applied.puts), (1, 1));
     assert_eq!(entities.get(EntityId(1), cell(41, 31)).expect("moved").attributes, [Attribute { kind: NAME, value: 7 }]);
     assert_eq!(entities.get(EntityId(2), cell(41, 41)).expect("moved").attributes, [Attribute { kind: NAME, value: 8 }]);
 }
@@ -314,11 +314,11 @@ fn walls_of_the_terrain_bar_steps() {
                 let at = entity.header.at;
                 if at == from {
                     // The three cells east of it are behind the cliff.
-                    assert_eq!(turn.unwalled_around(at), around::ALL & !(1 << 2 | 1 << 5 | 1 << 8));
+                    assert_eq!(turn.around_unwalled(at), around::ALL & !(1 << 2 | 1 << 5 | 1 << 8));
                 }
                 let passable = turn.area(STONE, at).hot;
                 let next = turn.step_to(at, to, &passable).expect("a way through the gap");
-                assert!(turn.unwalled_around(at) >> around::bit_of(at, next) & 1 == 1, "a step through a wall");
+                assert!(turn.around_unwalled(at) >> around::bit_of(at, next) & 1 == 1, "a step through a wall");
                 turn.step(&entity.header, next, now + 1);
             }
             0

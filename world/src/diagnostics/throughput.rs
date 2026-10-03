@@ -53,8 +53,8 @@ pub fn run(ticks: usize, thousandths: usize, superchunks: u32, threads: usize) -
         let report = grass::tick(&mut simulation, &mut world.arena, &mut world.entities, tick as u64);
         computing += report.computing;
         applying += report.applying;
-        writes += report.applied.writes;
-        missed += report.applied.missed;
+        writes += report.writes_applied.writes;
+        missed += report.writes_applied.missed;
         sampled += report.rules.sampled;
         memory.read();
     }

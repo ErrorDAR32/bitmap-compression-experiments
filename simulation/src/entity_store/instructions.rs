@@ -1,6 +1,6 @@
-//! Changes to entities, queued in a tick's first phase and carried out
-//! in its second by the superchunk they land in -- as writes are to the
-//! bitplanes. There is an instruction for each thing a rule does to an
+//! Instructions: changes to entities, queued in a tick's first phase and
+//! applied in its second by the superchunk they land in -- as writes are
+//! to the bitplanes. There is an instruction for each thing a rule does to an
 //! entity, so each carries, and costs, no more than it changes:
 //!
 //! | instruction | what it does | what it carries |
@@ -10,8 +10,8 @@
 //! | edit | one attribute of an entity set, or removed: by the entity itself or by another | the one value |
 //! | remove | an entity removed | nothing |
 //!
-//! Whatever puts an entity on a cell checks it as it is carried out: a
-//! cell holds one entity, ever. A change carries all it needs: an entity moving to a
+//! Whatever puts an entity on a cell checks it as it is applied: a cell
+//! holds one entity, ever. An instruction carries all it needs: an entity moving to a
 //! neighbour goes as a whole copy, made in the first phase from the
 //! world as the tick found it, so the second never reads another
 //! superchunk's entities while that one changes them.
@@ -22,7 +22,7 @@ use super::store::SuperchunkEntities;
 use coordinates::CellIndex;
 use std::ops::AddAssign;
 
-/// One change.
+/// One instruction.
 #[derive(Clone, Copy, Debug)]
 enum Instruction {
     /// Puts an entity -- in place of the one with its ID where it stood,
@@ -72,11 +72,11 @@ enum Instruction {
     },
 }
 
-/// Changes queued for one superchunk, in order, and the attributes they
-/// carry.
+/// Instructions queued for one superchunk, in order, and the attributes
+/// they carry.
 #[derive(Default)]
 pub struct Instructions {
-    /// The changes.
+    /// The instructions.
     instructions: Vec<Instruction>,
     /// The attributes the puts carry.
     attributes: Vec<Attribute>,
@@ -124,7 +124,7 @@ impl Instructions {
         self.instructions.push(Instruction::Remove { id, at });
     }
 
-    /// How many changes are queued.
+    /// How many instructions are queued.
     pub fn len(&self) -> usize {
         self.instructions.len()
     }
@@ -140,8 +140,8 @@ impl Instructions {
         self.attributes.clear();
     }
 
-    /// Carries the changes out, in order, each on the superchunk among
-    /// `superchunks` -- sorted by Morton index -- its cell is in, every
+    /// Applies the instructions, in order, each to the superchunk among
+    /// `superchunks` -- sorted by superchunk index -- its cell is in, every
     /// wake filed no earlier than `earliest`; into `applied`. A put in a
     /// superchunk not among them is lost; one of an entity no longer
     /// where it stood is passed over; a new entity on a cell another
@@ -152,16 +152,16 @@ impl Instructions {
                 Instruction::Put { header, .. } | Instruction::Move { header, .. } => header.at,
                 Instruction::Edit { at, .. } | Instruction::Remove { at, .. } => at,
             };
-            let morton = at.superchunk_index();
+            let superchunk_index = at.superchunk_index();
             let found = match superchunks {
-                [only] if only.morton_index() == morton => Some(0),
-                _ => superchunks.binary_search_by_key(&morton, SuperchunkEntities::morton_index).ok(),
+                [only] if only.morton_index() == superchunk_index => Some(0),
+                _ => superchunks.binary_search_by_key(&superchunk_index, SuperchunkEntities::morton_index).ok(),
             };
-            let Some(place) = found else {
+            let Some(found) = found else {
                 applied.lost += matches!(instruction, Instruction::Put { .. }) as usize;
                 continue;
             };
-            let superchunk = &mut superchunks[place];
+            let superchunk = &mut superchunks[found];
             match instruction {
                 Instruction::Put { header, from, crossing, first, count } => {
                     let put = superchunk.put(earliest, header, from, Some(&self.attributes[first as usize..(first + count) as usize]));
@@ -194,7 +194,7 @@ impl Instructions {
     }
 }
 
-/// What carrying out the changes did.
+/// What applying the instructions did.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct InstructionsApplied {
     /// Entities put: made, or made anew whole.

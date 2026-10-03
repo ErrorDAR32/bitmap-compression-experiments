@@ -7,7 +7,7 @@
 //! | `sampling` | Monte Carlo sampling: every set cell chosen with one probability, in Morton order, none wasted |
 //! | `tick` | the tick: rules run superchunk by superchunk in two phases -- computing, writes queued for each superchunk they land in; applying, each superchunk its own -- and its outboxes |
 //! | `dispatcher` | the threads, started once and kept, a job run on all at once |
-//! | `entity_store/` | entities: records in a bucket a chunk, attributes added and removed at run time, a timer wheel a superchunk, changes queued and carried out in the tick |
+//! | `entity_store/` | entities: a bucket a chunk, attributes added and removed at run time, a timer wheel a superchunk, instructions queued and applied in the tick |
 //! | `diagnostics/` | data gathered: what the entities hold |
 //!
 //! The design: `docs/simulation.md`; function by function:

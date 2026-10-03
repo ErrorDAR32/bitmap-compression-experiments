@@ -37,8 +37,8 @@ impl MockWorld {
             }
         }
         let mut entities = Entities::new();
-        let mortons: Vec<u64> = arena.superchunks().iter().map(|superchunk| superchunk.morton_index()).collect();
-        entities.align(&mortons);
+        let superchunk_indices: Vec<u64> = arena.superchunks().iter().map(|superchunk| superchunk.morton_index()).collect();
+        entities.align(&superchunk_indices);
         Self { arena, entities, storage, superchunks }
     }
 

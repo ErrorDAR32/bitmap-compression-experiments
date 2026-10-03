@@ -90,8 +90,8 @@ pub fn generate_with(seed: u64, superchunks: u32, grass_cells: usize, flock_size
         }
     }
     let mut entities = Entities::new();
-    let mortons: Vec<u64> = arena.superchunks().iter().map(|superchunk| superchunk.morton_index()).collect();
-    entities.align(&mortons);
+    let superchunk_indices: Vec<u64> = arena.superchunks().iter().map(|superchunk| superchunk.morton_index()).collect();
+    entities.align(&superchunk_indices);
     for &superchunk in &held {
         let mut own = Rng::for_stream(!seed, superchunk.morton_index());
         flock(&mut entities, superchunk, flock_size, &mut own);

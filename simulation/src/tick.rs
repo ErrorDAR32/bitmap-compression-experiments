@@ -15,10 +15,10 @@
 //!
 //! Entities tick in the same two phases: in the first, the entities
 //! waking in a superchunk run the rule with its cells, reading the world
-//! as the tick found it, and queue changes to entities -- an entity
-//! changed, made, moved or removed -- in the outbox slot of the
-//! superchunk each lands in; in the second, each superchunk carries out
-//! the changes queued for it, beside its writes. An entity moving to a
+//! as the tick found it, and queue instructions -- an entity put, moved,
+//! edited or removed -- in the outbox slot of the superchunk each lands
+//! in; in the second, each superchunk applies the instructions queued
+//! for it, beside its writes. An entity moving to a
 //! neighbour goes as a whole copy, made in the first phase.
 //!
 //! The threads hold contiguous runs of the superchunks, so each works
@@ -93,14 +93,13 @@ fn slot(dx: i32, dy: i32) -> usize {
     ((dy + 1) * 3 + dx + 1) as usize
 }
 
-/// The writes and changes to entities a superchunk's rule queues in a
-/// tick, by the superchunk they land in: itself, or one of its eight
-/// neighbours.
+/// The writes and instructions a superchunk's rule queues in a tick, by
+/// the superchunk they land in: itself, or one of its eight neighbours.
 #[derive(Default)]
 struct Outbox {
     /// Writes, a queue a superchunk, by [`slot`].
-    slots: [WriteQueues; SLOTS],
-    /// Changes to entities, a queue a superchunk, by [`slot`].
+    writes: [WriteQueues; SLOTS],
+    /// Instructions, a queue a superchunk, by [`slot`].
     instructions: [Instructions; SLOTS],
 }
 
@@ -110,8 +109,8 @@ type PartOfTurns<'a> = (usize, &'a mut [Outbox], &'a mut [(u64, Rng)]);
 
 /// One superchunk's turn in a tick's first phase: what the rule sees and
 /// does. It samples the superchunk's own cells, wakes its entities due,
-/// reads any cell in reach, and queues writes and changes to entities,
-/// which change nothing until the second phase.
+/// reads any cell in reach, and queues writes and instructions, which
+/// change nothing until the second phase.
 pub struct Turn<'a> {
     /// The superchunk.
     superchunk: &'a Superchunk,
@@ -154,7 +153,7 @@ impl<'a> Turn<'a> {
 
     /// The window of `width` by `height` cells (each up to 8) whose top
     /// left cell is `origin`, of `layer_type`, row by row, as the tick
-    /// found them: a cell's neighbourhood, say, as masks.
+    /// found them: the cells around a cell, say, as masks.
     pub fn window(&self, layer_type: LayerType, origin: CellIndex, width: u32, height: u32) -> Window {
         self.reader.window(layer_type, origin, width, height)
     }
@@ -210,9 +209,9 @@ impl<'a> Turn<'a> {
 
     /// Which of the 3x3 cells around `at` may be stepped to from it,
     /// nine bits ([`crate::around`]): those no wall of the terrain is
-    /// before -- its own among them. Where the walls are not held, none
-    /// bars.
-    pub fn unwalled_around(&self, at: CellIndex) -> u16 {
+    /// before -- its own among them. Where the wall layers are not hot,
+    /// none bars.
+    pub fn around_unwalled(&self, at: CellIndex) -> u16 {
         let Some(corner) = at.offset(-1, -1) else {
             return crate::around::ALL;
         };
@@ -233,7 +232,7 @@ impl<'a> Turn<'a> {
     /// The terrain's walls among the [`AREA_SIDE`] by [`AREA_SIDE`]
     /// cells around `centre`, laid out as an [`Area`] is: what paths
     /// are found round.
-    pub fn walls_about(&self, centre: CellIndex) -> Walls {
+    pub fn area_walls(&self, centre: CellIndex) -> Walls {
         let [east, south] = self.areas([WALL_EAST, WALL_SOUTH], centre).map(|area| area.set);
         Walls::new(east, south)
     }
@@ -261,7 +260,7 @@ impl<'a> Turn<'a> {
     /// The cells entities stand on among the [`AREA_SIDE`] by
     /// [`AREA_SIDE`] around `centre`, laid out as an [`Area`] is. Off
     /// the world's edge, none.
-    pub fn occupied_about(&self, centre: CellIndex) -> Rows {
+    pub fn area_occupied(&self, centre: CellIndex) -> Rows {
         let reach = AREA_CENTRE as i32;
         centre.offset(-reach, -reach).map_or([0; AREA_SIDE], |corner| self.occupied(corner, AREA_SIDE as u32, AREA_SIDE as u32))
     }
@@ -273,11 +272,11 @@ impl<'a> Turn<'a> {
     /// next asked afresh of the world as the next tick finds it. None if
     /// no goal can be come to.
     pub fn step_towards(&mut self, at: CellIndex, goals: &Rows, passable: &Rows) -> Option<CellIndex> {
-        let occupied = self.occupied_about(at);
+        let occupied = self.area_occupied(at);
         let passable: Rows = std::array::from_fn(|row| passable[row] & !occupied[row]);
         let goals: Rows = std::array::from_fn(|row| goals[row] & !occupied[row]);
         let here = Cell { x: AREA_CENTRE as u8, y: AREA_CENTRE as u8 };
-        let first = step_towards(&passable, &self.walls_about(at), &goals, here, self.random.draw())?.first;
+        let first = step_towards(&passable, &self.area_walls(at), &goals, here, self.random.draw())?.first;
         at.offset(first.x as i32 - AREA_CENTRE as i32, first.y as i32 - AREA_CENTRE as i32)
     }
 
@@ -368,7 +367,7 @@ impl<'a> Turn<'a> {
         // The cell beside it the way the tile is: stepped to if it is in the world hot.
         let to = at.offset(path.first.x as i32 - AREA_CENTRE as i32, path.first.y as i32 - AREA_CENTRE as i32)?;
         // From far off no wall is seen: a step one bars is not taken.
-        let open = self.unwalled_around(at) >> crate::around::bit_of(at, to) & 1 == 1;
+        let open = self.around_unwalled(at) >> crate::around::bit_of(at, to) & 1 == 1;
         (open && self.reader.holds(layer_type, to).is_ok()).then_some(SoughtStep { to, scale })
     }
 
@@ -383,10 +382,10 @@ impl<'a> Turn<'a> {
         if !(0..AREA_SIDE as i64).contains(&across) || !(0..AREA_SIDE as i64).contains(&down) {
             return None;
         }
-        let occupied = self.occupied_about(at);
+        let occupied = self.area_occupied(at);
         let passable: Rows = std::array::from_fn(|row| passable[row] & !occupied[row]);
         let here = Cell { x: AREA_CENTRE as u8, y: AREA_CENTRE as u8 };
-        let first = a_star(&passable, &self.walls_about(at), here, Cell { x: across as u8, y: down as u8 })?.first;
+        let first = a_star(&passable, &self.area_walls(at), here, Cell { x: across as u8, y: down as u8 })?.first;
         at.offset(first.x as i32 - AREA_CENTRE as i32, first.y as i32 - AREA_CENTRE as i32)
     }
 
@@ -402,12 +401,12 @@ impl<'a> Turn<'a> {
     pub fn queue(&mut self, layer_type: LayerType, write: Write) {
         if write.shape == Shape::Cell {
             let slot = self.slot_of({ write.at }.superchunk_index());
-            self.outbox.slots[slot].push(layer_type, write);
+            self.outbox.writes[slot].push(layer_type, write);
             return;
         }
         for superchunk_index in write.superchunk_indices() {
             let slot = self.slot_of(superchunk_index);
-            self.outbox.slots[slot].push(layer_type, write);
+            self.outbox.writes[slot].push(layer_type, write);
         }
     }
 
@@ -430,29 +429,29 @@ impl<'a> Turn<'a> {
     /// wakes ahead.
     pub fn woken_reading<const N: usize>(&self, layers: [LayerType; N]) -> impl Iterator<Item = EntityRef<'a>> + 'a {
         let (entities, reader): (&'a SuperchunkEntities, &'a Reader<'a>) = (self.entities, self.reader);
-        entities.woken_asking(self.now, move |cell| layers.iter().for_each(|&layer_type| reader.prefetch(layer_type, cell)))
+        entities.woken_prefetching(self.now, move |cell| layers.iter().for_each(|&layer_type| reader.prefetch(layer_type, cell)))
     }
 
-    /// The entity whose ID is `id`, standing on `at` -- in any
-    /// superchunk held -- as the tick found it.
+    /// The entity whose ID is `id`, standing on `at` -- in any hot
+    /// superchunk -- as the tick found it.
     pub fn entity(&self, id: EntityId, at: CellIndex) -> Option<EntityRef<'a>> {
         self.entity_reader.get(id, at)
     }
 
-    /// The entities on `chunk` -- in any superchunk held -- as the tick
+    /// The entities on `chunk` -- in any hot superchunk -- as the tick
     /// found them, in Morton order by cell, then by ID; `None` if its
-    /// superchunk is not held.
+    /// superchunk is not hot.
     pub fn entities_in(&self, chunk: ChunkPosition) -> Option<impl Iterator<Item = EntityRef<'a>> + 'a> {
         self.entity_reader.chunk(chunk)
     }
 
     /// The cells entities stand on among the `width` by `height` cells
     /// (each up to [`OCCUPIED_SIDE`]) whose top left cell is `origin` --
-    /// in any superchunk held -- as the tick found them, a row a word:
+    /// in any hot superchunk -- as the tick found them, a row a word:
     /// cell `(x, y)` from `origin` at bit `x` of row `y`. Asked of the
     /// entities themselves, a few of them read, so it costs what it
     /// costs only when asked: a step onto a cell an entity stands on is
-    /// turned back as it is carried out, asked or not.
+    /// turned back as it is applied, asked or not.
     pub fn occupied(&self, origin: CellIndex, width: u32, height: u32) -> [u16; OCCUPIED_SIDE] {
         self.entity_reader.occupied(origin, width, height)
     }
@@ -559,7 +558,7 @@ impl<'a> Turn<'a> {
 
     /// Settles the superchunk's crossings of the tick before: an entity
     /// found where it crossed to is removed here; one not -- the cell
-    /// was taken, or is in no superchunk held -- wakes here next tick,
+    /// was taken, or is in no hot superchunk -- wakes here next tick,
     /// to go on as it was.
     fn settle_crossings(&mut self) {
         let entities: &'a SuperchunkEntities = self.entities;
@@ -581,14 +580,13 @@ impl<'a> Turn<'a> {
         self.outbox.instructions[slot].remove(header.id, header.at);
     }
 
-    /// The outbox slot of the superchunk whose Morton index is
-    /// `superchunk`: this one or a neighbour. Farther is past the speed
-    /// of light, and a bug.
-    fn slot_of(&self, superchunk: u64) -> usize {
-        if superchunk == self.superchunk.morton_index() {
+    /// The outbox slot of the superchunk at `superchunk_index`: this one
+    /// or a neighbour. Farther is past the speed of light, and a bug.
+    fn slot_of(&self, superchunk_index: u64) -> usize {
+        if superchunk_index == self.superchunk.morton_index() {
             return slot(0, 0);
         }
-        let (position, target) = (self.superchunk.position(), SuperchunkPosition::from_morton_index(superchunk));
+        let (position, target) = (self.superchunk.position(), SuperchunkPosition::from_morton_index(superchunk_index));
         let (dx, dy) = (target.x as i64 - position.x as i64, target.y as i64 - position.y as i64);
         assert!(dx.abs() <= 1 && dy.abs() <= 1, "a write {dx}, {dy} superchunks away: past the speed of light");
         slot(dx as i32, dy as i32)
@@ -598,11 +596,11 @@ impl<'a> Turn<'a> {
 /// What a tick did, and how long each phase took.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct TickReport<R> {
-    /// What applying did: a write landing in two superchunks counted in
-    /// each.
-    pub applied: WritesApplied,
-    /// What carrying out the changes to entities did.
-    pub entities: InstructionsApplied,
+    /// What applying the writes did: a write landing in two superchunks
+    /// counted in each.
+    pub writes_applied: WritesApplied,
+    /// What applying the instructions did.
+    pub instructions_applied: InstructionsApplied,
     /// What the rule returned, added up over the superchunks.
     pub rules: R,
     /// The first phase's time: sampling and computing.
@@ -622,8 +620,8 @@ pub struct Simulation {
     outboxes: Vec<Outbox>,
     /// Room for samples, a part each.
     samples: Vec<Mutex<Vec<CellIndex>>>,
-    /// Each superchunk's random numbers, with its Morton index, in the
-    /// arena's order: kept from tick to tick, and by a save.
+    /// Each superchunk's random stream, with its superchunk index, in
+    /// the arena's order: kept from tick to tick, and by a save.
     random: Vec<(u64, Rng)>,
 }
 
@@ -650,31 +648,31 @@ impl Simulation {
         Self { dispatcher, outboxes: Vec::new(), samples, random: Vec::new() }
     }
 
-    /// Each superchunk's random numbers as they stand: its Morton index
-    /// and its generator's state, in Morton order.
+    /// Each superchunk's random stream as it stands: its superchunk
+    /// index and its generator's state, in Morton order.
     pub fn random_states(&self) -> impl Iterator<Item = (u64, u64)> + '_ {
-        self.random.iter().map(|(morton, random)| (*morton, random.state()))
+        self.random.iter().map(|(index, random)| (*index, random.state()))
     }
 
-    /// Takes up `states` as each superchunk's random numbers -- Morton
-    /// index and state, sorted -- as a save kept them.
+    /// Takes up `states` as each superchunk's random stream --
+    /// superchunk index and state, sorted -- as a save kept them.
     pub fn restore_random(&mut self, states: &[(u64, u64)]) {
         debug_assert!(states.is_sorted_by_key(|state| state.0));
-        self.random = states.iter().map(|&(morton, state)| (morton, Rng::new(state))).collect();
+        self.random = states.iter().map(|&(index, state)| (index, Rng::new(state))).collect();
     }
 
-    /// Every superchunk in `mortons` given its random numbers: those it
-    /// had, or new ones from `seed` and where it is.
-    fn align_random(&mut self, mortons: &[u64], seed: u64) {
-        if self.random.len() == mortons.len() && self.random.iter().zip(mortons).all(|(held, &morton)| held.0 == morton) {
+    /// Every superchunk at `superchunk_indices` given its random stream:
+    /// the one it had, or a new one from `seed` and where it is.
+    fn align_random(&mut self, superchunk_indices: &[u64], seed: u64) {
+        if self.random.len() == superchunk_indices.len() && self.random.iter().zip(superchunk_indices).all(|(kept, &index)| kept.0 == index) {
             return;
         }
         let had = std::mem::take(&mut self.random);
-        self.random = mortons
+        self.random = superchunk_indices
             .iter()
-            .map(|&morton| match had.binary_search_by_key(&morton, |held| held.0) {
-                Ok(at) => (morton, Rng::new(had[at].1.state())),
-                Err(_) => (morton, Rng::for_stream(seed, morton)),
+            .map(|&index| match had.binary_search_by_key(&index, |kept| kept.0) {
+                Ok(at) => (index, Rng::new(had[at].1.state())),
+                Err(_) => (index, Rng::for_stream(seed, index)),
             })
             .collect();
     }
@@ -701,12 +699,12 @@ impl Simulation {
         let per_part = count.div_ceil(parts).max(1);
 
         let start = Instant::now();
-        let mortons: Vec<u64> = arena.superchunks().iter().map(Superchunk::morton_index).collect();
-        let mut instructions_applied = InstructionsApplied { lost: entities.align(&mortons), ..InstructionsApplied::default() };
-        self.align_random(&mortons, seed);
+        let superchunk_indices: Vec<u64> = arena.superchunks().iter().map(Superchunk::morton_index).collect();
+        let mut instructions_applied = InstructionsApplied { lost: entities.align(&superchunk_indices), ..InstructionsApplied::default() };
+        self.align_random(&superchunk_indices, seed);
         let now = entities.now();
         let superchunks = arena.superchunks();
-        let held = entities.superchunks();
+        let entity_superchunks = entities.superchunks();
         let outboxes: Vec<Mutex<PartOfTurns>> = self
             .outboxes
             .chunks_mut(per_part)
@@ -721,13 +719,13 @@ impl Simulation {
                 return;
             };
             let (first, ref mut outboxes, ref mut random) = *work.lock().expect("a part's outboxes");
-            let (reader, entity_reader) = (Reader::new(superchunks), EntityReader::new(held));
+            let (reader, entity_reader) = (Reader::new(superchunks), EntityReader::new(entity_superchunks));
             let mut samples = samples[part].lock().expect("a part's samples");
             let mut total = R::default();
             for (offset, (outbox, kept)) in outboxes.iter_mut().zip(random.iter_mut()).enumerate() {
                 let superchunk = &superchunks[first + offset];
                 let random = Rng::new(kept.1.state());
-                let mut turn = Turn { superchunk, entities: &held[first + offset], now, reader: &reader, entity_reader: &entity_reader, outbox, random };
+                let mut turn = Turn { superchunk, entities: &entity_superchunks[first + offset], now, reader: &reader, entity_reader: &entity_reader, outbox, random };
                 turn.settle_crossings();
                 total += rule(&mut turn, &mut samples);
                 // Where its random numbers have come to: the next tick goes on from there.
@@ -742,7 +740,7 @@ impl Simulation {
         }
         let computed = Instant::now();
 
-        let (mortons, outboxes) = (&mortons, &self.outboxes);
+        let (superchunk_indices, outboxes) = (&superchunk_indices, &self.outboxes);
         let superchunks: Vec<Mutex<(&mut [Superchunk], &mut [SuperchunkEntities])>> =
             arena.superchunks_mut().chunks_mut(per_part).zip(entities.superchunks_mut().chunks_mut(per_part)).map(Mutex::new).collect();
         let applied_parts: Vec<Mutex<(WritesApplied, InstructionsApplied)>> = (0..parts).map(|_| Mutex::new(Default::default())).collect();
@@ -750,18 +748,18 @@ impl Simulation {
             let Some(work) = superchunks.get(part) else {
                 return;
             };
-            let (ref mut superchunks, ref mut held) = *work.lock().expect("a part's superchunks");
+            let (ref mut superchunks, ref mut entity_superchunks) = *work.lock().expect("a part's superchunks");
             let (mut applied, mut instructions_applied) = (WritesApplied::default(), InstructionsApplied::default());
-            for (superchunk, entities) in superchunks.iter_mut().zip(held.iter_mut()) {
+            for (superchunk, entities) in superchunks.iter_mut().zip(entity_superchunks.iter_mut()) {
                 let position = superchunk.position();
-                entities.turn(now);
-                entities.settle();
+                entities.pass(now);
+                entities.clear_crossings();
                 for (dx, dy) in neighbours() {
-                    let Some(source) = offset(position, dx, dy).and_then(|source| mortons.binary_search(&source.morton_index()).ok()) else {
+                    let Some(source) = offset(position, dx, dy).and_then(|source| superchunk_indices.binary_search(&source.morton_index()).ok()) else {
                         continue;
                     };
                     let outbox = &outboxes[source];
-                    for (layer_type, writes) in outbox.slots[slot(-dx, -dy)].iter() {
+                    for (layer_type, writes) in outbox.writes[slot(-dx, -dy)].iter() {
                         applied.writes += writes.len();
                         for &write in writes {
                             superchunk.apply(layer_type, write, &mut applied);
@@ -776,30 +774,30 @@ impl Simulation {
         drop(superchunks);
         let mut applied = WritesApplied::default();
         for part in applied_parts {
-            let (writes, changes) = part.into_inner().expect("a part's result");
+            let (writes, instructions) = part.into_inner().expect("a part's result");
             applied += writes;
-            instructions_applied += changes;
+            instructions_applied += instructions;
         }
         // Writes landing where no bitmap is in use are missed.
         for (source, outbox) in self.outboxes.iter_mut().enumerate() {
-            let position = SuperchunkPosition::from_morton_index(mortons[source]);
+            let position = SuperchunkPosition::from_morton_index(superchunk_indices[source]);
             for (dx, dy) in neighbours() {
                 let Some(target) = offset(position, dx, dy).map(SuperchunkPosition::morton_index) else {
                     continue;
                 };
-                if mortons.binary_search(&target).is_err() {
-                    for (_, writes) in outbox.slots[slot(dx, dy)].iter() {
+                if superchunk_indices.binary_search(&target).is_err() {
+                    for (_, writes) in outbox.writes[slot(dx, dy)].iter() {
                         applied.writes += writes.len();
                         writes.iter().for_each(|&write| count_missed(target, write, &mut applied));
                     }
                     outbox.instructions[slot(dx, dy)].count_lost(&mut instructions_applied);
                 }
             }
-            outbox.slots.iter_mut().for_each(WriteQueues::clear);
+            outbox.writes.iter_mut().for_each(WriteQueues::clear);
             outbox.instructions.iter_mut().for_each(Instructions::clear);
         }
         entities.advance();
-        TickReport { applied, entities: instructions_applied, rules, computing: computed - start, applying: computed.elapsed() }
+        TickReport { writes_applied: applied, instructions_applied, rules, computing: computed - start, applying: computed.elapsed() }
     }
 }
 

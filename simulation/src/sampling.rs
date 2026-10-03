@@ -9,8 +9,8 @@
 //! from one chosen rank to the next is drawn from the geometric law
 //! (`docs/tilesim.md`, "Sampling"): each set cell is then chosen with
 //! the probability asked, and only the chosen ones are found. The
-//! counts find them: a superchunk bitplane with no hot cell set is
-//! passed over whole, a chunk by its count, a count tile of 16 words by
+//! counts find them: a layer type over a superchunk with no hot cell
+//! set is passed over whole, a chunk by its count, a count tile of 16 words by
 //! its count, a word by its bits' count, and only the word holding a chosen
 //! cell is searched. So a sample costs the same few counts however far
 //! from the last it is: the rarer the samples, the less of a bitmap is
@@ -41,12 +41,12 @@ fn select(mut word: u64, rank: u32) -> u32 {
     word.trailing_zeros()
 }
 
-/// Chooses each hot set cell of `layer` -- of the superchunk whose
-/// Morton index is `superchunk` -- with `probability`, independently,
+/// Chooses each hot set cell of `layer` -- of the superchunk at
+/// `superchunk_index` -- with `probability`, independently,
 /// and hands every chosen cell to `emit` in Morton order: how many were
 /// chosen. A probability of 1 or more chooses every set cell; 0 or
 /// less, none.
-pub fn sample_layer(superchunk: u64, layer: LayerView, probability: f64, random: &mut Rng, emit: &mut impl FnMut(CellIndex)) -> usize {
+pub fn sample_layer(superchunk_index: u64, layer: LayerView, probability: f64, random: &mut Rng, emit: &mut impl FnMut(CellIndex)) -> usize {
     if probability <= 0.0 || layer.hot_count() == 0 {
         return 0;
     }
@@ -90,7 +90,7 @@ pub fn sample_layer(superchunk: u64, layer: LayerView, probability: f64, random:
                 word += 1;
             }
             let bit = select(cells[word], (next - before) as u32);
-            emit(CellIndex::from_parts(superchunk, chunk, word * BITS_PER_WORD + bit as usize));
+            emit(CellIndex::from_parts(superchunk_index, chunk, word * BITS_PER_WORD + bit as usize));
             chosen += 1;
             next += 1 + draw(random);
         }
@@ -107,6 +107,6 @@ pub fn sample(arena: &BitmapArena, layer_type: LayerType, probability: f64, rand
         .superchunks()
         .iter()
         .filter_map(|superchunk| superchunk.layer(layer_type).map(|layer| (superchunk.morton_index(), layer)))
-        .map(|(superchunk, layer)| sample_layer(superchunk, layer, probability, random, &mut emit))
+        .map(|(superchunk_index, layer)| sample_layer(superchunk_index, layer, probability, random, &mut emit))
         .sum()
 }

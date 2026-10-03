@@ -2,8 +2,9 @@
 //! its rule, run on a superchunk's turn in a tick's first phase, the
 //! attributes it keeps, and how a world is given some to start with.
 //!
-//! What an entity *is* -- its record, the bucket a chunk that holds it,
-//! the timer wheel that wakes it, the changes it queues -- is the
+//! What an entity *is* -- its header and attributes, the bucket a chunk
+//! that keeps it, the timer wheel that wakes it, the instructions it
+//! queues -- is the
 //! simulation's (`simulation/src/entity_store/`), and knows no kind of
 //! entity. What each kind *does* is here, and knows no other rule: the
 //! game (`src/`, `tilesim`) ticks them together with the rules of the

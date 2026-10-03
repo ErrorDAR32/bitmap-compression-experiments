@@ -2,7 +2,7 @@
 //! beside it, and where it may step. Row by row from the top left, the
 //! cell `(x, y)` -- each 0 to 2, the cell itself at `(1, 1)` -- at bit
 //! `3 * y + x`. A set of neighbours is a mask, narrowed with `&`: those
-//! with grass, those no entity stands on, those in the world held. A
+//! with grass, those no entity stands on, those in the world hot. A
 //! neighbour chosen is a bit's index, turned into a cell only when it
 //! is stepped to.
 //!

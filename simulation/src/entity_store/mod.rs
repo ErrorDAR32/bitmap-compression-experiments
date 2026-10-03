@@ -9,12 +9,12 @@
 //! so a tick costs the entities waking in it and nothing for the rest.
 //! An entity is found by its ID and cell: its cell's chunk's bucket,
 //! then its ID there -- never a search past its chunk -- which keeps it
-//! found however it moves, and a wake or change naming one that moved
+//! found however it moves, and a wake or instruction naming one that moved
 //! on or died passes it over.
 //!
 //! Entities change as cells do, in the tick's second phase: a rule
-//! queues the change in the first, into the outbox slot of the
-//! superchunk it lands in, and that superchunk carries it out.
+//! queues an instruction in the first, into the outbox slot of the
+//! superchunk it lands in, and that superchunk applies it.
 //!
 //! | file | what is in it |
 //! |---|---|
@@ -22,7 +22,7 @@
 //! | `bucket` | a chunk's entities, sorted by cell, one a cell, their attributes beside them |
 //! | `wheel` | a superchunk's timer wheel |
 //! | `store` | a superchunk's entities, and every superchunk's |
-//! | `instructions` | changes to entities, an instruction each -- put, move, edit, remove -- queued for a superchunk and carried out by it |
+//! | `instructions` | changes to entities, an instruction each -- put, move, edit, remove -- queued for a superchunk and applied by it |
 
 mod bucket;
 mod instructions;

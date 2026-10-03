@@ -37,7 +37,7 @@ sample costs the same few counts however rare samples are.
    landing where no bitmap is in use are counted missed.
 
 Each superchunk has random numbers of its own, kept from tick to tick
-(`Simulation`): first seeded from the seed and its Morton index, then
+(`Simulation`): first seeded from the seed and its superchunk index, then
 going on from where the last tick left them -- so a tick is the same
 on any number of threads, and a save can keep them (`random_states`,
 `restore_random`). The outboxes and room
@@ -53,17 +53,17 @@ holds its entities in a bucket a chunk, sorted by cell -- Morton order
 tick costs the entities waking in it. An entity is found by its cell
 and ID: its cell's place searched for in a list of the places alone,
 two bytes an entity, then its ID among those on the cell. A wake or
-change naming one no longer on that cell -- moved on, or dead -- is
+instruction naming one no longer on that cell -- moved on, or dead -- is
 passed over.
 
-**Entities never overlap**: a cell holds one. A bucket has one record
-a cell, and the superchunk a change lands in checks as it carries it
-out: a mover whose cell is taken stays where it stood, changed all the
+**Entities never overlap**: a cell holds one. A bucket has one entity
+a cell, and the superchunk an instruction lands in checks as it applies
+it: a mover whose cell is taken stays where it stood, changed all the
 same; a new entity is not put. A rule need not look first -- few
 cells have an entity, and a step turned back costs less than looking
 every step -- but can: `Turn::occupied` reads the cells
-entities stand on about a cell from the buckets, an aligned 8x8 tile
-being a run of a bucket's places. No bitplane of them is kept: it cost
+entities stand on about a cell from the buckets, a word tile being a
+run of a bucket's places. No bitplane of them is kept: it cost
 a fifth of the ticks on 12 threads. Crossing to another
 superchunk, an entity is put there as new and stays here asleep a
 tick, until the next tick's first phase reads whether it arrived
@@ -73,14 +73,14 @@ They tick in the same two phases as the cells. In the first, a
 superchunk's entities waking run the rule (`Turn::woken`) in
 Morton order -- each tick's wakes sorted by cell, then ID, once all are
 filed -- so they read and write forwards through memory,
-and their changes -- an instruction each, below -- are queued in the
+and their instructions -- below -- are queued in the
 outbox slot of the superchunk they land in, in the Morton order of the
 cells the entities were found on, which is the order the buckets hold
 them in: the second phase goes forwards through each bucket, as writes
 do through a bitmap; in the second, each
-superchunk turns its wheel and carries the changes out. An entity
-moving to a neighbour goes as a whole copy made in the first phase. One
-put in a superchunk not held is lost, and counted.
+superchunk passes its wheel's tick and applies the instructions. An
+entity moving to a neighbour goes as a whole copy made in the first
+phase. One put in a superchunk not hot is lost, and counted.
 
 An entity sees the world about it at once: `Turn::area`
 reads the 16x16 cells of a layer about a cell as masks, a row a word,
@@ -89,7 +89,7 @@ one pathfinding step each time it ticks, and keeps no route.
 
 ### What a rule is given
 
-A kind of entity (`../../entities/`) writes only what is its own: the
+A kind of entity (`../../entity_rules/`) writes only what is its own: the
 rest is here, the same for every kind.
 
 **Instructions**, one for each thing done to an entity, each carrying
@@ -107,7 +107,7 @@ attributes read or written, however many it has -- until it crosses to
 another superchunk, where it goes whole. An edit is how one entity acts
 on another: two wounding one in a tick each write their own attribute,
 where two whole copies would undo each other. Every instruction that
-puts an entity on a cell is checked as it is carried out.
+puts an entity on a cell is checked as it is applied.
 
 **An entity being changed** (`EntityEdit`): its attributes read, set and
 removed as if already its own, nothing copied until one is changed, and
@@ -123,7 +123,7 @@ none does -- for what must have its cell, as a newborn; a step need not
 ask.
 
 **The area about it, and the way**: `area` reads 16x16 cells of a layer
-as masks, `Area::count` how many are set, `occupied_about` the entities
+as masks, `Area::count` how many are set, `area_occupied` the entities
 on them. `step_towards(at, goals, passable)` gives the cell to step to
 for the nearest goal, `step_to(at, to, passable)` for one cell -- waves
 and A* of `../../pathfinding/`, round the entities in the way, one step
@@ -131,10 +131,10 @@ a wake.
 
 **Walls**: the terrain's (`../../terrain/`), two layers -- east and
 south -- read as any other; a diagonal is barred unless both ways round
-it are open. `unwalled_around(at)` is the neighbours of a cell no wall is before,
-nine bits to narrow a step's choices by; `walls_about(centre)` the
+it are open. `around_unwalled(at)` is the neighbours of a cell no wall is before,
+nine bits to narrow a step's choices by; `area_walls(centre)` the
 walls of the area, which `step_towards` and `step_to` go round by
-themselves. Where the wall layers are not held, nothing bars. The far
+themselves. Where the wall layers are not hot, nothing bars. The far
 search sees no walls: the step it gives is not taken if one bars it.
 
 **Further off** (`seek(at, type)`): nothing found in the area, the same
@@ -173,16 +173,16 @@ flock of hundreds of thousands a few hundred wake in one, a handful a
 superchunk, each where nothing has read since it last woke. Profiled in
 the viewer at the flock's peak (700,000 sheep on 64 superchunks, `perf`,
 2,400 ticks a second), a third of the time was two reads waiting for
-memory: the woken entity's record (`Bucket::get`, 17%) and its
+memory: the woken entity itself (`Bucket::get`, 17%) and its
 attributes (`EntityEdit::get`, 15%). Pathfinding, far search and all, was
 under 2%.
 
 The wakes due in a tick are known before any is seen to
 (`SuperchunkEntities::woken`), so they are asked for ahead
-(`utilities::memory::prefetch`): a turn's first eight records and four
+(`utilities::memory::prefetch`): a turn's first eight entities and four
 attribute runs before the first entity is given, then, as each is
-given, the record of the one eight on and the attributes of the one
-four on -- its record, which says where they are, having come by then.
+given, the entity eight on and the attributes of the one four on -- the
+entity, which says where they are, having come by then.
 Finding where to ask searches the places alone, two bytes an entity,
 which stay in the caches.
 
@@ -193,14 +193,14 @@ growing from 256,000): a wake 271 ns of a thread where it was 359;
 12, 276.
 
 Still waited for: the cells about it (the 3x3 window, 10% at the peak),
-and the same entity again when the change is carried out (12%).
+and the same entity again when its instruction is applied (12%).
 
-Their API follows the bitplanes': outside a tick, changes are queued
-(`Entities::queue_put`, `queue_remove`) and applied (`apply`), as the
-arena's writes are -- queuing is the only way to change an entity; in a
-tick, a turn reads entities anywhere held as the tick found them
-(`entity`, `entities_in`, through an `EntityReader`, as cells through a
-`Reader`) and queues its changes. The decisions behind it:
+Their API follows the bitplanes': outside a tick, instructions are
+queued (`Entities::queue_put`, `queue_remove`) and applied (`apply`), as
+the arena's writes are -- queuing is the only way to change an entity;
+in a tick, a turn reads entities in any hot superchunk as the tick found
+them (`entity`, `entities_in`, through an `EntityReader`, as cells
+through a `Reader`) and queues its instructions. The decisions behind it:
 `../../docs/tilesim.md`, "Entities".
 
 ## The dispatcher
@@ -217,7 +217,7 @@ borrow what the caller holds (the arena, the outboxes) and the one
 `unsafe` rests on. A part's panic is raised to the caller after every
 part is done. Each thread takes a contiguous run of superchunks, so it
 works through them in Morton order; how the work is split is arbitrary
-for now, to be weighed again once entities join the simulation.
+for now, to be weighed again.
 
 ## Layout
 
@@ -226,7 +226,7 @@ for now, to be weighed again once entities join the simulation.
 | `src/sampling.rs` | Monte Carlo sampling |
 | `src/tick.rs` | the two-phase tick, its outboxes, a superchunk's turn |
 | `src/dispatcher.rs` | the threads |
-| `src/entity_store/` | entities: records, buckets, the timer wheel, the instructions queued |
+| `src/entity_store/` | entities: buckets, the timer wheel, the instructions queued |
 | `src/around.rs` | the 3x3 cells about a cell, as nine bits |
 | `src/diagnostics/` | what the entities hold |
 | `tests/` | sampling, the tick, the entities, their instructions and the dispatcher, judged |

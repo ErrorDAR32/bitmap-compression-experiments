@@ -22,7 +22,7 @@
 //! - **Dies**: of hunger, or of old age, [`LIFE_TICKS`] of sleep to a
 //!   life on average, whatever it sleeps by.
 //! - **Never stands where another does**: a step onto a cell an entity
-//!   stands on is turned back as it is carried out, and the sheep stays
+//!   stands on is turned back as it is applied, and the sheep stays
 //!   where it is -- it does not look first, few cells having one; a
 //!   lamb is born on a cell seen free beside its mother, who waits for
 //!   one; and a path to grass goes round the entities in the way.
@@ -30,7 +30,7 @@
 //!   else a step along the shortest path to the nearest grass in the
 //!   16 by 16 cells about it (`pathfinding`'s
 //!   waves) -- one pathfinding step a wake, no route kept; with no
-//!   grass in reach, onto any neighbour. Never off the bitplanes held.
+//!   grass in reach, onto any neighbour. Never off the hot bitplanes.
 //!
 //! When it is next hungry, when its lamb is due and when it is grown
 //! are attributes, each a tick, and the way it roams another: all but
@@ -134,7 +134,7 @@ impl AddAssign for SheepTickMetrics {
     }
 }
 
-/// One tick of the sheep alone over every superchunk held, on
+/// One tick of the sheep alone over every hot superchunk, on
 /// `simulation`'s threads, `seed` its random numbers' seed -- a new one
 /// a tick: the cells change only as the sheep change them.
 pub fn tick(simulation: &mut Simulation, arena: &mut BitmapArena, entities: &mut Entities, seed: u64) -> TickReport<SheepTickMetrics> {
@@ -153,8 +153,8 @@ pub fn rule(turn: &mut Turn) -> SheepTickMetrics {
         let at = sheep.header.at;
         let mut sheep = EntityEdit::of(sheep, &mut room);
         let grass = turn.around(GRASS, at);
-        // The neighbours it may step to: on the bitplanes held, no wall before them. Where entities stand is not read.
-        let mut steppable = grass.hot & RING & turn.unwalled_around(at);
+        // The neighbours it may step to: on the hot bitplanes, no wall before them. Where entities stand is not read.
+        let mut steppable = grass.hot & RING & turn.around_unwalled(at);
         let hungry_at = sheep.get(HUNGRY_AT).unwrap_or(now);
         let roaming = sheep.get(ROAMING);
         // On its way out of thin pasture it does not stop to eat.
@@ -208,7 +208,7 @@ pub fn rule(turn: &mut Turn) -> SheepTickMetrics {
         let way = if !hungry {
             None
         } else if let Some(roaming) = roaming {
-            // On the way it set off, until its time is up or the world held ends.
+            // On the way it set off, until its time is up or the hot world ends.
             let way = 1 << (roaming & 15);
             if now >= roaming >> 4 || steppable & way == 0 {
                 sheep.unset(ROAMING);
