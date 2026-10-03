@@ -29,7 +29,7 @@
 //! tick comes out the same on any number of threads.
 
 use crate::dispatcher::Dispatcher;
-use crate::entities::{Attribute, Commands, Entities, EntitiesApplied, EntityId, EntityReader, EntityRef, Header, SuperChunkEntities};
+use crate::entities::{Attribute, Commands, Entities, EntitiesApplied, EntityId, EntityReader, EntityRef, Header, SuperChunkEntities, NEVER};
 use coordinates::ChunkPosition;
 use crate::sampling::sample_layer;
 use bitplane_manager::{count_missed, Applied, BitmapArena, NotHot, Reader, Shape, SuperChunk, Tile, Write, WriteQueues};
@@ -207,31 +207,54 @@ impl<'a> SuperChunkTick<'a> {
     /// Queues putting `header`'s entity -- made, or changed where it
     /// stands -- with `attributes`, sorted by type, in the superchunk
     /// its cell is in. It wakes at its wake tick, which is after this
-    /// one. One that moves is [`SuperChunkTick::update`]d.
+    /// one. A new one whose cell another entity stands on by then is
+    /// not put: entities never overlap. One that moves is
+    /// [`SuperChunkTick::update`]d.
     pub fn put(&mut self, header: Header, attributes: &[Attribute]) {
-        self.put_from(header, header.at, attributes);
+        debug_assert!(header.wake > self.now, "an entity put to wake at tick {}, not after {}", header.wake, self.now);
+        let slot = self.slot_of(header.at.superchunk());
+        self.outbox.commands[slot].put(header, header.at, attributes);
     }
 
     /// Queues `before`'s entity becoming `after`, with `attributes`:
-    /// moved among its chunk's entities if it stays in its chunk -- or
-    /// passed over, if it is no longer where the tick found it -- else
-    /// taken out of it and put where it goes, in this superchunk or a
-    /// neighbour.
+    /// changed, and moved to its cell if that is another -- unless an
+    /// entity stands on it by then, when it stays where it stood,
+    /// changed all the same: entities never overlap. One no longer
+    /// where the tick found it is passed over.
+    ///
+    /// Moving to a cell of another superchunk, it crosses: it is put
+    /// there as new, and stays here too, asleep, until the next tick
+    /// finds whether it was -- when the one here is removed, or, the
+    /// cell having been taken, wakes again.
     pub fn update(&mut self, before: &Header, after: Header, attributes: &[Attribute]) {
-        if before.at.0 >> CHUNK_CELL_BITS != after.at.0 >> CHUNK_CELL_BITS {
-            self.remove(before);
-            self.put_from(after, after.at, attributes);
+        debug_assert!(after.wake > self.now, "an entity put to wake at tick {}, not after {}", after.wake, self.now);
+        let own = slot(0, 0);
+        if before.at.superchunk() == after.at.superchunk() {
+            let slot = self.slot_of(after.at.superchunk());
+            self.outbox.commands[slot].put(after, before.at, attributes);
         } else {
-            self.put_from(after, before.at, attributes);
+            let there = self.slot_of(after.at.superchunk());
+            self.outbox.commands[there].put(after, after.at, attributes);
+            self.outbox.commands[own].cross(Header { at: before.at, wake: NEVER, ..after }, after.at, attributes);
         }
     }
 
-    /// Queues putting `header`'s entity, which stood on `was`, a cell of
-    /// its cell's chunk.
-    fn put_from(&mut self, header: Header, was: CellIndex, attributes: &[Attribute]) {
-        debug_assert!(header.wake > self.now, "an entity put to wake at tick {}, not after {}", header.wake, self.now);
-        let slot = self.slot_of(header.at.superchunk());
-        self.outbox.commands[slot].put(header, was, attributes);
+    /// Settles the superchunk's crossings of the tick before: an entity
+    /// found where it crossed to is removed here; one not -- the cell
+    /// was taken, or is in no superchunk held -- wakes here next tick,
+    /// to go on as it was.
+    fn settle_crossings(&mut self) {
+        let entities: &'a SuperChunkEntities = self.entities;
+        for crossing in entities.crossings() {
+            let Some(here) = entities.get(crossing.id, crossing.at) else {
+                continue;
+            };
+            if self.entity_reader.get(crossing.id, crossing.to).is_some() {
+                self.remove(&here.header);
+            } else {
+                self.put(Header { wake: self.now + 1, ..here.header }, here.attributes);
+            }
+        }
     }
 
     /// Queues removing `header`'s entity.
@@ -253,10 +276,6 @@ impl<'a> SuperChunkTick<'a> {
         slot(dx as i32, dy as i32)
     }
 }
-
-/// Bits of a cell's Morton index that place it in its chunk: the rest
-/// are its chunk's.
-const CHUNK_CELL_BITS: u32 = 16;
 
 /// What a tick did, and how long each phase took.
 #[derive(Clone, Copy, Debug, Default)]
@@ -352,6 +371,7 @@ impl Simulation {
                 let superchunk = &superchunks[first + offset];
                 let random = Rng::new(seed ^ superchunk.morton().wrapping_mul(0x9E37_79B9_7F4A_7C15));
                 let mut turn = SuperChunkTick { superchunk, entities: &held[first + offset], now, reader: &reader, entity_reader: &entity_reader, outbox, random };
+                turn.settle_crossings();
                 total += rule(&mut turn, &mut samples);
             }
             *results[part].lock().expect("a part's result") = total;
@@ -376,6 +396,7 @@ impl Simulation {
             for (superchunk, entities) in superchunks.iter_mut().zip(held.iter_mut()) {
                 let position = superchunk.position();
                 entities.turn(now);
+                entities.settle();
                 for (dx, dy) in neighbours() {
                     let Some(source) = offset(position, dx, dy).and_then(|source| mortons.binary_search(&source.morton_index()).ok()) else {
                         continue;
@@ -387,7 +408,7 @@ impl Simulation {
                             superchunk.apply(layer_type, write, &mut applied);
                         }
                     }
-                    outbox.commands[slot(-dx, -dy)].apply(std::slice::from_mut(entities), now + 1, &mut entities_applied);
+                    outbox.commands[slot(-dx, -dy)].apply(std::slice::from_mut(entities), std::slice::from_mut(superchunk), now + 1, &mut entities_applied);
                 }
                 entities.sort_wakes(now + 1);
             }

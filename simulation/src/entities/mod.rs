@@ -4,7 +4,8 @@
 //! An entity is a header -- a random 64-bit ID, a type, the cell it
 //! stands on, the tick it next wakes at -- and attributes, typed values
 //! added and removed at run time. A superchunk holds its entities in a
-//! bucket a chunk, sorted by ID, and a timer wheel of when each wakes,
+//! bucket a chunk, sorted by cell, one a cell at most -- entities never
+//! overlap -- and a timer wheel of when each wakes,
 //! so a tick costs the entities waking in it and nothing for the rest.
 //! An entity is found by its ID and cell: its cell's chunk's bucket,
 //! then its ID there -- never a search past its chunk -- which keeps it
@@ -18,10 +19,20 @@
 //! | file | what is in it |
 //! |---|---|
 //! | `record` | an entity: its header and its attributes |
-//! | `bucket` | a chunk's entities, sorted by ID, their attributes beside them |
+//! | `bucket` | a chunk's entities, sorted by cell, one a cell, their attributes beside them |
 //! | `wheel` | a superchunk's timer wheel |
 //! | `store` | a superchunk's entities, and every superchunk's |
 //! | `commands` | changes to entities, queued for a superchunk and carried out by it |
+
+use chunk_storage::LayerType;
+
+/// The layer type of the cells entities stand on: a bitplane the
+/// entities keep, a cell set where one stands, cleared when it leaves.
+/// A rule reads it as any bitplane -- a window of it is the entities
+/// about a cell, as a mask -- and never writes it. It is kept where it
+/// is hot; where it is not, entities still never overlap, their buckets
+/// seeing to it, but a rule cannot see them.
+pub const OCCUPIED: LayerType = LayerType(8);
 
 mod bucket;
 mod commands;
@@ -31,5 +42,5 @@ mod wheel;
 
 pub use commands::{Commands, EntitiesApplied};
 pub use record::{attribute, remove_attribute, set_attribute, Attribute, AttributeType, EntityId, EntityRef, EntityType, Header, NEVER};
-pub use store::{Entities, EntityReader, SuperChunkEntities};
+pub use store::{Crossing, Entities, EntityReader, SuperChunkEntities};
 pub use wheel::{Wake, WHEEL_TICKS};

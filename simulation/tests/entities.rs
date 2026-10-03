@@ -1,6 +1,6 @@
 //! Entities ticked: woken at their tick and no other, near or far off;
 //! attributes added and removed at run time; moving across superchunk
-//! borders as whole copies; lost past the superchunks held; read across
+//! borders as whole copies; never two on a cell; read across
 //! superchunks as the tick found them; held in Morton order by cell
 //! however they step; and the same on any number of threads.
 //!
@@ -9,7 +9,7 @@
 use bitplane_manager::{BitmapArena, BucketKey};
 use chunk_storage::{LayerCodec, LayerType};
 use coordinates::{CartesianCell, CellIndex, ChunkPlace, ChunkPosition, SuperChunkPosition, SUPERCHUNK_SIDE_CELLS};
-use simulation::entities::{remove_attribute, set_attribute, AttributeType, Entities, EntityId, EntityType, Header, NEVER, WHEEL_TICKS};
+use simulation::entities::{remove_attribute, set_attribute, AttributeType, Entities, EntityId, EntityType, Header, NEVER, OCCUPIED, WHEEL_TICKS};
 use simulation::{Simulation, SuperChunkTick};
 use std::sync::Mutex;
 
@@ -74,10 +74,10 @@ fn count_and_flip(turn: &mut SuperChunkTick, _: &mut Vec<CellIndex>) -> usize {
 fn attributes_come_and_go_at_run_time() {
     let (mut arena, mut entities) = world(1);
     for id in 0..300 {
-        entities.queue_put(walker(id * 7919 + 1, cell(id as u32 % 200, 5), 0), &[]);
+        entities.queue_put(walker(id * 7919 + 1, cell(id as u32 % 200, 5 + id as u32 / 200), 0), &[]);
     }
     assert_eq!(entities.queued(), 300);
-    assert_eq!(entities.apply().puts, 300);
+    assert_eq!(entities.apply(&mut arena).puts, 300);
     assert_eq!((entities.len(), entities.queued()), (300, 0));
     let mut simulation = Simulation::new(1);
     for tick in 1..=101u64 {
@@ -101,7 +101,7 @@ fn entities_wake_at_their_tick() {
     entities.queue_put(walker(1, cell(3, 3), 5), &[]);
     entities.queue_put(walker(2, cell(900, 900), far), &[]);
     entities.queue_put(walker(3, cell(10, 10), 7), &[]);
-    entities.apply();
+    entities.apply(&mut arena);
     let woken = Mutex::new(Vec::new());
     let mut simulation = Simulation::new(1);
     for tick in 0..=far + 10 {
@@ -122,14 +122,15 @@ fn entities_wake_at_their_tick() {
 }
 
 /// Walkers stepping right a cell a tick cross into the next superchunk,
-/// as whole copies, attributes and all; and past the superchunks held,
-/// are lost.
+/// as whole copies, attributes and all -- the one left behind gone a
+/// tick later -- and at the edge of the superchunks held stay, lost to
+/// nowhere.
 #[test]
-fn entities_cross_borders_and_are_lost_past_the_world_held() {
+fn entities_cross_borders_and_stay_at_the_edge_of_the_world_held() {
     let (mut arena, mut entities) = world(2);
     let start = SUPERCHUNK_SIDE_CELLS - 3;
     entities.queue_put(walker(9, cell(start, 100), 0), &[simulation::entities::Attribute { kind: WOKEN, value: 0 }]);
-    entities.apply();
+    entities.apply(&mut arena);
     let mut simulation = Simulation::new(2);
     let step = |turn: &mut SuperChunkTick, _: &mut Vec<CellIndex>| {
         for entity in turn.woken() {
@@ -138,18 +139,21 @@ fn entities_cross_borders_and_are_lost_past_the_world_held() {
         }
         0
     };
+    let mut most = 0;
     for tick in 0..10 {
         simulation.tick(&mut arena, &mut entities, tick, step);
+        most = most.max(entities.len());
     }
+    assert_eq!(most, 2, "here and there for the tick it crossed in");
     let right = SuperChunkPosition { x: 11, y: 10 }.morton_index();
     let entity = entities.superchunk(right).and_then(|superchunk| superchunk.iter().next()).expect("in the right neighbour");
     assert_eq!((entity.header.at, entity.attribute(WOKEN)), (cell(start + 10, 100), Some(10)));
-    assert_eq!(entities.len(), 1);
-    let mut lost = 0;
+    assert_eq!(entities.len(), 1, "the one left behind removed");
     for tick in 10..1100 {
-        lost += simulation.tick(&mut arena, &mut entities, tick, step).entities.lost;
+        simulation.tick(&mut arena, &mut entities, tick, step);
     }
-    assert_eq!((entities.len(), lost), (0, 1), "walked off the superchunks held");
+    let all: Vec<_> = entities.iter().map(|entity| entity.header.at).collect();
+    assert_eq!(all, [cell(2 * SUPERCHUNK_SIDE_CELLS - 1, 100)], "at the edge of the superchunks held, not lost past it");
 }
 
 /// Walkers wandering at random, giving birth and dying over 3x3
@@ -181,7 +185,7 @@ fn any_number_of_threads_ticks_entities_the_same() {
         for id in 0..2000u64 {
             entities.queue_put(walker(id + 1, cell(((id * 7919) % 3072) as u32, ((id * 104_729) % 3072) as u32), id % 4), &[]);
         }
-        entities.apply();
+        entities.apply(&mut arena);
         let mut simulation = Simulation::new(threads);
         let changes: usize = (0..300).map(|tick| simulation.tick(&mut arena, &mut entities, tick, wander).rules).sum();
         let all: Vec<(Header, Vec<_>)> = entities.iter().map(|entity| (entity.header, entity.attributes.to_vec())).collect();
@@ -196,16 +200,16 @@ fn any_number_of_threads_ticks_entities_the_same() {
 /// past the superchunks held is lost; a removal takes its entity out.
 #[test]
 fn changes_outside_a_tick_are_queued_then_applied() {
-    let (_, mut entities) = world(1);
+    let (mut arena, mut entities) = world(1);
     let (here, away) = (walker(1, cell(5, 5), 0), walker(2, cell(2 * SUPERCHUNK_SIDE_CELLS, 5), 0));
     entities.queue_put(here, &[]);
     entities.queue_put(away, &[]);
     assert_eq!(entities.len(), 0, "nothing changes until applied");
-    let applied = entities.apply();
+    let applied = entities.apply(&mut arena);
     assert_eq!((applied.puts, applied.lost, entities.len()), (1, 1, 1));
     assert_eq!(entities.get(here.id, here.at).map(|entity| entity.header), Some(here));
     entities.queue_remove(&here);
-    assert_eq!((entities.apply().removes, entities.len()), (1, 0));
+    assert_eq!((entities.apply(&mut arena).removes, entities.len()), (1, 0));
 }
 
 /// A turn reads entities in its neighbours, by ID and by chunk, as the
@@ -216,7 +220,7 @@ fn turns_read_entities_across_superchunks() {
     let (left, right) = (walker(1, cell(SUPERCHUNK_SIDE_CELLS - 1, 7), 0), walker(2, cell(SUPERCHUNK_SIDE_CELLS, 7), NEVER));
     entities.queue_put(left, &[]);
     entities.queue_put(right, &[]);
-    entities.apply();
+    entities.apply(&mut arena);
     let seen = Mutex::new(Vec::new());
     Simulation::new(2).tick(&mut arena, &mut entities, 0, |turn, _| {
         for entity in turn.woken() {
@@ -242,7 +246,7 @@ fn entities_wake_in_morton_order() {
     for id in 0..500u64 {
         entities.queue_put(walker(1000 - id, cell(((id * 7919) % 1000) as u32, ((id * 104_729) % 1000) as u32), 0), &[]);
     }
-    entities.apply();
+    entities.apply(&mut arena);
     let mut simulation = Simulation::new(1);
     for tick in 0..3 {
         let order = Mutex::new(Vec::new());
@@ -261,16 +265,16 @@ fn entities_wake_in_morton_order() {
 }
 
 /// Entities stepping about their chunk and across its edges stay held
-/// in Morton order by cell, then ID -- several to a cell -- each found
-/// where it stands and nowhere else, attributes its own.
+/// in Morton order by cell, each found where it stands and nowhere
+/// else, attributes its own.
 #[test]
 fn entities_stay_in_morton_order_as_they_step() {
     let (mut arena, mut entities) = world(1);
     for id in 0..600u64 {
-        let at = cell(200 + (id % 20) as u32 * 3, 240 + (id / 20 % 10) as u32 * 3);
+        let at = cell(200 + (id % 20) as u32 * 3, 240 + (id / 20) as u32 * 3);
         entities.queue_put(walker(id + 1, at, 0), &[simulation::entities::Attribute { kind: WOKEN, value: id }]);
     }
-    entities.apply();
+    entities.apply(&mut arena);
     let mut simulation = Simulation::new(1);
     for tick in 0..200 {
         simulation.tick(&mut arena, &mut entities, tick, |turn, _| {
@@ -300,7 +304,7 @@ fn entities_stay_in_morton_order_as_they_step() {
 fn a_change_to_an_entity_that_moved_on_is_passed_over() {
     let (mut arena, mut entities) = world(1);
     entities.queue_put(walker(1, cell(50, 50), 0), &[]);
-    entities.apply();
+    entities.apply(&mut arena);
     let mut simulation = Simulation::new(1);
     let report = simulation.tick(&mut arena, &mut entities, 0, |turn, _| {
         for entity in turn.woken() {
@@ -315,4 +319,58 @@ fn a_change_to_an_entity_that_moved_on_is_passed_over() {
     assert!(entities.get(EntityId(1), cell(51, 50)).is_some(), "the first move carried out");
     let woken = simulation.tick(&mut arena, &mut entities, 1, |turn, _| turn.woken().count()).rules;
     assert_eq!(woken, 1);
+}
+
+/// Entities never overlap: walkers crowded together, stepping at random
+/// onto each other's cells, across chunk and superchunk borders, and
+/// breeding onto cells drawn at random, stand one to a cell after every
+/// tick -- and the bitplane of the cells they stand on says the same.
+#[test]
+fn entities_never_overlap() {
+    let (mut codec, mut arena) = (LayerCodec::new(), BitmapArena::new());
+    for (x, y) in [(10, 10), (11, 10), (10, 11), (11, 11)] {
+        for place in ChunkPlace::all() {
+            arena.make_hot(BucketKey { layer_type: OCCUPIED, chunk: ChunkPosition::of(SuperChunkPosition { x, y }, place) }, None, &mut codec);
+        }
+    }
+    let mut entities = Entities::new();
+    // Crowded about the corner the four superchunks meet at, which is the corner of chunks too.
+    let corner = SUPERCHUNK_SIDE_CELLS - 20;
+    for id in 0..900u64 {
+        entities.queue_put(walker(id + 1, cell(corner + (id % 30) as u32, corner + (id / 30) as u32), id % 3), &[]);
+    }
+    // Two on a cell already taken: refused.
+    entities.queue_put(walker(5000, cell(corner, corner), 0), &[]);
+    entities.queue_put(walker(5001, cell(corner + 7, corner + 7), 0), &[]);
+    let applied = entities.apply(&mut arena);
+    assert_eq!((applied.puts, applied.refused, entities.len()), (900, 2, 900));
+    let jostle = |turn: &mut SuperChunkTick, _: &mut Vec<CellIndex>| {
+        for entity in turn.woken() {
+            let header = entity.header;
+            let (dx, dy) = (turn.random().below(3) as i32 - 1, turn.random().below(3) as i32 - 1);
+            let wake = turn.now() + 1 + turn.random().below(3);
+            turn.update(&header, Header { at: header.at.offset(dx, dy).unwrap(), wake, ..header }, entity.attributes);
+            if turn.random().below(50) == 0 {
+                let born = header.at.offset(turn.random().below(5) as i32 - 2, turn.random().below(5) as i32 - 2).unwrap();
+                let id = turn.new_id();
+                turn.put(Header { id, at: born, wake, ..header }, &[]);
+            }
+        }
+        0
+    };
+    let mut simulation = Simulation::new(4);
+    let (mut stayed, mut refused, mut crossed) = (0, 0, 0);
+    for tick in 0..400 {
+        let report = simulation.tick(&mut arena, &mut entities, tick, jostle);
+        (stayed, refused) = (stayed + report.entities.stayed, refused + report.entities.refused);
+        crossed += entities.superchunks().iter().map(|superchunk| superchunk.crossings().len()).sum::<usize>();
+        let mut cells: Vec<CellIndex> = entities.iter().map(|entity| entity.header.at).collect();
+        cells.sort_unstable();
+        assert!(cells.windows(2).all(|pair| pair[0] != pair[1]), "tick {tick}: two entities on a cell");
+        let occupied: u32 = arena.superchunks().iter().map(|superchunk| superchunk.layer(OCCUPIED).expect("hot").hot_count()).sum();
+        assert_eq!(occupied as usize, cells.len(), "tick {tick}: the cells occupied are the cells stood on");
+        assert!(cells.iter().all(|&cell| arena.holds(OCCUPIED, cell) == Ok(true)), "tick {tick}: an entity on a cell not occupied");
+    }
+    assert!(stayed > 1000 && refused > 10 && crossed > 100, "{stayed} stayed, {refused} refused, {crossed} crossed");
+    assert!(entities.len() > 900, "they bred");
 }

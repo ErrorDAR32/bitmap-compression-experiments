@@ -10,10 +10,11 @@
 //! in a tick, a superchunk's turn queues them. Queuing is the only way
 //! to change an entity.
 
-use super::bucket::Bucket;
+use super::bucket::{place, Bucket, Put};
 use super::commands::{Commands, EntitiesApplied};
 use super::record::{sorted, Attribute, EntityId, EntityRef, Header, NEVER};
 use super::wheel::{Wake, Wheel};
+use bitplane_manager::BitmapArena;
 use coordinates::{CellIndex, ChunkPosition, SuperChunkPosition, CHUNKS_IN_SUPERCHUNK};
 
 /// A superchunk's entities: a bucket a chunk, in the chunks' Morton
@@ -25,12 +26,40 @@ pub struct SuperChunkEntities {
     chunks: [Bucket; CHUNKS_IN_SUPERCHUNK],
     /// When each entity wakes.
     wheel: Wheel,
+    /// The entities crossing to another superchunk.
+    crossings: Vec<Crossing>,
+}
+
+/// An entity crossing to another superchunk: it asked, last tick, to be
+/// put there, and stays here, asleep, until this tick finds whether it
+/// was -- the cell it crossed to may have been taken. So a cell is
+/// never left for one that cannot be had, and the two superchunks,
+/// changed apart, need tell each other nothing.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Crossing {
+    /// Its ID.
+    pub id: EntityId,
+    /// The cell it stands on, here.
+    pub at: CellIndex,
+    /// The cell it crossed to.
+    pub to: CellIndex,
+}
+
+/// What putting an entity changed of where entities stand.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Change {
+    /// What came of it.
+    pub(crate) put: Put,
+    /// The cell it left, if it moved.
+    pub(crate) left: Option<CellIndex>,
+    /// The cell it now stands on, if it did not before.
+    pub(crate) entered: Option<CellIndex>,
 }
 
 impl SuperChunkEntities {
     /// No entities, in the superchunk whose Morton index is `morton`.
     pub fn new(morton: u64) -> Self {
-        Self { morton, chunks: Default::default(), wheel: Wheel::default() }
+        Self { morton, chunks: Default::default(), wheel: Wheel::default(), crossings: Vec::new() }
     }
 
     /// The superchunk's Morton index.
@@ -79,20 +108,38 @@ impl SuperChunkEntities {
         self.wheel.due(tick).iter().filter_map(move |wake| self.get(wake.id, wake.at).filter(|entity| entity.header.wake == tick))
     }
 
-    /// Puts `header`'s entity, with `attributes` sorted by type, in the
-    /// bucket of its cell's chunk -- in place of the one with its ID on
-    /// the cell at `was` of that chunk, or new if that is its cell and
-    /// none is there -- and files its wake, no earlier than `earliest`.
-    /// One not there, to have moved from it, is passed over: whether it
-    /// was put.
-    pub(crate) fn put(&mut self, earliest: u64, header: Header, was: u16, attributes: &[Attribute]) -> bool {
+    /// Puts `header`'s entity, with `attributes` sorted by type, which
+    /// stood on `from`, a cell of this superchunk -- its own cell, if it
+    /// has not moved or is new -- and files its wake, no earlier than
+    /// `earliest`: what came of it, and the cells left and entered. One
+    /// whose cell is taken stays on `from`, changed all the same, and
+    /// wakes there; a new one is not put.
+    pub(crate) fn put(&mut self, earliest: u64, header: Header, from: CellIndex, attributes: &[Attribute]) -> Change {
         debug_assert_eq!(header.at.superchunk(), self.morton, "an entity put in a superchunk it is not in");
+        debug_assert_eq!(from.superchunk(), self.morton, "an entity put from another superchunk: a crossing");
         debug_assert!(sorted(attributes), "attributes sorted by type, each type once");
-        let put = self.chunks[header.at.chunk_in_superchunk()].put(header, was, attributes);
-        if put && header.wake != NEVER {
-            self.wheel.file(earliest, header.wake, Wake { id: header.id, at: header.at });
+        let (origin, target) = (from.chunk_in_superchunk(), header.at.chunk_in_superchunk());
+        let put = if origin == target {
+            self.chunks[target].put(header, place(from), attributes)
+        } else if self.chunks[origin].get(header.id, from).is_none() {
+            Put::PassedOver
+        } else if self.chunks[target].occupied(place(header.at)) {
+            self.chunks[origin].put(Header { at: from, ..header }, place(from), attributes);
+            Put::Stayed
+        } else {
+            self.chunks[origin].remove(header.id, from);
+            self.chunks[target].put(header, place(header.at), attributes);
+            Put::Moved
+        };
+        let stands = if put == Put::Stayed { from } else { header.at };
+        if !matches!(put, Put::Refused | Put::PassedOver) && header.wake != NEVER {
+            self.wheel.file(earliest, header.wake, Wake { id: header.id, at: stands });
         }
-        put
+        match put {
+            Put::New => Change { put, left: None, entered: Some(header.at) },
+            Put::Moved => Change { put, left: Some(from), entered: Some(header.at) },
+            Put::InPlace | Put::Stayed | Put::Refused | Put::PassedOver => Change { put, left: None, entered: None },
+        }
     }
 
     /// Removes the entity whose ID is `id` standing on `at`: whether it
@@ -100,6 +147,26 @@ impl SuperChunkEntities {
     pub(crate) fn remove(&mut self, id: EntityId, at: CellIndex) -> bool {
         debug_assert_eq!(at.superchunk(), self.morton);
         self.chunks[at.chunk_in_superchunk()].remove(id, at)
+    }
+
+    /// Notes that the entity whose ID is `id`, on `at`, is crossing to
+    /// `to`, a cell of another superchunk: to be settled next tick
+    /// ([`SuperChunkEntities::crossings`]).
+    pub(crate) fn cross(&mut self, id: EntityId, at: CellIndex, to: CellIndex) {
+        self.crossings.push(Crossing { id, at, to });
+    }
+
+    /// The entities that were crossing to another superchunk when the
+    /// last tick ended: each still stands here, asleep, until it is
+    /// known whether it arrived.
+    pub fn crossings(&self) -> &[Crossing] {
+        &self.crossings
+    }
+
+    /// Forgets the crossings: settled, each of them, in the tick's first
+    /// phase.
+    pub(crate) fn settle(&mut self) {
+        self.crossings.clear();
     }
 
     /// Turns the wheel past `tick`, just run.
@@ -211,11 +278,15 @@ impl Entities {
         self.queued.len()
     }
 
-    /// Applies the changes queued, in order, and empties the queue: an
-    /// entity put in a superchunk not held is lost.
-    pub fn apply(&mut self) -> EntitiesApplied {
-        let mut applied = EntitiesApplied::default();
-        self.queued.apply(&mut self.superchunks, self.now, &mut applied);
+    /// Applies the changes queued, in order, and empties the queue, the
+    /// entities first made to hold `arena`'s superchunks: an entity put
+    /// in a superchunk not held is lost, one put on a cell another
+    /// stands on refused. Where they stand is kept in `arena`'s
+    /// [`OCCUPIED`](super::OCCUPIED) bitplane, where it is hot.
+    pub fn apply(&mut self, arena: &mut BitmapArena) -> EntitiesApplied {
+        let mortons: Vec<u64> = arena.superchunks().iter().map(|superchunk| superchunk.morton()).collect();
+        let mut applied = EntitiesApplied { lost: self.align(&mortons), ..EntitiesApplied::default() };
+        self.queued.apply(&mut self.superchunks, arena.superchunks_mut(), self.now, &mut applied);
         self.queued.clear();
         let now = self.now;
         self.superchunks.iter_mut().for_each(|superchunk| superchunk.sort_wakes(now));

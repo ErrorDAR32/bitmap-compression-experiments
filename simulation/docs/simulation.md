@@ -53,6 +53,17 @@ two bytes an entity, then its ID among those on the cell. A wake or
 change naming one no longer on that cell -- moved on, or dead -- is
 passed over.
 
+**Entities never overlap**: a cell holds one. A bucket has one record
+a cell, and the superchunk a change lands in checks as it carries it
+out: a mover whose cell is taken stays where it stood, changed all the
+same; a new entity is not put. The cells entities stand on are a
+bitplane, `OCCUPIED`, kept as they are put, moved and removed, for
+rules to read -- a rule steps to cells free as the tick found them, the
+first check, of which the one above is the second. Crossing to another
+superchunk, an entity is put there as new and stays here asleep a
+tick, until the next tick's first phase reads whether it arrived
+(`Crossing`): two superchunks changed apart tell each other nothing.
+
 They tick in the same two phases as the cells. In the first, a
 superchunk's entities waking run the rule (`SuperChunkTick::woken`) in
 Morton order -- each tick's wakes sorted by cell, then ID, once all are

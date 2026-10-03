@@ -593,6 +593,40 @@ steadily and never swings; with these numbers, before the paths, it
 rose from 4,000 to 21,600 in 700,000 ticks, fell to 900 by 2.6
 million, and held there as the grass came back.
 
+### Entities never overlap (built)
+
+A cell holds one entity, ever. It is kept where entities are held, not
+by the rules: a chunk's bucket has one record a cell.
+
+- **Two checks.** In the first phase a rule reads the cells entities
+  stand on as the tick found them and steps only to a free one; that
+  cannot see what others decide this tick. In the second, the
+  superchunk owning the cell checks again as it carries the change out:
+  a mover whose cell was taken first stays where it stood, changed all
+  the same, and a new entity is not put. The second check is the search
+  that finds where the record goes, and costs nothing more.
+- **Staying is always safe**: a mover's own cell is its own until it
+  has moved, so none can have taken it.
+- **Where entities stand is a bitplane** (`OCCUPIED`), kept by the
+  entities as they are put, moved and removed, read by rules as any
+  other: a sheep's free neighbours are a mask, and pathfinding goes
+  round the entities in the way.
+- **Crossing a superchunk border.** Two superchunks are changed apart,
+  so the one left cannot know whether the one entered took the entity.
+  The entity is put there as new and stays here too, asleep, a tick:
+  the next tick's first phase reads whether it arrived, and removes
+  the one here, or -- its cell there taken -- wakes it to go on. Its
+  cell here is never left for one it could not have, and the
+  superchunks tell each other nothing. An entity is two for the tick
+  it crosses in; one walking to the edge of the superchunks held stays
+  there, where it used to be lost.
+- **Sheep**: step only to free cells; a lamb is born on a free cell
+  beside its mother, who waits for one.
+
+Measured (`diagnostics pasture 3000 333 4000`): a sheep's wake 174 ns
+over 16 superchunks and 361 over 64, one thread, as before the checks;
+64 superchunks on 12 threads, 2,990 ticks a second.
+
 ### Pathfinding (built, first form)
 
 `pathfinding/`: over an area of 16x16 cells about a walker, held as
@@ -604,8 +638,8 @@ row a few shifts and ors, the whole search's memory one line of cache;
 the walker steps into the first wave to come beside it. A* is there
 too, for one place to go. An entity's turn reads the area
 (`SuperChunkTick::area`), and the rule makes the masks: for a sheep,
-grass the goals, the bitplanes held what may be walked on -- nothing
-is in a sheep's way yet.
+grass the goals, the bitplanes held what may be walked on -- but for
+the cells other entities stand on, which are in its way.
 
 ### Sampling rarely, and blocks' counts
 

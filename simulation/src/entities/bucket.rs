@@ -1,12 +1,15 @@
 //! A chunk's entities: their headers, sorted by cell -- Morton order --
-//! then ID, and their attributes, one run an entity, in one list beside
-//! them.
+//! and their attributes, one run an entity, in one list beside them.
+//!
+//! **A cell holds one entity, ever**: entities never overlap. An entity
+//! put on a cell another stands on is not put; one moving to it stays
+//! where it stood. This is where that is kept, whatever a rule asks.
 //!
 //! An entity is found by its cell and its ID: its cell's place in the
 //! chunk, 16 bits, searched for in a list of the places alone -- two
 //! bytes an entity, beside the headers, so a search reads a few lines
 //! of a list small enough to stay in the caches, and never the headers
-//! it passes -- then its ID among the few entities on that cell. So
+//! it passes -- and it is the one asked for if its ID is. So
 //! entities woken in Morton order are found going forwards through the
 //! bucket, as cells sampled in Morton order are through a bitmap. One
 //! stepping to a cell of the same chunk moves up or down the lists,
@@ -39,12 +42,31 @@ struct Record {
     count: u32,
 }
 
+/// What putting an entity came to.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Put {
+    /// It is new, and now stands on its cell.
+    New,
+    /// It was changed where it stands.
+    InPlace,
+    /// It moved to its cell.
+    Moved,
+    /// Its cell was taken: it was changed, and stays where it stood.
+    Stayed,
+    /// It is new and its cell was taken: it is not put.
+    Refused,
+    /// It was to have moved and is not where it stood: it moved on, or
+    /// died.
+    PassedOver,
+}
+
 /// A chunk's entities.
 #[derive(Default)]
 pub(crate) struct Bucket {
-    /// Each entity's cell's [`place`], sorted: what is searched.
+    /// Each entity's cell's [`place`], sorted, each once: what is
+    /// searched.
     places: Vec<u16>,
-    /// The headers, as `places`: sorted by cell, then ID.
+    /// The headers, as `places`: sorted by cell.
     records: Vec<Record>,
     /// The attributes: a run an entity, and garbage.
     attributes: Vec<Attribute>,
@@ -69,42 +91,63 @@ impl Bucket {
         Some(self.entity(&self.records[at]))
     }
 
-    /// Every entity it holds, by cell in Morton order, then ID.
+    /// Every entity it holds, by cell in Morton order.
     pub(crate) fn iter(&self) -> impl Iterator<Item = EntityRef<'_>> {
         self.records.iter().map(|record| self.entity(record))
     }
 
+    /// Whether an entity stands on the cell at `place`.
+    pub(crate) fn occupied(&self, place: u16) -> bool {
+        self.slot(place).1
+    }
+
     /// `header`'s entity, now with `attributes`, which stood on the cell
-    /// at `was` of the chunk: in place of the one with its ID there,
-    /// moved to its cell if that is another; or added, if none was there
-    /// and it stood where it stands -- a new one. One that is to have
-    /// moved and is not where it stood has moved on or died, and is
-    /// passed over: whether it was put.
-    pub(crate) fn put(&mut self, header: Header, was: u16, attributes: &[Attribute]) -> bool {
+    /// at `was` of the chunk, and what came of it ([`Put`]): changed
+    /// where it stands; moved to its cell, if that is another and no
+    /// entity stands on it -- else left where it was, changed all the
+    /// same; or added, if it is new -- it stood where it stands, and is
+    /// not there -- and the cell is free. A cell holds one entity, ever.
+    pub(crate) fn put(&mut self, header: Header, was: u16, attributes: &[Attribute]) -> Put {
         let to = place(header.at);
-        let at = match self.find(was, header.id) {
-            Ok(at) if was == to => at,
-            Ok(from) => self.shift(from, to, header.id),
-            Err(at) if was == to => {
+        let (at, put) = match (self.find(was, header.id), was == to) {
+            (Ok(at), true) => (at, Put::InPlace),
+            (Ok(from), false) => {
+                let (goes, taken) = self.slot(to);
+                if taken {
+                    // Its cell is taken: it stays on the one it stood on.
+                    let stays = Header { at: CellIndex(header.at.0 - to as u64 + was as u64), ..header };
+                    self.rewrite(from, stays, attributes);
+                    return Put::Stayed;
+                }
+                (self.shift(from, goes, to), Put::Moved)
+            }
+            (Err((_, true)), true) => return Put::Refused,
+            (Err((at, false)), true) => {
                 self.places.insert(at, to);
                 self.records.insert(at, Record { header, first: self.attributes.len() as u32, count: attributes.len() as u32 });
                 self.attributes.extend_from_slice(attributes);
-                return true;
+                return Put::New;
             }
-            Err(_) => return false,
+            (Err(_), false) => return Put::PassedOver,
         };
+        self.rewrite(at, header, attributes);
+        put
+    }
+
+    /// Makes the record at `at` `header`'s, with `attributes`: in place
+    /// when their number is the same, else a new run at the list's end.
+    fn rewrite(&mut self, at: usize, header: Header, attributes: &[Attribute]) {
         let record = &mut self.records[at];
         record.header = header;
         if record.count as usize == attributes.len() {
             let first = record.first as usize;
             self.attributes[first..first + attributes.len()].copy_from_slice(attributes);
-            return true;
+            return;
         }
         self.garbage += record.count as usize;
         (record.first, record.count) = (self.attributes.len() as u32, attributes.len() as u32);
         self.attributes.extend_from_slice(attributes);
         self.sweep();
-        true
     }
 
     /// Removes the entity whose ID is `id` standing on `at`: whether it
@@ -119,26 +162,25 @@ impl Bucket {
         true
     }
 
-    /// Where the entity whose ID is `id`, on the cell at `place`, is
-    /// among the records, or where it would go: the first on that cell
-    /// searched for among the places, then the IDs on it gone through.
-    fn find(&self, place: u16, id: EntityId) -> Result<usize, usize> {
-        let mut at = self.places.partition_point(|&held| held < place);
-        while at < self.places.len() && self.places[at] == place {
-            let held = self.records[at].header.id;
-            if held >= id {
-                return if held == id { Ok(at) } else { Err(at) };
-            }
-            at += 1;
-        }
-        Err(at)
+    /// Where the cell at `place`'s entity is among the records, or would
+    /// go, searched for among the places; and whether one stands on it.
+    fn slot(&self, place: u16) -> (usize, bool) {
+        let at = self.places.partition_point(|&held| held < place);
+        (at, self.places.get(at) == Some(&place))
     }
 
-    /// Moves the record at `from` to where the entity whose ID is `id`
-    /// goes on the cell at `to`, the records between the two shifted
-    /// one along: where it now is.
-    fn shift(&mut self, from: usize, to: u16, id: EntityId) -> usize {
-        let (Ok(goes) | Err(goes)) = self.find(to, id);
+    /// Where the entity whose ID is `id`, on the cell at `place`, is
+    /// among the records; or where the cell's would go, and whether
+    /// another stands on it.
+    fn find(&self, place: u16, id: EntityId) -> Result<usize, (usize, bool)> {
+        let (at, taken) = self.slot(place);
+        if taken && self.records[at].header.id == id { Ok(at) } else { Err((at, taken)) }
+    }
+
+    /// Moves the record at `from` to `goes`, where the free cell at
+    /// `to`'s entity goes, the records between the two shifted one
+    /// along: where it now is.
+    fn shift(&mut self, from: usize, goes: usize, to: u16) -> usize {
         let at = if goes > from {
             self.places[from..goes].rotate_left(1);
             self.records[from..goes].rotate_left(1);

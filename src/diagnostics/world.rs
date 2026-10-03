@@ -1,5 +1,6 @@
 //! A mock world to tick: a square of superchunks from the world's middle,
-//! each of dirt with grass scattered on it, every chunk of both hot --
+//! each of dirt with grass scattered on it, every chunk of both hot,
+//! and of the cells entities stand on --
 //! and, if asked, a flock of sheep on each.
 
 use bitplane_manager::BitmapArena;
@@ -7,7 +8,7 @@ use chunk_storage::mock::{grass_on_dirt, DIRT, GRASS};
 use chunk_storage::{ChunkStorage, LayerCodec};
 use coordinates::{ChunkPlace, ChunkPosition, SuperChunkPosition, WORLD_SIDE_SUPERCHUNKS};
 use crate::sheep::{flock, SHEEP};
-use simulation::entities::Entities;
+use simulation::entities::{Entities, OCCUPIED};
 use utilities::rng::Rng;
 
 /// A mock world: its hot bitmaps, its storage, and its superchunks.
@@ -33,7 +34,7 @@ impl World {
         for (seed, &superchunk) in superchunks.iter().enumerate() {
             storage.insert(superchunk, grass_on_dirt(seed as u64 + 1, grass_cells, &mut codec));
             for place in ChunkPlace::all() {
-                arena.make_hot_layers(ChunkPosition::of(superchunk, place), &[DIRT, GRASS], &storage, &mut codec);
+                arena.make_hot_layers(ChunkPosition::of(superchunk, place), &[DIRT, GRASS, OCCUPIED], &storage, &mut codec);
             }
         }
         let mut entities = Entities::new();
@@ -50,7 +51,7 @@ impl World {
         for &superchunk in &world.superchunks {
             flock(&mut world.entities, superchunk, sheep, &mut random);
         }
-        world.entities.apply();
+        world.entities.apply(&mut world.arena);
         world
     }
 
