@@ -21,7 +21,7 @@
 
 use bitplane_manager::{Write, WriteOp};
 use chunk_storage::mock::{DIRT, GRASS};
-use coordinates::{CellIndex, SuperChunkPosition, SUPERCHUNK_SIDE_CELLS};
+use coordinates::{CellIndex, SuperChunkPosition, NEIGHBOURS, SUPERCHUNK_SIDE_CELLS};
 use simulation::entities::{remove_attribute, set_attribute, Attribute, AttributeType, Entities, EntityId, EntityType, Header};
 use simulation::SuperChunkTick;
 use std::ops::AddAssign;
@@ -49,9 +49,6 @@ pub const CONCEIVE_ONE_IN: u64 = 24;
 pub const GESTATION_WAKES: u64 = 16;
 /// Wakes a lamb takes to grow.
 pub const LAMB_WAKES: u64 = 64;
-
-/// A cell's eight neighbours, as offsets.
-const NEIGHBOURS: [(i32, i32); 8] = [(-1, -1), (0, -1), (1, -1), (-1, 0), (1, 0), (-1, 1), (0, 1), (1, 1)];
 
 /// What the sheep did in a tick.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -131,22 +128,20 @@ fn next_wake(turn: &mut SuperChunkTick) -> u64 {
 }
 
 /// Where a sheep on `at` walks: a neighbour with grass, drawn at random
-/// among them, else any neighbour on the bitplanes held, else nowhere.
+/// among them, else any neighbour on the bitplanes held, else nowhere --
+/// the neighbourhood read at once.
 fn step(turn: &mut SuperChunkTick, at: CellIndex) -> CellIndex {
-    let first = turn.random().below(NEIGHBOURS.len() as u64) as usize;
-    let mut fallback = None;
-    for turned in 0..NEIGHBOURS.len() {
-        let (dx, dy) = NEIGHBOURS[(first + turned) % NEIGHBOURS.len()];
-        let Some(neighbour) = at.offset(dx, dy) else {
-            continue;
-        };
-        match turn.holds(GRASS, neighbour) {
-            Ok(true) => return neighbour,
-            Ok(false) => fallback = fallback.or(Some(neighbour)),
-            Err(_) => {}
-        }
+    let neighbours = turn.neighbours(GRASS, at);
+    let choices = if neighbours.set != 0 { neighbours.set } else { neighbours.hot };
+    if choices == 0 {
+        return at;
     }
-    fallback.unwrap_or(at)
+    let mut left = choices;
+    for _ in 0..turn.random().below(choices.count_ones() as u64) {
+        left &= left - 1;
+    }
+    let (dx, dy) = NEIGHBOURS[left.trailing_zeros() as usize];
+    at.offset(dx, dy).expect("a hot neighbour is in the world")
 }
 
 /// Queues `count` grown sheep, fed, on cells of `superchunk` drawn from

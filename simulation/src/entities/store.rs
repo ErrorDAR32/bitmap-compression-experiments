@@ -72,7 +72,9 @@ impl SuperChunkEntities {
     }
 
     /// The entities waking at `tick`, which is in reach of the wheel: in
-    /// the order their wakes were filed, those no longer due passed over.
+    /// Morton order by cell, then by ID, once every wake for it is filed
+    /// and sorted -- as the tick sees them -- those no longer due passed
+    /// over.
     pub fn woken(&self, tick: u64) -> impl Iterator<Item = EntityRef<'_>> {
         self.wheel.due(tick).iter().filter_map(move |wake| self.get(wake.id, wake.at).filter(|entity| entity.header.wake == tick))
     }
@@ -99,6 +101,11 @@ impl SuperChunkEntities {
     /// Turns the wheel past `tick`, just run.
     pub(crate) fn turn(&mut self, tick: u64) {
         self.wheel.turn(tick);
+    }
+
+    /// Sorts the wakes of `tick`, every one filed, into Morton order.
+    pub(crate) fn sort_wakes(&mut self, tick: u64) {
+        self.wheel.sort(tick);
     }
 
     /// Attributes in use, attributes left as garbage, and wakes filed.
@@ -205,6 +212,8 @@ impl Entities {
         let mut applied = EntitiesApplied::default();
         self.queued.apply(&mut self.superchunks, self.now, &mut applied);
         self.queued.clear();
+        let now = self.now;
+        self.superchunks.iter_mut().for_each(|superchunk| superchunk.sort_wakes(now));
         applied
     }
 

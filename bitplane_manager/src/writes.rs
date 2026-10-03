@@ -121,31 +121,42 @@ impl std::ops::AddAssign for Applied {
     }
 }
 
+/// Queues remembered: a cache of this many, by type.
+const REMEMBERED: usize = 16;
+
 /// Writes queued, a queue a layer type, sorted by type, each in the
-/// order queued; the queue last written to is found again without a
-/// search, since rules queue runs of writes to one type.
+/// order queued. The last 16 types written to are found
+/// again without a search -- each in its place in a small cache, by a
+/// hash of the type -- since rules queue runs of writes to a few types,
+/// often by turns (grass, then dirt).
 #[derive(Default)]
 pub struct WriteQueues {
     /// The queues, by type.
     queues: Vec<(LayerType, Vec<Write>)>,
-    /// The queue last written to.
-    last: usize,
+    /// Types written to, and their queue's place, each in its place.
+    remembered: [Option<(LayerType, usize)>; REMEMBERED],
 }
 
 impl WriteQueues {
     /// Queues `write` into `layer_type`'s queue.
     pub fn push(&mut self, layer_type: LayerType, write: Write) {
-        let queue = match self.queues.get(self.last) {
-            Some((held, _)) if *held == layer_type => self.last,
-            _ => match self.queues.binary_search_by_key(&layer_type, |(held, _)| *held) {
-                Ok(at) => at,
-                Err(at) => {
-                    self.queues.insert(at, (layer_type, Vec::new()));
-                    at
-                }
-            },
+        let place = (layer_type.0.wrapping_mul(0x9E37_79B9_7F4A_7C15) >> (u64::BITS - REMEMBERED.trailing_zeros())) as usize;
+        let queue = match self.remembered[place] {
+            Some((held, queue)) if held == layer_type => queue,
+            _ => {
+                let queue = match self.queues.binary_search_by_key(&layer_type, |(held, _)| *held) {
+                    Ok(at) => at,
+                    Err(at) => {
+                        // The queues after it move up one: what is remembered of them is stale.
+                        self.queues.insert(at, (layer_type, Vec::new()));
+                        self.remembered = [None; REMEMBERED];
+                        at
+                    }
+                };
+                self.remembered[place] = Some((layer_type, queue));
+                queue
+            }
         };
-        self.last = queue;
         self.queues[queue].1.push(write);
     }
 

@@ -39,4 +39,10 @@ chunk, in_chunk)`**, **`cartesian`**, and `From<CartesianCell>`.
 the index by **`step`**: one coordinate's bits (`X_BITS`, `Y_BITS`) added
 to or taken from with the distance spread out, the other's bits filled
 with ones for a carry to pass, cleared for a borrow; a result past the
-start is a step off the world, refused.
+start is a step off the world, refused. A step of 0 or 1 spreads
+nothing, so a neighbour's step skips the spreading.
+**`neighbourhood()`**: the eight neighbours in `NEIGHBOURS`' order (row
+by row from the top left), from four steps -- each coordinate one back
+and one on -- put together. **`neighbours_in_chunk()`**: their places in
+the chunk, stepped on the cell's 16-bit place alone, if all eight are in
+its chunk (the cell is not on its edge).

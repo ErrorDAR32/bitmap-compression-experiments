@@ -20,7 +20,9 @@ dy)`**.
 **`superchunk`**, **`random`**, **`sample(type, probability, samples)`**
 of its own cells, **`holds(type, cell)`** anywhere, **`queue(type,
 write)`** -- into the slot of each superchunk it lands in.
-**`now`**, **`woken()`**: its entities waking this tick, borrowed from
+**`neighbours(type, cell)`**: a cell's neighbourhood as the tick
+found it, through the reader. **`now`**, **`woken()`**: its entities
+waking this tick, in Morton order, borrowed from
 the world as the tick found it, not from the turn, so changes can be
 queued while going through them. **`entity(id, at)`**,
 **`entities_in(chunk)`**: entities anywhere held, as the tick found
@@ -63,12 +65,15 @@ when the count is the same, else a new run at the end -- **`remove(id)`**,
 **`Wheel`**: **`due(tick)`**, **`file(earliest, tick, wake)`** -- a slot
 if within a turn of `earliest`, else the list further off --
 **`turn(tick)`**: the slot passed emptied, and every half turn the
-wakes now in reach filed.
+wakes now in reach filed; **`sort(tick)`**: a tick's wakes by cell,
+then ID.
 
 **`store.rs`**: **`SuperChunkEntities`**: a bucket a chunk and a wheel;
 **`get(id, at)`**, **`iter`**, **`chunk(index)`**, **`woken(tick)`** -- the wheel's slot,
 each wake found and still due -- **`put(earliest, header,
-attributes)`**, **`remove(id, at)`**, **`turn`**, **`counts`**.
+attributes)`**, **`remove(id, at)`**, **`turn`**, **`sort_wakes(tick)`**
+-- after the second phase for the next tick, after `Entities::apply`
+for the tick about to run -- **`counts`**.
 **`Entities`**: the tick about to run, the superchunks by Morton
 index, and changes queued outside a tick: **`now`**, **`len`**,
 **`superchunk(morton)`**, **`get(id, at)`**, **`align(mortons)`** --

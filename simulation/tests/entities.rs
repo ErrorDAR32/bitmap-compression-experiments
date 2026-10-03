@@ -232,3 +232,30 @@ fn turns_read_entities_across_superchunks() {
     assert_eq!(entities.len(), 1);
     assert!(Entities::new().superchunk(0).is_none());
 }
+
+/// A superchunk's entities wake in Morton order, by cell then ID,
+/// however their wakes were filed: queued between ticks, or put in a
+/// tick.
+#[test]
+fn entities_wake_in_morton_order() {
+    let (mut arena, mut entities) = world(1);
+    for id in 0..500u64 {
+        entities.queue_put(walker(1000 - id, cell(((id * 7919) % 1000) as u32, ((id * 104_729) % 1000) as u32), 0), &[]);
+    }
+    entities.apply();
+    let mut simulation = Simulation::new(1);
+    for tick in 0..3 {
+        let order = Mutex::new(Vec::new());
+        simulation.tick(&mut arena, &mut entities, tick, |turn, _| {
+            for entity in turn.woken() {
+                order.lock().unwrap().push((entity.header.at, entity.header.id));
+                let at = entity.header.at.offset(1, 1).unwrap();
+                turn.update(&entity.header, Header { at, wake: turn.now() + 1, ..entity.header }, &[]);
+            }
+            0
+        });
+        let order = order.into_inner().unwrap();
+        assert_eq!(order.len(), 500);
+        assert!(order.windows(2).all(|pair| pair[0] < pair[1]), "tick {tick}: woken out of Morton order");
+    }
+}

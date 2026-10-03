@@ -51,7 +51,9 @@ chunk; a wake or change naming one that moved on or died is passed
 over.
 
 They tick in the same two phases as the cells. In the first, a
-superchunk's entities waking run the rule (`SuperChunkTick::woken`),
+superchunk's entities waking run the rule (`SuperChunkTick::woken`) in
+Morton order -- each tick's wakes sorted by cell, then ID, once all are
+filed -- so they read and write forwards through memory,
 and their changes -- `put`, `update`, `remove` -- are queued in the
 outbox slot of the superchunk they land in; in the second, each
 superchunk turns its wheel and carries the changes out. An entity

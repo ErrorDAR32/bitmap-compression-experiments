@@ -32,7 +32,7 @@ use crate::dispatcher::Dispatcher;
 use crate::entities::{Attribute, Commands, Entities, EntitiesApplied, EntityId, EntityReader, EntityRef, Header, SuperChunkEntities};
 use coordinates::ChunkPosition;
 use crate::sampling::sample_layer;
-use bitplane_manager::{count_missed, Applied, BitmapArena, NotHot, Reader, Shape, SuperChunk, Write, WriteQueues};
+use bitplane_manager::{count_missed, Applied, BitmapArena, Neighbours, NotHot, Reader, Shape, SuperChunk, Write, WriteQueues};
 use chunk_storage::LayerType;
 use coordinates::{CellIndex, SuperChunkPosition, WORLD_SIDE_SUPERCHUNKS};
 use std::ops::AddAssign;
@@ -105,6 +105,14 @@ impl<'a> SuperChunkTick<'a> {
         sample_layer(self.superchunk.morton(), layer, probability, &mut self.random, &mut |cell| samples.push(cell))
     }
 
+    /// Which of `cell`'s eight neighbours, in [`coordinates::NEIGHBOURS`]'
+    /// order, are in hot bitmaps of `layer_type`, and which of those it
+    /// holds at, as the tick found them: one lookup for the
+    /// neighbourhood, but across a border.
+    pub fn neighbours(&self, layer_type: LayerType, cell: CellIndex) -> Neighbours {
+        self.reader.neighbours(layer_type, cell)
+    }
+
     /// Whether `layer_type` holds at `cell`, as the tick found it.
     pub fn holds(&self, layer_type: LayerType, cell: CellIndex) -> Result<bool, NotHot> {
         self.reader.holds(layer_type, cell)
@@ -132,7 +140,7 @@ impl<'a> SuperChunkTick<'a> {
     }
 
     /// The superchunk's entities waking this tick, as the tick found
-    /// them, in the order their wakes were filed. Each that is to wake
+    /// them, in Morton order by cell, then by ID. Each that is to wake
     /// again must be put back with a later wake tick.
     pub fn woken(&self) -> impl Iterator<Item = EntityRef<'a>> + 'a {
         let entities: &'a SuperChunkEntities = self.entities;
@@ -315,6 +323,7 @@ impl Simulation {
                     }
                     outbox.commands[slot(-dx, -dy)].apply(std::slice::from_mut(entities), now + 1, &mut entities_applied);
                 }
+                entities.sort_wakes(now + 1);
             }
             *applied_parts[part].lock().expect("a part's result") = (applied, entities_applied);
         });

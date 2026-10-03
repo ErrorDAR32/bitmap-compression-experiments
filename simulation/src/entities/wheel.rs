@@ -9,6 +9,11 @@
 //! one that moved away, died or was woken for another tick is not
 //! found, or not due, and is passed over. Nothing is ever taken out of
 //! the wheel but the slot just passed.
+//!
+//! A tick's slot is sorted by cell -- Morton order -- then ID, before
+//! the tick runs ([`Wheel::sort`]), so the entities wake in Morton
+//! order: their buckets, the cells they read and the writes they queue
+//! all go forwards through memory, as the cells' sampling does.
 
 use super::record::EntityId;
 use coordinates::CellIndex;
@@ -74,6 +79,12 @@ impl Wheel {
             }
             !in_reach
         });
+    }
+
+    /// Sorts the wakes filed for `tick`, in reach, by cell then ID: the
+    /// order they wake in.
+    pub(crate) fn sort(&mut self, tick: u64) {
+        self.slots[(tick % WHEEL_TICKS) as usize].sort_unstable_by_key(|wake| (wake.at, wake.id));
     }
 
     /// Wakes filed, in reach and further off, good or not.

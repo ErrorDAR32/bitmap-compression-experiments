@@ -24,13 +24,18 @@ changed.
 write's part in it. Private: **`layer_index`**.
 
 **`Reader::new(superchunks)`**: **`holds(type, cell)`**,
-**`superchunk(morton)`**, remembering the last lookup.
+**`neighbours(type, cell)`** -- a **`Neighbours`** `{hot, set}`, a bit a
+neighbour -- **`superchunk(morton)`**, remembering the last lookups.
 **`chunk_at(superchunk, index)`**: a chunk's position from Morton
 indices.
 
-**`Lookup`**: lookups remembering the last (`LastLookup`), one a thread.
+**`Lookup`**: lookups remembering the last 16 (`REMEMBERED`
+`LastLookup`s, each in its **`place`** by a hash of superchunk and
+type), and the last superchunk alone; one a thread.
 **`superchunk`** an entry by Morton index; **`find`** a layer by type and
-superchunk; **`holds`** a cell, from its index's fields; **`forget`**
+superchunk; **`holds`** a cell, from its index's fields;
+**`neighbours`** a cell's eight -- inside a chunk, one lookup and eight
+bits from its bucket; on its edge, each alone; **`forget`**
 when the directory changes shape.
 
 **`Bucket`**: a hot bitmap to read: **`count`**, **`get(cell)`**,
@@ -59,9 +64,10 @@ for routing): the superchunks a write lands in.
 
 **`Applied`** `{writes, changed, missed}`, added with `+=`.
 
-**`WriteQueues`**: a queue a layer type, the last written found again
-without a search: **`push`**, **`len`**, **`is_empty`**, **`iter`**,
-**`clear`**.
+**`WriteQueues`**: a queue a layer type, the last 16 types written
+found again without a search, each in its place in a small cache by a
+hash of the type (forgotten when a new queue moves the others):
+**`push`**, **`len`**, **`is_empty`**, **`iter`**, **`clear`**.
 
 **`count_missed(superchunk, write, applied)`**: a write's cells in a
 superchunk with no bitmap in use, counted missed.

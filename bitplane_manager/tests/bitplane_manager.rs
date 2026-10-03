@@ -5,10 +5,10 @@
 //! `cargo test`
 
 use bitmap::{Bitmap, CellWords, WORDS};
-use bitplane_manager::{Applied, BitmapArena, BucketKey, NotHot, Write, WriteOp};
+use bitplane_manager::{Applied, BitmapArena, BucketKey, Neighbours, NotHot, Reader, Write, WriteOp};
 use chunk_storage::mock::{grass_on_dirt, DIRT, GRASS};
 use chunk_storage::{ChunkStorage, HeightMap, LayerChange, LayerCodec, LayerType, SuperChunkImage};
-use coordinates::{CartesianCell, CellPlace, ChunkPlace, ChunkPosition, SuperChunkPosition, SUPERCHUNK_SIDE, WORLD_SIDE_SUPERCHUNKS};
+use coordinates::{CartesianCell, CellIndex, CellPlace, ChunkPlace, ChunkPosition, SuperChunkPosition, NEIGHBOURS, SUPERCHUNK_SIDE, SUPERCHUNK_SIDE_CELLS, WORLD_SIDE_SUPERCHUNKS};
 
 /// A cell of a chunk.
 const CELL: CellPlace = CellPlace { x: 3, y: 200 };
@@ -326,4 +326,50 @@ fn counts_follow_every_change() {
     assert_eq!(arena.superchunk_count(GRASS, MIDDLE), 0, "evicted, waiting in the ring");
     arena.make_hot(grass, None, &mut codec);
     assert_eq!(arena.superchunk_count(GRASS, MIDDLE), 1, "back as it was");
+}
+
+/// A cell's neighbourhood read at once is its eight neighbours read one
+/// by one: inside a chunk, across chunk and superchunk borders, at the
+/// world's corner, where some neighbours are not hot -- with more
+/// superchunks and types read by turns than the lookups remembered.
+#[test]
+fn neighbourhoods_read_at_once_are_the_cells_read_one_by_one() {
+    let (mut codec, mut arena) = (LayerCodec::new(), BitmapArena::new());
+    for y in 0..5 {
+        for x in 0..5 {
+            for place in ChunkPlace::all() {
+                let chunk = ChunkPosition::of(SuperChunkPosition { x, y }, place);
+                // Some chunks of grass left cold, and dirt over half the superchunks.
+                if !(x + y + place.index() as u32).is_multiple_of(7) {
+                    arena.make_hot(BucketKey { layer_type: GRASS, chunk }, None, &mut codec);
+                }
+                if (x + y).is_multiple_of(2) {
+                    arena.make_hot(BucketKey { layer_type: DIRT, chunk }, None, &mut codec);
+                }
+            }
+        }
+    }
+    let side = 5 * SUPERCHUNK_SIDE_CELLS;
+    for at in 0..40_000u32 {
+        let cell = CartesianCell { x: (at * 7919) % side, y: (at * 104_729) % side };
+        arena.queue(if at % 3 == 0 { DIRT } else { GRASS }, Write::cell(cell.into(), WriteOp::Set));
+    }
+    arena.apply();
+    let reader = Reader::new(arena.superchunks());
+    let edge = SUPERCHUNK_SIDE_CELLS;
+    let mut probes = vec![(0, 0), (1, 1), (255, 255), (256, 3), (edge - 1, edge - 1), (edge, edge), (edge - 1, 17), (2 * edge, 3 * edge - 1), (side - 1, side - 1)];
+    probes.extend((0..3000u32).map(|at| ((at * 31_337) % side, (at * 7_717) % side)));
+    for (x, y) in probes {
+        let cell = CellIndex::from(CartesianCell { x, y });
+        for layer_type in [GRASS, DIRT] {
+            let mut expected = Neighbours::default();
+            for (bit, &(dx, dy)) in NEIGHBOURS.iter().enumerate() {
+                if let Some(Ok(set)) = cell.offset(dx, dy).map(|neighbour| reader.holds(layer_type, neighbour)) {
+                    expected.hot |= 1 << bit;
+                    expected.set |= (set as u8) << bit;
+                }
+            }
+            assert_eq!(reader.neighbours(layer_type, cell), expected, "({x}, {y}), {layer_type:?}");
+        }
+    }
 }

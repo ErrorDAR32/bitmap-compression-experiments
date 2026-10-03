@@ -28,7 +28,7 @@ use bitplane_manager::{BitmapArena, Write, WriteOp};
 use simulation::entities::Entities;
 use simulation::{Simulation, SuperChunkTick, TickReport};
 use chunk_storage::mock::{DIRT, GRASS};
-use coordinates::CellIndex;
+use coordinates::{CellIndex, NEIGHBOURS};
 use std::ops::AddAssign;
 
 /// The chance, each tick, that a cell of grass tries to spread.
@@ -36,9 +36,6 @@ pub const SPREAD_CHANCE: f64 = 0.001;
 /// The chance, each tick, that a cell of grass with grass all round
 /// turns back to dirt.
 pub const DECAY_CHANCE: f64 = 0.002;
-
-/// A cell's eight neighbours, as offsets.
-const NEIGHBOURS: [(i32, i32); 8] = [(-1, -1), (0, -1), (1, -1), (-1, 0), (1, 0), (-1, 1), (0, 1), (1, 1)];
 
 /// What the rule did in a tick.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

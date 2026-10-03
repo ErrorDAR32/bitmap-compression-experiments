@@ -19,8 +19,10 @@ hot buckets together: the weights sampling picks by.
 
 **The directory**: the superchunks in use, sorted by Morton index (kept
 beside each), each with its layers sorted by type. Lookups remember the
-last superchunk and type found (`Lookup`, one a thread), so
-Morton-ordered work rarely searches. Each superchunk owns its blocks and
+last 16 superchunks and types found (`Lookup`, one a thread), so
+Morton-ordered work -- reading a few types by turns, across a border --
+rarely searches. A cell's whole neighbourhood is read at once
+(`Reader::neighbours`): inside a chunk, one lookup and eight bits. Each superchunk owns its blocks and
 its outbox, so superchunks are changed apart.
 
 ## Making hot, writing back, evicting
@@ -49,7 +51,8 @@ reads and changes the arena only through narrow handles:
 `superchunks_mut` (to change, each apart); a superchunk's
 `LayerView` -- its hot buckets, counts and cells, what sampling finds
 cells by -- and `apply`, a write's part in that superchunk; and a
-`Reader` -- cell reads remembering the last lookup, one a thread.
+`Reader` -- cell and neighbourhood reads remembering the last lookups,
+one a thread.
 
 ## Layout
 

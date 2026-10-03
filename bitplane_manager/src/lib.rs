@@ -15,8 +15,9 @@
 //! small directory: the superchunks in use, sorted by Morton index
 //! ([`SuperChunkPosition::morton_index`], kept beside each), and for each
 //! its layers, sorted by type -- the one thing ever sorted, and it holds
-//! no bitmaps. The last lookup is remembered, superchunk and type, so
-//! runs of lookups in one superchunk, as Morton-ordered work makes,
+//! no bitmaps. The last 16 lookups are remembered, by superchunk and
+//! type, so runs of lookups in a few superchunks and types, as
+//! Morton-ordered work makes,
 //! search nothing. The allocations themselves lie wherever they were
 //! made; each is one large run of memory in Morton order.
 //!
@@ -314,6 +315,13 @@ impl<'a> Reader<'a> {
         self.lookup.holds(self.superchunks, layer_type, cell)
     }
 
+    /// Which of `cell`'s eight neighbours, in [`coordinates::NEIGHBOURS`]' order, are
+    /// in hot bitmaps of `layer_type`, and which of those it holds at:
+    /// the whole neighbourhood in one lookup, but across a border.
+    pub fn neighbours(&self, layer_type: LayerType, cell: CellIndex) -> Neighbours {
+        self.lookup.neighbours(self.superchunks, layer_type, cell)
+    }
+
     /// Where the superchunk whose Morton index is `superchunk` is among
     /// the superchunks, if there.
     pub fn superchunk(&self, superchunk: u64) -> Option<usize> {
@@ -321,13 +329,23 @@ impl<'a> Reader<'a> {
     }
 }
 
+/// A cell's neighbourhood in one layer type: a bit a neighbour, in
+/// [`coordinates::NEIGHBOURS`]' order -- bit `i` the `i`-th.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Neighbours {
+    /// The neighbours in hot bitmaps: in the world, and read.
+    pub hot: u8,
+    /// The neighbours the type holds at: hot ones only.
+    pub set: u8,
+}
+
 /// Where a layer is: its superchunk's entry in the directory, and its
 /// place among the entry's layers.
 type Place = (usize, usize);
 
-/// The last lookup: its superchunk and where that is in the directory,
-/// and its layer type and where that is in the superchunk's layers, if
-/// the superchunk has it.
+/// A lookup remembered: its superchunk and where that is in the
+/// directory, and its layer type and where that is in the superchunk's
+/// layers, if the superchunk has it.
 #[derive(Clone, Copy)]
 struct LastLookup {
     /// The superchunk looked up, by Morton index.
@@ -340,39 +358,96 @@ struct LastLookup {
     layer: Option<usize>,
 }
 
-/// Lookups in the directory, remembering the last: runs of lookups in
-/// one superchunk, and one type, search nothing. One a thread: each
-/// remembers its own.
+/// Lookups remembered: a cache of this many, by superchunk and type.
+const REMEMBERED: usize = 16;
+
+/// Lookups in the directory, remembering the last [`REMEMBERED`]: runs of
+/// lookups in a few superchunks and types -- a rule reading grass and
+/// dirt by turns, the cells across a border -- search nothing. Each
+/// superchunk and type has one place in the cache, by a hash of the two,
+/// so finding it there is one comparison. One a thread: each remembers
+/// its own.
 #[derive(Default)]
-struct Lookup(Cell<Option<LastLookup>>);
+struct Lookup {
+    /// The lookups remembered, each in its place.
+    remembered: [Cell<Option<LastLookup>>; REMEMBERED],
+    /// The last superchunk looked up alone, and its entry.
+    superchunk: Cell<Option<(u64, usize)>>,
+}
 
 impl Lookup {
-    /// Forgets the last lookup: the directory's shape changed.
+    /// Forgets every lookup: the directory's shape changed.
     fn forget(&self) {
-        self.0.set(None);
+        self.remembered.iter().for_each(|place| place.set(None));
+        self.superchunk.set(None);
+    }
+
+    /// The place in the cache of `layer_type` over `superchunk`.
+    fn place(superchunk: u64, layer_type: LayerType) -> usize {
+        let hash = (superchunk ^ layer_type.0.rotate_left(32)).wrapping_mul(0x9E37_79B9_7F4A_7C15);
+        (hash >> (u64::BITS - REMEMBERED.trailing_zeros())) as usize
     }
 
     /// Where the superchunk whose Morton index is `superchunk` is in
     /// `directory`, or where it would go.
     fn superchunk(&self, directory: &[SuperChunk], superchunk: u64) -> Result<usize, usize> {
-        match self.0.get() {
-            Some(last) if last.superchunk == superchunk => Ok(last.entry),
-            _ => directory.binary_search_by_key(&superchunk, |entry| entry.morton),
+        if let Some((last, entry)) = self.superchunk.get() {
+            if last == superchunk {
+                return Ok(entry);
+            }
         }
+        let found = directory.binary_search_by_key(&superchunk, |entry| entry.morton);
+        if let Ok(entry) = found {
+            self.superchunk.set(Some((superchunk, entry)));
+        }
+        found
     }
 
     /// Where the allocation for `layer_type` over the superchunk whose
     /// Morton index is `superchunk` is in `directory`, if in use.
     fn find(&self, directory: &[SuperChunk], layer_type: LayerType, superchunk: u64) -> Option<Place> {
-        if let Some(last) = self.0.get() {
+        let remembered = &self.remembered[Self::place(superchunk, layer_type)];
+        if let Some(last) = remembered.get() {
             if last.superchunk == superchunk && last.layer_type == layer_type {
                 return last.layer.map(|layer| (last.entry, layer));
             }
         }
         let entry = self.superchunk(directory, superchunk).ok()?;
         let layer = directory[entry].layer_index(layer_type);
-        self.0.set(Some(LastLookup { superchunk, entry, layer_type, layer }));
+        remembered.set(Some(LastLookup { superchunk, entry, layer_type, layer }));
         layer.map(|layer| (entry, layer))
+    }
+
+    /// Which of `cell`'s eight neighbours ([`coordinates::NEIGHBOURS`]) are in hot
+    /// bitmaps of `layer_type` in `directory`, and which of those it
+    /// holds at. A cell inside its chunk -- all but its edge -- has every
+    /// neighbour in its chunk's bucket: one lookup, eight bits read from
+    /// it. On a chunk's edge, each neighbour is read alone.
+    fn neighbours(&self, directory: &[SuperChunk], layer_type: LayerType, cell: CellIndex) -> Neighbours {
+        let mut neighbours = Neighbours::default();
+        if let Some(places) = cell.neighbours_in_chunk() {
+            let chunk = cell.chunk_in_superchunk();
+            let Some((entry, layer)) = self.find(directory, layer_type, cell.superchunk()) else {
+                return neighbours;
+            };
+            let layer = &directory[entry].layers[layer];
+            if !contains(layer.flags.hot, chunk) {
+                return neighbours;
+            }
+            let cells = layer.cells(chunk);
+            for (bit, at) in places.into_iter().enumerate() {
+                neighbours.set |= ((cells[at / BITS_PER_WORD] >> (at % BITS_PER_WORD) & 1) as u8) << bit;
+            }
+            neighbours.hot = u8::MAX;
+            return neighbours;
+        }
+        for (bit, neighbour) in cell.neighbourhood().into_iter().enumerate() {
+            if let Some(Ok(set)) = neighbour.map(|neighbour| self.holds(directory, layer_type, neighbour)) {
+                neighbours.hot |= 1 << bit;
+                neighbours.set |= (set as u8) << bit;
+            }
+        }
+        neighbours
     }
 
     /// Whether `layer_type` holds at `cell` in `directory`: its

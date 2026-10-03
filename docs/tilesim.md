@@ -467,10 +467,26 @@ superchunk local, with no boundaries to shift between threads.
 Measured (`diagnostics pasture 3000 333 4000 16 1`: 16 superchunks, a
 third grass, 4,000 sheep each to start, one thread): 247 ticks a
 second, the sheep growing from 64,000 to 98,000 at about 1,050 wakes a
-tick; a sheep's wake costs 844 ns in the first phase -- grass's sample
-167 ns -- and applying a write or entity change 65 ns. The wake is
-dear for what it does, likely the nine cell reads through the reader
-(each a superchunk lookup) and the bucket searches; not tuned yet.
+tick; a sheep's wake cost 844 ns in the first phase -- grass's sample
+167 ns -- and applying a write or entity change 65 ns.
+
+Why, counted (callgrind, one superchunk, 300 ticks): about 1,550
+instructions a wake, nearly all reading the world -- five cell reads at
+~113 each, four steps to a neighbour at ~79 each (the distance spread
+out even for one cell), write queues missing their one-type cache as
+grass and dirt alternate -- the sheep's own decisions ~200. Then cut:
+a step of one cell spreads nothing, the neighbourhood is read at once
+(inside a chunk, one lookup and eight bits of one bucket), lookups and
+write queues remember 16 types, and a tick's wakes run in Morton order.
+A wake is now ~1,020 instructions, of which the neighbourhood ~250.
+
+The time hardly moved -- 806 ns -- because it is memory, not work: the
+same wake costs 196 ns over one superchunk, 367 over four and 806 over
+sixteen, the instructions the same, the working set (bitmaps, buckets,
+wheels, ~0.7 MiB a superchunk) leaving the caches. Morton order helps
+little while wakes are sparse -- some 66 a superchunk a tick, 16,000
+cells apart -- and each wake's binary search in its bucket, sorted by
+ID, touches lines nothing else does.
 
 ## Simulation (the plan)
 
