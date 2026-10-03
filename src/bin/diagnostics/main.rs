@@ -142,14 +142,14 @@ fn video(arguments: &[String]) {
     let mut pixels = vec![0u8; FRAME_BYTES];
     let mut out = std::io::BufWriter::new(std::io::stdout().lock());
     let mut simulation = Simulation::new(1);
-    let (mut rows, mut since) = (Vec::new(), tilesim::sheep::Sheep::default());
+    let (mut rows, mut since) = (Vec::new(), tilesim::sheep::SheepTickMetrics::default());
     for tick in 0..=ticks {
         if tick % every == 0 {
             frame(&world.arena, superchunk, &mut pixels);
             sheep(&world.entities, superchunk, &mut pixels);
             out.write_all(&pixels).expect("standard output");
             rows.push([tick as u64, world.sheep() as u64, world.grass(), since.woken as u64, since.births as u64, since.deaths as u64]);
-            since = tilesim::sheep::Sheep::default();
+            since = tilesim::sheep::SheepTickMetrics::default();
             if tick % (every * 50) == 0 {
                 eprintln!("tick {tick:>7}: grass {}, sheep {}", world.grass(), world.sheep());
             }

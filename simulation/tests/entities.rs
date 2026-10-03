@@ -1,8 +1,8 @@
 //! Entities ticked: woken at their tick and no other, near or far off;
 //! attributes added and removed at run time; moving across superchunk
 //! borders as whole copies; lost past the superchunks held; read across
-//! superchunks as the tick found them; and the same on any number of
-//! threads.
+//! superchunks as the tick found them; held in Morton order by cell
+//! however they step; and the same on any number of threads.
 //!
 //! `cargo test`
 
@@ -258,4 +258,61 @@ fn entities_wake_in_morton_order() {
         assert_eq!(order.len(), 500);
         assert!(order.windows(2).all(|pair| pair[0] < pair[1]), "tick {tick}: woken out of Morton order");
     }
+}
+
+/// Entities stepping about their chunk and across its edges stay held
+/// in Morton order by cell, then ID -- several to a cell -- each found
+/// where it stands and nowhere else, attributes its own.
+#[test]
+fn entities_stay_in_morton_order_as_they_step() {
+    let (mut arena, mut entities) = world(1);
+    for id in 0..600u64 {
+        let at = cell(200 + (id % 20) as u32 * 3, 240 + (id / 20 % 10) as u32 * 3);
+        entities.queue_put(walker(id + 1, at, 0), &[simulation::entities::Attribute { kind: WOKEN, value: id }]);
+    }
+    entities.apply();
+    let mut simulation = Simulation::new(1);
+    for tick in 0..200 {
+        simulation.tick(&mut arena, &mut entities, tick, |turn, _| {
+            for entity in turn.woken() {
+                let (dx, dy) = (turn.random().below(5) as i32 - 2, turn.random().below(5) as i32 - 2);
+                let after = Header { at: entity.header.at.offset(dx, dy).unwrap(), wake: turn.now() + 1, ..entity.header };
+                turn.update(&entity.header, after, entity.attributes);
+            }
+            0
+        });
+        let held: Vec<_> = entities.iter().map(|entity| (entity.header.at, entity.header.id)).collect();
+        assert_eq!(held.len(), 600);
+        assert!(held.windows(2).all(|pair| pair[0] < pair[1]), "tick {tick}: held out of Morton order");
+    }
+    for entity in entities.iter() {
+        let header = entity.header;
+        assert_eq!(entity.attribute(WOKEN), Some(header.id.0 - 1), "its own attributes");
+        assert_eq!(entities.get(header.id, header.at).map(|found| found.header), Some(header));
+        assert!(entities.get(header.id, header.at.offset(1, 0).unwrap()).is_none(), "found only where it stands");
+    }
+}
+
+/// A change to an entity no longer where the tick found it is passed
+/// over: of two moving one entity in a tick, the first wins, and it
+/// wakes once.
+#[test]
+fn a_change_to_an_entity_that_moved_on_is_passed_over() {
+    let (mut arena, mut entities) = world(1);
+    entities.queue_put(walker(1, cell(50, 50), 0), &[]);
+    entities.apply();
+    let mut simulation = Simulation::new(1);
+    let report = simulation.tick(&mut arena, &mut entities, 0, |turn, _| {
+        for entity in turn.woken() {
+            for step in [1, 2] {
+                let after = Header { at: entity.header.at.offset(step, 0).unwrap(), wake: turn.now() + 1, ..entity.header };
+                turn.update(&entity.header, after, &[]);
+            }
+        }
+        0
+    });
+    assert_eq!((report.entities.puts, entities.len()), (1, 1));
+    assert!(entities.get(EntityId(1), cell(51, 50)).is_some(), "the first move carried out");
+    let woken = simulation.tick(&mut arena, &mut entities, 1, |turn, _| turn.woken().count()).rules;
+    assert_eq!(woken, 1);
 }

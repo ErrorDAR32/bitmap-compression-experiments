@@ -29,8 +29,11 @@ every superchunk in use, on the simulation's threads.
 grass it stands on or goes hungrier -- starving, removed, at
 `STARVE_WAKES` -- counts its pregnancy down to a lamb born on its cell,
 or falls pregnant if fed and grown, counts its youth down, walks
-(**`step`**: from one neighbourhood read, a grass neighbour drawn at
-random, else any neighbour held, else nowhere) and sleeps again (**`next_wake`**). Returns **`Sheep`**
+(**`Around::step`**: a grass neighbour drawn at random, else any
+neighbour held, else nowhere) and sleeps again (**`next_wake`**).
+**`Around::read(turn, at)`**: the 3x3 cells around a sheep, its own in
+the middle (`CENTRE`), read as one window and squeezed to nine bits,
+grass and hot: what it eats and where it walks, from one read. Returns **`SheepTickMetrics`**
 `{woken, eaten, births, deaths}`, added with `+=`.
 
 **`flock(entities, superchunk, count, random)`**: grown fed sheep

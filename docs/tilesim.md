@@ -49,6 +49,14 @@ itself, each coordinate's bits added apart (`CellIndex::offset`).
 Cartesian coordinates (`CartesianCell`) are kept where they are the
 cheaper: a rectangle's or a disc's geometry, and drawing.
 
+An aligned 8x8 square of cells is one word of a bitmap: a **tile**.
+Cells near one another are read as tiles, not one by one: a window of
+up to 8x8 cells at any cell is cut from the one to four tiles it
+overlaps -- each word turned row by row in three delta swaps, then
+shifted and masked (`bitmap::tile`, `Reader::window`) -- so a rule
+reads a neighbourhood as a mask and decides on it in boolean steps,
+with no array of cells and no loop over them.
+
 Superchunks are 4x4 chunks because a hot superchunk bitmap holds a
 bucket for every chunk of its superchunk, even for a single set cell:
 at 16x16 chunks that is 2 MiB, at 4x4 it is 128 KiB, so 8 GiB holds
@@ -417,17 +425,32 @@ it (`src/sheep.rs`):
   namespace every type in TileSim is drawn from, layers' included.
 - **A bucket a chunk**: a superchunk holds its entities in a bucket for
   each of its 16 chunks -- a chunk may hold many single-cell entities --
-  the headers sorted by ID, the attributes in one list beside them, a
-  run an entity. A run whose length changes is rewritten at the list's
+  the headers sorted by cell, in Morton order, then by ID, the
+  attributes in one list beside them, a run an entity. The cells' places
+  in the chunk, 16 bits each, are kept alone in a list beside the
+  headers, and that is what is searched: two bytes an entity, a few
+  lines a search, small enough to stay in the caches. An entity
+  stepping inside its chunk moves along the lists, past those between
+  the two cells. A run whose length changes is rewritten at the list's
   end, the old one left as garbage, swept out once there is as much
   garbage as attributes in use.
-- **IDs, not slots**: an entity is found by its ID and its cell -- its
-  cell's chunk's bucket, then a binary search on the ID -- never
-  further than its chunk. A slot would go stale whenever the entity
+- **Morton order, as the bitplanes**: buckets were never to be sorted
+  by ID. Entities wake in Morton order of the cell they stand on --
+  their origin -- and emit their changes in that order, so the second
+  phase gets them nearly in the order the buckets are held in, not
+  perfectly but enough not to stall on memory: the design of sampling,
+  which draws cells at random and hands them out in Morton order.
+- **Reach and size**: an entity affects nothing farther than 1024 cells
+  away, the speed of light, and is at most 256x256 cells, whatever its
+  shape or how many cells it covers. Neither is checked yet.
+- **IDs, not slots**: an entity is found by its cell and its ID -- its
+  cell's chunk's bucket, its cell's place searched for, then its ID
+  among those on the cell -- never further than its chunk. A slot would go stale whenever the entity
   crossed a chunk border, moved superchunk or was swept, and nothing
   holds a pointer back to fix it; an ID survives all of it, and a wake
-  or change naming an entity that moved on or died is just not found,
-  and passed over. IDs are drawn from the superchunk's random numbers:
+  or change naming an entity no longer on its cell -- moved on, or dead
+  -- is just not found, and passed over: of two changes to one entity
+  in a tick, the first to move it wins. IDs are drawn from the superchunk's random numbers:
   a clash inside a chunk is a chance of one in 2^64 a pair. Over the
   whole world and its history, a clash somewhere becomes likely past
   billions of entities -- no matter for the tick, but to be revisited
@@ -478,7 +501,12 @@ grass and dirt alternate -- the sheep's own decisions ~200. Then cut:
 a step of one cell spreads nothing, the neighbourhood is read at once
 (inside a chunk, one lookup and eight bits of one bucket), lookups and
 write queues remember 16 types, and a tick's wakes run in Morton order.
-A wake is now ~1,020 instructions, of which the neighbourhood ~250.
+A wake was then ~1,020 instructions, of which the neighbourhood ~250.
+
+The neighbourhood is since a window: the sheep's 3x3, its own cell in
+the middle, read as one mask -- one bucket lookup and one to four
+words -- so what it eats and where it walks come from one read, and a
+neighbour is drawn from the mask's bits.
 
 The time hardly moved -- 806 ns -- because it is memory, not work: the
 same wake costs 196 ns over one superchunk, 367 over four and 806 over
@@ -487,6 +515,55 @@ wheels, ~0.7 MiB a superchunk) leaving the caches. Morton order helps
 little while wakes are sparse -- some 66 a superchunk a tick, 16,000
 cells apart -- and each wake's binary search in its bucket, sorted by
 ID, touches lines nothing else does.
+
+Every figure above is from a virtual machine. On a machine of its own
+(a Ryzen 5 5600: 6 cores, 12 threads, 32 MiB of L3), the same runs,
+measured with the processor's counters (`perf`), not instruction
+counts alone:
+
+Grass (`diagnostics throughput 500 333`), ticks a second:
+
+| superchunks | 1 thread | 2 | 4 | 6 | 12 |
+|---|---|---|---|---|---|
+| 1 | 10,381 | - | - | - | - |
+| 16 | 636 | 1,236 | 2,318 | 2,583 | 3,034 |
+| 64 | 148 | 301 | 567 | 826 | 1,051 |
+
+One core keeps about 37 superchunks of grass at 256 ticks a second, six
+about 206. A write costs 121 ns over one superchunk and 132 over 64.
+
+Where a pasture's time goes (`perf record`, 64 superchunks, one
+thread, buckets still sorted by ID), by share of each event:
+
+| | cycles | loads filled from memory |
+|---|---|---|
+| sampling (`sample_layer`) | 26% | 2% |
+| finding an entity by ID (`get`, `put`: the binary search) | 13% | 33% |
+| reading a cell (`Lookup::holds`) | 10% | 9% |
+| setting a cell (`put_cell`) | 7% | 15% |
+
+The binary search by ID was a third of every load that went to memory
+-- as said above, now counted. Sampling is work, not memory: a third
+of the instructions and of the mispredicted branches, about 6.5 of
+those a sample. The tile windows changed no time here: a wake stayed
+at 149, 194 and 384 ns over 1, 16 and 64 superchunks.
+
+Buckets sorted by cell and searched by their places, a sheep's wake,
+nanoseconds, one thread (`diagnostics pasture 3000 333 4000`):
+
+| superchunks | sorted by ID | sorted by cell |
+|---|---|---|
+| 1 | 149 | 127 |
+| 4 | 167 | 139 |
+| 16 | 193 | 170 |
+| 64 | 362 | 261 |
+
+Finding an entity fell from 13% of the cycles to 8% at 64 superchunks,
+the flock and the grass the same to the sheep. The wake still doubles
+from 1 to 64 superchunks -- 234 MiB held against 32 MiB of cache -- and
+what now goes to memory most is setting cells (17% of those loads),
+then the entities' headers and attributes themselves (24%), which a
+search no longer reads but a wake must.
 
 ## Simulation (the plan)
 

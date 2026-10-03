@@ -7,6 +7,7 @@
 //! | `bitmap_data` | what a bitmap is, its Morton-order layout, and what can be asked of a cell or an aligned square |
 //! | `bitmap_drawing` | rectangles and circles, drawn by their shape |
 //! | [`morton`] | the Morton order the cells are laid out in, which any structure over the same cells can share |
+//! | [`tile`] | 8x8 tiles, a word each: Morton words turned into rows, and windows at any cell put together from the tiles they overlap |
 //!
 //! Nothing here decides anything. What to describe, at what size, in
 //! what order, is for whatever reads the bitmap.
@@ -21,6 +22,7 @@
 mod bitmap_data;
 mod bitmap_drawing;
 pub mod morton;
+pub mod tile;
 
 pub use bitmap_data::{Bitmap, CellWords};
 

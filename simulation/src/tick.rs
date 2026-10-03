@@ -32,7 +32,7 @@ use crate::dispatcher::Dispatcher;
 use crate::entities::{Attribute, Commands, Entities, EntitiesApplied, EntityId, EntityReader, EntityRef, Header, SuperChunkEntities};
 use coordinates::ChunkPosition;
 use crate::sampling::sample_layer;
-use bitplane_manager::{count_missed, Applied, BitmapArena, Neighbours, NotHot, Reader, Shape, SuperChunk, Write, WriteQueues};
+use bitplane_manager::{count_missed, Applied, BitmapArena, NotHot, Reader, Shape, SuperChunk, Tile, Write, WriteQueues};
 use chunk_storage::LayerType;
 use coordinates::{CellIndex, SuperChunkPosition, WORLD_SIDE_SUPERCHUNKS};
 use std::ops::AddAssign;
@@ -105,12 +105,11 @@ impl<'a> SuperChunkTick<'a> {
         sample_layer(self.superchunk.morton(), layer, probability, &mut self.random, &mut |cell| samples.push(cell))
     }
 
-    /// Which of `cell`'s eight neighbours, in [`coordinates::NEIGHBOURS`]'
-    /// order, are in hot bitmaps of `layer_type`, and which of those it
-    /// holds at, as the tick found them: one lookup for the
-    /// neighbourhood, but across a border.
-    pub fn neighbours(&self, layer_type: LayerType, cell: CellIndex) -> Neighbours {
-        self.reader.neighbours(layer_type, cell)
+    /// The window of `width` by `height` cells (each up to 8) whose top
+    /// left cell is `origin`, of `layer_type`, row by row, as the tick
+    /// found them: a cell's neighbourhood, say, as masks.
+    pub fn window(&self, layer_type: LayerType, origin: CellIndex, width: u32, height: u32) -> Tile {
+        self.reader.window(layer_type, origin, width, height)
     }
 
     /// Whether `layer_type` holds at `cell`, as the tick found it.
@@ -140,21 +139,23 @@ impl<'a> SuperChunkTick<'a> {
     }
 
     /// The superchunk's entities waking this tick, as the tick found
-    /// them, in Morton order by cell, then by ID. Each that is to wake
+    /// them, in Morton order by cell, then by ID -- the order their
+    /// buckets hold them in. Each that is to wake
     /// again must be put back with a later wake tick.
     pub fn woken(&self) -> impl Iterator<Item = EntityRef<'a>> + 'a {
         let entities: &'a SuperChunkEntities = self.entities;
         entities.woken(self.now)
     }
 
-    /// The entity whose ID is `id`, standing on `at`'s chunk -- in any
+    /// The entity whose ID is `id`, standing on `at` -- in any
     /// superchunk held -- as the tick found it.
     pub fn entity(&self, id: EntityId, at: CellIndex) -> Option<EntityRef<'a>> {
         self.entity_reader.get(id, at)
     }
 
     /// The entities on `chunk` -- in any superchunk held -- as the tick
-    /// found them, by ID; `None` if its superchunk is not held.
+    /// found them, in Morton order by cell, then by ID; `None` if its
+    /// superchunk is not held.
     pub fn entities_in(&self, chunk: ChunkPosition) -> Option<impl Iterator<Item = EntityRef<'a>> + 'a> {
         self.entity_reader.chunk(chunk)
     }
@@ -164,23 +165,34 @@ impl<'a> SuperChunkTick<'a> {
         EntityId(self.random.draw())
     }
 
-    /// Queues putting `header`'s entity -- made, or changed in place --
-    /// with `attributes`, sorted by type, in the superchunk its cell is
-    /// in. It wakes at its wake tick, which is after this one.
+    /// Queues putting `header`'s entity -- made, or changed where it
+    /// stands -- with `attributes`, sorted by type, in the superchunk
+    /// its cell is in. It wakes at its wake tick, which is after this
+    /// one. One that moves is [`SuperChunkTick::update`]d.
     pub fn put(&mut self, header: Header, attributes: &[Attribute]) {
-        debug_assert!(header.wake > self.now, "an entity put to wake at tick {}, not after {}", header.wake, self.now);
-        let slot = self.slot_of(header.at.superchunk());
-        self.outbox.commands[slot].put(header, attributes);
+        self.put_from(header, header.at, attributes);
     }
 
-    /// Queues `before`'s entity becoming `after`, with `attributes`: put
-    /// in place if it stays in its chunk, else taken out of it and put
-    /// where it goes -- in this superchunk or a neighbour.
+    /// Queues `before`'s entity becoming `after`, with `attributes`:
+    /// moved among its chunk's entities if it stays in its chunk -- or
+    /// passed over, if it is no longer where the tick found it -- else
+    /// taken out of it and put where it goes, in this superchunk or a
+    /// neighbour.
     pub fn update(&mut self, before: &Header, after: Header, attributes: &[Attribute]) {
         if before.at.0 >> CHUNK_CELL_BITS != after.at.0 >> CHUNK_CELL_BITS {
             self.remove(before);
+            self.put_from(after, after.at, attributes);
+        } else {
+            self.put_from(after, before.at, attributes);
         }
-        self.put(after, attributes);
+    }
+
+    /// Queues putting `header`'s entity, which stood on `was`, a cell of
+    /// its cell's chunk.
+    fn put_from(&mut self, header: Header, was: CellIndex, attributes: &[Attribute]) {
+        debug_assert!(header.wake > self.now, "an entity put to wake at tick {}, not after {}", header.wake, self.now);
+        let slot = self.slot_of(header.at.superchunk());
+        self.outbox.commands[slot].put(header, was, attributes);
     }
 
     /// Queues removing `header`'s entity.

@@ -20,16 +20,18 @@ dy)`**.
 **`superchunk`**, **`random`**, **`sample(type, probability, samples)`**
 of its own cells, **`holds(type, cell)`** anywhere, **`queue(type,
 write)`** -- into the slot of each superchunk it lands in.
-**`neighbours(type, cell)`**: a cell's neighbourhood as the tick
-found it, through the reader. **`now`**, **`woken()`**: its entities
+**`window(type, origin, width, height)`**: up to 8x8 cells from
+`origin` as the tick found them, as a `Tile`, through the reader. **`now`**, **`woken()`**: its entities
 waking this tick, in Morton order, borrowed from
 the world as the tick found it, not from the turn, so changes can be
 queued while going through them. **`entity(id, at)`**,
 **`entities_in(chunk)`**: entities anywhere held, as the tick found
 them -- the entities' `holds`. **`new_id`**. **`put(header,
-attributes)`**: an entity made or changed, waking after this tick;
-**`update(before, after, attributes)`**: removed from its chunk first
-if it leaves it; **`remove(header)`**. **`slot_of`**: the slot of a
+attributes)`**: an entity made or changed where it stands, waking after
+this tick; **`update(before, after, attributes)`**: moved among its
+chunk's entities from where the tick found it -- passed over if no
+longer there -- or removed from its chunk first if it leaves it
+(**`put_from`**); **`remove(header)`**. **`slot_of`**: the slot of a
 superchunk, past the neighbours panicking.
 
 **`TickReport`** `{applied, entities, rules, computing, applying}`.
@@ -55,11 +57,16 @@ in the world.
 **`attribute`**, **`set_attribute`** (added if absent),
 **`remove_attribute`**; **`sorted`**.
 
-**`bucket.rs`**: **`Bucket`**: `Record`s (a header, its attributes'
-first index and count) sorted by ID, the attributes, the garbage count.
-**`get(id)`**, **`iter`**, **`put(header, attributes)`** -- in place
-when the count is the same, else a new run at the end -- **`remove(id)`**,
-**`sweep`** once garbage reaches the attributes in use (and 64).
+**`bucket.rs`**: **`place(cell)`**: a cell's place in its chunk, a
+`u16`. **`Bucket`**: `Record`s (a header, its attributes' first index
+and count) sorted by cell, then ID; their places alone in a list beside,
+which is what is searched; the attributes; the garbage count.
+**`get(id, at)`**, **`iter`**, **`put(header, was, attributes)`** -- the
+one on the cell at `was` changed, and moved (**`shift`**) if its cell is
+another; new if none is there and `was` is its cell; else passed over;
+attributes in place when the count is the same, else a new run at the
+end -- **`remove(id, at)`**, **`find(place, id)`**, **`sweep`** once
+garbage reaches the attributes in use (and 64).
 
 **`wheel.rs`**: `WHEEL_TICKS` (1024); **`Wake`** `{id, at}`;
 **`Wheel`**: **`due(tick)`**, **`file(earliest, tick, wake)`** -- a slot
@@ -70,7 +77,7 @@ then ID.
 
 **`store.rs`**: **`SuperChunkEntities`**: a bucket a chunk and a wheel;
 **`get(id, at)`**, **`iter`**, **`chunk(index)`**, **`woken(tick)`** -- the wheel's slot,
-each wake found and still due -- **`put(earliest, header,
+each wake found and still due -- **`put(earliest, header, was,
 attributes)`**, **`remove(id, at)`**, **`turn`**, **`sort_wakes(tick)`**
 -- after the second phase for the next tick, after `Entities::apply`
 for the tick about to run -- **`counts`**.
@@ -84,9 +91,10 @@ attributes)`**, **`queue_remove(header)`**, **`queued`**, **`apply`**
 bitplanes' `Reader`: **`get(id, at)`**, **`chunk(position)`**.
 
 **`commands.rs`**: **`Commands`**: puts and removes queued for one
-superchunk, the puts' attributes in a list beside: **`put`**,
-**`remove`**, **`apply(superchunks, earliest, applied)`** in order,
-each on its cell's superchunk (a put elsewhere lost),
+superchunk, the puts' attributes in a list beside:
+**`put(header, was, attributes)`**, **`remove`**, **`apply(superchunks, earliest, applied)`** in order,
+each on its cell's superchunk (a put elsewhere lost, one of an entity
+no longer where it stood passed over),
 **`count_lost`**, **`clear`**. **`EntitiesApplied`** `{puts, removes,
 lost}`, added with `+=`.
 

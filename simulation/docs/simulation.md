@@ -44,18 +44,23 @@ for samples are kept between ticks.
 `entities/`: what stands on the cells. An entity is a header -- a
 random 64-bit ID, a type, its cell, the tick it next wakes at -- and
 attributes, typed values added and removed at run time. A superchunk
-holds its entities in a bucket a chunk, sorted by ID, attributes
-beside, and a timer wheel of when each wakes: a tick costs the entities
-waking in it. An entity is found by its ID and cell, never past its
-chunk; a wake or change naming one that moved on or died is passed
-over.
+holds its entities in a bucket a chunk, sorted by cell -- Morton order
+-- then ID, attributes beside, and a timer wheel of when each wakes: a
+tick costs the entities waking in it. An entity is found by its cell
+and ID: its cell's place searched for in a list of the places alone,
+two bytes an entity, then its ID among those on the cell. A wake or
+change naming one no longer on that cell -- moved on, or dead -- is
+passed over.
 
 They tick in the same two phases as the cells. In the first, a
 superchunk's entities waking run the rule (`SuperChunkTick::woken`) in
 Morton order -- each tick's wakes sorted by cell, then ID, once all are
 filed -- so they read and write forwards through memory,
 and their changes -- `put`, `update`, `remove` -- are queued in the
-outbox slot of the superchunk they land in; in the second, each
+outbox slot of the superchunk they land in, in the Morton order of the
+cells the entities were found on, which is the order the buckets hold
+them in: the second phase goes forwards through each bucket, as writes
+do through a bitmap; in the second, each
 superchunk turns its wheel and carries the changes out. An entity
 moving to a neighbour goes as a whole copy made in the first phase. One
 put in a superchunk not held is lost, and counted.

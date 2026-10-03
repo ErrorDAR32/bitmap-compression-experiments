@@ -21,7 +21,7 @@
 
 use bitplane_manager::{Write, WriteOp};
 use chunk_storage::mock::{DIRT, GRASS};
-use coordinates::{CellIndex, SuperChunkPosition, NEIGHBOURS, SUPERCHUNK_SIDE_CELLS};
+use coordinates::{CellIndex, SuperChunkPosition, SUPERCHUNK_SIDE_CELLS};
 use simulation::entities::{remove_attribute, set_attribute, Attribute, AttributeType, Entities, EntityId, EntityType, Header};
 use simulation::SuperChunkTick;
 use std::ops::AddAssign;
@@ -52,7 +52,7 @@ pub const LAMB_WAKES: u64 = 64;
 
 /// What the sheep did in a tick.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct Sheep {
+pub struct SheepTickMetrics {
     /// Sheep woken.
     pub woken: usize,
     /// Cells of grass eaten.
@@ -63,7 +63,7 @@ pub struct Sheep {
     pub deaths: usize,
 }
 
-impl AddAssign for Sheep {
+impl AddAssign for SheepTickMetrics {
     /// Both added up.
     fn add_assign(&mut self, other: Self) {
         self.woken += other.woken;
@@ -75,15 +75,16 @@ impl AddAssign for Sheep {
 
 /// The rule, on one superchunk's turn: every sheep waking eats, breeds
 /// and walks, and sleeps again.
-pub fn rule(turn: &mut SuperChunkTick) -> Sheep {
-    let mut done = Sheep::default();
+pub fn rule(turn: &mut SuperChunkTick) -> SheepTickMetrics {
+    let mut done = SheepTickMetrics::default();
     let mut attributes = Vec::new();
     for sheep in turn.woken() {
         done.woken += 1;
         let (header, at) = (sheep.header, sheep.header.at);
         attributes.clear();
         attributes.extend_from_slice(sheep.attributes);
-        let fed = turn.holds(GRASS, at) == Ok(true);
+        let around = Around::read(turn, at);
+        let fed = around.grass & CENTRE != 0;
         if fed {
             turn.queue(GRASS, Write::cell(at, WriteOp::Unset));
             turn.queue(DIRT, Write::cell(at, WriteOp::Set));
@@ -115,7 +116,7 @@ pub fn rule(turn: &mut SuperChunkTick) -> Sheep {
             Some(left) => set_attribute(&mut attributes, LAMB, left - 1),
             None => {}
         }
-        let to = step(turn, at);
+        let to = around.step(turn, at);
         let wake = next_wake(turn);
         turn.update(&header, Header { at: to, wake, ..header }, &attributes);
     }
@@ -127,21 +128,48 @@ fn next_wake(turn: &mut SuperChunkTick) -> u64 {
     turn.now() + STEP_TICKS + turn.random().below(STEP_JITTER)
 }
 
-/// Where a sheep on `at` walks: a neighbour with grass, drawn at random
-/// among them, else any neighbour on the bitplanes held, else nowhere --
-/// the neighbourhood read at once.
-fn step(turn: &mut SuperChunkTick, at: CellIndex) -> CellIndex {
-    let neighbours = turn.neighbours(GRASS, at);
-    let choices = if neighbours.set != 0 { neighbours.set } else { neighbours.hot };
-    if choices == 0 {
-        return at;
+/// The 3x3 cells around a sheep, its own in the middle, a bit each, row
+/// by row from the top left: bit `3 * row + column`.
+struct Around {
+    /// The cells with grass.
+    grass: u16,
+    /// The cells on the bitplanes held.
+    hot: u16,
+}
+
+/// The middle of [`Around`]: the sheep's own cell.
+const CENTRE: u16 = 1 << 4;
+
+impl Around {
+    /// The 3x3 cells around `at`, read at once: a window of the grass
+    /// from the cell up and left, its three rows of three squeezed
+    /// together. At the world's edge, none.
+    fn read(turn: &SuperChunkTick, at: CellIndex) -> Self {
+        let Some(corner) = at.offset(-1, -1) else {
+            return Self { grass: 0, hot: 0 };
+        };
+        let window = turn.window(GRASS, corner, 3, 3);
+        // Row r's three cells, at bits 8r to 8r + 2, to bits 3r to 3r + 2.
+        let squeeze = |rows: u64| (rows & 0o7 | rows >> 5 & 0o70 | rows >> 10 & 0o700) as u16;
+        Self { grass: squeeze(window.set), hot: squeeze(window.hot) }
     }
-    let mut left = choices;
-    for _ in 0..turn.random().below(choices.count_ones() as u64) {
-        left &= left - 1;
+
+    /// Where a sheep on `at` walks: a neighbour with grass, drawn at
+    /// random among them, else any neighbour on the bitplanes held, else
+    /// nowhere.
+    fn step(&self, turn: &mut SuperChunkTick, at: CellIndex) -> CellIndex {
+        let (grass, hot) = (self.grass & !CENTRE, self.hot & !CENTRE);
+        let choices = if grass != 0 { grass } else { hot };
+        if choices == 0 {
+            return at;
+        }
+        let mut left = choices;
+        for _ in 0..turn.random().below(choices.count_ones() as u64) {
+            left &= left - 1;
+        }
+        let bit = left.trailing_zeros() as i32;
+        at.offset(bit % 3 - 1, bit / 3 - 1).expect("a hot neighbour is in the world")
     }
-    let (dx, dy) = NEIGHBOURS[left.trailing_zeros() as usize];
-    at.offset(dx, dy).expect("a hot neighbour is in the world")
 }
 
 /// Queues `count` grown sheep, fed, on cells of `superchunk` drawn from

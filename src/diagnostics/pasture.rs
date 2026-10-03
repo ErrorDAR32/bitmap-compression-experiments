@@ -101,7 +101,7 @@ pub fn run(ticks: usize, thousandths: usize, sheep: usize, superchunks: u32, thr
     let (mut timed, mut entities, mut writes, mut computing, mut applying) = (Timed::default(), EntitiesApplied::default(), 0, Duration::ZERO, Duration::ZERO);
     let mut simulation = Simulation::new(threads);
     let mut census = vec![Census { tick: 0, sheep: start_sheep, grass: start_grass, ..Census::default() }];
-    let mut since = crate::sheep::Sheep::default();
+    let mut since = crate::sheep::SheepTickMetrics::default();
     for tick in 0..ticks {
         let report = simulation.tick(&mut world.arena, &mut world.entities, tick as u64, |turn, samples| {
             let start = Instant::now();
@@ -114,7 +114,7 @@ pub fn run(ticks: usize, thousandths: usize, sheep: usize, superchunks: u32, thr
         since += report.rules.done.sheep;
         if (tick + 1) % CENSUS_EVERY == 0 || tick + 1 == ticks {
             census.push(Census { tick: tick + 1, sheep: world.sheep(), grass: world.grass(), woken: since.woken, births: since.births, deaths: since.deaths });
-            since = crate::sheep::Sheep::default();
+            since = crate::sheep::SheepTickMetrics::default();
         }
         entities += report.entities;
         writes += report.applied.writes;

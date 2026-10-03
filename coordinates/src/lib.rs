@@ -37,8 +37,7 @@ pub const SUPERCHUNK_SIDE_CELLS: u32 = (CHUNK_SIDE * SUPERCHUNK_SIDE) as u32;
 pub const WORLD_SIDE_SUPERCHUNKS: u32 = 1 << (u32::BITS - SUPERCHUNK_SIDE_CELLS.trailing_zeros());
 
 /// A cell's eight neighbours, as offsets `(dx, dy)`, row by row from the
-/// top left: the order every neighbourhood is read and numbered in, the
-/// `i`-th neighbour bit `i` of a neighbourhood's mask.
+/// top left.
 pub const NEIGHBOURS: [(i32, i32); 8] = [(-1, -1), (0, -1), (1, -1), (-1, 0), (1, 0), (-1, 1), (0, 1), (1, 1)];
 
 /// Bits of a coordinate that place a cell in its chunk.
@@ -353,48 +352,18 @@ impl CellIndex {
         let y = step(self.0 & Y_BITS, dy, Y_BITS)?;
         Some(Self(x | y))
     }
-
-    /// The cell's eight neighbours, in [`NEIGHBOURS`]' order, those in the
-    /// world: each coordinate stepped one back and one on once, and the
-    /// steps put together -- four steps for the eight, not sixteen.
-    pub fn neighbourhood(self) -> [Option<Self>; 8] {
-        let (x, y) = (self.0 & X_BITS, self.0 & Y_BITS);
-        let xs = [step(x, -1, X_BITS), Some(x), step(x, 1, X_BITS)];
-        let ys = [step(y, -1, Y_BITS), Some(y), step(y, 1, Y_BITS)];
-        NEIGHBOURS.map(|(dx, dy)| Some(Self(xs[(dx + 1) as usize]? | ys[(dy + 1) as usize]?)))
-    }
-
-    /// The places in its chunk, in Morton order, of the cell's eight
-    /// neighbours, in [`NEIGHBOURS`]' order -- if all eight are in its
-    /// chunk, as for every cell but those on the chunk's edge. Stepped on
-    /// the 16 bits of the cell's place alone: a coordinate's bits one
-    /// back is a borrow through the other's cleared bits, one on a carry
-    /// through them set; the chunk's edge is a coordinate all clear or
-    /// all set, so no step leaves the chunk.
-    pub fn neighbours_in_chunk(self) -> Option<[usize; 8]> {
-        const X: u64 = X_BITS & ((1 << CELL_INDEX_BITS) - 1);
-        const Y: u64 = Y_BITS & ((1 << CELL_INDEX_BITS) - 1);
-        let place = self.0 & ((1 << CELL_INDEX_BITS) - 1);
-        let (x, y) = (place & X, place & Y);
-        if x == 0 || x == X || y == 0 || y == Y {
-            return None;
-        }
-        let xs = [x.wrapping_sub(1) & X, x, ((x | !X).wrapping_add(1)) & X];
-        let ys = [y.wrapping_sub(2) & Y, y, ((y | !Y).wrapping_add(2)) & Y];
-        Some(NEIGHBOURS.map(|(dx, dy)| (xs[(dx + 1) as usize] | ys[(dy + 1) as usize]) as usize))
-    }
 }
 
 /// `part` -- one coordinate's bits of a Morton index, in `bits` -- moved
-/// by `by`, if it stays in the world. A step of none or of one cell --
-/// to a neighbour, by far the most taken -- spreads nothing: 0 and 1
-/// spread are themselves.
+/// by `by`, if it stays in the world. A power of two -- a step to a
+/// neighbour, to the next tile or chunk, by far the most taken -- spreads
+/// to one bit, twice as far up, with no spreading steps.
 fn step(part: u64, by: i32, bits: u64) -> Option<u64> {
     let magnitude = by.unsigned_abs();
     if magnitude == 0 {
         return Some(part);
     }
-    let spread_by = if magnitude == 1 { 1 } else { spread(magnitude) };
+    let spread_by = if magnitude.is_power_of_two() { 1 << (2 * magnitude.trailing_zeros()) } else { spread(magnitude) };
     let distance = spread_by << (bits & 1 ^ 1);
     let moved = if by >= 0 { (part | !bits).wrapping_add(distance) & bits } else { (part.wrapping_sub(distance)) & bits };
     let wrapped = if by >= 0 { moved < part } else { moved > part };

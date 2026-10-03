@@ -53,20 +53,20 @@ impl SuperChunkEntities {
         self.len() == 0
     }
 
-    /// The entity whose ID is `id`, standing on `at`'s chunk.
+    /// The entity whose ID is `id`, standing on `at`.
     pub fn get(&self, id: EntityId, at: CellIndex) -> Option<EntityRef<'_>> {
         debug_assert_eq!(at.superchunk(), self.morton);
-        self.chunks[at.chunk_in_superchunk()].get(id)
+        self.chunks[at.chunk_in_superchunk()].get(id, at)
     }
 
-    /// Every entity it holds, chunk by chunk in Morton order, by ID in
-    /// each.
+    /// Every entity it holds, in Morton order by cell, then by ID.
     pub fn iter(&self) -> impl Iterator<Item = EntityRef<'_>> {
         self.chunks.iter().flat_map(Bucket::iter)
     }
 
     /// The entities on the chunk at `chunk` -- its place in Morton order
-    /// ([`CellIndex::chunk_in_superchunk`]) -- by ID.
+    /// ([`CellIndex::chunk_in_superchunk`]) -- in Morton order by cell,
+    /// then by ID.
     pub fn chunk(&self, chunk: usize) -> impl Iterator<Item = EntityRef<'_>> {
         self.chunks[chunk].iter()
     }
@@ -80,22 +80,26 @@ impl SuperChunkEntities {
     }
 
     /// Puts `header`'s entity, with `attributes` sorted by type, in the
-    /// bucket of its cell's chunk -- in place of the one with its ID
-    /// there -- and files its wake, no earlier than `earliest`.
-    pub(crate) fn put(&mut self, earliest: u64, header: Header, attributes: &[Attribute]) {
+    /// bucket of its cell's chunk -- in place of the one with its ID on
+    /// the cell at `was` of that chunk, or new if that is its cell and
+    /// none is there -- and files its wake, no earlier than `earliest`.
+    /// One not there, to have moved from it, is passed over: whether it
+    /// was put.
+    pub(crate) fn put(&mut self, earliest: u64, header: Header, was: u16, attributes: &[Attribute]) -> bool {
         debug_assert_eq!(header.at.superchunk(), self.morton, "an entity put in a superchunk it is not in");
         debug_assert!(sorted(attributes), "attributes sorted by type, each type once");
-        self.chunks[header.at.chunk_in_superchunk()].put(header, attributes);
-        if header.wake != NEVER {
+        let put = self.chunks[header.at.chunk_in_superchunk()].put(header, was, attributes);
+        if put && header.wake != NEVER {
             self.wheel.file(earliest, header.wake, Wake { id: header.id, at: header.at });
         }
+        put
     }
 
-    /// Removes the entity whose ID is `id` from `at`'s chunk: whether it
+    /// Removes the entity whose ID is `id` standing on `at`: whether it
     /// was there.
     pub(crate) fn remove(&mut self, id: EntityId, at: CellIndex) -> bool {
         debug_assert_eq!(at.superchunk(), self.morton);
-        self.chunks[at.chunk_in_superchunk()].remove(id)
+        self.chunks[at.chunk_in_superchunk()].remove(id, at)
     }
 
     /// Turns the wheel past `tick`, just run.
@@ -164,7 +168,7 @@ impl Entities {
         Some(&self.superchunks[at])
     }
 
-    /// The entity whose ID is `id`, standing on `at`'s chunk, if held.
+    /// The entity whose ID is `id`, standing on `at`, if held.
     pub fn get(&self, id: EntityId, at: CellIndex) -> Option<EntityRef<'_>> {
         self.superchunk(at.superchunk())?.get(id, at)
     }
@@ -189,11 +193,12 @@ impl Entities {
         dropped + held.map(|superchunk| superchunk.len()).sum::<usize>()
     }
 
-    /// Queues putting `header`'s entity -- made, or changed in place --
-    /// with `attributes` sorted by type, outside a tick: setting up, say.
-    /// It wakes at its wake tick, the tick about to run or later.
+    /// Queues putting `header`'s entity -- made, or changed where it
+    /// stands -- with `attributes` sorted by type, outside a tick:
+    /// setting up, say. It wakes at its wake tick, the tick about to run
+    /// or later. One to stand elsewhere is removed, and put there.
     pub fn queue_put(&mut self, header: Header, attributes: &[Attribute]) {
-        self.queued.put(header, attributes);
+        self.queued.put(header, header.at, attributes);
     }
 
     /// Queues removing `header`'s entity, outside a tick.
@@ -248,12 +253,13 @@ impl<'a> EntityReader<'a> {
         Some(&self.superchunks[at])
     }
 
-    /// The entity whose ID is `id`, standing on `at`'s chunk, if held.
+    /// The entity whose ID is `id`, standing on `at`, if held.
     pub fn get(&self, id: EntityId, at: CellIndex) -> Option<EntityRef<'a>> {
         self.superchunk(at.superchunk())?.get(id, at)
     }
 
-    /// The entities on `chunk`, by ID, if its superchunk is held.
+    /// The entities on `chunk`, in Morton order by cell, then by ID, if
+    /// its superchunk is held.
     pub fn chunk(&self, chunk: ChunkPosition) -> Option<impl Iterator<Item = EntityRef<'a>> + 'a> {
         let (superchunk, place) = chunk.superchunk_and_place();
         Some(self.superchunk(superchunk.morton_index())?.chunk(place.index()))

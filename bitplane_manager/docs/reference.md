@@ -24,8 +24,9 @@ changed.
 write's part in it. Private: **`layer_index`**.
 
 **`Reader::new(superchunks)`**: **`holds(type, cell)`**,
-**`neighbours(type, cell)`** -- a **`Neighbours`** `{hot, set}`, a bit a
-neighbour -- **`superchunk(morton)`**, remembering the last lookups.
+**`window(type, origin, width, height)`** -- a **`Tile`** `{set, hot}`,
+up to 8x8 cells row by row from `origin`, bit `y * 8 + x` --
+**`superchunk(morton)`**, remembering the last lookups.
 **`chunk_at(superchunk, index)`**: a chunk's position from Morton
 indices.
 
@@ -34,9 +35,10 @@ indices.
 type), and the last superchunk alone; one a thread.
 **`superchunk`** an entry by Morton index; **`find`** a layer by type and
 superchunk; **`holds`** a cell, from its index's fields;
-**`neighbours`** a cell's eight -- inside a chunk, one lookup and eight
-bits from its bucket; on its edge, each alone; **`forget`**
-when the directory changes shape.
+**`window`** up to 8x8 cells from the one to four tiles they overlap --
+the chunk's **`bucket`** looked up once, tiles in it by index (`TILE_X`,
+`TILE_Y`, **`tile_of`**), one across its edge looked up again
+(**`tile_at`**); **`forget`** when the directory changes shape.
 
 **`Bucket`**: a hot bitmap to read: **`count`**, **`get(cell)`**,
 **`cells`**.

@@ -7,7 +7,7 @@
 use bitmap::morton::morton_index;
 use coordinates::{
     CartesianCell, CellAddress, CellIndex, CellPlace, ChunkPlace, SuperChunkPosition, CHUNK_SIDE, SUPERCHUNK_SIDE_CELLS,
-    NEIGHBOURS, WORLD_SIDE_SUPERCHUNKS,
+    WORLD_SIDE_SUPERCHUNKS,
 };
 
 /// A superchunk roughly in the middle of the world, where it starts.
@@ -111,14 +111,9 @@ fn cell_indices_step_like_coordinates() {
         assert_eq!(index.chunk(), cartesian.chunk_and_cell().0);
         assert_eq!(CellIndex::of(index.superchunk(), index.chunk_in_superchunk(), index.in_chunk()), index);
         assert_eq!(index.cartesian(), cartesian);
-        for (dx, dy) in [(-1, -1), (0, -1), (1, -1), (-1, 0), (1, 0), (-1, 1), (0, 1), (1, 1), (0, 0), (-300, 77), (1024, -1025)] {
+        for (dx, dy) in [(-1, -1), (0, -1), (1, -1), (-1, 0), (1, 0), (-1, 1), (0, 1), (1, 1), (0, 0), (-300, 77), (1024, -1025), (8, 0), (0, -8), (-8, 8), (256, 2), (-4, 64)] {
             let expected = x.checked_add_signed(dx).zip(y.checked_add_signed(dy)).map(|(x, y)| CellIndex::from(CartesianCell { x, y }));
             assert_eq!(index.offset(dx, dy), expected, "({x}, {y}) by ({dx}, {dy})");
         }
-        assert_eq!(index.neighbourhood(), NEIGHBOURS.map(|(dx, dy)| index.offset(dx, dy)), "({x}, {y})'s neighbourhood");
-        let (in_x, in_y) = (x % CHUNK_SIDE as u32, y % CHUNK_SIDE as u32);
-        let inside = in_x != 0 && in_y != 0 && in_x != CHUNK_SIDE as u32 - 1 && in_y != CHUNK_SIDE as u32 - 1;
-        let expected = inside.then(|| index.neighbourhood().map(|neighbour| neighbour.expect("in the world").in_chunk()));
-        assert_eq!(index.neighbours_in_chunk(), expected, "({x}, {y})'s neighbours in its chunk");
     }
 }

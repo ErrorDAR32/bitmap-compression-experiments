@@ -58,6 +58,7 @@ pub use writes::{count_missed, Applied, Shape, Write, WriteOp, WriteQueues};
 
 use allocator::{Block, BlockPool};
 use bitmap::morton::morton_index;
+use bitmap::tile::{left_columns, rows_from_morton, top_rows, window, TILE_SIDE};
 use bitmap::{CellWords, BITS_PER_WORD, WORDS};
 use chunk_storage::{ChunkStorage, LayerCodec, LayerType};
 use coordinates::{CellIndex, CellPlace, ChunkPlace, ChunkPosition, SuperChunkPosition, CHUNKS_IN_SUPERCHUNK};
@@ -315,11 +316,12 @@ impl<'a> Reader<'a> {
         self.lookup.holds(self.superchunks, layer_type, cell)
     }
 
-    /// Which of `cell`'s eight neighbours, in [`coordinates::NEIGHBOURS`]' order, are
-    /// in hot bitmaps of `layer_type`, and which of those it holds at:
-    /// the whole neighbourhood in one lookup, but across a border.
-    pub fn neighbours(&self, layer_type: LayerType, cell: CellIndex) -> Neighbours {
-        self.lookup.neighbours(self.superchunks, layer_type, cell)
+    /// The window of `width` by `height` cells (each up to 8) whose top
+    /// left cell is `origin`, of `layer_type`, row by row ([`Tile`]): one
+    /// to four bitmap words read, turned and cut, so a cell's whole
+    /// neighbourhood, say, is a few masks.
+    pub fn window(&self, layer_type: LayerType, origin: CellIndex, width: u32, height: u32) -> Tile {
+        self.lookup.window(self.superchunks, layer_type, origin, width, height)
     }
 
     /// Where the superchunk whose Morton index is `superchunk` is among
@@ -329,14 +331,28 @@ impl<'a> Reader<'a> {
     }
 }
 
-/// A cell's neighbourhood in one layer type: a bit a neighbour, in
-/// [`coordinates::NEIGHBOURS`]' order -- bit `i` the `i`-th.
+/// Up to 8x8 cells of one layer type, row by row: cell `(x, y)` from
+/// the window's top left at bit `y * 8 + x` ([`bitmap::tile`]).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct Neighbours {
-    /// The neighbours in hot bitmaps: in the world, and read.
-    pub hot: u8,
-    /// The neighbours the type holds at: hot ones only.
-    pub set: u8,
+pub struct Tile {
+    /// The cells the type holds at: hot ones only.
+    pub set: u64,
+    /// The cells in hot bitmaps: in the world, read, and in the window.
+    pub hot: u64,
+}
+
+/// A tile's index in its chunk -- its first cell's place over 64 -- is
+/// Morton order over the chunk's 32x32 tiles: its x in the even bits...
+const TILE_X: usize = 0x155;
+/// ...and its y in the odd ones.
+const TILE_Y: usize = 0x2aa;
+
+/// The tile at `tile` of `bucket`, row by row; nothing if not hot.
+fn tile_of(bucket: Option<&CellWords>, tile: usize) -> Tile {
+    match bucket {
+        Some(cells) => Tile { set: rows_from_morton(cells[tile]), hot: u64::MAX },
+        None => Tile::default(),
+    }
 }
 
 /// Where a layer is: its superchunk's entry in the directory, and its
@@ -418,36 +434,57 @@ impl Lookup {
         layer.map(|layer| (entry, layer))
     }
 
-    /// Which of `cell`'s eight neighbours ([`coordinates::NEIGHBOURS`]) are in hot
-    /// bitmaps of `layer_type` in `directory`, and which of those it
-    /// holds at. A cell inside its chunk -- all but its edge -- has every
-    /// neighbour in its chunk's bucket: one lookup, eight bits read from
-    /// it. On a chunk's edge, each neighbour is read alone.
-    fn neighbours(&self, directory: &[SuperChunk], layer_type: LayerType, cell: CellIndex) -> Neighbours {
-        let mut neighbours = Neighbours::default();
-        if let Some(places) = cell.neighbours_in_chunk() {
-            let chunk = cell.chunk_in_superchunk();
-            let Some((entry, layer)) = self.find(directory, layer_type, cell.superchunk()) else {
-                return neighbours;
-            };
-            let layer = &directory[entry].layers[layer];
-            if !contains(layer.flags.hot, chunk) {
-                return neighbours;
-            }
-            let cells = layer.cells(chunk);
-            for (bit, at) in places.into_iter().enumerate() {
-                neighbours.set |= ((cells[at / BITS_PER_WORD] >> (at % BITS_PER_WORD) & 1) as u8) << bit;
-            }
-            neighbours.hot = u8::MAX;
-            return neighbours;
+    /// The window of `width` by `height` cells (each up to 8) whose top
+    /// left cell is `origin`, of `layer_type` in `directory`, row by row:
+    /// put together from the up to four aligned tiles -- a bitmap word
+    /// each -- it overlaps, only those it reaches read. Its chunk's bucket
+    /// is looked up once; the tiles beside and below are stepped to on the
+    /// tile's index in the chunk, and only one across the chunk's edge is
+    /// looked up again.
+    fn window(&self, directory: &[SuperChunk], layer_type: LayerType, origin: CellIndex, width: u32, height: u32) -> Tile {
+        let place = origin.0 & (BITS_PER_WORD as u64 - 1);
+        // The window's top left in its tile: the place's even bits, and its odd ones.
+        let across = (place & 1 | place >> 1 & 2 | place >> 2 & 4) as u32;
+        let down = (place >> 1 & 1 | place >> 2 & 2 | place >> 3 & 4) as u32;
+        let first = CellIndex(origin.0 - place);
+        let bucket = self.bucket(directory, layer_type, first);
+        let tile = first.in_chunk() / BITS_PER_WORD;
+        let (x, y) = (tile & TILE_X, tile & TILE_Y);
+        // The tile beside and below, in the chunk: a carry through the other coordinate's bits.
+        let (beside, below) = (((x | TILE_Y) + 1) & TILE_X, ((y | TILE_X) + 2) & TILE_Y);
+        let (wide, tall) = (across + width > TILE_SIDE, down + height > TILE_SIDE);
+        let side = TILE_SIDE as i32;
+        let top_left = tile_of(bucket, tile);
+        let (mut top_right, mut bottom_left, mut bottom_right) = (Tile::default(), Tile::default(), Tile::default());
+        if wide {
+            top_right = if x != TILE_X { tile_of(bucket, beside | y) } else { self.tile_at(directory, layer_type, first.offset(side, 0)) };
         }
-        for (bit, neighbour) in cell.neighbourhood().into_iter().enumerate() {
-            if let Some(Ok(set)) = neighbour.map(|neighbour| self.holds(directory, layer_type, neighbour)) {
-                neighbours.hot |= 1 << bit;
-                neighbours.set |= (set as u8) << bit;
-            }
+        if tall {
+            bottom_left = if y != TILE_Y { tile_of(bucket, x | below) } else { self.tile_at(directory, layer_type, first.offset(0, side)) };
         }
-        neighbours
+        if wide && tall {
+            bottom_right =
+                if x != TILE_X && y != TILE_Y { tile_of(bucket, beside | below) } else { self.tile_at(directory, layer_type, first.offset(side, side)) };
+        }
+        let kept = left_columns(width) & top_rows(height);
+        Tile {
+            set: window([[top_left.set, top_right.set], [bottom_left.set, bottom_right.set]], across, down) & kept,
+            hot: window([[top_left.hot, top_right.hot], [bottom_left.hot, bottom_right.hot]], across, down) & kept,
+        }
+    }
+
+    /// The hot bucket of `cell`'s chunk in `layer_type`, in `directory`.
+    fn bucket<'d>(&self, directory: &'d [SuperChunk], layer_type: LayerType, cell: CellIndex) -> Option<&'d CellWords> {
+        let chunk = cell.chunk_in_superchunk();
+        let (entry, layer) = self.find(directory, layer_type, cell.superchunk())?;
+        let layer = &directory[entry].layers[layer];
+        contains(layer.flags.hot, chunk).then(|| layer.cells(chunk))
+    }
+
+    /// The aligned tile whose first cell is `first`, if in the world, of
+    /// `layer_type` in `directory`: looked up.
+    fn tile_at(&self, directory: &[SuperChunk], layer_type: LayerType, first: Option<CellIndex>) -> Tile {
+        first.map_or(Tile::default(), |first| tile_of(self.bucket(directory, layer_type, first), first.in_chunk() / BITS_PER_WORD))
     }
 
     /// Whether `layer_type` holds at `cell` in `directory`: its

@@ -5,10 +5,10 @@
 //! `cargo test`
 
 use bitmap::{Bitmap, CellWords, WORDS};
-use bitplane_manager::{Applied, BitmapArena, BucketKey, Neighbours, NotHot, Reader, Write, WriteOp};
+use bitplane_manager::{Applied, BitmapArena, BucketKey, NotHot, Reader, Tile, Write, WriteOp};
 use chunk_storage::mock::{grass_on_dirt, DIRT, GRASS};
 use chunk_storage::{ChunkStorage, HeightMap, LayerChange, LayerCodec, LayerType, SuperChunkImage};
-use coordinates::{CartesianCell, CellIndex, CellPlace, ChunkPlace, ChunkPosition, SuperChunkPosition, NEIGHBOURS, SUPERCHUNK_SIDE, SUPERCHUNK_SIDE_CELLS, WORLD_SIDE_SUPERCHUNKS};
+use coordinates::{CartesianCell, CellIndex, CellPlace, ChunkPlace, ChunkPosition, SuperChunkPosition, SUPERCHUNK_SIDE, SUPERCHUNK_SIDE_CELLS, WORLD_SIDE_SUPERCHUNKS};
 
 /// A cell of a chunk.
 const CELL: CellPlace = CellPlace { x: 3, y: 200 };
@@ -328,12 +328,13 @@ fn counts_follow_every_change() {
     assert_eq!(arena.superchunk_count(GRASS, MIDDLE), 1, "back as it was");
 }
 
-/// A cell's neighbourhood read at once is its eight neighbours read one
-/// by one: inside a chunk, across chunk and superchunk borders, at the
-/// world's corner, where some neighbours are not hot -- with more
-/// superchunks and types read by turns than the lookups remembered.
+/// A window of cells read at once is its cells read one by one: at any
+/// cell, any size up to 8x8, inside a tile, across tiles, chunks and
+/// superchunks, at the world's corner, where some cells are not hot --
+/// with more superchunks and types read by turns than the lookups
+/// remembered.
 #[test]
-fn neighbourhoods_read_at_once_are_the_cells_read_one_by_one() {
+fn windows_read_at_once_are_the_cells_read_one_by_one() {
     let (mut codec, mut arena) = (LayerCodec::new(), BitmapArena::new());
     for y in 0..5 {
         for x in 0..5 {
@@ -357,19 +358,20 @@ fn neighbourhoods_read_at_once_are_the_cells_read_one_by_one() {
     arena.apply();
     let reader = Reader::new(arena.superchunks());
     let edge = SUPERCHUNK_SIDE_CELLS;
-    let mut probes = vec![(0, 0), (1, 1), (255, 255), (256, 3), (edge - 1, edge - 1), (edge, edge), (edge - 1, 17), (2 * edge, 3 * edge - 1), (side - 1, side - 1)];
-    probes.extend((0..3000u32).map(|at| ((at * 31_337) % side, (at * 7_717) % side)));
-    for (x, y) in probes {
-        let cell = CellIndex::from(CartesianCell { x, y });
+    let mut origins = vec![(0, 0), (1, 1), (7, 7), (255, 255), (252, 3), (edge - 1, edge - 1), (edge - 4, edge - 5), (2 * edge, 3 * edge - 1), (side - 8, side - 8)];
+    origins.extend((0..3000u32).map(|at| ((at * 31_337) % (side - 8), (at * 7_717) % (side - 8))));
+    for (number, (x, y)) in origins.into_iter().enumerate() {
+        let (width, height) = (1 + number as u32 % 8, 1 + (number as u32 / 8) % 8);
+        let origin = CellIndex::from(CartesianCell { x, y });
         for layer_type in [GRASS, DIRT] {
-            let mut expected = Neighbours::default();
-            for (bit, &(dx, dy)) in NEIGHBOURS.iter().enumerate() {
-                if let Some(Ok(set)) = cell.offset(dx, dy).map(|neighbour| reader.holds(layer_type, neighbour)) {
-                    expected.hot |= 1 << bit;
-                    expected.set |= (set as u8) << bit;
+            let mut expected = Tile::default();
+            for (dx, dy) in (0..height).flat_map(|dy| (0..width).map(move |dx| (dx, dy))) {
+                if let Ok(set) = reader.holds(layer_type, CellIndex::from(CartesianCell { x: x + dx, y: y + dy })) {
+                    expected.hot |= 1 << (dy * 8 + dx);
+                    expected.set |= (set as u64) << (dy * 8 + dx);
                 }
             }
-            assert_eq!(reader.neighbours(layer_type, cell), expected, "({x}, {y}), {layer_type:?}");
+            assert_eq!(reader.window(layer_type, origin, width, height), expected, "{width}x{height} at ({x}, {y}), {layer_type:?}");
         }
     }
 }

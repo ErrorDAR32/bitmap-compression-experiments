@@ -36,3 +36,16 @@ inclusive, either way round, clamped to the bitmap (**`clamped_column`**,
 **`morton_index(x, y)`**: the cell's index, from a table spreading a
 byte's bits (`SPREAD`). **`morton_coordinates(index)`**: undone
 (`compact`).
+
+## `tile.rs`
+
+`TILE_SIDE` (8).
+
+**`rows_from_morton(word)`**: an aligned 8x8 tile, one Morton-ordered
+word, row by row -- cell `(x, y)` at bit `y * 8 + x` -- by three delta
+swaps (`MORTON_TO_ROWS`, **`swap_index_bits`**, **`swap_mask`**);
+**`morton_from_rows(rows)`**: undone. **`left_columns(columns)`**,
+**`top_rows(rows)`**: the masks keeping a tile's first columns and rows.
+**`window(tiles, across, down)`**: the 8x8 window `(across, down)` into
+the 16x16 square of four tiles, row by row (**`beside`**: two tiles side
+by side, cut across).

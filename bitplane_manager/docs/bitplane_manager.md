@@ -21,9 +21,17 @@ hot buckets together: the weights sampling picks by.
 beside each), each with its layers sorted by type. Lookups remember the
 last 16 superchunks and types found (`Lookup`, one a thread), so
 Morton-ordered work -- reading a few types by turns, across a border --
-rarely searches. A cell's whole neighbourhood is read at once
-(`Reader::neighbours`): inside a chunk, one lookup and eight bits. Each superchunk owns its blocks and
-its outbox, so superchunks are changed apart.
+rarely searches. Each superchunk owns its blocks and its outbox, so
+superchunks are changed apart.
+
+**Windows**: up to 8x8 cells at any cell read at once
+(`Reader::window`), as a `Tile` -- two masks, row by row: the cells set,
+and the cells in hot bitmaps. A window overlaps one to four aligned
+tiles, a bitmap word each (`bitmap::tile`); only those it reaches are
+read. Its chunk's bucket is looked up once, the tiles beside and below
+stepped to on the tile's index in the chunk, and only a tile across the
+chunk's edge looked up again. So a cell's 3x3 neighbourhood is one
+lookup, a word or two, and a few shifts and masks.
 
 ## Making hot, writing back, evicting
 
@@ -51,8 +59,8 @@ reads and changes the arena only through narrow handles:
 `superchunks_mut` (to change, each apart); a superchunk's
 `LayerView` -- its hot buckets, counts and cells, what sampling finds
 cells by -- and `apply`, a write's part in that superchunk; and a
-`Reader` -- cell and neighbourhood reads remembering the last lookups,
-one a thread.
+`Reader` -- cell and window reads remembering the last lookups, one a
+thread.
 
 ## Layout
 

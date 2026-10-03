@@ -5,6 +5,7 @@
 //! world as the tick found it, so the second never reads another
 //! superchunk's entities while that one changes them.
 
+use super::bucket::place;
 use super::record::{Attribute, EntityId, Header};
 use super::store::SuperChunkEntities;
 use coordinates::CellIndex;
@@ -13,21 +14,25 @@ use std::ops::AddAssign;
 /// One change.
 #[derive(Clone, Copy, Debug)]
 enum Command {
-    /// Puts an entity -- in place of the one with its ID in its chunk --
-    /// with the attributes `first..first + count` of the queue's list.
+    /// Puts an entity -- in place of the one with its ID where it stood,
+    /// in its chunk, or new -- with the attributes `first..first + count`
+    /// of the queue's list.
     Put {
         /// Its fixed part.
         header: Header,
+        /// The place in its chunk of the cell it stood on: its own, if
+        /// it has not moved or is new.
+        was: u16,
         /// Its attributes' first index.
         first: u32,
         /// How many attributes it has.
         count: u32,
     },
-    /// Removes the entity whose ID is `id` from `at`'s chunk.
+    /// Removes the entity whose ID is `id` standing on `at`.
     Remove {
         /// Its ID.
         id: EntityId,
-        /// A cell of its chunk.
+        /// Its cell.
         at: CellIndex,
     },
 }
@@ -43,13 +48,16 @@ pub struct Commands {
 }
 
 impl Commands {
-    /// Queues putting `header`'s entity, with `attributes`.
-    pub fn put(&mut self, header: Header, attributes: &[Attribute]) {
-        self.commands.push(Command::Put { header, first: self.attributes.len() as u32, count: attributes.len() as u32 });
+    /// Queues putting `header`'s entity, with `attributes`: in place of
+    /// the one with its ID standing on `was`, a cell of its cell's chunk
+    /// -- its cell itself, if it has not moved or is new.
+    pub fn put(&mut self, header: Header, was: CellIndex, attributes: &[Attribute]) {
+        debug_assert_eq!(header.at.chunk(), was.chunk(), "an entity put from another chunk: removed there, and put new");
+        self.commands.push(Command::Put { header, was: place(was), first: self.attributes.len() as u32, count: attributes.len() as u32 });
         self.attributes.extend_from_slice(attributes);
     }
 
-    /// Queues removing the entity whose ID is `id` from `at`'s chunk.
+    /// Queues removing the entity whose ID is `id` standing on `at`.
     pub fn remove(&mut self, id: EntityId, at: CellIndex) {
         self.commands.push(Command::Remove { id, at });
     }
@@ -73,7 +81,8 @@ impl Commands {
     /// Carries the changes out, in order, each on the superchunk among
     /// `superchunks` -- sorted by Morton index -- its cell is in, every
     /// wake filed no earlier than `earliest`; into `applied`. A put in a
-    /// superchunk not among them is lost.
+    /// superchunk not among them is lost; one of an entity no longer
+    /// where it stood is passed over.
     pub fn apply(&self, superchunks: &mut [SuperChunkEntities], earliest: u64, applied: &mut EntitiesApplied) {
         for &command in &self.commands {
             let at = match command {
@@ -86,9 +95,8 @@ impl Commands {
                 _ => superchunks.binary_search_by_key(&morton, SuperChunkEntities::morton).ok().map(|place| &mut superchunks[place]),
             };
             match (command, found) {
-                (Command::Put { header, first, count }, Some(superchunk)) => {
-                    superchunk.put(earliest, header, &self.attributes[first as usize..(first + count) as usize]);
-                    applied.puts += 1;
+                (Command::Put { header, was, first, count }, Some(superchunk)) => {
+                    applied.puts += superchunk.put(earliest, header, was, &self.attributes[first as usize..(first + count) as usize]) as usize;
                 }
                 (Command::Put { .. }, None) => applied.lost += 1,
                 (Command::Remove { id, at }, Some(superchunk)) => applied.removes += superchunk.remove(id, at) as usize,

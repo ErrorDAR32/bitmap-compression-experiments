@@ -4,7 +4,7 @@
 //! as the tick found it.
 
 use crate::grass::{self, Grass};
-use crate::sheep::{self, Sheep};
+use crate::sheep::{self, SheepTickMetrics};
 use bitplane_manager::BitmapArena;
 use simulation::entities::Entities;
 use simulation::{Simulation, TickReport};
@@ -16,7 +16,7 @@ pub struct Pasture {
     /// What the grass did.
     pub grass: Grass,
     /// What the sheep did.
-    pub sheep: Sheep,
+    pub sheep: SheepTickMetrics,
 }
 
 impl AddAssign for Pasture {
