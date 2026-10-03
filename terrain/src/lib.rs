@@ -15,6 +15,7 @@
 #![warn(missing_docs, clippy::missing_docs_in_private_items)]
 
 use bitmap::morton::morton_index;
+use utilities::hash::{mix, GOLDEN_RATIO};
 use bitmap::{CellWords, BITS_PER_WORD, WORDS};
 use chunk_storage::{Height, HeightMap, LayerType};
 use coordinates::{CellPlace, ChunkPlace, SuperchunkPosition, CHUNKS_IN_SUPERCHUNK, CHUNK_SIDE, SUPERCHUNK_SIDE_CELLS};
@@ -42,10 +43,7 @@ const ONE: u64 = 1 << 16;
 
 /// A number settled by `seed`, an octave and a point of it: 16 bits.
 fn point(seed: u64, octave: u32, x: u32, y: u32) -> u64 {
-    let mut z = seed ^ (octave as u64).wrapping_mul(0xD6E8_FEB8_6659_FD93) ^ ((x as u64) << 32 | y as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15);
-    z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
-    z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
-    (z ^ (z >> 31)) >> 48
+    mix(seed ^ (octave as u64).wrapping_mul(0xD6E8_FEB8_6659_FD93) ^ ((x as u64) << 32 | y as u64).wrapping_mul(GOLDEN_RATIO)) >> 48
 }
 
 /// `from` to `to`, `along` of [`ONE`] of the way.

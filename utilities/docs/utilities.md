@@ -18,6 +18,8 @@ none.
   Each crate names its own in its `src/transient_data.rs`.
 - **A seeded random source** (`rng.rs`), its whole state one word: every
   random number in TileSim comes from it.
+- **Hashing** (`hash.rs`): a key's slot in a cache or table, by
+  Fibonacci hashing, and a word's bits mixed, SplitMix64's way.
 - **A fixed-capacity list** (`fixed_list.rs`), allocated once, never
   growing: for structures sized once and reused.
 - **The cache** (`cache.rs`): memory asked for ahead of its being read.

@@ -59,6 +59,7 @@ use bitmap::morton::morton_index;
 use bitmap::window::{left_columns, rows_from_morton, top_rows, window, WORD_TILE_SIDE};
 use bitmap::{CellWords, BITS_PER_WORD, WORDS};
 use utilities::cache::prefetch;
+use utilities::hash;
 use chunk_storage::{ChunkStorage, LayerCodec, LayerType};
 use coordinates::{CellIndex, CellPlace, ChunkPlace, ChunkPosition, SuperchunkPosition, CHUNKS_IN_SUPERCHUNK};
 use std::cell::Cell;
@@ -471,8 +472,7 @@ impl Lookup {
     /// The slot of the cache of `layer_type` over the superchunk at
     /// `superchunk_index`.
     fn slot(superchunk_index: u64, layer_type: LayerType) -> usize {
-        let hash = (superchunk_index ^ layer_type.0.rotate_left(32)).wrapping_mul(0x9E37_79B9_7F4A_7C15);
-        (hash >> (u64::BITS - REMEMBERED.trailing_zeros())) as usize
+        hash::slot(superchunk_index ^ layer_type.0.rotate_left(32), REMEMBERED)
     }
 
     /// Where the superchunk at `superchunk_index` is in `directory`, or

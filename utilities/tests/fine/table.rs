@@ -9,7 +9,7 @@ use utilities::transient_data::TRANSIENT_DATA;
 use utilities::diagnostics::table::Table;
 
 /// A table with every awkward field -- a comma, a quote, a newline, an
-/// empty one, one reading as a comment or a rule -- and rules comes back
+/// empty one, one reading as a comment or a divider -- and dividers comes back
 /// from CSV field for field, alone and inside a report.
 #[test]
 fn a_table_round_trips_through_csv() {
@@ -17,7 +17,7 @@ fn a_table_round_trips_through_csv() {
     let mut table = Table::new(&["name", "stacked\nheading"]);
     for field in awkward {
         table.row(&[field, "1"]);
-        table.rule();
+        table.divider();
     }
     let csv = table.to_csv();
     assert_eq!(Table::from_csv(&csv).to_csv(), csv);

@@ -54,7 +54,7 @@ pub fn run(report: &mut Report) {
         every_encode.extend(encodes);
         every_decode.extend(decodes);
     }
-    table.rule();
+    table.divider();
     table.row(&row("all", &mut every_encode, &every_decode));
 
     // The saved adversarial bitmaps, apart from the corpus: few, and
@@ -64,7 +64,7 @@ pub fn run(report: &mut Report) {
     let repeated: Vec<Bitmap> = (0..SAVED_REPEATS).flat_map(|_| saved.iter().map(|(_, bitmap)| bitmap.clone())).collect();
     let name = "adversarial, saved";
     let (mut encodes, decodes) = time(&mut tessera, &mut stream, &mut back, name, &repeated);
-    table.rule();
+    table.divider();
     table.row(&row(name, &mut encodes, &decodes));
     report.note(format!("{per_generator} bitmaps a generator, the saved adversarial bitmaps {SAVED_REPEATS} times each"));
     report.add("encode and decode times", table);

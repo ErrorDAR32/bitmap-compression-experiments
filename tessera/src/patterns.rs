@@ -65,9 +65,6 @@ const NUMBER_STARTS: [usize; LEVELS + 1] = {
 /// Every level's numbers together.
 const NUMBERS: usize = NUMBER_STARTS[LEVELS];
 
-/// Spreads a pattern's bits before its top bits pick a slot: the golden
-/// ratio's fraction of 2^64.
-const HASH_MULTIPLIER: u64 = 0x9E37_79B9_7F4A_7C15;
 /// An empty slot: no pattern that is not homogeneous has number 0.
 const EMPTY_SLOT: u16 = ALL_CLEAR;
 
@@ -137,7 +134,7 @@ impl Patterns {
         let level_index = level as usize;
         let (first_slot, slot_count) = (SLOT_STARTS[level_index], SLOT_STARTS[level_index + 1] - SLOT_STARTS[level_index]);
         let first_number = NUMBER_STARTS[level_index];
-        let mut probe = (key.wrapping_mul(HASH_MULTIPLIER) >> (u64::BITS - slot_count.trailing_zeros())) as usize;
+        let mut probe = utilities::hash::slot(key, slot_count);
         loop {
             let number = self.slots[first_slot + probe];
             if number == EMPTY_SLOT {

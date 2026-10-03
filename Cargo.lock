@@ -1765,6 +1765,9 @@ dependencies = [
 [[package]]
 name = "bitmap"
 version = "0.1.0"
+dependencies = [
+ "utilities",
+]
 
 [[package]]
 name = "bitplane_manager"
@@ -4585,6 +4588,7 @@ dependencies = [
  "bitmap",
  "chunk_storage",
  "coordinates",
+ "utilities",
 ]
 
 [[package]]

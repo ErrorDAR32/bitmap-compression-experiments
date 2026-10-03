@@ -1,8 +1,8 @@
 //! One table renderer for every measurement, so that a column means the
 //! same thing and looks the same wherever it is printed.
 //!
-//! Rules it enforces rather than leaves to the caller: a header rule
-//! under the headings, a bar between columns, and a heading that names
+//! What it enforces rather than leaves to the caller: a divider under
+//! the headings, a bar between columns, and a heading that names
 //! the whole of what the column holds. A column headed "bits" says
 //! neither whose bits nor per what; one headed "encoded bits a bitmap" does,
 //! and it is not the table's business to make that shorter.
@@ -29,8 +29,8 @@ pub struct Table {
     left: Vec<bool>,
     /// Each row's fields, in column order.
     rows: Vec<Vec<String>>,
-    /// Where rules go: before the row at each of these indices.
-    rules: Vec<usize>,
+    /// Where dividers go: before the row at each of these indices.
+    dividers: Vec<usize>,
 }
 
 impl Table {
@@ -41,7 +41,7 @@ impl Table {
             headings: headings.iter().map(|heading| heading.split('\n').map(str::to_string).collect()).collect(),
             left: (0..headings.len()).map(|column| column == 0).collect(),
             rows: Vec::new(),
-            rules: Vec::new(),
+            dividers: Vec::new(),
         }
     }
 
@@ -66,9 +66,9 @@ impl Table {
         self.rows.push(fields.iter().map(|field| field.as_ref().to_string()).collect());
     }
 
-    /// A rule under the row last added, for a total or a group.
-    pub fn rule(&mut self) {
-        self.rules.push(self.rows.len());
+    /// A divider under the row last added, for a total or a group.
+    pub fn divider(&mut self) {
+        self.dividers.push(self.rows.len());
     }
 
     /// The width each column needs: the widest of its heading lines and
@@ -106,8 +106,8 @@ impl Table {
         format!("{with_bars}{}", padding.trim_end())
     }
 
-    /// A rule across every column, each as wide as `column_widths` says.
-    fn rule_line(column_widths: &[usize]) -> String {
+    /// A divider across every column, each as wide as `column_widths` says.
+    fn divider_line(column_widths: &[usize]) -> String {
         let dashes: Vec<String> = column_widths.iter().map(|&width| "-".repeat(width)).collect();
         format!("  {}", dashes.join("-+-"))
     }
@@ -120,14 +120,14 @@ impl Table {
     /// The table as printed: the headings in a ruled block, then the
     /// rows, every line ended.
     ///
-    /// A rule above the headings as well as below them, because a tall
+    /// A divider above the headings as well as below them, because a tall
     /// heading leaves blank cells over the short columns and without
     /// something to close the top they read as empty rows of the table
     /// rather than as part of its head.
     pub fn rendered(&self) -> String {
         let column_widths = self.column_widths();
         let heading_lines = self.headings.iter().map(Vec::len).max().unwrap_or(1);
-        let mut lines = vec![Self::rule_line(&column_widths)];
+        let mut lines = vec![Self::divider_line(&column_widths)];
         // Headings sit at the bottom of their stack, so a one line
         // heading lines up with the last line of a taller one.
         for heading_line in 0..heading_lines {
@@ -141,12 +141,12 @@ impl Table {
                 .collect();
             lines.push(self.printed_line(&column_widths, &fields));
         }
-        lines.push(Self::rule_line(&column_widths));
+        lines.push(Self::divider_line(&column_widths));
 
         for (index, row) in self.rows.iter().enumerate() {
             lines.push(self.printed_line(&column_widths, row));
-            if self.rules.contains(&(index + 1)) {
-                lines.push(Self::rule_line(&column_widths));
+            if self.dividers.contains(&(index + 1)) {
+                lines.push(Self::divider_line(&column_widths));
             }
         }
         lines.iter().map(|line| format!("{line}\n")).collect()

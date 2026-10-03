@@ -5,9 +5,9 @@ The design is in `utilities.md`.
 ## `diagnostics/table/mod.rs`
 
 **`Table::new(headings)`**, **`left_aligned(headings)`**,
-**`row(fields)`**, **`rule()`**, **`print()`**, **`rendered()`**:
+**`row(fields)`**, **`divider()`**, **`print()`**, **`rendered()`**:
 columns sized to their widest field (**`column_widths`**,
-**`printed_line`**, **`rule_line`**).
+**`printed_line`**, **`divider_line`**).
 
 ## `diagnostics/table/report.rs`
 
@@ -21,9 +21,9 @@ the reports kept.
 
 ## `diagnostics/table/csv.rs`
 
-**`Line`**: a row, a rule (`RULE`) or a comment (`COMMENT`).
+**`Line`**: a row, a divider (`DIVIDER`) or a comment (`COMMENT`).
 **`lines(text)`**, **`Table::to_csv`**, **`from_lines`**, **`from_csv`**
-(**`field`**, **`csv_row`**: quoting).
+(**`csv_field`**, **`csv_row`**: quoting).
 
 ## `rng.rs`
 
@@ -31,6 +31,12 @@ the reports kept.
 own for a stream of a seed, its state mixed -- **`state()`** (what a
 save keeps), **`draw`**, **`below`**, **`between`**, **`percent_chance`**,
 **`unit`**.
+
+## `hash.rs`
+
+**`slot(key, slots)`**: a key's slot in a table of a power of two slots,
+by Fibonacci hashing (`GOLDEN_RATIO`). **`mix(word)`**: SplitMix64's
+finalizer (`MIX_1`, `MIX_2`).
 
 ## `fixed_list.rs`
 

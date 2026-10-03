@@ -87,7 +87,7 @@ what they always do and are not listed.
 | **speed of light** | 1,024 cells a tick: nothing reaches past the superchunks next to its own; an entity is at most 256x256 cells | outbox, reach | |
 | **reach** | how far an entity's rule reads and acts: up to the speed of light | speed of light | |
 | **outbox** | a superchunk's queues of writes and instructions, a slot each for itself and its eight neighbours | write, instruction, slot | |
-| **slot** | one place in a fixed array kept for a purpose: an outbox's, a neighbour each; the wheel's, a tick each; a lookup cache's, by a hash | outbox, wheel, lookup | place |
+| **slot** | one entry of a fixed array kept for a purpose: an outbox's, a neighbour each; the wheel's, a tick each; a cache's or hash table's, by a hash (`utilities::hash::slot`) | outbox, wheel, lookup | place |
 | **write** | a change to cells, queued in the first phase and applied in the second: an operation on a shape, at a cell (`Write`) | outbox, apply | command |
 | **apply** | carry out a write or an instruction, in the second phase | write, instruction | carry out, execute |
 | **missed** | a write landing where no layer is hot: counted, and lost | write, lost | |
@@ -160,6 +160,8 @@ what they always do and are not listed.
 | **diagnostics** | code that gathers data and judges nothing (`src/diagnostics/`) | report, test | |
 | **report** | a measurement's tables and notes, printed and kept as CSV (`Report`) | table | |
 | **table** | rows under headings (`Table`); a **row** is one line of it, in CSV too | report | record |
+| **divider** | a line across a table between its rows, for a total or a group (`Table::divider`) | table | rule (the simulation's) |
+| **transient data** | a crate's `transient_data/`, out of git: what its runs leave behind (`TransientData`) | report | |
 | **census** | a count of a population: the flock and grass over a run, or Tessera's nodes by kind | | |
 | **reading** | the process's memory read once (`MemoryTrack::read`) | | sample |
 | **tier** | a test's size: fine, fast or complete (`docs/testing_protocol.md`) | | |

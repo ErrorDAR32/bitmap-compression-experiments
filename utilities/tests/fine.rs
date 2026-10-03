@@ -5,6 +5,8 @@
 
 #[path = "fine/fixed_list.rs"]
 mod fixed_list;
+#[path = "fine/hash.rs"]
+mod hash;
 #[path = "fine/process_memory.rs"]
 mod process_memory;
 #[path = "fine/rng.rs"]

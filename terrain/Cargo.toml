@@ -9,3 +9,4 @@ publish = false
 bitmap = { path = "../bitmap" }
 chunk_storage = { path = "../chunk_storage" }
 coordinates = { path = "../coordinates" }
+utilities = { path = "../utilities" }

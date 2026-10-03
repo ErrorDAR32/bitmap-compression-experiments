@@ -4,3 +4,6 @@ version = "0.1.0"
 edition = "2021"
 description = "TileSim's 256x256 bitmap, laid out in Morton order"
 publish = false
+
+[dev-dependencies]
+utilities = { path = "../utilities" }

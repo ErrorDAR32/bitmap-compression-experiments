@@ -80,7 +80,7 @@ pub fn run(report: &mut Report) {
                 if cluster == 0.0 { format!("{:.0}", bound / EACH as f64) } else { String::new() },
             ]);
         }
-        table.rule();
+        table.divider();
     }
     report.add("sparse bitmaps", table);
     report.note(format!("{EACH} bitmaps a density and clustering"));

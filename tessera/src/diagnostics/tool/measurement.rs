@@ -66,7 +66,7 @@ fn generator_table(
         table.row(&row(&measured, &name, &parameters));
         total.add(&measured);
     }
-    table.rule();
+    table.divider();
     table.row(&row(&total, "all", ""));
     report.add(generator, table);
 }

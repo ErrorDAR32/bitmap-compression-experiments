@@ -5,25 +5,8 @@
 //! `cargo test`
 
 use bitmap::morton::morton_index;
+use utilities::rng::Rng;
 use bitmap::window::{left_columns, morton_from_rows, rows_from_morton, top_rows, window, WORD_TILE_SIDE};
-
-/// Words drawn from a seed: SplitMix64, enough for a test.
-struct Rng(u64);
-
-impl Rng {
-    /// Draws from `seed`.
-    fn new(seed: u64) -> Self {
-        Self(seed)
-    }
-
-    /// The next word.
-    fn draw(&mut self) -> u64 {
-        self.0 = self.0.wrapping_add(0x9E37_79B9_7F4A_7C15);
-        let z = (self.0 ^ (self.0 >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
-        let z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
-        z ^ (z >> 31)
-    }
-}
 
 /// Whether the cell `(x, y)` of a row-by-row tile is set.
 fn at(rows: u64, x: u32, y: u32) -> bool {

@@ -158,7 +158,7 @@ impl Report {
     }
 
     /// Notes the commit the numbers were measured on, if `folder` is in
-    /// a git working copy.
+    /// a git checkout.
     fn note_commit(&mut self, folder: &Path) {
         fs::create_dir_all(folder).expect("the measurements folder");
         if let Some(commit) = commit(folder) {

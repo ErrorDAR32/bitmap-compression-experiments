@@ -1,14 +1,8 @@
-//! The crate's one random source: SplitMix64, seeded, whose whole state
+//! TileSim's one random source: SplitMix64, seeded, whose whole state
 //! is one word, so whatever draws from it -- a test bitmap, a search --
 //! is settled by its seed alone, on every run and every machine.
 
-/// SplitMix64's constants, as published with it: the step added to
-/// the state each draw...
-const GOLDEN_GAMMA: u64 = 0x9E37_79B9_7F4A_7C15;
-/// ...the first mixing multiplier...
-const MIX_1: u64 = 0xBF58_476D_1CE4_E5B9;
-/// ...and the second.
-const MIX_2: u64 = 0x94D0_49BB_1331_11EB;
+use crate::hash::{mix, GOLDEN_RATIO, MIX_1};
 
 /// The random source.
 pub struct Rng(
@@ -22,8 +16,8 @@ impl Rng {
         Self(seed)
     }
 
-    /// A source of its own for `stream` -- a superchunk's Morton index,
-    /// say -- of `seed`: its state is mixed, not `seed` moved along, so
+    /// A source of its own for `stream` -- a superchunk index, say -- of
+    /// `seed`: its state is mixed, not `seed` moved along, so
     /// two streams are not one sequence a few draws apart, as two
     /// sources whose seeds differ by a multiple of the step would be.
     pub fn for_stream(seed: u64, stream: u64) -> Self {
@@ -40,11 +34,8 @@ impl Rng {
 
     /// The next draw: any 64-bit value.
     pub fn draw(&mut self) -> u64 {
-        self.0 = self.0.wrapping_add(GOLDEN_GAMMA);
-        let mut z = self.0;
-        z = (z ^ (z >> 30)).wrapping_mul(MIX_1);
-        z = (z ^ (z >> 27)).wrapping_mul(MIX_2);
-        z ^ (z >> 31)
+        self.0 = self.0.wrapping_add(GOLDEN_RATIO);
+        mix(self.0)
     }
 
     /// A number in `0..bound`.

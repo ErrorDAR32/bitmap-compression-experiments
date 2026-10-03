@@ -16,6 +16,7 @@
 use crate::{contains, BitmapArena, SuperchunkLayer};
 use bitmap::morton::morton_index;
 use chunk_storage::LayerType;
+use utilities::hash::slot;
 use coordinates::{CellIndex, ChunkPosition, SuperchunkPosition, CHUNK_SIDE, SUPERCHUNK_SIDE_CELLS};
 
 /// What a write does to each cell it covers.
@@ -140,7 +141,7 @@ pub struct WriteQueues {
 impl WriteQueues {
     /// Queues `write` into `layer_type`'s queue.
     pub fn push(&mut self, layer_type: LayerType, write: Write) {
-        let slot = (layer_type.0.wrapping_mul(0x9E37_79B9_7F4A_7C15) >> (u64::BITS - REMEMBERED.trailing_zeros())) as usize;
+        let slot = slot(layer_type.0, REMEMBERED);
         let queue = match self.remembered[slot] {
             Some((remembered, queue)) if remembered == layer_type => queue,
             _ => {
