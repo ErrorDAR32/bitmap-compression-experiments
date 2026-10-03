@@ -33,8 +33,9 @@ or falls pregnant if fed and grown, counts its youth down, walks
 else nowhere) and sleeps again (**`next_wake`**). Returns **`Sheep`**
 `{woken, eaten, births, deaths}`, added with `+=`.
 
-**`flock(entities, superchunk, count, random)`**: grown fed sheep on
-cells drawn at random, waking over the next `STEP_TICKS` ticks.
+**`flock(entities, superchunk, count, random)`**: grown fed sheep
+queued on cells drawn at random, waking over the next `STEP_TICKS`
+ticks.
 
 ## `pasture.rs`
 
@@ -56,8 +57,9 @@ a **`Throughput`**.
 **`pasture::run(ticks, thousandths, sheep, superchunks, threads)`**:
 grass and sheep ticked flat out: the flock and grass over the run, what
 the sheep did, each phase's time and each rule's -- timed inside the
-rule, over every thread -- the memory, the entities' stats: a
-**`PastureRun`**.
+rule, over every thread -- the memory, the entities' stats, and a
+**`Census`** of the flock and grass every `CENSUS_EVERY` (100) ticks:
+a **`PastureRun`**.
 
 **`frames::frame(arena, superchunk, pixels)`**: a superchunk as RGB
 pixels, dirt `BROWN`, grass `GREEN`; `FRAME_BYTES`.
@@ -72,9 +74,10 @@ over it, `WHITE` squares.
 
 **`throughput`**: runs `throughput::run` and publishes its time, rates
 and memory tables. **`pasture`**: runs `pasture::run` and publishes the
-flock, time a sample and a wake, rates and what is held. **`video`**:
-one superchunk's frames, sheep on them if asked, on standard output,
-raw RGB, for ffmpeg.
+flock, time a sample and a wake, rates, what is held and the census
+(**`census_table`**). **`video`**: one superchunk's frames, sheep on
+them if asked, on standard output, raw RGB, for ffmpeg; the census at
+every frame kept, unprinted, in `measurements/video.csv`.
 
 ## `main.rs`
 

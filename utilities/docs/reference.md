@@ -14,7 +14,9 @@ columns sized to their widest field (**`column_widths`**,
 **`Report::new(name, command)`**, **`note`**, **`add(title, table)`**,
 **`print`**, **`to_text`** / **`from_text`**, **`read(folder, name)`**,
 **`publish(folder)`** -- printed, noted with the commit (**`commit`**),
-and kept as `<name>.csv`. **`path(folder, name)`**, **`kept(folder)`**:
+and kept as `<name>.csv`; **`keep(folder)`**, the same unprinted, for a
+run whose standard output is something else (**`note_commit`**,
+**`write`**). **`path(folder, name)`**, **`kept(folder)`**:
 the reports kept.
 
 ## `table/csv.rs`

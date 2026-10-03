@@ -22,7 +22,9 @@ of its own cells, **`holds(type, cell)`** anywhere, **`queue(type,
 write)`** -- into the slot of each superchunk it lands in.
 **`now`**, **`woken()`**: its entities waking this tick, borrowed from
 the world as the tick found it, not from the turn, so changes can be
-queued while going through them. **`new_id`**. **`put(header,
+queued while going through them. **`entity(id, at)`**,
+**`entities_in(chunk)`**: entities anywhere held, as the tick found
+them -- the entities' `holds`. **`new_id`**. **`put(header,
 attributes)`**: an entity made or changed, waking after this tick;
 **`update(before, after, attributes)`**: removed from its chunk first
 if it leaves it; **`remove(header)`**. **`slot_of`**: the slot of a
@@ -64,18 +66,22 @@ if within a turn of `earliest`, else the list further off --
 wakes now in reach filed.
 
 **`store.rs`**: **`SuperChunkEntities`**: a bucket a chunk and a wheel;
-**`get(id, at)`**, **`iter`**, **`woken(tick)`** -- the wheel's slot,
+**`get(id, at)`**, **`iter`**, **`chunk(index)`**, **`woken(tick)`** -- the wheel's slot,
 each wake found and still due -- **`put(earliest, header,
 attributes)`**, **`remove(id, at)`**, **`turn`**, **`counts`**.
-**`Entities`**: the tick about to run and the superchunks by Morton
-index: **`now`**, **`len`**, **`superchunk(morton)`**,
-**`align(mortons)`** -- added empty, dropped, how many entities
-dropped -- **`spawn(header, attributes)`** between ticks, **`iter`**,
-**`advance`**.
+**`Entities`**: the tick about to run, the superchunks by Morton
+index, and changes queued outside a tick: **`now`**, **`len`**,
+**`superchunk(morton)`**, **`get(id, at)`**, **`align(mortons)`** --
+added empty, dropped, how many entities dropped -- **`queue_put(header,
+attributes)`**, **`queue_remove(header)`**, **`queued`**, **`apply`**
+-- as the arena's `queue` and `apply` -- **`iter`**, **`advance`**.
+**`EntityReader`**: every superchunk's entities read in a tick, as the
+bitplanes' `Reader`: **`get(id, at)`**, **`chunk(position)`**.
 
 **`commands.rs`**: **`Commands`**: puts and removes queued for one
 superchunk, the puts' attributes in a list beside: **`put`**,
-**`remove`**, **`apply(superchunk, earliest, applied)`** in order,
+**`remove`**, **`apply(superchunks, earliest, applied)`** in order,
+each on its cell's superchunk (a put elsewhere lost),
 **`count_lost`**, **`clear`**. **`EntitiesApplied`** `{puts, removes,
 lost}`, added with `+=`.
 

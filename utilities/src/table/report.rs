@@ -141,15 +141,36 @@ impl Report {
     /// run's. Anything else it was measured on -- a seed, say -- the
     /// caller notes first.
     pub fn publish(mut self, folder: &Path) {
+        self.note_commit(folder);
+        self.print();
+        let path = self.write(folder);
+        // Where it went, from where the run started, when it is under it.
+        let here = std::env::current_dir().unwrap_or_default();
+        println!("\n  kept in {}", path.strip_prefix(&here).unwrap_or(&path).display());
+    }
+
+    /// [`Report::publish`] without printing anything -- for a run whose
+    /// standard output is something else, a video say: the report kept
+    /// in its file in `folder`, and where.
+    pub fn keep(mut self, folder: &Path) -> PathBuf {
+        self.note_commit(folder);
+        self.write(folder)
+    }
+
+    /// Notes the commit the numbers were measured on, if `folder` is in
+    /// a git working copy.
+    fn note_commit(&mut self, folder: &Path) {
         fs::create_dir_all(folder).expect("the measurements folder");
         if let Some(commit) = commit(folder) {
             self.note(format!("commit {commit}"));
         }
-        self.print();
+    }
+
+    /// Writes the report into its file in `folder`, replacing the last
+    /// run's: where.
+    fn write(&self, folder: &Path) -> PathBuf {
         let path = path(folder, &self.name);
         fs::write(&path, self.to_text()).expect("the report written");
-        // Where it went, from where the run started, when it is under it.
-        let here = std::env::current_dir().unwrap_or_default();
-        println!("\n  kept in {}", path.strip_prefix(&here).unwrap_or(&path).display());
+        path
     }
 }

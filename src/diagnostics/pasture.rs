@@ -45,6 +45,29 @@ pub struct PastureRun {
     pub memory: MemoryTrack,
     /// What the entities held at the end.
     pub held: EntityStats,
+    /// The flock and the grass over the run, every [`CENSUS_EVERY`]
+    /// ticks and at the end.
+    pub census: Vec<Census>,
+}
+
+/// Ticks between two counts of the flock and the grass.
+pub const CENSUS_EVERY: usize = 100;
+
+/// The flock and the grass at a tick.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Census {
+    /// The tick about to run.
+    pub tick: usize,
+    /// Sheep.
+    pub sheep: usize,
+    /// Cells of grass.
+    pub grass: u64,
+    /// Sheep woken since the last count.
+    pub woken: usize,
+    /// Lambs born since the last count.
+    pub births: usize,
+    /// Sheep starved since the last count.
+    pub deaths: usize,
 }
 
 /// What the rules did on a turn, and how long each took.
@@ -77,6 +100,8 @@ pub fn run(ticks: usize, thousandths: usize, sheep: usize, superchunks: u32, thr
     let (start_sheep, start_grass) = (world.sheep(), world.grass());
     let (mut timed, mut entities, mut writes, mut computing, mut applying) = (Timed::default(), EntitiesApplied::default(), 0, Duration::ZERO, Duration::ZERO);
     let mut simulation = Simulation::new(threads);
+    let mut census = vec![Census { tick: 0, sheep: start_sheep, grass: start_grass, ..Census::default() }];
+    let mut since = crate::sheep::Sheep::default();
     for tick in 0..ticks {
         let report = simulation.tick(&mut world.arena, &mut world.entities, tick as u64, |turn, samples| {
             let start = Instant::now();
@@ -86,6 +111,11 @@ pub fn run(ticks: usize, thousandths: usize, sheep: usize, superchunks: u32, thr
             Timed { done: Pasture { grass, sheep }, grass: grassed - start, sheep: grassed.elapsed() }
         });
         timed += report.rules;
+        since += report.rules.done.sheep;
+        if (tick + 1) % CENSUS_EVERY == 0 || tick + 1 == ticks {
+            census.push(Census { tick: tick + 1, sheep: world.sheep(), grass: world.grass(), woken: since.woken, births: since.births, deaths: since.deaths });
+            since = crate::sheep::Sheep::default();
+        }
         entities += report.entities;
         writes += report.applied.writes;
         computing += report.computing;
@@ -107,5 +137,6 @@ pub fn run(ticks: usize, thousandths: usize, sheep: usize, superchunks: u32, thr
         sheep_time: timed.sheep,
         memory,
         held: EntityStats::of(&world.entities),
+        census,
     }
 }

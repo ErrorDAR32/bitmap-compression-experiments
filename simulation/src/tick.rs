@@ -29,7 +29,8 @@
 //! tick comes out the same on any number of threads.
 
 use crate::dispatcher::Dispatcher;
-use crate::entities::{Attribute, Commands, Entities, EntitiesApplied, EntityId, EntityRef, Header, SuperChunkEntities};
+use crate::entities::{Attribute, Commands, Entities, EntitiesApplied, EntityId, EntityReader, EntityRef, Header, SuperChunkEntities};
+use coordinates::ChunkPosition;
 use crate::sampling::sample_layer;
 use bitplane_manager::{count_missed, Applied, BitmapArena, NotHot, Reader, Shape, SuperChunk, Write, WriteQueues};
 use chunk_storage::LayerType;
@@ -72,6 +73,8 @@ pub struct SuperChunkTick<'a> {
     now: u64,
     /// The thread's reader of every superchunk.
     reader: &'a Reader<'a>,
+    /// The thread's reader of every superchunk's entities.
+    entity_reader: &'a EntityReader<'a>,
     /// The superchunk's outbox.
     outbox: &'a mut Outbox,
     /// The superchunk's random numbers this tick.
@@ -134,6 +137,18 @@ impl<'a> SuperChunkTick<'a> {
     pub fn woken(&self) -> impl Iterator<Item = EntityRef<'a>> + 'a {
         let entities: &'a SuperChunkEntities = self.entities;
         entities.woken(self.now)
+    }
+
+    /// The entity whose ID is `id`, standing on `at`'s chunk -- in any
+    /// superchunk held -- as the tick found it.
+    pub fn entity(&self, id: EntityId, at: CellIndex) -> Option<EntityRef<'a>> {
+        self.entity_reader.get(id, at)
+    }
+
+    /// The entities on `chunk` -- in any superchunk held -- as the tick
+    /// found them, by ID; `None` if its superchunk is not held.
+    pub fn entities_in(&self, chunk: ChunkPosition) -> Option<impl Iterator<Item = EntityRef<'a>> + 'a> {
+        self.entity_reader.chunk(chunk)
     }
 
     /// A new entity's ID, drawn from the superchunk's random numbers.
@@ -256,13 +271,13 @@ impl Simulation {
                 return;
             };
             let (first, ref mut outboxes) = *work.lock().expect("a part's outboxes");
-            let reader = Reader::new(superchunks);
+            let (reader, entity_reader) = (Reader::new(superchunks), EntityReader::new(held));
             let mut samples = samples[part].lock().expect("a part's samples");
             let mut total = R::default();
             for (offset, outbox) in outboxes.iter_mut().enumerate() {
                 let superchunk = &superchunks[first + offset];
                 let random = Rng::new(seed ^ superchunk.morton().wrapping_mul(0x9E37_79B9_7F4A_7C15));
-                let mut turn = SuperChunkTick { superchunk, entities: &held[first + offset], now, reader: &reader, outbox, random };
+                let mut turn = SuperChunkTick { superchunk, entities: &held[first + offset], now, reader: &reader, entity_reader: &entity_reader, outbox, random };
                 total += rule(&mut turn, &mut samples);
             }
             *results[part].lock().expect("a part's result") = total;
@@ -298,7 +313,7 @@ impl Simulation {
                             superchunk.apply(layer_type, write, &mut applied);
                         }
                     }
-                    outbox.commands[slot(-dx, -dy)].apply(entities, now + 1, &mut entities_applied);
+                    outbox.commands[slot(-dx, -dy)].apply(std::slice::from_mut(entities), now + 1, &mut entities_applied);
                 }
             }
             *applied_parts[part].lock().expect("a part's result") = (applied, entities_applied);

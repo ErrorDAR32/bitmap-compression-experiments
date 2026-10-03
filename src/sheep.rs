@@ -149,18 +149,16 @@ fn step(turn: &mut SuperChunkTick, at: CellIndex) -> CellIndex {
     fallback.unwrap_or(at)
 }
 
-/// Puts `count` grown sheep, fed, on cells of `superchunk` drawn from
-/// `random`, waking over the next [`STEP_TICKS`] ticks: how many were
-/// put -- none if its superchunk's entities are not held.
-pub fn flock(entities: &mut Entities, superchunk: SuperChunkPosition, count: usize, random: &mut Rng) -> usize {
+/// Queues `count` grown sheep, fed, on cells of `superchunk` drawn from
+/// `random`, waking over the next [`STEP_TICKS`] ticks: put in the world
+/// by [`Entities::apply`].
+pub fn flock(entities: &mut Entities, superchunk: SuperChunkPosition, count: usize, random: &mut Rng) {
     let (left, top) = (superchunk.x * SUPERCHUNK_SIDE_CELLS, superchunk.y * SUPERCHUNK_SIDE_CELLS);
     let side = SUPERCHUNK_SIDE_CELLS as u64;
     let now = entities.now();
-    (0..count)
-        .filter(|_| {
-            let at = coordinates::CartesianCell { x: left + random.below(side) as u32, y: top + random.below(side) as u32 };
-            let header = Header { id: EntityId(random.draw()), kind: SHEEP, at: at.into(), wake: now + random.below(STEP_TICKS) };
-            entities.spawn(header, &[Attribute { kind: HUNGER, value: 0 }])
-        })
-        .count()
+    for _ in 0..count {
+        let at = coordinates::CartesianCell { x: left + random.below(side) as u32, y: top + random.below(side) as u32 };
+        let header = Header { id: EntityId(random.draw()), kind: SHEEP, at: at.into(), wake: now + random.below(STEP_TICKS) };
+        entities.queue_put(header, &[Attribute { kind: HUNGER, value: 0 }]);
+    }
 }

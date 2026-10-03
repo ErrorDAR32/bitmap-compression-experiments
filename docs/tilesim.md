@@ -448,11 +448,16 @@ it (`src/sheep.rs`):
   whole copy, made in the first phase, so the second never reads
   another superchunk's entities while it changes them. The speed of
   light holds for entities as for cells.
+- **The same API as the bitplanes**: outside a tick, changes to
+  entities are queued and applied, as writes to cells are -- queuing is
+  the only way to change one; in a tick, a turn reads entities anywhere
+  held, by ID or by chunk, as the tick found them, as it reads cells.
 - **Lost entities**: put in a superchunk whose bitplanes are not held,
   an entity is lost, and counted. Keeping a superchunk's entities in
   chunk storage when it goes cold is work to come, as are reading other
   entities near a cell, collisions, entities spanning many cells, and
-  load balancing.
+  load balancing. (Reading the entities on a chunk is there; nothing
+narrows it to the cells near one yet.)
 
 The three packed-memory arrays discussed before (hot, cold and bulk,
 each one contiguous Morton-sorted region) were set aside for this: a

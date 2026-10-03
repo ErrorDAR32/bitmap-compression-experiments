@@ -20,7 +20,7 @@ use tilesim::diagnostics::{pasture as pasture_run, throughput};
 use tilesim::diagnostics::world::World;
 use simulation::Simulation;
 use tilesim::pasture;
-use tilesim::transient_data::publish;
+use tilesim::transient_data::{measurements, publish};
 use utilities::memory::mebibytes;
 use utilities::table::report::Report;
 use utilities::table::Table;
@@ -114,7 +114,18 @@ fn pasture(arguments: &[String]) {
     memory.row(&["attributes in use, and garbage".to_string(), format!("{}, {}", run.held.attributes, run.held.garbage)]);
     memory.row(&["wakes filed".to_string(), run.held.wakes.to_string()]);
     report.add("held", memory);
+    report.add("census", census_table(run.census.iter().map(|census| [census.tick as u64, census.sheep as u64, census.grass, census.woken as u64, census.births as u64, census.deaths as u64])));
     publish(report);
+}
+
+/// The flock and the grass over a run, a row a count: the tick, sheep,
+/// grass, and sheep woken, born and starved since the count before.
+fn census_table(rows: impl Iterator<Item = [u64; 6]>) -> Table {
+    let mut table = Table::new(&["tick", "sheep", "grass", "woken", "born", "starved"]);
+    for row in rows {
+        table.row(&row.map(|value| value.to_string()));
+    }
+    table
 }
 
 /// `part` as a percentage of `whole`.
@@ -131,17 +142,25 @@ fn video(arguments: &[String]) {
     let mut pixels = vec![0u8; FRAME_BYTES];
     let mut out = std::io::BufWriter::new(std::io::stdout().lock());
     let mut simulation = Simulation::new(1);
+    let (mut rows, mut since) = (Vec::new(), tilesim::sheep::Sheep::default());
     for tick in 0..=ticks {
         if tick % every == 0 {
             frame(&world.arena, superchunk, &mut pixels);
             sheep(&world.entities, superchunk, &mut pixels);
             out.write_all(&pixels).expect("standard output");
+            rows.push([tick as u64, world.sheep() as u64, world.grass(), since.woken as u64, since.births as u64, since.deaths as u64]);
+            since = tilesim::sheep::Sheep::default();
             if tick % (every * 50) == 0 {
                 eprintln!("tick {tick:>7}: grass {}, sheep {}", world.grass(), world.sheep());
             }
         }
-        pasture::tick(&mut simulation, &mut world.arena, &mut world.entities, tick as u64);
+        since += pasture::tick(&mut simulation, &mut world.arena, &mut world.entities, tick as u64).rules.sheep;
     }
+    // Standard output is the video: the census is kept, not printed.
+    let mut report = Report::new("video", &format!("diagnostics video {ticks} {grass_cells} {every} {flock}"));
+    report.note(format!("one superchunk, a frame every {every} ticks: the flock and the grass at each"));
+    report.add("census", census_table(rows.into_iter()));
+    eprintln!("census kept in {}", report.keep(&measurements()).display());
 }
 
 /// Runs the command asked for, or lists them.

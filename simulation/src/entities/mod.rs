@@ -31,5 +31,5 @@ mod wheel;
 
 pub use commands::{Commands, EntitiesApplied};
 pub use record::{attribute, remove_attribute, set_attribute, Attribute, AttributeType, EntityId, EntityRef, EntityType, Header, NEVER};
-pub use store::{Entities, SuperChunkEntities};
+pub use store::{Entities, EntityReader, SuperChunkEntities};
 pub use wheel::{Wake, WHEEL_TICKS};

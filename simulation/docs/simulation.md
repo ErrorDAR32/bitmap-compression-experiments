@@ -56,8 +56,15 @@ and their changes -- `put`, `update`, `remove` -- are queued in the
 outbox slot of the superchunk they land in; in the second, each
 superchunk turns its wheel and carries the changes out. An entity
 moving to a neighbour goes as a whole copy made in the first phase. One
-put in a superchunk not held is lost, and counted. The decisions behind
-it: `../../docs/tilesim.md`, "Entities".
+put in a superchunk not held is lost, and counted.
+
+Their API follows the bitplanes': outside a tick, changes are queued
+(`Entities::queue_put`, `queue_remove`) and applied (`apply`), as the
+arena's writes are -- queuing is the only way to change an entity; in a
+tick, a turn reads entities anywhere held as the tick found them
+(`entity`, `entities_in`, through an `EntityReader`, as cells through a
+`Reader`) and queues its changes. The decisions behind it:
+`../../docs/tilesim.md`, "Entities".
 
 ## The dispatcher
 

@@ -50,6 +50,7 @@ impl World {
         for &superchunk in &world.superchunks {
             flock(&mut world.entities, superchunk, sheep, &mut random);
         }
+        world.entities.apply();
         world
     }
 

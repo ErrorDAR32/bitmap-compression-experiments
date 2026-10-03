@@ -70,16 +70,29 @@ impl Commands {
         self.attributes.clear();
     }
 
-    /// Carries the changes out on `superchunk`, in order, every wake
-    /// filed no earlier than `earliest`; into `applied`.
-    pub fn apply(&self, superchunk: &mut SuperChunkEntities, earliest: u64, applied: &mut EntitiesApplied) {
+    /// Carries the changes out, in order, each on the superchunk among
+    /// `superchunks` -- sorted by Morton index -- its cell is in, every
+    /// wake filed no earlier than `earliest`; into `applied`. A put in a
+    /// superchunk not among them is lost.
+    pub fn apply(&self, superchunks: &mut [SuperChunkEntities], earliest: u64, applied: &mut EntitiesApplied) {
         for &command in &self.commands {
-            match command {
-                Command::Put { header, first, count } => {
+            let at = match command {
+                Command::Put { header, .. } => header.at,
+                Command::Remove { at, .. } => at,
+            };
+            let morton = at.superchunk();
+            let found = match superchunks {
+                [only] if only.morton() == morton => Some(only),
+                _ => superchunks.binary_search_by_key(&morton, SuperChunkEntities::morton).ok().map(|place| &mut superchunks[place]),
+            };
+            match (command, found) {
+                (Command::Put { header, first, count }, Some(superchunk)) => {
                     superchunk.put(earliest, header, &self.attributes[first as usize..(first + count) as usize]);
                     applied.puts += 1;
                 }
-                Command::Remove { id, at } => applied.removes += superchunk.remove(id, at) as usize,
+                (Command::Put { .. }, None) => applied.lost += 1,
+                (Command::Remove { id, at }, Some(superchunk)) => applied.removes += superchunk.remove(id, at) as usize,
+                (Command::Remove { .. }, None) => {}
             }
         }
     }
