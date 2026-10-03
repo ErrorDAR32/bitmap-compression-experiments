@@ -80,6 +80,7 @@ impl SuperchunkEntities {
     }
 
     /// The entity whose ID is `id`, standing on `at`.
+    #[inline]
     pub fn get(&self, id: EntityId, at: CellIndex) -> Option<EntityRef<'_>> {
         debug_assert_eq!(at.superchunk_index(), self.morton_index);
         self.chunks[at.chunk_in_superchunk()].get(id, at)

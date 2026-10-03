@@ -102,6 +102,7 @@ impl Bucket {
     }
 
     /// The entity whose ID is `id` standing on `at`, if it is here.
+    #[inline]
     pub(crate) fn get(&self, id: EntityId, at: CellIndex) -> Option<EntityRef<'_>> {
         let index = self.find(place(at), id).ok()?;
         Some(self.entity(&self.stored[index]))
@@ -251,6 +252,7 @@ impl Bucket {
 
     /// Where the entity on the cell at `place` is in the bucket's order,
     /// or would go, and whether one stands there.
+    #[inline]
     fn index_of(&self, place: u16) -> (usize, bool) {
         let tile = search_tile(place);
         let (first, end) = (self.tile_starts[tile] as usize, self.tile_starts[tile + 1] as usize);
@@ -261,6 +263,7 @@ impl Bucket {
     /// Where the entity whose ID is `id`, on the cell at `place`, is in
     /// the bucket's order; or, if it is not there, where the cell's
     /// entity would go and whether another entity stands there.
+    #[inline]
     fn find(&self, place: u16, id: EntityId) -> Result<usize, (usize, bool)> {
         let (index, occupied) = self.index_of(place);
         if occupied && self.stored[index].header.id == id { Ok(index) } else { Err((index, occupied)) }
@@ -291,6 +294,7 @@ impl Bucket {
     }
 
     /// The entity `stored` is, with its attributes.
+    #[inline]
     fn entity(&self, stored: &StoredEntity) -> EntityRef<'_> {
         let first = stored.first as usize;
         EntityRef { header: stored.header, attributes: &self.attributes[first..first + stored.count as usize] }

@@ -150,6 +150,20 @@ superchunk's heights and walls: 40 ms on one thread.
 64 superchunks, 256,000 sheep: 96 MiB written at tick 0, 115 MiB at
 tick 50,000 with 571,500 -- 1 MiB a superchunk of it heights, raw.
 
+## Inlining is fragile: hot lookups are marked
+
+Whether the compiler inlines a small function into its caller in
+another crate is its own call, and moves with changes nowhere near it.
+Drawing a random number through `utilities::hash::mix`, not the same
+four lines written out, made the entity bucket's lookups
+(`Bucket::find`, `get`) stop being inlined into the sheep's rule: the
+tick's instructions (`pasture 300 333 4000 4 1`, the ticks alone) went
+from 67.88 million to 69.61, the world's every result unchanged. The
+lookups on the hot path are marked `#[inline]` now -- `Bucket::get`,
+`index_of`, `find`, `entity`, `SuperchunkEntities::get`,
+`Rng::draw` -- and the tick takes 67.78 million. A change that moves
+the count with no change of work is looked for there first.
+
 ## Elsewhere
 
 | what | where |

@@ -33,6 +33,7 @@ impl Rng {
     }
 
     /// The next draw: any 64-bit value.
+    #[inline]
     pub fn draw(&mut self) -> u64 {
         self.0 = self.0.wrapping_add(GOLDEN_RATIO);
         mix(self.0)
