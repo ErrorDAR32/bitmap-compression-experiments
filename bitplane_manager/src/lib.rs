@@ -115,6 +115,11 @@ pub const BLOCKS_IN_CHUNK: usize = WORDS / BLOCK_WORDS;
 /// Cells in a block.
 const BLOCK_CELLS: usize = BLOCK_WORDS * BITS_PER_WORD;
 
+/// The coarsest block [`Reader::any_in_block`] is asked of: `2^6` cells
+/// a side, the cells a count is kept of.
+pub const COARSEST_BLOCK: u32 = 6;
+const _: () = assert!(BLOCK_CELLS == 1 << (2 * COARSEST_BLOCK));
+
 /// A superchunk layer's four chunk sets, a bit a chunk each, packed
 /// together in 8 bytes.
 #[repr(C)]
@@ -356,6 +361,24 @@ impl<'a> Reader<'a> {
         self.lookup.windows(self.superchunks, types, origin, width, height)
     }
 
+    /// Whether `layer_type` holds at any cell of the block `cell` is
+    /// in: the aligned `2^level` cells a side, up to [`COARSEST_BLOCK`]
+    /// -- a run of bits in Morton order, passed over by the count kept
+    /// of it where it has none set, so the world is looked at from far
+    /// off for little. `None` if its bitmap is not hot.
+    pub fn any_in_block(&self, layer_type: LayerType, cell: CellIndex, level: u32) -> Option<bool> {
+        self.lookup.any_in_block(self.superchunks, layer_type, cell, level)
+    }
+
+    /// Which of the [`BLOCKS_IN_CHUNK`] blocks of `cell`'s chunk --
+    /// `2^COARSEST_BLOCK` cells a side, in Morton order, a bit each --
+    /// `layer_type` holds at any cell of: read off the counts kept, no
+    /// cell looked at, and an empty chunk off its flag. `None` if its
+    /// bitmap is not hot.
+    pub fn blocks_holding(&self, layer_type: LayerType, cell: CellIndex) -> Option<u16> {
+        self.lookup.blocks_holding(self.superchunks, layer_type, cell)
+    }
+
     /// Where the superchunk whose Morton index is `superchunk` is among
     /// the superchunks, if there.
     pub fn superchunk(&self, superchunk: u64) -> Option<usize> {
@@ -519,6 +542,46 @@ impl Lookup {
         let (entry, layer) = self.find(directory, layer_type, cell.superchunk())?;
         let layer = &directory[entry].layers[layer];
         contains(layer.flags.hot, chunk).then(|| layer.cells(chunk))
+    }
+
+    /// Whether `layer_type` holds, in `directory`, at any cell of the
+    /// aligned block of `2^level` cells a side `cell` is in; `None` if
+    /// its bitmap is not hot.
+    fn any_in_block(&self, directory: &[SuperChunk], layer_type: LayerType, cell: CellIndex, level: u32) -> Option<bool> {
+        debug_assert!(level <= COARSEST_BLOCK, "a block of more cells than a count is kept of");
+        let chunk = cell.chunk_in_superchunk();
+        let (entry, layer) = self.find(directory, layer_type, cell.superchunk())?;
+        let layer = &directory[entry].layers[layer];
+        if !contains(layer.flags.hot, chunk) {
+            return None;
+        }
+        // The block's cells are a run of this many bits, in Morton order.
+        let run = 1usize << (2 * level);
+        let first = cell.in_chunk() & !(run - 1);
+        if layer.block_counts[chunk][first / BLOCK_CELLS] == 0 {
+            return Some(false);
+        }
+        let cells = layer.cells(chunk);
+        Some(if run < BITS_PER_WORD {
+            cells[first / BITS_PER_WORD] >> (first % BITS_PER_WORD) & ((1 << run) - 1) != 0
+        } else {
+            run == BLOCK_CELLS || cells[first / BITS_PER_WORD..(first + run) / BITS_PER_WORD].iter().any(|&word| word != 0)
+        })
+    }
+
+    /// Which blocks of `cell`'s chunk `layer_type` holds at any cell
+    /// of, in `directory`, a bit each; `None` if its bitmap is not hot.
+    fn blocks_holding(&self, directory: &[SuperChunk], layer_type: LayerType, cell: CellIndex) -> Option<u16> {
+        let chunk = cell.chunk_in_superchunk();
+        let (entry, layer) = self.find(directory, layer_type, cell.superchunk())?;
+        let layer = &directory[entry].layers[layer];
+        if !contains(layer.flags.hot, chunk) {
+            return None;
+        }
+        if !contains(layer.flags.nonempty, chunk) {
+            return Some(0);
+        }
+        Some(layer.block_counts[chunk].iter().enumerate().fold(0, |holding, (block, &count)| holding | ((count != 0) as u16) << block))
     }
 
     /// The aligned tile whose first cell is `first`, if in the world, of

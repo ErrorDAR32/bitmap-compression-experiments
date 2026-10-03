@@ -3,11 +3,12 @@
 //! superchunks; a step onto a taken cell is turned back; one entity
 //! edits another, an attribute at a time; an entity changed is put
 //! whole only if an attribute was; and the cells beside it, the free
-//! ones among them and the way to a cell are asked of the turn.
+//! ones among them, the way to a cell and the way to the nearest of a
+//! layer's, however far off in reach, are asked of the turn.
 //!
 //! `cargo test`
 
-use bitplane_manager::{BitmapArena, BucketKey};
+use bitplane_manager::{BitmapArena, BucketKey, Write, WriteOp};
 use chunk_storage::{LayerCodec, LayerType};
 use coordinates::{CartesianCell, CellIndex, ChunkPlace, ChunkPosition, SuperChunkPosition, SUPERCHUNK_SIDE_CELLS};
 use simulation::around::{self, CENTRE, RING};
@@ -244,4 +245,42 @@ fn a_step_to_a_cell_goes_round_what_is_in_the_way() {
     }
     // Down past the wall's end and up again: two cells across, one down, one up, the diagonals counted once.
     assert_eq!(steps, 4);
+}
+
+/// A cell is sought further and further off, over blocks of cells twice
+/// the side each time: the level it is found at is the first whose
+/// blocks reach it, the step is towards it, and with none in reach
+/// there is no step.
+#[test]
+fn a_cell_is_sought_further_and_further_off() {
+    let (mut arena, mut entities) = world(2);
+    let from = cell(1000, 1000);
+    entities.queue_put(walker(1, from, 0), &[]);
+    entities.apply();
+    let mut simulation = Simulation::new(1);
+    // How far off the one cell set is, across and down, and the level its block is first seen at.
+    let cases = [(0, 0, None), (5, -3, Some(0)), (-12, 4, Some(1)), (20, 20, Some(2)), (3, -50, Some(3)), (-100, 90, Some(4)), (200, 10, Some(5)), (-40, 400, Some(6)), (-300, -450, Some(6))];
+    for (seed, (across, down, level)) in cases.into_iter().enumerate() {
+        let goal = from.offset(across, down).expect("in the world");
+        if level.is_some() {
+            arena.queue(STONE, Write::cell(goal, WriteOp::Set));
+            arena.apply();
+        }
+        simulation.tick(&mut arena, &mut entities, seed as u64, |turn: &mut SuperChunkTick, _: &mut Vec<CellIndex>| {
+            for entity in turn.woken() {
+                let found = turn.seek(from, STONE);
+                assert_eq!(found.map(|found| found.level), level, "{across} across, {down} down");
+                if let Some(found) = found {
+                    let (to, at, goal) = (found.to.cartesian(), from.cartesian(), goal.cartesian());
+                    assert_eq!(to.x.abs_diff(goal.x).max(to.y.abs_diff(goal.y)) + 1, at.x.abs_diff(goal.x).max(at.y.abs_diff(goal.y)), "a step nearer");
+                }
+                turn.sleep(&entity.header, turn.now() + 1);
+            }
+            0
+        });
+        if level.is_some() {
+            arena.queue(STONE, Write::cell(goal, WriteOp::Unset));
+            arena.apply();
+        }
+    }
 }

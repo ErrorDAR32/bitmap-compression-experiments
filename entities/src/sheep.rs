@@ -116,6 +116,8 @@ pub struct SheepTickMetrics {
     pub sought: usize,
     /// Of those, found.
     pub paths: usize,
+    /// Of those found, the ones beyond the area about the sheep.
+    pub far: usize,
 }
 
 impl AddAssign for SheepTickMetrics {
@@ -127,6 +129,7 @@ impl AddAssign for SheepTickMetrics {
         self.deaths += other.deaths;
         self.sought += other.sought;
         self.paths += other.paths;
+        self.far += other.far;
     }
 }
 
@@ -217,11 +220,11 @@ pub fn rule(turn: &mut SuperChunkTick) -> SheepTickMetrics {
             None
         } else {
             done.sought += 1;
-            let pasture = turn.area(GRASS, at);
-            match turn.step_towards(at, &pasture.set, &pasture.hot) {
-                Some(to) => {
+            match turn.seek(at, GRASS) {
+                Some(found) => {
                     done.paths += 1;
-                    Some(around::bit_of(at, to))
+                    done.far += (found.level > 0) as usize;
+                    Some(around::bit_of(at, found.to))
                 }
                 None => around::pick(turn.random(), open),
             }

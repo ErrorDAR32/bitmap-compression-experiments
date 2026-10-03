@@ -50,7 +50,12 @@ cells about `at`, an **`Around`** `{set, hot}` of nine bits;
 **`occupied_about(centre)`**: the entities on an area's cells.
 **`step_towards(at, goals, passable)`**, **`step_to(at, to,
 passable)`**: the cell to step to for the nearest goal, or for one
-cell, round the entities in the way. **`Area::count`**.
+cell, round the entities in the way. **`area_of_blocks(type, centre, level)`**: an `Area` of aligned blocks
+`2^level` cells a side, set where the type holds at any cell.
+**`seek(at, type)`**: the step to the nearest cell the type holds at,
+the area first, then blocks, `FARTHEST` (6) first and the finest that
+reach after -- a **`Sought`**
+`{to, level}`. **`Area::count`**.
 **`settle_crossings`**: before the rule, each of
 last tick's crossings removed here if found there, else woken. **`slot_of`**: the slot of a
 superchunk, past the neighbours panicking.

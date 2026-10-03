@@ -27,4 +27,4 @@ mod tick;
 pub use dispatcher::Dispatcher;
 pub use sampling::{sample, sample_layer};
 pub use around::Around;
-pub use tick::{threads_for, Area, Simulation, SuperChunkTick, TickReport, AREA_CENTRE, AREA_SIDE};
+pub use tick::{threads_for, Area, Simulation, Sought, SuperChunkTick, TickReport, AREA_CENTRE, AREA_SIDE, FARTHEST};

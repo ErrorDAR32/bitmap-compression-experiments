@@ -126,6 +126,27 @@ for the nearest goal, `step_to(at, to, passable)` for one cell -- waves
 and A* of `../../pathfinding/`, round the entities in the way, one step
 a wake.
 
+**Further off** (`seek(at, type)`): nothing found in the area, the same
+search is made over blocks of cells, 16 by 16 of them
+(`area_of_blocks`), a block a goal if the type holds at any of its
+cells. The coarsest first: blocks 64 cells a side, 1,024 cells across --
+an entity's reach, and no further -- which are the blocks the arena
+keeps counts of, so it is read off them a chunk at a time with no cell
+looked at (`Reader::blocks_holding`), and says at once whether there is
+any in reach and how far off. Then the finest blocks that reach so far
+-- 2 cells a side, 4, 8, 16, 32 -- and coarser until one sees it, each
+block a run of bits in Morton order (`Reader::any_in_block`). The step
+is towards the nearest block holding any, over the blocks held,
+entities not looked at: it is turned back if one is in the way. It says
+how far it had to look (`Sought::level`). No route is kept here either:
+each step asks again, and the nearer it comes the finer it sees.
+
+Measured (`diagnostics pasture`, 16 superchunks, 64,000 sheep, one
+thread): on pasture a third grass nothing changes, no sheep looking
+further than its area; with no grass at all, every sheep seeking every
+step until it starves, 14,000 ticks take 9.1 s where they took 10.2
+without -- 4,700 instructions a search that finds nothing.
+
 Measured on the sheep, the first kind written on them
 (`diagnostics pasture 20000 333 4000 16 1`): the rule went from 363
 lines to 266, its neighbourhood, path and attribute handling gone; of a

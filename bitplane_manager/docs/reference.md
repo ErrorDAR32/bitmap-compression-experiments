@@ -29,6 +29,10 @@ write's part in it. Private: **`layer_index`**.
 up to 8x8 cells row by row from `origin`, bit `y * 8 + x` --
 **`windows(types, ...)`**, the same of several types at once, where it
 lies worked out once --
+**`any_in_block(type, cell, level)`**: whether any cell is set of the
+aligned block `2^level` a side (to `COARSEST_BLOCK`, 6) `cell` is in;
+**`blocks_holding(type, cell)`**: which of its chunk's 16 blocks hold
+any, a bit each, off the counts --
 **`superchunk(morton)`**, remembering the last lookups.
 **`chunk_at(superchunk, index)`**: a chunk's position from Morton
 indices.

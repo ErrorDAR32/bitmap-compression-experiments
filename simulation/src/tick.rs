@@ -34,9 +34,9 @@ use crate::entities::{Attribute, AttributeType, Commands, Edit, Entities, Entiti
 use pathfinding::{a_star, step_towards, Cell, Rows};
 use coordinates::ChunkPosition;
 use crate::sampling::sample_layer;
-use bitplane_manager::{count_missed, Applied, BitmapArena, NotHot, Reader, Shape, SuperChunk, Tile, Write, WriteQueues};
+use bitplane_manager::{count_missed, BLOCKS_IN_CHUNK, Applied, BitmapArena, NotHot, Reader, Shape, SuperChunk, Tile, Write, WriteQueues};
 use chunk_storage::LayerType;
-use coordinates::{CellIndex, SuperChunkPosition, WORLD_SIDE_SUPERCHUNKS};
+use coordinates::{CartesianCell, CellIndex, SuperChunkPosition, WORLD_SIDE_SUPERCHUNKS};
 use std::ops::AddAssign;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
@@ -63,6 +63,20 @@ impl Area {
     pub fn count(&self) -> u32 {
         self.set.iter().map(|row| row.count_ones()).sum()
     }
+}
+
+/// The coarsest blocks [`SuperChunkTick::seek`] looks over: `2^6` cells
+/// a side, [`AREA_SIDE`] of them 1,024 cells -- an entity's reach.
+pub const FARTHEST: u32 = bitplane_manager::COARSEST_BLOCK;
+
+/// A step found by [`SuperChunkTick::seek`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Sought {
+    /// The cell to step to.
+    pub to: CellIndex,
+    /// How far off it had to look: 0 in the area around, else the level
+    /// of the blocks, `2^level` cells a side.
+    pub level: u32,
 }
 
 // The area a turn reads is the area paths are found over, and the cells
@@ -231,6 +245,106 @@ impl<'a> SuperChunkTick<'a> {
         let here = Cell { x: AREA_CENTRE as u8, y: AREA_CENTRE as u8 };
         let first = step_towards(&passable, &goals, here, self.random.draw())?.first;
         at.offset(first.x as i32 - AREA_CENTRE as i32, first.y as i32 - AREA_CENTRE as i32)
+    }
+
+    /// [`SuperChunkTick::area`] from further off: the [`AREA_SIDE`] by
+    /// [`AREA_SIDE`] aligned blocks of `2^level` cells a side around
+    /// `centre` -- its own at `(AREA_CENTRE, AREA_CENTRE)` of them -- a
+    /// block set if `layer_type` holds at any of its cells, hot if its
+    /// bitmap is. At [`FARTHEST`] the blocks are 64 cells a side: 1,024
+    /// cells across, as far as an entity reaches -- and read a chunk at
+    /// a time off the counts the arena keeps, no cell looked at.
+    pub fn area_of_blocks(&self, layer_type: LayerType, centre: CellIndex, level: u32) -> Area {
+        let mut area = Area::default();
+        let centre = centre.cartesian();
+        // The area's top left block, in blocks from the world's: before the world, where the centre is near its edge.
+        let (left, top) = ((centre.x >> level) as i64 - AREA_CENTRE as i64, (centre.y >> level) as i64 - AREA_CENTRE as i64);
+        let world = (1i64 << u32::BITS) >> level;
+        if level == FARTHEST {
+            // The chunks its blocks are in, each read at once.
+            let chunk = BLOCKS_IN_CHUNK.trailing_zeros() / 2;
+            for (down, across) in ((top >> chunk)..=((top + AREA_SIDE as i64 - 1) >> chunk)).flat_map(|down| ((left >> chunk)..=((left + AREA_SIDE as i64 - 1) >> chunk)).map(move |across| (down, across))) {
+                if across < 0 || down < 0 || across << chunk >= world || down << chunk >= world {
+                    continue;
+                }
+                let first = CartesianCell { x: (across << (chunk + level)) as u32, y: (down << (chunk + level)) as u32 };
+                let Some(holding) = self.reader.blocks_holding(layer_type, first.into()) else {
+                    continue;
+                };
+                // Where the chunk's blocks are in the area: up to three before it, across and down.
+                let (x, y) = ((across << chunk) - left, (down << chunk) - top);
+                let side = 1i64 << chunk;
+                for row in (0..side).filter(|row| (0..AREA_SIDE as i64).contains(&(y + row))) {
+                    area.hot[(y + row) as usize] |= ((((1u64 << side) - 1) << (x + side)) >> side) as u16;
+                }
+                let mut left_to_place = holding;
+                while left_to_place != 0 {
+                    // A block's place in its chunk is Morton order: across in its even bits, down in its odd.
+                    let block = left_to_place.trailing_zeros() as i64;
+                    let (x, y) = (x + (block & 1 | block >> 1 & 2), y + (block >> 1 & 1 | block >> 2 & 2));
+                    if (0..AREA_SIDE as i64).contains(&x) && (0..AREA_SIDE as i64).contains(&y) {
+                        area.set[y as usize] |= 1 << x;
+                    }
+                    left_to_place &= left_to_place - 1;
+                }
+            }
+            return area;
+        }
+        for (y, x) in (0..AREA_SIDE).flat_map(|y| (0..AREA_SIDE).map(move |x| (y, x))) {
+            let (across, down) = (left + x as i64, top + y as i64);
+            if across < 0 || down < 0 || across >= world || down >= world {
+                continue;
+            }
+            let cell = CartesianCell { x: (across << level) as u32, y: (down << level) as u32 };
+            let holds = self.reader.any_in_block(layer_type, cell.into(), level);
+            area.set[y] |= ((holds == Some(true)) as u16) << x;
+            area.hot[y] |= (holds.is_some() as u16) << x;
+        }
+        area
+    }
+
+    /// The step from `at` towards the nearest cell `layer_type` holds
+    /// at, looked for further and further off: first in the area around
+    /// `at`, by [`SuperChunkTick::step_towards`], no entity's cell
+    /// walked on or to; then, nothing found, over blocks of cells
+    /// ([`SuperChunkTick::area_of_blocks`]) -- the coarsest first,
+    /// [`FARTHEST`], 1,024 cells across, which costs next to nothing and
+    /// says whether there is any in reach and how far off; then the
+    /// finest that reach so far, and coarser, until one sees it: a step
+    /// towards the nearest block holding any, over the blocks held. One
+    /// step, as ever: the next is asked afresh. None if there is none in
+    /// reach.
+    pub fn seek(&mut self, at: CellIndex, layer_type: LayerType) -> Option<Sought> {
+        let near = self.area(layer_type, at);
+        if let Some(to) = self.step_towards(at, &near.set, &near.hot) {
+            return Some(Sought { to, level: 0 });
+        }
+        let here = Cell { x: AREA_CENTRE as u8, y: AREA_CENTRE as u8 };
+        let mut blocks = self.area_of_blocks(layer_type, at, FARTHEST);
+        let mut path = step_towards(&blocks.hot, &blocks.set, here, self.random.draw());
+        // In its own block alone, there is no block to step towards: a finer level sees where in it.
+        let own = blocks.set[AREA_CENTRE] >> AREA_CENTRE & 1 == 1;
+        // The nearest is at least this many cells off: a level's blocks reach under nine blocks.
+        let least = match path {
+            _ if own => 0,
+            Some(path) => (path.steps as u32 - 1) << FARTHEST,
+            None => return None,
+        };
+        let mut level = 1;
+        while level < FARTHEST {
+            if 9 << level > least + 1 {
+                blocks = self.area_of_blocks(layer_type, at, level);
+                if let Some(nearer) = step_towards(&blocks.hot, &blocks.set, here, self.random.draw()) {
+                    path = Some(nearer);
+                    break;
+                }
+            }
+            level += 1;
+        }
+        let path = path?;
+        // The cell beside it the way the block is: stepped to if it is in the world held.
+        let to = at.offset(path.first.x as i32 - AREA_CENTRE as i32, path.first.y as i32 - AREA_CENTRE as i32)?;
+        self.reader.holds(layer_type, to).is_ok().then_some(Sought { to, level })
     }
 
     /// The cell to step to from `at` to come, by the shortest way, to

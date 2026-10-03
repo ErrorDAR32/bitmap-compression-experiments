@@ -1,6 +1,6 @@
 //! Sheep on grass: they eat it, starve without it, breed lambs that
 //! grow up -- attributes coming and going -- walk to the nearest grass
-//! when hungry, leave thin pasture, never stand two on a cell, never walk off the bitplanes held, and tick the same on
+//! when hungry, however far off within their reach, leave thin pasture, never stand two on a cell, never walk off the bitplanes held, and tick the same on
 //! any number of threads.
 //!
 //! `cargo test`
@@ -90,6 +90,37 @@ fn hungry_sheep_walk_to_the_nearest_grass() {
     assert_eq!(ate_at, Some(7), "seven steps to it, eaten on the wake after");
     assert_eq!((done.sought, done.paths), (6, 6), "a path found each step until the grass was beside it");
     assert_eq!(world.grass(), 0);
+}
+
+/// A hungry sheep with no grass in the area about it looks further
+/// off, to its reach: one 150 cells across and 100 down from the only
+/// grass, in the next superchunk, walks straight to it -- 150 steps,
+/// most of what it can take before it starves -- and eats it.
+#[test]
+fn hungry_sheep_walk_to_grass_far_off() {
+    let mut world = World::grass_on_dirt(4, 0);
+    let first = world.superchunks.iter().min_by_key(|superchunk| (superchunk.y, superchunk.x)).expect("four superchunks");
+    let corner = CartesianCell { x: first.x * SUPERCHUNK_SIDE_CELLS, y: first.y * SUPERCHUNK_SIDE_CELLS };
+    let (sheep, grass) = (CartesianCell { x: corner.x + 900, y: corner.y + 700 }, CartesianCell { x: corner.x + 1050, y: corner.y + 800 });
+    world.arena.queue(GRASS, Write::cell(grass.into(), WriteOp::Set));
+    world.arena.queue(DIRT, Write::cell(grass.into(), WriteOp::Unset));
+    world.arena.apply();
+    let header = Header { id: EntityId(1), kind: SHEEP, at: sheep.into(), wake: 0 };
+    world.entities.queue_put(header, &[Attribute { kind: HUNGRY_AT, value: 0 }]);
+    world.entities.apply();
+    let mut simulation = Simulation::new(2);
+    let (mut done, mut ate_at) = (SheepTickMetrics::default(), None);
+    for seed in 0..STARVE_TICKS {
+        let report = simulation.tick(&mut world.arena, &mut world.entities, seed, |turn, _| rule(turn));
+        if report.rules.eaten > 0 && ate_at.is_none() {
+            ate_at = Some(done.woken);
+        }
+        done += report.rules;
+    }
+    assert_eq!(done.eaten, 1, "the one cell of grass, eaten");
+    assert_eq!(ate_at, Some(150), "as many steps as the further of across and down, eaten on the wake after");
+    assert_eq!(done.sought, done.paths, "a way found every step");
+    assert!(done.far > 135 && done.far < 150, "{} of them from far off", done.far);
 }
 
 /// A sheep that eats on thin pasture leaves it: hungry again, it walks

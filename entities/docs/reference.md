@@ -25,14 +25,15 @@ before it looks for grass; a lamb past its tick is grown. Satisfied,
 it stays where it stands and wakes at the first of those ticks to come;
 hungry, it walks -- onto a grass neighbour, else a step to the nearest
 grass no entity stands on in the area about it, round the entities in
-the way (`SuperChunkTick::step_towards`, one step a wake), else
+the way, and with none there to the nearest further off, as far as it
+reaches (`SuperChunkTick::seek`, one step a wake), else
 onto any neighbour held (`around::pick`), without looking whether an
 entity stands there: the step is turned back if one does -- and wakes a
 step's time on (**`next_step`**). What it came to is queued by
 `SuperChunkTick::commit`: a move, unless an attribute changed. Before a
 sleep it dies of old age at the sleep's ticks in `LIFE_TICKS`. Returns
-**`SheepTickMetrics`** `{woken, eaten, births, deaths, sought, paths}`
--- paths looked for, and found -- added with `+=`.
+**`SheepTickMetrics`** `{woken, eaten, births, deaths, sought, paths,
+far}` -- paths looked for, found, and found beyond the area -- added with `+=`.
 
 **`tick(simulation, arena, entities, seed)`**: one tick of the sheep
 alone, the cells changing only as they change them.

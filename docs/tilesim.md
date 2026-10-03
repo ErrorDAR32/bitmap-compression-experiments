@@ -698,6 +698,21 @@ from what changed. An entity acts on another by an edit, an attribute
 at a time. The sheep, written on them again, is a third shorter and
 does what it did.
 
+### Grass looked for as far as a sheep reaches
+
+A hungry sheep with no grass in the 16x16 cells about it used to
+wander. Now the search widens (`SuperChunkTick::seek`): the same 16x16
+search over blocks of cells, to 64 cells a side -- 1,024 across, the
+reach of any entity -- and it steps towards the nearest block with
+grass in it. It still takes one step a wake and keeps no route; a sheep
+walks 170 to 220 steps before it starves, so the far end of its reach
+it sees but never comes to.
+
+The flock is what it was (`diagnostics pasture 2000000 333 4000 4 3`):
+the same boom, crash and settling, to 10,319 sheep on 19% grass where
+it was 10,897 on 21% -- fewer starve in the trough, so the grass is
+kept a little shorter.
+
 ### Pathfinding (built, first form)
 
 `pathfinding/`: over an area of 16x16 cells about a walker, held as
