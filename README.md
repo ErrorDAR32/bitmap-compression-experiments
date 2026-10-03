@@ -46,7 +46,8 @@ no crate has a `src/bin/`. `bitmap/`, `coordinates/` and
 last two; `simulation/` gathers what its entities hold, but keeps
 nothing of its own.
 
-They are one cargo workspace: one lock file and one `target/`, here at
+Builds are for the machine they are made on (`.cargo/config.toml`,
+`target-cpu=native`). They are one cargo workspace: one lock file and one `target/`, here at
 the root, whichever folder cargo is run from, on the toolchain
 `rust-toolchain.toml` names. `cargo test` at the root tests every crate
 but the viewer, which brings Bevy and is asked for by name:

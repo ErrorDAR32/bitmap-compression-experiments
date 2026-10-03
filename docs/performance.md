@@ -38,6 +38,35 @@ So the tick's cost past a hundred superchunks is what it waits for, not
 what it computes: what helps there is asking memory ahead (below), and
 touching fewer lines a sample and a wake.
 
+## Built for the processor it runs on
+
+`.cargo/config.toml` builds with `target-cpu=native`. Profiled at 400
+superchunks, over half the tick is the sampler (`sample_layer`), most
+of it walking a block's words counting their bits -- which the generic
+build did in software, having no popcount instruction to assume.
+
+`diagnostics pasture 20000 333 1000 <superchunks> 12`:
+
+| superchunks | build | ticks a second | a grass sample, ns |
+|---|---|---|---|
+| 64 | generic | 18,750 | 227 |
+| 64 | native | 20,540 | 172 |
+| 400 | generic | 3,144 | 426 |
+| 400 | native | 3,444 | 367 |
+
+A tenth more ticks a second at both sizes, and the same world to the
+cell: the two builds end 20,000 ticks with the same flock and grass.
+
+Tried and not kept: asking memory ahead for the dirt beside each sample
+and for the word each write lands in. Nothing gained at 64 or 256
+superchunks (348 against 350 ns a sample): the sample's cost is in
+finding it, not in what the rule reads after.
+
+What is left in a sample at scale is the walk itself: up to 64 words --
+eight lines of memory -- to find the chosen cell in its block. Counts
+of smaller blocks, a line of memory each, would end the walk in one
+line: not built.
+
 ## What a tick is made of
 
 Profiled in the viewer (`perf record -p`, 64 superchunks, flat out) at

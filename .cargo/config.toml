@@ -1,0 +1,6 @@
+# Built for the processor it is built on: its own popcount, bit
+# scatter and gather, and wider registers -- the sampler counts bits a
+# word at a time, and is a tenth of a tick faster for it
+# (docs/performance.md). A build is for the machine that made it.
+[build]
+rustflags = ["-C", "target-cpu=native"]
